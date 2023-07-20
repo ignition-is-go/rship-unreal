@@ -1,0 +1,12 @@
+/NOLOGO
+/errorReport:prompt
+/MACHINE:x64
+/SUBSYSTEM:WINDOWS
+/DEF
+/NAME:"UnrealEditor-RshipExec.dll"
+/IGNORE:4221
+/NODEFAULTLIB
+"C:\Users\Lucid\Documents\Unreal Projects\RshipExecPluginDev\Intermediate\Build\Win64\RshipExecPluginDevEditor\Development\Engine\SharedPCH.Engine.ShadowErrors.h.obj"
+"C:\Users\Lucid\Documents\Unreal Projects\RshipExecPluginDev\Plugins\RshipExec 3.0.0-canary.52\Intermediate\Build\Win64\UnrealEditor\Development\RshipExec\Module.RshipExec.cpp.obj"
+"C:\Users\Lucid\Documents\Unreal Projects\RshipExecPluginDev\Plugins\RshipExec 3.0.0-canary.52\Intermediate\Build\Win64\UnrealEditor\Development\RshipExec\Default.rc2.res"
+/OUT:"C:\Users\Lucid\Documents\Unreal Projects\RshipExecPluginDev\Plugins\RshipExec 3.0.0-canary.52\Intermediate\Build\Win64\UnrealEditor\Development\RshipExec\UnrealEditor-RshipExec.lib"
