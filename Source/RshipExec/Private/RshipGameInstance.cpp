@@ -75,6 +75,46 @@ void URshipGameInstance::Init()
                                          });
 
     WebSocket->Connect();
+
+    // float schema
+    // {
+    //   '$schema': 'http://json-schema.org/draft-07/schema#',
+    //   type: 'object',
+    //   properties: { value: { type: 'number' } }
+    // }
+
+    TSharedPtr<FJsonObject> valueFloat = MakeShareable(new FJsonObject);
+    valueFloat->SetStringField(TEXT("type"), TEXT("number"));
+
+    TSharedPtr<FJsonObject> propertiesFloat = MakeShareable(new FJsonObject);
+    propertiesFloat->SetObjectField(TEXT("value"), valueFloat);
+
+    TSharedPtr<FJsonObject> schemaFloat = MakeShareable(new FJsonObject);
+    schemaFloat->SetStringField(TEXT("$schema"), TEXT("http://json-schema.org/draft-07/schema#"));
+    schemaFloat->SetStringField(TEXT("type"), TEXT("object"));
+    schemaFloat->SetObjectField(TEXT("properties"), propertiesFloat);
+
+    ActionSchemasJson.Add(TEXT("float"), schemaFloat);
+
+    // string schema
+    // {
+    //   '$schema': 'http://json-schema.org/draft-07/schema#',
+    //   type: 'object',
+    //   properties: { value: { type: 'string' } }
+    // }
+
+    TSharedPtr<FJsonObject> valueString = MakeShareable(new FJsonObject);
+    valueString->SetStringField(TEXT("type"), TEXT("string"));
+
+    TSharedPtr<FJsonObject> propertiesString = MakeShareable(new FJsonObject);
+    propertiesString->SetObjectField(TEXT("value"), valueString);
+
+    TSharedPtr<FJsonObject> schemaString = MakeShareable(new FJsonObject);
+    schemaString->SetStringField(TEXT("$schema"), TEXT("http://json-schema.org/draft-07/schema#"));
+    schemaString->SetStringField(TEXT("type"), TEXT("object"));
+    schemaString->SetObjectField(TEXT("properties"), propertiesString);
+
+    ActionSchemasJson.Add(TEXT("string"), schemaString);
 }
 
 void URshipGameInstance::ProcessMessage(FString message)
@@ -105,6 +145,26 @@ void URshipGameInstance::ProcessMessage(FString message)
                 UE_LOG(LogTemp, Warning, TEXT("ActionMap Contains %s"), *id)
                 FActionCallBack callback = ActionMap[id];
                 callback.ExecuteIfBound();
+            }
+            else if(ActionFloatMap.Contains(id)){
+                UE_LOG(LogTemp, Warning, TEXT("ActionFloatMap Contains %s"), *id);
+                FActionCallBackFloat callback = ActionFloatMap[id];
+
+                TSharedPtr<FJsonObject> d = command->GetObjectField(TEXT("data"));
+
+                float val = d->GetNumberField(TEXT("value"));
+
+                callback.ExecuteIfBound(val);
+            }
+            else if(ActionStringMap.Contains(id)){
+                UE_LOG(LogTemp, Warning, TEXT("ActionStringMap Contains %s"), *id);
+                FActionCallBackString callback = ActionStringMap[id];
+
+                TSharedPtr<FJsonObject> d = command->GetObjectField(TEXT("data"));
+
+                FString val = d->GetStringField(TEXT("value"));
+
+                callback.ExecuteIfBound(val);
             }
             else
             {
@@ -191,6 +251,12 @@ void URshipGameInstance::SendAllTargetActions()
             Action->SetStringField(TEXT("name"), Element);
             Action->SetStringField(TEXT("targetId"), targetId);
             Action->SetStringField(TEXT("systemId"), ServiceId);
+            if(ActionSchemas.Contains(Element)){
+                Action->SetObjectField(TEXT("schema"), ActionSchemasJson[ActionSchemas[Element]]);
+            }
+            if(ActionSchemasJson.Contains(Element)){
+                Action->SetObjectField(TEXT("schema"), ActionSchemasJson[Element]);
+            }
 
             SetItem("Action", Action);
         }
@@ -250,6 +316,110 @@ void URshipGameInstance::RegisterAction(FString targetId, FString actionId, FAct
     FString fullActionId = ServiceId + ":" + targetId + ":" + actionId;
 
     ActionMap.Add(fullActionId, callback);
+
+    ActionSchemas.Add(fullActionId, "void");
+
+    if (TargetActionMap.Contains(targetId))
+    {
+        TSet<FString> actionSet = TargetActionMap[targetId];
+        actionSet.Add(fullActionId);
+        TargetActionMap.Add(targetId, actionSet);
+    }
+    else
+    {
+        TSet<FString> actionSet;
+        actionSet.Add(fullActionId);
+        TargetActionMap.Add(targetId, actionSet);
+    }
+}
+
+void URshipGameInstance::RegisterActionFloat(FString targetId, FString actionId, FActionCallBackFloat callback)
+{
+    FString fullActionId = ServiceId + ":" + targetId + ":" + actionId;
+
+    ActionFloatMap.Add(fullActionId, callback);
+    
+    ActionSchemas.Add(fullActionId, "float");
+
+    if (TargetActionMap.Contains(targetId))
+    {
+        TSet<FString> actionSet = TargetActionMap[targetId];
+        actionSet.Add(fullActionId);
+        TargetActionMap.Add(targetId, actionSet);
+    }
+    else
+    {
+        TSet<FString> actionSet;
+        actionSet.Add(fullActionId);
+        TargetActionMap.Add(targetId, actionSet);
+
+    }
+}
+
+void URshipGameInstance::RegisterActionString(FString targetId, FString actionId, FActionCallBackString callback)
+{
+    FString fullActionId = ServiceId + ":" + targetId + ":" + actionId;
+
+    ActionStringMap.Add(fullActionId, callback);
+
+    ActionSchemas.Add(fullActionId, "string");
+
+    if (TargetActionMap.Contains(targetId))
+    {
+        TSet<FString> actionSet = TargetActionMap[targetId];
+        actionSet.Add(fullActionId);
+        TargetActionMap.Add(targetId, actionSet);
+    }
+    else
+    {
+        TSet<FString> actionSet;
+        actionSet.Add(fullActionId);
+        TargetActionMap.Add(targetId, actionSet);
+    }
+}
+
+void URshipGameInstance::RegisterActionStringWithOptions(FString targetId, FString actionId, FActionCallBackString stringCallback,  TArray<FString> options)
+{
+    FString fullActionId = ServiceId + ":" + targetId + ":" + actionId;
+
+    ActionStringMap.Add(fullActionId, stringCallback);
+
+    // enum schema
+//    '{' 
+//   '  "$schema": "http://json-schema.org/draft-07/schema#",' 
+//   '  "type": "object",' 
+//   '  "properties": {' 
+//   '    "value": {' 
+//   '      "enum": [' 
+//   '        "hello",' 
+//   '        "world"' 
+//   '      ]' 
+//   '    }' 
+//   '  }' 
+//   '}'
+
+// 
+
+    TArray<TSharedPtr<FJsonValue>> enumValues;
+    for (const FString& option : options)
+    {
+        TSharedPtr<FJsonValue> enumValue = MakeShareable(new FJsonValueString(option));
+        enumValues.Add(enumValue);
+    }
+
+    TSharedPtr<FJsonObject> valueEnum = MakeShareable(new FJsonObject);
+    valueEnum->SetArrayField(TEXT("enum"), enumValues);
+
+    TSharedPtr<FJsonObject> propertiesEnum = MakeShareable(new FJsonObject);
+    propertiesEnum->SetObjectField(TEXT("value"), valueEnum);
+
+    TSharedPtr<FJsonObject> schemaEnum = MakeShareable(new FJsonObject);
+    schemaEnum->SetStringField(TEXT("$schema"), TEXT("http://json-schema.org/draft-07/schema#"));
+    schemaEnum->SetStringField(TEXT("type"), TEXT("object"));
+    schemaEnum->SetObjectField(TEXT("properties"), propertiesEnum);
+
+    ActionSchemasJson.Add(fullActionId, schemaEnum);
+
     if (TargetActionMap.Contains(targetId))
     {
         TSet<FString> actionSet = TargetActionMap[targetId];

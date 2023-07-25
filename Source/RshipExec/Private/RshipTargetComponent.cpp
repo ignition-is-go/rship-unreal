@@ -57,3 +57,48 @@ void URshipTargetComponent::BindAction(FActionCallBack callback, FString actionI
 		GameInstance->RegisterAction(name, actionId, callback);
 	}
 }
+
+void URshipTargetComponent::BindActionFloat(FActionCallBackFloat callbackWithFloat, FString actionId)
+{
+	URshipGameInstance *GameInstance = Cast<URshipGameInstance>(GetWorld()->GetGameInstance());
+	while (!GameInstance)
+	{
+		GameInstance = Cast<URshipGameInstance>(GetWorld()->GetGameInstance());
+	}
+	if (GameInstance)
+	{
+		FString name = GetName();
+
+		GameInstance->RegisterActionFloat(name, actionId, callbackWithFloat);
+	}
+}
+
+void URshipTargetComponent::BindActionString(FActionCallBackString callbackWithString, FString actionId)
+{
+	URshipGameInstance *GameInstance = Cast<URshipGameInstance>(GetWorld()->GetGameInstance());
+	while (!GameInstance)
+	{
+		GameInstance = Cast<URshipGameInstance>(GetWorld()->GetGameInstance());
+	}
+	if (GameInstance)
+	{
+		FString name = GetName();
+
+		GameInstance->RegisterActionString(name, actionId, callbackWithString);
+	}
+}
+
+void URshipTargetComponent::BindActionStringWithOptions(FActionCallBackString callbackWithString, FString actionId,TArray<FString> options)
+{
+	URshipGameInstance *GameInstance = Cast<URshipGameInstance>(GetWorld()->GetGameInstance());
+	while (!GameInstance)
+	{
+		GameInstance = Cast<URshipGameInstance>(GetWorld()->GetGameInstance());
+	}
+	if (GameInstance)
+	{
+		FString name = GetName();
+
+		GameInstance->RegisterActionStringWithOptions(name, actionId, callbackWithString, options);
+	}
+}

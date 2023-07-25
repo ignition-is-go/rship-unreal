@@ -8,6 +8,10 @@
 
 DECLARE_DYNAMIC_DELEGATE(FActionCallBack);
 
+DECLARE_DYNAMIC_DELEGATE_OneParam(FActionCallBackFloat, float, Data);
+
+DECLARE_DYNAMIC_DELEGATE_OneParam(FActionCallBackString, FString, Data);
+
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
 class URshipTargetComponent : public UActorComponent
 {
@@ -27,4 +31,13 @@ public:
 
 	UFUNCTION(BlueprintCallable, meta=(Category="RShip"))
 	void BindAction(FActionCallBack callback, FString actionId);
+
+	UFUNCTION(BlueprintCallable, meta=(Category="RShip"))
+	void BindActionFloat(FActionCallBackFloat floatCallback, FString actionId);
+
+	UFUNCTION(BlueprintCallable, meta=(Category="RShip"))
+	void BindActionString(FActionCallBackString stringCallback, FString actionId);
+
+	UFUNCTION(BlueprintCallable, meta=(Category="RShip"))
+	void BindActionStringWithOptions(FActionCallBackString callbackWithString, FString actionId,TArray<FString> options);
 };

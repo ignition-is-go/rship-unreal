@@ -20,7 +20,11 @@ class URshipGameInstance : public UGameInstance
 {
 	GENERATED_BODY()
 	TMap<FString, FActionCallBack> ActionMap;
+	TMap<FString, FActionCallBackFloat> ActionFloatMap;
+	TMap<FString, FActionCallBackString> ActionStringMap;
 	TMap<FString, TSet<FString>> TargetActionMap;
+	TMap<FString, FString> ActionSchemas;
+	TMap<FString, TSharedPtr<FJsonObject>> ActionSchemasJson;
 	TSharedPtr<IWebSocket> WebSocket;
 	FString RunId;
 	FString ServiceId;
@@ -39,4 +43,8 @@ public:
 	virtual void Shutdown() override;
 
 	void RegisterAction(FString targetId, FString actionId, FActionCallBack callback);
+	void RegisterActionFloat(FString targetId, FString actionId, FActionCallBackFloat callback);
+	void RegisterActionString(FString targetId, FString actionId, FActionCallBackString callback);
+	void RegisterActionStringWithOptions(FString targetId, FString actionId, FActionCallBackString stringCallback, TArray<FString> options);
+
 };
