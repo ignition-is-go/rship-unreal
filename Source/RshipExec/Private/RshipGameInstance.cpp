@@ -46,7 +46,7 @@ void URshipGameInstance::Init()
     WebSocket->OnConnected().AddLambda([&]()
                                        {
                                            UE_LOG(LogTemp, Warning, TEXT("Connected"));
-                                           SendAllTargetActions(); });
+                                           SendAll(); });
 
     WebSocket->OnConnectionError().AddLambda([](const FString &Error)
                                              {
@@ -185,7 +185,7 @@ void URshipGameInstance::Shutdown()
     Super::Shutdown();
 }
 
-void URshipGameInstance::SendAllTargetActions()
+void URshipGameInstance::SendAll()
 {
 
     // Send Exec
@@ -225,59 +225,74 @@ void URshipGameInstance::SendAllTargetActions()
 
     SetItem("Instance", Instance);
 
-    TMap<FString, TSharedPtr<FJsonObject>> TargetMap;
-
-    for (auto &KeyValuePair : TargetActionMap)
-    {
-        FString targetId = KeyValuePair.Key;
-
-        TSet actionIds = KeyValuePair.Value;
-
-        TSharedPtr<FJsonObject> Target = MakeShareable(new FJsonObject);
-
-        Target->SetStringField(TEXT("id"), targetId);
-
+    for (FString targetId : RegisteredTargets){
+        TArray<TSharedPtr<FJsonValue>> EmitterIdsJson;
         TArray<TSharedPtr<FJsonValue>> ActionIdsJson;
 
-        for (const FString &Element : actionIds)
-        {
-            UE_LOG(LogTemp, Warning, TEXT("Action %s"), *Element)
 
-            ActionIdsJson.Add(MakeShareable(new FJsonValueString(Element)));
+        if(TargetActionMap.Contains(targetId)){
 
-            TSharedPtr<FJsonObject> Action = MakeShareable(new FJsonObject);
+            TSet actionIds = TargetActionMap[targetId];
 
-            Action->SetStringField(TEXT("id"), Element);
-            Action->SetStringField(TEXT("name"), Element);
-            Action->SetStringField(TEXT("targetId"), targetId);
-            Action->SetStringField(TEXT("systemId"), ServiceId);
-            if(ActionSchemas.Contains(Element)){
-                Action->SetObjectField(TEXT("schema"), ActionSchemasJson[ActionSchemas[Element]]);
+            for (const FString &Element : actionIds)
+            {
+                UE_LOG(LogTemp, Warning, TEXT("Action %s"), *Element);
+
+                ActionIdsJson.Add(MakeShareable(new FJsonValueString(Element)));
+
+                TSharedPtr<FJsonObject> Action = MakeShareable(new FJsonObject);
+
+                Action->SetStringField(TEXT("id"), Element);
+                Action->SetStringField(TEXT("name"), Element);
+                Action->SetStringField(TEXT("targetId"), targetId);
+                Action->SetStringField(TEXT("systemId"), ServiceId);
+                if(ActionSchemas.Contains(Element)){
+                    Action->SetObjectField(TEXT("schema"), ActionSchemasJson[ActionSchemas[Element]]);
+                }
+                if(ActionSchemasJson.Contains(Element)){
+                    Action->SetObjectField(TEXT("schema"), ActionSchemasJson[Element]);
+                }
+
+                SetItem("Action", Action);
             }
-            if(ActionSchemasJson.Contains(Element)){
-                Action->SetObjectField(TEXT("schema"), ActionSchemasJson[Element]);
-            }
-
-            SetItem("Action", Action);
         }
 
+        if(TargetEmitterMap.Contains(targetId)){
+
+            TSet emitterIds = TargetEmitterMap[targetId];
+
+            for(const FString &emitterId: emitterIds)
+            {
+
+                UE_LOG(LogTemp, Warning, TEXT("Emitter %s"), *emitterId);
+
+                EmitterIdsJson.Add(MakeShareable(new FJsonValueString(emitterId)));
+
+                TSharedPtr<FJsonObject> Emitter = MakeShareable(new FJsonObject);
+
+                Emitter->SetStringField(TEXT("id"), emitterId);
+                Emitter->SetStringField(TEXT("name"), emitterId);
+                Emitter->SetStringField(TEXT("targetId"), targetId);
+                Emitter->SetStringField(TEXT("systemId"), ServiceId);
+                if(EmitterSchemas.Contains(emitterId)){
+                    Emitter->SetObjectField(TEXT("schema"), EmitterSchemas[emitterId]);
+                }
+
+                SetItem("Emitter", Emitter);
+            }   
+        }
+
+        TSharedPtr<FJsonObject> Target = MakeShareable(new FJsonObject);
+        Target->SetStringField(TEXT("id"), targetId);
+
         Target->SetArrayField(TEXT("actionIds"), ActionIdsJson);
+        Target->SetArrayField(TEXT("emitterIds"), EmitterIdsJson);
         Target->SetStringField(TEXT("fgColor"), ColorHex);
         Target->SetStringField(TEXT("bgColor"), ColorHex);
         Target->SetStringField(TEXT("name"), targetId);
         Target->SetStringField(TEXT("serviceId"), ServiceId);
 
         SetItem("Target", Target);
-
-
-
-        // string keyString = TCHAR_TO_UTF8(*key);
-
-        // cout << keyString << endl;
-
-        // FActionCallBack value = KeyValuePair.Value;
-
-        // value.ExecuteIfBound();
     }
     //
 }
@@ -315,6 +330,7 @@ void URshipGameInstance::RegisterAction(FString targetId, FString actionId, FAct
 {
     FString fullActionId = ServiceId + ":" + targetId + ":" + actionId;
 
+    RegisteredTargets.Add(targetId);
     ActionMap.Add(fullActionId, callback);
 
     ActionSchemas.Add(fullActionId, "void");
@@ -337,6 +353,7 @@ void URshipGameInstance::RegisterActionFloat(FString targetId, FString actionId,
 {
     FString fullActionId = ServiceId + ":" + targetId + ":" + actionId;
 
+    RegisteredTargets.Add(targetId);
     ActionFloatMap.Add(fullActionId, callback);
     
     ActionSchemas.Add(fullActionId, "float");
@@ -360,6 +377,7 @@ void URshipGameInstance::RegisterActionString(FString targetId, FString actionId
 {
     FString fullActionId = ServiceId + ":" + targetId + ":" + actionId;
 
+    RegisteredTargets.Add(targetId);
     ActionStringMap.Add(fullActionId, callback);
 
     ActionSchemas.Add(fullActionId, "string");
@@ -378,10 +396,13 @@ void URshipGameInstance::RegisterActionString(FString targetId, FString actionId
     }
 }
 
+
+
 void URshipGameInstance::RegisterActionStringWithOptions(FString targetId, FString actionId, FActionCallBackString stringCallback,  TArray<FString> options)
 {
     FString fullActionId = ServiceId + ":" + targetId + ":" + actionId;
-
+    
+    RegisteredTargets.Add(targetId);
     ActionStringMap.Add(fullActionId, stringCallback);
 
     // enum schema
@@ -433,3 +454,46 @@ void URshipGameInstance::RegisterActionStringWithOptions(FString targetId, FStri
         TargetActionMap.Add(targetId, actionSet);
     }
 }
+
+
+void URshipGameInstance::RegisterEmitter(FString targetId, FString emitterId, TSharedPtr<FJsonObject> schema){
+
+    FString fullEmitterId = ServiceId + ":" + targetId + ":" + emitterId;
+
+    RegisteredTargets.Add(targetId);
+    EmitterSchemas.Add(fullEmitterId, schema);
+
+    if (TargetEmitterMap.Contains(targetId))
+    {
+        TSet<FString> actionSet = TargetEmitterMap[targetId];
+        actionSet.Add(fullEmitterId);
+        TargetEmitterMap.Add(targetId, actionSet);
+    }
+    else
+    {
+        TSet<FString> actionSet;
+        actionSet.Add(fullEmitterId);
+        TargetEmitterMap.Add(targetId, actionSet);
+    }
+    
+}
+
+void URshipGameInstance::PulseEmitter(FString targetId, FString emitterId, TSharedPtr<FJsonObject> data){
+    
+        FString fullEmitterId = ServiceId + ":" + targetId + ":" + emitterId;
+
+        auto timestamp = FDateTime::Now().ToUnixTimestamp();
+        UE_LOG(LogTemp, Warning, TEXT("Pulse Emitter %s %d"), *fullEmitterId, timestamp);
+    
+        if(EmitterSchemas.Contains(fullEmitterId)){
+            TSharedPtr<FJsonObject> Pulse = MakeShareable(new FJsonObject);
+
+            Pulse->SetStringField(TEXT("emitterId"), fullEmitterId);
+            Pulse->SetStringField(TEXT("id"), fullEmitterId);
+            Pulse->SetObjectField("data",data);
+            Pulse->SetNumberField("timestamp", FDateTime::Now().ToUnixTimestamp());
+
+            SetItem("Pulse", Pulse);
+        }
+}
+

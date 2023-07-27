@@ -25,7 +25,6 @@ void URshipTargetComponent::BeginPlay()
 	Super::BeginPlay();
 
 	URshipGameInstance *GameInstance = Cast<URshipGameInstance>(GetWorld()->GetGameInstance());
-	UE_LOG(LogTemp, Warning, TEXT("Begin"))
 	while (!GameInstance)
 	{
 		GameInstance = Cast<URshipGameInstance>(GetWorld()->GetGameInstance());

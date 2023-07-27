@@ -26,7 +26,7 @@ TSharedPtr<FJsonObject> MakeSet(FString itemType, TSharedPtr<FJsonObject> data)
     {
         UE_LOG(LogTemp, Error, TEXT("Failed to serialize JSON object."));
     }
-    payload->SetStringField(TEXT("hash"), Hash);
+    // payload->SetStringField(TEXT("hash"), Hash);
 
     return payload;
 }

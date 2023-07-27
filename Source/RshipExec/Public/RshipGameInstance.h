@@ -22,7 +22,12 @@ class URshipGameInstance : public UGameInstance
 	TMap<FString, FActionCallBack> ActionMap;
 	TMap<FString, FActionCallBackFloat> ActionFloatMap;
 	TMap<FString, FActionCallBackString> ActionStringMap;
+	TSet<FString> RegisteredTargets;
 	TMap<FString, TSet<FString>> TargetActionMap;
+	TMap<FString, TSet<FString>> TargetEmitterMap;
+	TMap<FString, TSharedPtr<FJsonObject>> TargetSchemas;
+	TMap<FString, TSharedPtr<FJsonObject>> EmitterSchemas;
+
 	TMap<FString, FString> ActionSchemas;
 	TMap<FString, TSharedPtr<FJsonObject>> ActionSchemasJson;
 	TSharedPtr<IWebSocket> WebSocket;
@@ -35,7 +40,7 @@ class URshipGameInstance : public UGameInstance
 
 	void SetItem(FString itemType, TSharedPtr<FJsonObject> data);
 	void SendJson(TSharedPtr<FJsonObject> Payload);
-	void SendAllTargetActions();
+	void SendAll();
 	void ProcessMessage(FString message);
 
 public:
@@ -46,5 +51,10 @@ public:
 	void RegisterActionFloat(FString targetId, FString actionId, FActionCallBackFloat callback);
 	void RegisterActionString(FString targetId, FString actionId, FActionCallBackString callback);
 	void RegisterActionStringWithOptions(FString targetId, FString actionId, FActionCallBackString stringCallback, TArray<FString> options);
+
+	// 
+
+	void RegisterEmitter(FString targetId, FString emitterId, TSharedPtr<FJsonObject> schema);
+	void PulseEmitter(FString targetId, FString emitterId, TSharedPtr<FJsonObject> data);
 
 };
