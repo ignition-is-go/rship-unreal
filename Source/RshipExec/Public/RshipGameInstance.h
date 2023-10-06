@@ -52,9 +52,8 @@ public:
 	void RegisterActionString(FString targetId, FString actionId, FActionCallBackString callback);
 	void RegisterActionStringWithOptions(FString targetId, FString actionId, FActionCallBackString stringCallback, TArray<FString> options);
 
-	// 
+	//
 
 	void RegisterEmitter(FString targetId, FString emitterId, TSharedPtr<FJsonObject> schema);
 	void PulseEmitter(FString targetId, FString emitterId, TSharedPtr<FJsonObject> data);
-
 };
