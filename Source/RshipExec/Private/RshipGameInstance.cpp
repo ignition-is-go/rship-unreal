@@ -249,7 +249,7 @@ void URshipGameInstance::SendAll()
                 Action->SetStringField(TEXT("id"), Element);
                 Action->SetStringField(TEXT("name"), Element);
                 Action->SetStringField(TEXT("targetId"), targetId);
-                Action->SetStringField(TEXT("systemId"), ServiceId);
+                Action->SetStringField(TEXT("serviceId"), ServiceId);
                 if (ActionSchemas.Contains(Element))
                 {
                     Action->SetObjectField(TEXT("schema"), ActionSchemasJson[ActionSchemas[Element]]);
@@ -280,7 +280,7 @@ void URshipGameInstance::SendAll()
                 Emitter->SetStringField(TEXT("id"), emitterId);
                 Emitter->SetStringField(TEXT("name"), emitterId);
                 Emitter->SetStringField(TEXT("targetId"), targetId);
-                Emitter->SetStringField(TEXT("systemId"), ServiceId);
+                Emitter->SetStringField(TEXT("serviceId"), ServiceId);
                 if (EmitterSchemas.Contains(emitterId))
                 {
                     Emitter->SetObjectField(TEXT("schema"), EmitterSchemas[emitterId]);
