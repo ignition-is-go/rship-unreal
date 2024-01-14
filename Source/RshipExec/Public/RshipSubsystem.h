@@ -3,30 +3,39 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Engine/GameInstance.h"
+#include "Subsystems/EngineSubsystem.h"
+#include "Subsystems/SubsystemCollection.h"
 #include "IWebSocket.h"
-#include "RshipTargetComponent.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
-#include "RshipGameInstance.generated.h"
+#include "RshipTargetComponent.h"
+#include "GameFramework/Actor.h"
+#include "Containers/List.h"
+#include "RshipSubsystem.generated.h"
 
-using namespace std;
+struct RshipActionProperty
+{
+	FString Name;
+	FString Type;
+};
 
 /**
  *
  */
 UCLASS()
-class URshipGameInstance : public UGameInstance
+class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
 {
 	GENERATED_BODY()
-	TMap<FString, FActionCallBack> ActionMap;
-	TMap<FString, FActionCallBackFloat> ActionFloatMap;
-	TMap<FString, FActionCallBackString> ActionStringMap;
+	TMap<FString, UFunction *> ActionMap;
+	TMap<FString, AActor *> TargetMap;
+	TMap<FString, TDoubleLinkedList<RshipActionProperty> *> PropMap;
+
 	TSet<FString> RegisteredTargets;
-	TMap<FString, TSet<FString>> TargetActionMap;
-	TMap<FString, TSet<FString>> TargetEmitterMap;
+	TMap<FString, TSet<FString> *> TargetActionMap;
+	TMap<FString, TSet<FString> *> TargetEmitterMap;
 	TMap<FString, TSharedPtr<FJsonObject>> TargetSchemas;
 	TMap<FString, TSharedPtr<FJsonObject>> EmitterSchemas;
+	TMap<FString, UObject *> UObjectsByActionId;
 
 	TMap<FString, FString> ActionSchemas;
 	TMap<FString, TSharedPtr<FJsonObject>> ActionSchemasJson;
@@ -42,16 +51,13 @@ class URshipGameInstance : public UGameInstance
 	void SendJson(TSharedPtr<FJsonObject> Payload);
 	void SendAll();
 	void ProcessMessage(FString message);
+	void RegisterAction(FString targetId, AActor *target, UFunction *action);
 
 public:
-	virtual void Init() override;
-	virtual void Shutdown() override;
+	virtual void Initialize(FSubsystemCollectionBase &Collection) override;
+	virtual void Deinitialize() override;
 
-	void RegisterAction(FString targetId, FString actionId, FActionCallBack callback);
-	void RegisterActionFloat(FString targetId, FString actionId, FActionCallBackFloat callback);
-	void RegisterActionString(FString targetId, FString actionId, FActionCallBackString callback);
-	void RegisterActionStringWithOptions(FString targetId, FString actionId, FActionCallBackString stringCallback, TArray<FString> options);
-
+	void RegisterTarget(AActor *target);
 	//
 
 	void RegisterEmitter(FString targetId, FString emitterId, TSharedPtr<FJsonObject> schema);
