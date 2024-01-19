@@ -11,13 +11,8 @@
 #include "RshipTargetComponent.h"
 #include "GameFramework/Actor.h"
 #include "Containers/List.h"
+#include "Target.h"
 #include "RshipSubsystem.generated.h"
-
-struct RshipActionProperty
-{
-	FString Name;
-	FString Type;
-};
 
 /**
  *
@@ -26,18 +21,9 @@ UCLASS()
 class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
 {
 	GENERATED_BODY()
-	TMap<FString, UFunction *> ActionMap;
-	TMap<FString, AActor *> TargetMap;
-	TMap<FString, TDoubleLinkedList<RshipActionProperty> *> PropMap;
 
-	TSet<FString> RegisteredTargets;
-	TMap<FString, TSet<FString> *> TargetActionMap;
-	TMap<FString, TSet<FString> *> TargetEmitterMap;
-	TMap<FString, TSharedPtr<FJsonObject>> TargetSchemas;
-	TMap<FString, TSharedPtr<FJsonObject>> EmitterSchemas;
-	TMap<FString, UObject *> UObjectsByActionId;
+	TMap<FString, Target *> AllTargets;
 
-	TMap<FString, FString> ActionSchemas;
 	TMap<FString, TSharedPtr<FJsonObject>> ActionSchemasJson;
 	TSharedPtr<IWebSocket> WebSocket;
 	FString RunId;
@@ -49,16 +35,22 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
 
 	void SetItem(FString itemType, TSharedPtr<FJsonObject> data);
 	void SendJson(TSharedPtr<FJsonObject> Payload);
+	void GenerateSchemas();
+	void SendTarget(Target* target);
+	void SendAction(Action* action, FString targetId);
+	void SendTargetStatus(Target* target, bool online);
 	void SendAll();
+	void ScanActors();
 	void ProcessMessage(FString message);
-	void RegisterAction(FString targetId, AActor *target, UFunction *action);
 
 public:
 	virtual void Initialize(FSubsystemCollectionBase &Collection) override;
 	virtual void Deinitialize() override;
 
+	void Reconnect();
+	void Reset();
+
 	void RegisterTarget(AActor *target);
-	//
 
 	void RegisterEmitter(FString targetId, FString emitterId, TSharedPtr<FJsonObject> schema);
 	void PulseEmitter(FString targetId, FString emitterId, TSharedPtr<FJsonObject> data);

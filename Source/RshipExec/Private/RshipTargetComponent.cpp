@@ -19,6 +19,31 @@ void URshipTargetComponent::OnRegister()
 	// off to improve performance if you don't need them.
 	PrimaryComponentTick.bCanEverTick = true;
 
+	Register();
+}
+
+// Called every frame
+void URshipTargetComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction *ThisTickFunction)
+{
+	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+}
+
+void URshipTargetComponent::Reconnect()
+{
+	URshipSubsystem *subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+	subsystem->Reconnect();
+}
+
+void URshipTargetComponent::Reset()
+{
+	URshipSubsystem* subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+	subsystem->Reset();
+}
+
+
+void URshipTargetComponent::Register()
+{
+
 	URshipSubsystem *subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
 
 	AActor *parent = GetOwner();
@@ -29,10 +54,4 @@ void URshipTargetComponent::OnRegister()
 	}
 
 	subsystem->RegisterTarget(parent);
-}
-
-// Called every frame
-void URshipTargetComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction *ThisTickFunction)
-{
-	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 }

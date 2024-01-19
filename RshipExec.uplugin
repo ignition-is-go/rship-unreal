@@ -19,6 +19,6 @@
 			"Name": "RshipExec",
 			"Type": "Runtime",
 			"LoadingPhase": "Default"
-		}
+		},
 	]
 }

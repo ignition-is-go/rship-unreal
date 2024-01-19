@@ -16,4 +16,16 @@ public:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction *ThisTickFunction) override;
 
 	virtual void OnRegister() override;
+
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "RshipTarget")
+	void Reconnect();
+
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "RshipTarget")
+	void Register();
+
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "RshipTarget")
+	void Reset();
+
+	UPROPERTY(EditAnywhere, config, Category = "RshipTarget", meta = (DisplayName = "Target Name"))
+	FString targetId;
 };
