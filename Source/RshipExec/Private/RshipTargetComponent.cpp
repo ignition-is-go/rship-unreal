@@ -19,7 +19,16 @@ void URshipTargetComponent::OnRegister()
 	// off to improve performance if you don't need them.
 	PrimaryComponentTick.bCanEverTick = true;
 
+	this->uid = FGuid::NewGuid().ToString();
+
 	Register();
+}
+
+void URshipTargetComponent::OnComponentDestroyed(bool bDestoryHierarchy)
+{
+
+
+
 }
 
 // Called every frame
@@ -54,4 +63,6 @@ void URshipTargetComponent::Register()
 	}
 
 	subsystem->RegisterTarget(parent);
+
+	UE_LOG(LogTemp, Warning, TEXT("Component Registered: %s"), *parent->GetName());
 }

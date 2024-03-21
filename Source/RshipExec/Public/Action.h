@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "FJsonSchema.h"
 
 struct RshipActionProperty
 {
@@ -18,16 +19,18 @@ class RSHIPEXEC_API Action
 {
 
 private:
-	UFunction *handler;
-	AActor *parent;
+	FString functionName;
+	TSet<AActor*> parents;
 	FString id;
-	TDoubleLinkedList<RshipActionProperty>* props;
-	TSharedPtr<FJsonObject> schema;
+	TDoubleLinkedList<RshipActionProperty> *props;
+	TSharedPtr<FJsonSchema> schema;
 
 public:
-	Action(FString id, AActor *parent, UFunction *handler);
+	Action(FString id, UFunction *handler);
 	~Action();
 	FString GetId();
 	TSharedPtr<FJsonObject> GetSchema();
-	void Take();
+	void Take(TSharedPtr<FJsonObject> data);
+	void AddParent(AActor *parent);
+	void UpdateSchema(UFunction* handler);
 };

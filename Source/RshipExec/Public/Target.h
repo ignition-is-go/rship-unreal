@@ -20,11 +20,12 @@ public:
 
 
 	void AddAction(Action* action);
+	bool HasAction(FString actionId);
 
 	FString GetId();
 
 	TMap<FString, Action*> GetActions();
 
-	void TakeAction(FString actionId);
+	void TakeAction(FString actionId, TSharedPtr<FJsonObject> data);
 	
 };

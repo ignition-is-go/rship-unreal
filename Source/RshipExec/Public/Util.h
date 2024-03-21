@@ -4,3 +4,5 @@
 void ParseNestedJson(TSharedPtr<FJsonValue> JsonValue, FString KeyPath);
 
 TSharedPtr<FJsonObject> ParseNestedJsonString(FString JsonString);
+
+FString GetJsonString(TSharedPtr<FJsonObject> JsonObject);

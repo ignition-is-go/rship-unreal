@@ -61,3 +61,11 @@ TSharedPtr<FJsonObject> ParseNestedJsonString(FString JsonString)
 
     return JsonObject;
 }
+
+FString GetJsonString(TSharedPtr<FJsonObject> JsonObject)
+{
+    FString OutputString;
+    TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutputString);
+    FJsonSerializer::Serialize(JsonObject.ToSharedRef(), Writer);
+    return OutputString;
+}

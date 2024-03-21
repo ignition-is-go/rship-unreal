@@ -22,11 +22,11 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
 {
 	GENERATED_BODY()
 
-	TMap<FString, Target *> AllTargets;
+	TMap<FString, Target*> AllTargets;
+	TMap<FString, int> TargetCounts;
 
-	TMap<FString, TSharedPtr<FJsonObject>> ActionSchemasJson;
 	TSharedPtr<IWebSocket> WebSocket;
-	FString RunId;
+	FString InstanceId;
 	FString ServiceId;
 	FString MachineId;
 
@@ -35,17 +35,17 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
 
 	void SetItem(FString itemType, TSharedPtr<FJsonObject> data);
 	void SendJson(TSharedPtr<FJsonObject> Payload);
-	void GenerateSchemas();
 	void SendTarget(Target* target);
 	void SendAction(Action* action, FString targetId);
 	void SendTargetStatus(Target* target, bool online);
 	void SendAll();
-	void ScanActors();
 	void ProcessMessage(FString message);
 
 public:
 	virtual void Initialize(FSubsystemCollectionBase &Collection) override;
 	virtual void Deinitialize() override;
+
+	
 
 	void Reconnect();
 	void Reset();

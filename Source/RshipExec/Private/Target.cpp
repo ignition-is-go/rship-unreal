@@ -13,7 +13,13 @@ Target::~Target()
 }
 
 void Target::AddAction(Action* action) {
+
 	this->actions.Add(action->GetId(), action);
+}
+
+bool Target::HasAction(FString actionId)
+{
+	return this->actions.Contains(actionId);
 }
 
 TMap<FString, Action*> Target::GetActions() {
@@ -24,11 +30,11 @@ FString Target::GetId() {
 	return this->id;
 }
 
-void Target::TakeAction(FString actionId) {
+void Target::TakeAction(FString actionId, TSharedPtr<FJsonObject> data) {
 	if (!this->actions.Contains(actionId)) {
 		UE_LOG(LogTemp, Warning, TEXT("Action not found: [%s]"), *actionId);
 		return;
 	}
 
-	this->actions[actionId]->Take();
+	this->actions[actionId]->Take(data);
 }
