@@ -37,14 +37,13 @@ void Action::Take(TSharedPtr<FJsonObject> data)
 
     for (const auto prop : *this->props)
     {
-
-        
-
         auto piece = data->TryGetField(prop.Name)->AsString();
         args->Append(" \"");
         args->Append(piece);
         args->Append("\"");
 	}
+
+    data.Reset();
 
     // get current output device
 
@@ -64,6 +63,8 @@ void Action::Take(TSharedPtr<FJsonObject> data)
         }
 	}
 
+    
+
     this->parents = *safeParents;
 
 
@@ -78,6 +79,8 @@ void Action::Take(TSharedPtr<FJsonObject> data)
             }
         }
 	}
+
+    delete args;
 }
 
 void Action::AddParent(AActor* parent)

@@ -67,5 +67,6 @@ FString GetJsonString(TSharedPtr<FJsonObject> JsonObject)
     FString OutputString;
     TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutputString);
     FJsonSerializer::Serialize(JsonObject.ToSharedRef(), Writer);
+    Writer.ToSharedPtr().Reset();
     return OutputString;
 }

@@ -115,6 +115,7 @@ void URshipSubsystem::ProcessMessage(FString message)
             UE_LOG(LogTemp, Warning, TEXT("Received ClientId %s"), *ClientId);
 
             SendAll();
+            command.Reset();
         }
 
         if (commandId == "target:action:exec")
@@ -137,8 +138,16 @@ void URshipSubsystem::ProcessMessage(FString message)
             Target *target = AllTargets[targetId];
 
             target->TakeAction(actionId, execData);
+            command.Reset();
+            execAction.Reset();
+            execData.Reset();
         }
+
+        data.Reset();
     }
+
+
+    obj.Reset();
 
     //
 }

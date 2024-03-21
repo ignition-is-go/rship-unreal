@@ -65,6 +65,17 @@ TSharedPtr<FJsonObject> FJsonSchemaObject::ValueOf()
 
 void FJsonSchemaObject::Clear()
 {
+
+    for (auto obj : this->objectProperties)
+    {
+		obj.Value->Clear();
+	}
+
+    for (auto prop : this->properties)
+    {
+		delete prop.Value;
+	}
+
 	this->objectProperties.Empty();
 	this->properties.Empty();
 }

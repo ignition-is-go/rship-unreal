@@ -37,4 +37,5 @@ void Target::TakeAction(FString actionId, TSharedPtr<FJsonObject> data) {
 	}
 
 	this->actions[actionId]->Take(data);
+	data.Reset();
 }
