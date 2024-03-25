@@ -6,6 +6,7 @@
 Target::Target(FString id)
 {
 	this->id = id;
+
 }
 
 Target::~Target()
@@ -17,25 +18,31 @@ void Target::AddAction(Action* action) {
 	this->actions.Add(action->GetId(), action);
 }
 
-bool Target::HasAction(FString actionId)
+
+void Target::AddEmitter(EmitterContainer* emitter)
 {
-	return this->actions.Contains(actionId);
+	this->emitters.Add(emitter->GetId(), emitter);
 }
+
 
 TMap<FString, Action*> Target::GetActions() {
 	return this->actions;
+}
+
+TMap<FString, EmitterContainer*> Target::GetEmitters()
+{
+	return this->emitters;
 }
 
 FString Target::GetId() {
 	return this->id;
 }
 
-void Target::TakeAction(FString actionId, TSharedPtr<FJsonObject> data) {
+void Target::TakeAction(FString actionId, const TSharedRef<FJsonObject> data) {
 	if (!this->actions.Contains(actionId)) {
 		UE_LOG(LogTemp, Warning, TEXT("Action not found: [%s]"), *actionId);
 		return;
 	}
 
 	this->actions[actionId]->Take(data);
-	data.Reset();
 }

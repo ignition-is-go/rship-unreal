@@ -30,6 +30,8 @@ public:
 	UPROPERTY(EditAnywhere, config, Category = "RshipTarget", meta = (DisplayName = "Target Name"))
 	FString targetId;
 
+
+
 private: 
 	FString uid;
 };

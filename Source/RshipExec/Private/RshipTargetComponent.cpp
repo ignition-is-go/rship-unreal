@@ -7,6 +7,7 @@
 #include "RshipSubsystem.h"
 #include "GameFramework/Actor.h"
 #include "Misc/DefaultValueHelper.h"
+#include "Util.h"
 
 using namespace std;
 
@@ -21,13 +22,13 @@ void URshipTargetComponent::OnRegister()
 
 	this->uid = FGuid::NewGuid().ToString();
 
+
+
 	Register();
 }
 
 void URshipTargetComponent::OnComponentDestroyed(bool bDestoryHierarchy)
 {
-
-
 
 }
 
@@ -62,7 +63,9 @@ void URshipTargetComponent::Register()
 		UE_LOG(LogTemp, Warning, TEXT("Parent not found"));
 	}
 
-	subsystem->RegisterTarget(parent);
+	auto world = GetWorld();
+
+	subsystem->RegisterTarget(parent, world);
 
 	UE_LOG(LogTemp, Warning, TEXT("Component Registered: %s"), *parent->GetName());
 }

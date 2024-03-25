@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Action.h"
+#include "EmitterContainer.h"
 /**
  * 
  */
@@ -13,6 +14,7 @@ class RSHIPEXEC_API Target
 private: 
 	FString id;
 	TMap<FString, Action*> actions;
+	TMap<FString, EmitterContainer*> emitters;
 
 public:
 	Target(FString id);
@@ -20,12 +22,12 @@ public:
 
 
 	void AddAction(Action* action);
-	bool HasAction(FString actionId);
+	void AddEmitter(EmitterContainer* emitter);
 
 	FString GetId();
 
 	TMap<FString, Action*> GetActions();
+	TMap<FString, EmitterContainer*> GetEmitters();
 
-	void TakeAction(FString actionId, TSharedPtr<FJsonObject> data);
-	
+	void TakeAction(FString actionId, const TSharedRef<FJsonObject> data);
 };

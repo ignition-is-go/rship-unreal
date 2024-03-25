@@ -14,6 +14,9 @@
 #include "Target.h"
 #include "RshipSubsystem.generated.h"
 
+
+DECLARE_DYNAMIC_DELEGATE(FRshipMessageDelegate);
+
 /**
  *
  */
@@ -25,33 +28,35 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
 	TMap<FString, Target*> AllTargets;
 	TMap<FString, int> TargetCounts;
 
+	AEmitterHandler *EmitterHandler;
+
 	TSharedPtr<IWebSocket> WebSocket;
 	FString InstanceId;
 	FString ServiceId;
 	FString MachineId;
 
-	FString ClientId;
+	FString ClientId = "UNSET";
 	FString ClusterId;
 
 	void SetItem(FString itemType, TSharedPtr<FJsonObject> data);
 	void SendJson(TSharedPtr<FJsonObject> Payload);
 	void SendTarget(Target* target);
 	void SendAction(Action* action, FString targetId);
+	void SendEmitter(EmitterContainer* emitter, FString targetId);
 	void SendTargetStatus(Target* target, bool online);
 	void SendAll();
-	void ProcessMessage(FString message);
+	void ProcessMessage(const FString& message);
 
 public:
 	virtual void Initialize(FSubsystemCollectionBase &Collection) override;
 	virtual void Deinitialize() override;
 
-	
-
 	void Reconnect();
 	void Reset();
 
-	void RegisterTarget(AActor *target);
+	void RegisterTarget(AActor *target, UWorld *world);
+	void PulseEmitter(FString TargetId, FString EmitterId, TSharedPtr<FJsonObject> data);
 
-	void RegisterEmitter(FString targetId, FString emitterId, TSharedPtr<FJsonObject> schema);
-	void PulseEmitter(FString targetId, FString emitterId, TSharedPtr<FJsonObject> data);
+	EmitterContainer* GetEmitterInfo(FString targetId, FString emitterId);
+
 };

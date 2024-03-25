@@ -22,6 +22,8 @@
 #include "Target.h"
 
 #include "Myko.h"
+#include "EmitterHandler.h"
+
 
 using namespace std;
 
@@ -29,6 +31,12 @@ void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
 {
     UE_LOG(LogTemp, Warning, TEXT("RshipSubsystem::Initialize"));
     Reconnect();
+
+    auto world = GetWorld();    
+
+    if (world != nullptr) {
+        this->EmitterHandler = GetWorld()->SpawnActor<AEmitterHandler>();
+    }
 }
 
 void URshipSubsystem::Reconnect()
@@ -63,6 +71,7 @@ void URshipSubsystem::Reconnect()
     WebSocket->OnConnected().AddLambda([&]()
                                        {
                                            UE_LOG(LogTemp, Warning, TEXT("Connected"));
+                                           SendAll();
                                            //
                                        });
 
@@ -80,7 +89,7 @@ void URshipSubsystem::Reconnect()
 
     WebSocket->OnMessage().AddLambda([&](const FString &MessageString)
                                      {
-                                         UE_LOG(LogTemp, Warning, TEXT("Message %s"), *MessageString);
+                                          //UE_LOG(LogTemp, Warning, TEXT("Message %s"), *MessageString);
                                          ProcessMessage(*MessageString);
                                          //
                                      });
@@ -95,35 +104,43 @@ void URshipSubsystem::Reconnect()
     WebSocket->Connect();
 }
 
-void URshipSubsystem::ProcessMessage(FString message)
+void URshipSubsystem::ProcessMessage(const FString &message)
 {
-    TSharedPtr<FJsonObject> obj = ParseNestedJsonString(*message);
 
-    FString type = obj->GetStringField(TEXT("event"));
+    TSharedPtr<FJsonObject> obj = MakeShareable(new FJsonObject);
+    TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(message);
+
+    if (!(FJsonSerializer::Deserialize(Reader, obj) && obj.IsValid()))
+    {
+        return;
+    }
+   
+    TSharedRef<FJsonObject> objRef = obj.ToSharedRef();
+
+    FString type = objRef->GetStringField(TEXT("event"));
+     //UE_LOG(LogTemp, Warning, TEXT("Received Event %s"), *type);
 
     if (type == "ws:m:command")
     {
-        TSharedPtr<FJsonObject> data = obj->GetObjectField(TEXT("data"));
+        TSharedRef<FJsonObject> data = obj->GetObjectField(TEXT("data")).ToSharedRef();
 
         FString commandId = data->GetStringField(TEXT("commandId"));
+        TSharedRef<FJsonObject> command = data->GetObjectField(TEXT("command")).ToSharedRef();
 
         if (commandId == "client:setId")
         {
-            TSharedPtr<FJsonObject> command = data->GetObjectField(TEXT("command"));
 
             ClientId = command->GetStringField(TEXT("clientId"));
             UE_LOG(LogTemp, Warning, TEXT("Received ClientId %s"), *ClientId);
-
             SendAll();
-            command.Reset();
+            return;
         }
 
         if (commandId == "target:action:exec")
         {
-            TSharedPtr<FJsonObject> command = data->GetObjectField(TEXT("command"));
 
-            TSharedPtr<FJsonObject> execAction = command->GetObjectField(TEXT("action"));
-            TSharedPtr<FJsonObject> execData = command->GetObjectField(TEXT("data"));
+            TSharedRef<FJsonObject> execAction = command->GetObjectField(TEXT("action")).ToSharedRef();
+            TSharedRef<FJsonObject> execData = command->GetObjectField(TEXT("data")).ToSharedRef();
 
             FString actionId = execAction->GetStringField(TEXT("id"));
 
@@ -137,19 +154,14 @@ void URshipSubsystem::ProcessMessage(FString message)
 
             Target *target = AllTargets[targetId];
 
-            target->TakeAction(actionId, execData);
-            command.Reset();
-            execAction.Reset();
-            execData.Reset();
+            if (target != nullptr)
+            {
+                target->TakeAction(actionId, execData);
+            }
+            // command.Reset();
         }
-
-        data.Reset();
+        obj.Reset();
     }
-
-
-    obj.Reset();
-
-    //
 }
 
 void URshipSubsystem::Deinitialize()
@@ -175,6 +187,13 @@ void URshipSubsystem::SendTarget(Target *target)
 
         SendAction(Elem.Value, target->GetId());
     }
+
+    for (auto& Elem : target->GetEmitters())
+    {
+		EmitterIdsJson.Push(MakeShareable(new FJsonValueString(Elem.Key)));
+
+        SendEmitter(Elem.Value, target->GetId());
+	}
 
     const URshipSettings *Settings = GetDefault<URshipSettings>();
 
@@ -218,6 +237,24 @@ void URshipSubsystem::SendAction(Action *action, FString targetId)
     }
     SetItem("Action", Action);
 }
+
+void URshipSubsystem::SendEmitter(EmitterContainer* emitter, FString targetId)
+{
+    TSharedPtr<FJsonObject> Emitter = MakeShareable(new FJsonObject);
+
+	Emitter->SetStringField(TEXT("id"), emitter->GetId());
+	Emitter->SetStringField(TEXT("name"), emitter->GetId());
+	Emitter->SetStringField(TEXT("targetId"), targetId);
+	Emitter->SetStringField(TEXT("serviceId"), ServiceId);
+	TSharedPtr<FJsonObject> schema = emitter->GetSchema();
+    if (schema)
+    {
+		Emitter->SetObjectField(TEXT("schema"), schema);
+	}
+	SetItem("Emitter", Emitter);
+}
+
+
 
 void URshipSubsystem::SendTargetStatus(Target *target, bool online)
 {
@@ -290,9 +327,12 @@ void URshipSubsystem::SetItem(FString itemType, TSharedPtr<FJsonObject> data)
     SendJson(WrapWSEvent(MakeSet(itemType, data)));
 }
 
-void URshipSubsystem::RegisterTarget(AActor *actor)
+void URshipSubsystem::RegisterTarget(AActor *actor, UWorld *world)
 {
-    FString targetId = ServiceId + ":" + actor->GetComponentByClass<URshipTargetComponent>()->targetId;
+
+    URshipTargetComponent *targetComponent = actor->GetComponentByClass<URshipTargetComponent>();
+
+    FString targetId = ServiceId + ":" + targetComponent->targetId;
 
     if (!AllTargets.Contains(targetId))
     {
@@ -302,73 +342,131 @@ void URshipSubsystem::RegisterTarget(AActor *actor)
     Target *target = AllTargets[targetId];
 
     UClass *ownerClass = actor->GetClass();
-    // ...
+
     for (TFieldIterator<UFunction> field(ownerClass, EFieldIteratorFlags::ExcludeSuper); field; ++field)
     {
         UFunction *handler = *field;
 
         FString name = field->GetName();
 
-        if (name.StartsWith("RS_"))
+        if (!name.StartsWith("RS_"))
         {
-            FString fullActionId = targetId + ":" + name;
+            continue;
+        }
+        FString fullActionId = targetId + ":" + name;
 
-            if (target->HasAction(fullActionId))
-            {
-                auto action = target->GetActions()[fullActionId];
-                action->AddParent(actor);
-                action->UpdateSchema(handler);
-            }
-            else
-            {
-                auto action = new Action(fullActionId, handler);
-                action->AddParent(actor);
-                target->AddAction(action);
-
-            }
+        auto actions = target->GetActions();
+ 
+        if (actions.Contains(fullActionId))
+        {
+            auto action = target->GetActions()[fullActionId];
+            action->AddParent(actor);
+            action->UpdateSchema(handler);
+        }
+        else
+        {
+            auto action = new Action(fullActionId, handler);
+            action->AddParent(actor);
+            target->AddAction(action);
         }
     }
+
+    for (TFieldIterator<FMulticastInlineDelegateProperty> It(ownerClass, EFieldIteratorFlags::ExcludeSuper); It; ++It)
+    {
+		FMulticastInlineDelegateProperty* EmitterProp = *It;
+		FString EmitterName = EmitterProp->GetName();
+		FName EmitterType = EmitterProp->GetClass()->GetFName();
+
+		UE_LOG(LogTemp, Warning, TEXT("Emitter: %s, Type: %s"), *EmitterName, *EmitterType.ToString());
+
+        if (!EmitterName.StartsWith("RS_"))
+        {
+			continue;
+		}
+
+        auto emitters = target->GetEmitters();
+
+        FString fullEmitterId = targetId + ":" + EmitterName;
+
+        if (emitters.Contains(fullEmitterId))
+        {
+            auto emitter = emitters[fullEmitterId];
+            emitter->UpdateSchema(EmitterProp);
+        }
+        else {
+			auto emitter = new EmitterContainer(fullEmitterId, EmitterProp);
+            target->AddEmitter(emitter);
+        }
+
+        FMulticastScriptDelegate EmitterDelegate = EmitterProp->GetPropertyValue_InContainer(actor);
+
+        TScriptDelegate localDelegate;
+     
+         if (!world) {
+			 UE_LOG(LogTemp, Warning, TEXT("World Not Found"));
+			 return;
+		 }
+
+         FActorSpawnParameters spawnInfo;
+         spawnInfo.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+         spawnInfo.Owner = actor;
+         spawnInfo.bNoFail = true;
+         spawnInfo.bDeferConstruction = false;
+         spawnInfo.bAllowDuringConstructionScript = true;
+
+         AEmitterHandler* handler = world->SpawnActor<AEmitterHandler>(spawnInfo);
+
+         handler->SetServiceId(ServiceId);
+         handler->SetTargetId(targetId);
+         handler->SetEmitterId(EmitterName);
+
+         localDelegate.BindUFunction(handler, TEXT("ProcessEmitter"));
+
+         EmitterDelegate.Add(localDelegate);
+
+         EmitterProp->SetPropertyValue_InContainer(actor, EmitterDelegate);
+
+	}
 
     AllTargets.Add(targetId, target);
     SendAll();
 }
 
-void URshipSubsystem::RegisterEmitter(FString targetId, FString emitterId, TSharedPtr<FJsonObject> schema)
-{
-
-    // FString fullEmitterId = ServiceId + ":" + targetId + ":" + emitterId;
-
-    // RegisteredTargets.Add(targetId);
-    // EmitterSchemas.Add(fullEmitterId, schema);
-
-    // if (!TargetEmitterMap.Contains(targetId))
-    //{
-    //     UE_LOG(LogTemp, Warning, TEXT("Emitter Set Not Found for targetId %s"), *targetId);
-    //     return;
-    // }
-
-    // TargetEmitterMap[targetId].Add(fullEmitterId);
-}
-
 void URshipSubsystem::PulseEmitter(FString targetId, FString emitterId, TSharedPtr<FJsonObject> data)
 {
 
-    FString fullEmitterId = ServiceId + ":" + targetId + ":" + emitterId;
+    TSharedPtr<FJsonObject> pulse = MakeShareable(new FJsonObject); 
 
-    auto timestamp = FDateTime::Now().ToUnixTimestamp();
-    UE_LOG(LogTemp, Warning, TEXT("Pulse Emitter %s %d"), *fullEmitterId, timestamp);
+    FString fullEmitterId =  targetId + ":" + emitterId;   
 
-    /*  if (EmitterSchemas.Contains(fullEmitterId))
-      {
-          TSharedPtr<FJsonObject> Pulse = MakeShareable(new FJsonObject);
+    pulse->SetStringField("emitterId", fullEmitterId);
+    pulse->SetStringField("id", fullEmitterId);
 
-          Pulse->SetStringField(TEXT("emitterId"), fullEmitterId);
-          Pulse->SetStringField(TEXT("id"), fullEmitterId);
-          Pulse->SetObjectField("data", data);
-          Pulse->SetNumberField("timestamp", FDateTime::Now().ToUnixTimestamp());
+    pulse->SetObjectField("data", data);
 
-          SetItem("Pulse", Pulse);
-      }*/
+    this->SetItem("Pulse", pulse);
+}
+
+EmitterContainer* URshipSubsystem::GetEmitterInfo(FString fullTargetId, FString emitterId)
+{
+    if (!AllTargets.Contains(fullTargetId))
+    {
+		return nullptr;
+	}
+
+    auto target = AllTargets[fullTargetId];
+
+    FString fullEmitterId = fullTargetId + ":" + emitterId;
+
+    auto emitters = target->GetEmitters();
+
+    if (!emitters.Contains(fullEmitterId))
+    {
+        return nullptr;
+	}
+
+    return emitters[fullEmitterId];
+
 }
 
 void URshipSubsystem::Reset()
