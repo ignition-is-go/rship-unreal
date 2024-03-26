@@ -13,6 +13,6 @@ public:
     UPROPERTY(EditAnywhere, config, Category = "RshipExec", meta = (DisplayName = "Rocketship Host"))
     FString rshipHostAddress;
 
-    UPROPERTY(EditAnywhere, config, Category = "RshipExec", meta = (DisplayNAme = "Service Color"))
+    UPROPERTY(EditAnywhere, config, Category = "RshipExec", meta = (DisplayName = "Service Color"))
     FLinearColor ServiceColor = FLinearColor::Gray;
 };

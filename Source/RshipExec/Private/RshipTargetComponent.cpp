@@ -4,100 +4,69 @@
 #include <iostream>
 #include "Engine/World.h"
 #include "Engine/Engine.h"
-#include "RshipGameInstance.h"
+#include "RshipSubsystem.h"
+#include "GameFramework/Actor.h"
 #include "Misc/DefaultValueHelper.h"
+#include "Util.h"
 
 using namespace std;
 
 // Sets default values for this component's properties
-URshipTargetComponent::URshipTargetComponent()
+void URshipTargetComponent::OnRegister()
 {
+
+	Super::OnRegister();
 	// Set this component to be initialized when the game starts, and to be ticked every frame.  You can turn these features
 	// off to improve performance if you don't need them.
 	PrimaryComponentTick.bCanEverTick = true;
 
-	// ...
+	Register();
 }
 
-// Called when the game starts
-void URshipTargetComponent::BeginPlay()
+void URshipTargetComponent::OnComponentDestroyed(bool bDestoryHierarchy)
 {
-	Super::BeginPlay();
 
-	URshipGameInstance *GameInstance = Cast<URshipGameInstance>(GetWorld()->GetGameInstance());
-	while (!GameInstance)
+	for (const auto& handler : EmitterHandlers)
 	{
-		GameInstance = Cast<URshipGameInstance>(GetWorld()->GetGameInstance());
+		handler.Value->Destroy();
 	}
 
-	// ...
 }
 
 // Called every frame
 void URshipTargetComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction *ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
-
-	// ...
 }
 
-void URshipTargetComponent::BindAction(FActionCallBack callback, FString actionId)
+void URshipTargetComponent::Reconnect()
 {
-
-	URshipGameInstance *GameInstance = Cast<URshipGameInstance>(GetWorld()->GetGameInstance());
-	while (!GameInstance)
-	{
-		GameInstance = Cast<URshipGameInstance>(GetWorld()->GetGameInstance());
-	}
-	if (GameInstance)
-	{
-		FString name = GetName();
-
-		GameInstance->RegisterAction(name, actionId, callback);
-	}
+	URshipSubsystem *subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+	subsystem->Reconnect();
 }
 
-void URshipTargetComponent::BindActionFloat(FActionCallBackFloat callbackWithFloat, FString actionId)
+void URshipTargetComponent::Reset()
 {
-	URshipGameInstance *GameInstance = Cast<URshipGameInstance>(GetWorld()->GetGameInstance());
-	while (!GameInstance)
-	{
-		GameInstance = Cast<URshipGameInstance>(GetWorld()->GetGameInstance());
-	}
-	if (GameInstance)
-	{
-		FString name = GetName();
-
-		GameInstance->RegisterActionFloat(name, actionId, callbackWithFloat);
-	}
+	URshipSubsystem* subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+	subsystem->Reset();
 }
 
-void URshipTargetComponent::BindActionString(FActionCallBackString callbackWithString, FString actionId)
+
+void URshipTargetComponent::Register()
 {
-	URshipGameInstance *GameInstance = Cast<URshipGameInstance>(GetWorld()->GetGameInstance());
-	while (!GameInstance)
-	{
-		GameInstance = Cast<URshipGameInstance>(GetWorld()->GetGameInstance());
-	}
-	if (GameInstance)
-	{
-		FString name = GetName();
 
-		GameInstance->RegisterActionString(name, actionId, callbackWithString);
-	}
-}
+	URshipSubsystem *subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
 
-void URshipTargetComponent::BindActionStringWithOptions(FActionCallBackString callbackWithString, FString actionId,TArray<FString> options)
-{
-	URshipGameInstance *GameInstance = Cast<URshipGameInstance>(GetWorld()->GetGameInstance());
-	while (!GameInstance)
-	{
-		GameInstance = Cast<URshipGameInstance>(GetWorld()->GetGameInstance());
-	}
-	if (GameInstance)
-	{
-		FString name = GetName();
+	AActor *parent = GetOwner();
 
-		GameInstance->RegisterActionStringWithOptions(name, actionId, callbackWithString, options);
+	if (!parent)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Parent not found"));
 	}
+
+	auto world = GetWorld();
+
+	subsystem->RegisterTarget(parent, world);
+
+	UE_LOG(LogTemp, Warning, TEXT("Component Registered: %s"), *parent->GetName());
 }
