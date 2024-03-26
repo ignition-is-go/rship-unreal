@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "EmitterHandler.h"
 #include "RshipTargetComponent.generated.h"
 
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
@@ -30,8 +31,7 @@ public:
 	UPROPERTY(EditAnywhere, config, Category = "RshipTarget", meta = (DisplayName = "Target Name"))
 	FString targetId;
 
-
+	TMap<FString, AEmitterHandler*> EmitterHandlers;
 
 private: 
-	FString uid;
 };

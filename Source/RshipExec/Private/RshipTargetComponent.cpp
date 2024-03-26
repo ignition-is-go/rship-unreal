@@ -20,15 +20,16 @@ void URshipTargetComponent::OnRegister()
 	// off to improve performance if you don't need them.
 	PrimaryComponentTick.bCanEverTick = true;
 
-	this->uid = FGuid::NewGuid().ToString();
-
-
-
 	Register();
 }
 
 void URshipTargetComponent::OnComponentDestroyed(bool bDestoryHierarchy)
 {
+
+	for (const auto& handler : EmitterHandlers)
+	{
+		handler.Value->Destroy();
+	}
 
 }
 

@@ -58,6 +58,7 @@ public:
 	void SetServiceId(FString serviceId);
 	void SetTargetId(FString targetId);
 	void SetEmitterId(FString emitterId);
+	void SetDelegate(FScriptDelegate* delegate);
 
 
 protected:
@@ -69,4 +70,5 @@ private:
 	FString serviceId;
 	FString targetId;
 	FString emitterId;
+	FScriptDelegate* delegate;
 };

@@ -407,6 +407,9 @@ void URshipSubsystem::RegisterTarget(AActor *actor, UWorld *world)
 			 return;
 		 }
 
+
+
+
          FActorSpawnParameters spawnInfo;
          spawnInfo.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
          spawnInfo.Owner = actor;
@@ -414,17 +417,27 @@ void URshipSubsystem::RegisterTarget(AActor *actor, UWorld *world)
          spawnInfo.bDeferConstruction = false;
          spawnInfo.bAllowDuringConstructionScript = true;
 
-         AEmitterHandler* handler = world->SpawnActor<AEmitterHandler>(spawnInfo);
+         
+         if (targetComponent->EmitterHandlers.Contains(EmitterName)) {
+             return;
+         }
+
+         AEmitterHandler* handler =  world->SpawnActor<AEmitterHandler>(spawnInfo);
+
+         handler->SetActorLabel(actor->GetActorLabel() + " " + EmitterName + " Handler");
 
          handler->SetServiceId(ServiceId);
          handler->SetTargetId(targetId);
          handler->SetEmitterId(EmitterName);
+         handler->SetDelegate(&localDelegate);
 
          localDelegate.BindUFunction(handler, TEXT("ProcessEmitter"));
 
          EmitterDelegate.Add(localDelegate);
 
          EmitterProp->SetPropertyValue_InContainer(actor, EmitterDelegate);
+
+         targetComponent->EmitterHandlers.Add(EmitterName, handler);
 
 	}
 

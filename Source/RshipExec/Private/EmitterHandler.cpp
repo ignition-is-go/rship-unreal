@@ -86,8 +86,12 @@ void AEmitterHandler::ProcessEmitter(
 
 	EmitterContainer* emitter = subsystem->GetEmitterInfo(this->targetId, this->emitterId);
 
+	if (this->targetId.IsEmpty() || this->emitterId.IsEmpty()) {
+		return;
+	}
+
 	if (emitter == nullptr) {
-		UE_LOG(LogTemp, Error, TEXT("EMITTER CANNOT PROCEED - Emitter not found"));
+		UE_LOG(LogTemp, Error, TEXT("EMITTER CANNOT PROCEED - Emitter not found: %s:%s"), *this->targetId, *this->emitterId);
 		return;
 	}
 
@@ -104,8 +108,6 @@ void AEmitterHandler::ProcessEmitter(
 		//dereference the pointer to get the value
 
 		if (prop.Type == "StrProperty") {
-
-
 			FString strValue = "test string";
 			json->SetStringField(prop.Name, strValue);
 			// bump an extra one cuz strings are 2....
@@ -162,6 +164,11 @@ void AEmitterHandler::SetTargetId(FString tid)
 void AEmitterHandler::SetEmitterId(FString eid)
 {
 	this->emitterId = eid;
+}
+
+void AEmitterHandler::SetDelegate(FScriptDelegate* d)
+{
+	this->delegate = d;
 }
 
 
