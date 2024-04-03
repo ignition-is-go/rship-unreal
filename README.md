@@ -30,7 +30,7 @@ Rocketship's Unreal Engine integration is facilitated by the Rship-Unreal plugin
 
 3. Connect the RS function to some other function
 
-![Unreal_Action_Properties_Example](https://github.com/ignition-is-go/rship-unreal/assets/131498134/676c3c3f-9c3e-4f11-b62f-30d997ec8216)
+![Unreal_Action_Blueprint_Example](https://github.com/ignition-is-go/rship-unreal/assets/131498134/3111ee2d-a857-4c35-998f-396f745dc9d7)
 
 #### Create an Emitter
 
