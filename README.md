@@ -26,7 +26,7 @@ Rocketship's Unreal Engine integration is facilitated by the Rship-Unreal plugin
 1. Create a function in the Actor blueprint. **Make sure to prefix the function name with RS_** to add it to the Actor's Target 
 2. Edit the function arguments to define an Action Schema, which determines the data structure required for triggering the Action
 
-![Unreal_Action_Blueprint_Example](https://github.com/ignition-is-go/rship-unreal/assets/131498134/3111ee2d-a857-4c35-998f-396f745dc9d7)
+![Screenshot 2024-04-03 at 11 38 28 AM](https://github.com/ignition-is-go/rship-unreal/assets/131498134/92378b33-281f-48ff-9228-6434604c02b5)
 
 3. Connect the RS function to some other function
 
