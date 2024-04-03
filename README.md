@@ -12,6 +12,7 @@ Rocketship's Unreal Engine integration is facilitated by the Rship-Unreal plugin
 4. In the plugins manager (Edit > Plugins), search for the 'RshipExec' plugin and verify it is active (checked on)
 5. Open the Unreal project settings (Edit > Project Settings) and search for the 'Rship Exec' plugin
 6. Enter the address of the Rocketship server you wish to connect to in the 'Rocketship Host' field. Also set the 'Service Color' :)
+7. Verify that your Unreal Instance appears in the Rocketship UI (click 'Reconnect' if necessary)
 
 ### Usage
 
@@ -22,23 +23,29 @@ Rocketship's Unreal Engine integration is facilitated by the Rship-Unreal plugin
 
 #### Create an Action
 
-1. Create a function in the Actor blueprint's Event Graph. **Make sure to prefix the function name with RS_** to add it to the Actor Target 
-2. Create function arguments to define an Action Schema, which determines the data structure required for triggering the Action
+1. Create a function in the Actor blueprint. **Make sure to prefix the function name with RS_** to add it to the Actor's Target 
+2. Edit the function arguments to define an Action Schema, which determines the data structure required for triggering the Action
+
+![Unreal_Action_Blueprint_Example](https://github.com/ignition-is-go/rship-unreal/assets/131498134/3111ee2d-a857-4c35-998f-396f745dc9d7)
+
+3. Connect the RS function to some other function
+
+![Unreal_Action_Properties_Example](https://github.com/ignition-is-go/rship-unreal/assets/131498134/676c3c3f-9c3e-4f11-b62f-30d997ec8216)
 
 #### Create an Emitter
 
-1. Create an event dispatcher in the Actor blueprint. **Prefix the event dispatcher with RS_** to add it to the Actor Target
-2. Create event dispatcher properties to define an Emitter Schema, which determines the data structure pulsed by the Emitter
+1. Create an event dispatcher in the Actor blueprint. **Make sure to prefix the event dispatcher name with RS_** to add it to the Actor's Target
+2. Edit the event dispatcher properties to define an Emitter Schema, which determines the data structure pulsed by the Emitter
 
 ### Current Limitations
 
 Due to some pesky aspects of Unreal's implementation of C++, we are still working out the following limitations:
 
 - Emitter Schema Size: 
-    - An Emitter Cchema can have at most 32 properties. 
+    - An Emitter Schema can have at most 32 properties. 
 
 - Unsupported Data Types:  
-    - Vector, Rotation, and Position (but note these structures can be easily decomposed into floats)
+    - Vector, Rotation, and Position (note these structures can be easily decomposed into floats)
 
 ## Targets, Actions, and Emitters
 
