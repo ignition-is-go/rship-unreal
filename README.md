@@ -6,7 +6,7 @@ Rocketship's Unreal Engine integration is facilitated by the Rship-Unreal plugin
 
 ### Installation
 
-1. Download and unzip this repo, or head to the Rocketship releases page: https://github.com/ignition-is-go/rocketship/releases (private)
+1. Download and unzip this repo, or head to the Rocketship releases page: [https://docs.rship.io/releases](https://docs.rship.io/releases)
 2. Create a 'Plugins' folder in your Unreal project directory (the directory containing your .uproject file) and place the extracted folder there
 3. Open the Unreal project (NOTE: If you are prompted to rebuild missing data, accept)
 4. In the plugins manager (Edit > Plugins), search for the 'RshipExec' plugin and verify it is active (checked on)
