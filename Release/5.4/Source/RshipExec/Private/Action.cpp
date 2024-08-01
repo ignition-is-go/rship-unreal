@@ -5,9 +5,10 @@
 #include "Misc/OutputDeviceNull.h"
 #include "Util.h"
 
-Action::Action(FString id, UFunction *function)
+Action::Action(FString id, FString name, UFunction *function)
 {
     this->id = id;
+    this->name = name;
     this->props = new TDoubleLinkedList<RshipSchemaProperty>();
     this->functionName = function->GetName();
     this->parents = TSet<AActor *>();
@@ -21,6 +22,10 @@ Action::~Action()
 FString Action::GetId()
 {
     return this->id;
+}
+
+FString Action::GetName() {
+    return this->name;
 }
 
 void Action::Take(const TSharedRef<FJsonObject> data)

@@ -127,7 +127,7 @@ void URshipSubsystem::ProcessMessage(const FString &message)
         FString commandId = data->GetStringField(TEXT("commandId"));
         TSharedRef<FJsonObject> command = data->GetObjectField(TEXT("command")).ToSharedRef();
 
-        if (commandId == "client:setId")
+        if (commandId == "SetClientId")
         {
 
             ClientId = command->GetStringField(TEXT("clientId"));
@@ -136,7 +136,7 @@ void URshipSubsystem::ProcessMessage(const FString &message)
             return;
         }
 
-        if (commandId == "target:action:exec")
+        if (commandId == "ExecTargetAction")
         {
 
             TSharedRef<FJsonObject> execAction = command->GetObjectField(TEXT("action")).ToSharedRef();
@@ -227,7 +227,7 @@ void URshipSubsystem::SendAction(Action *action, FString targetId)
     TSharedPtr<FJsonObject> Action = MakeShareable(new FJsonObject);
 
     Action->SetStringField(TEXT("id"), action->GetId());
-    Action->SetStringField(TEXT("name"), action->GetId());
+    Action->SetStringField(TEXT("name"), action->GetName());
     Action->SetStringField(TEXT("targetId"), targetId);
     Action->SetStringField(TEXT("serviceId"), ServiceId);
     TSharedPtr<FJsonObject> schema = action->GetSchema();
@@ -243,7 +243,7 @@ void URshipSubsystem::SendEmitter(EmitterContainer* emitter, FString targetId)
     TSharedPtr<FJsonObject> Emitter = MakeShareable(new FJsonObject);
 
 	Emitter->SetStringField(TEXT("id"), emitter->GetId());
-	Emitter->SetStringField(TEXT("name"), emitter->GetId());
+	Emitter->SetStringField(TEXT("name"), emitter->GetName());
 	Emitter->SetStringField(TEXT("targetId"), targetId);
 	Emitter->SetStringField(TEXT("serviceId"), ServiceId);
 	TSharedPtr<FJsonObject> schema = emitter->GetSchema();
@@ -365,7 +365,7 @@ void URshipSubsystem::RegisterTarget(AActor *actor, UWorld *world)
         }
         else
         {
-            auto action = new Action(fullActionId, handler);
+            auto action = new Action(fullActionId, name, handler);
             action->AddParent(actor);
             target->AddAction(action);
         }
@@ -394,7 +394,7 @@ void URshipSubsystem::RegisterTarget(AActor *actor, UWorld *world)
             emitter->UpdateSchema(EmitterProp);
         }
         else {
-			auto emitter = new EmitterContainer(fullEmitterId, EmitterProp);
+			auto emitter = new EmitterContainer(fullEmitterId, EmitterName, EmitterProp);
             target->AddEmitter(emitter);
         }
 

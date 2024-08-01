@@ -13,10 +13,11 @@ class RSHIPEXEC_API EmitterContainer
 
 private:
 	FString id;
+	FString name;
 	TDoubleLinkedList<RshipSchemaProperty> *props;
 
 public:
-	EmitterContainer(FString id, FMulticastInlineDelegateProperty* Emitter);
+	EmitterContainer(FString id, FString name, FMulticastInlineDelegateProperty* Emitter);
 	~EmitterContainer();
 
 	void UpdateSchema(FMulticastInlineDelegateProperty* Emitter);
@@ -26,5 +27,6 @@ public:
 	TDoubleLinkedList<RshipSchemaProperty> *GetProps();
 
 	FString GetId();
+	FString GetName();
 
 };

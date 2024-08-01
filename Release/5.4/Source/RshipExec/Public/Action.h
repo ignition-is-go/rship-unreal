@@ -18,12 +18,14 @@ private:
 	FString functionName;
 	TSet<AActor*> parents;
 	FString id;
+	FString name;
 	TDoubleLinkedList<RshipSchemaProperty> *props;
 
 public:
-	Action(FString id, UFunction *handler);
+	Action(FString id, FString name, UFunction *handler);
 	~Action();
 	FString GetId();
+	FString GetName();
 	TSharedPtr<FJsonObject> GetSchema();
 	void Take(const TSharedRef<FJsonObject> data);
 	void AddParent(AActor *parent);

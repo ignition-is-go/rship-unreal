@@ -5,10 +5,11 @@
 #include "Util.h"
 
 
-EmitterContainer::EmitterContainer(FString id, FMulticastInlineDelegateProperty* Emitter)
+EmitterContainer::EmitterContainer(FString id, FString name,  FMulticastInlineDelegateProperty* Emitter)
 {
 
 	this->id = id;
+    this->name = name;
     this->props = new TDoubleLinkedList<RshipSchemaProperty>();
 	this->UpdateSchema(Emitter);
 
@@ -51,4 +52,9 @@ TDoubleLinkedList<RshipSchemaProperty>* EmitterContainer::GetProps()
 FString EmitterContainer::GetId()
 {
     return this->id;
+}
+
+FString EmitterContainer::GetName()
+{
+    return this->name;
 }
