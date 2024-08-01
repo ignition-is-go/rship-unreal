@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "EmitterHandler.h"
+#include "Target.h"
 #include "RshipTargetComponent.generated.h"
 
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
@@ -25,13 +26,13 @@ public:
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "RshipTarget")
 	void Register();
 
-	UFUNCTION(BlueprintCallable, CallInEditor, Category = "RshipTarget")
-	void Reset();
-
 	UPROPERTY(EditAnywhere, config, Category = "RshipTarget", meta = (DisplayName = "Target Name"))
-	FString targetId;
+	FString targetName;
 
 	TMap<FString, AEmitterHandler*> EmitterHandlers;
+
+	Target* TargetData;
+
 
 private: 
 };

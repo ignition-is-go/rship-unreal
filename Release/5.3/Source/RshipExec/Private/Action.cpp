@@ -11,7 +11,6 @@ Action::Action(FString id, FString name, UFunction *function)
     this->name = name;
     this->props = new TDoubleLinkedList<RshipSchemaProperty>();
     this->functionName = function->GetName();
-    this->parents = TSet<AActor *>();
     this->UpdateSchema(function);
 }
 
@@ -28,7 +27,7 @@ FString Action::GetName() {
     return this->name;
 }
 
-void Action::Take(const TSharedRef<FJsonObject> data)
+void Action::Take(AActor* actor, const TSharedRef<FJsonObject> data)
 {
     // UE_LOG(LogTemp, Warning, TEXT("Taking Action %s"), *this->id);
 
@@ -52,39 +51,15 @@ void Action::Take(const TSharedRef<FJsonObject> data)
 
     TCHAR *outStr = args->GetCharArray().GetData();
 
-    // UE_LOG(LogTemp, Warning, TEXT("Calling function with args: %s"), outStr);
+    UE_LOG(LogTemp, Warning, TEXT("Calling function with args: %s"), outStr);
 
-    TSet<AActor *> *safeParents = new TSet<AActor *>;
-
-    for (auto parent : this->parents)
-    {
-        if (parent->IsValidLowLevelFast())
-        {
-            safeParents->Add(parent);
-        }
-    }
-
-    this->parents = *safeParents;
-
-    for (auto parent : this->parents)
-    {
-        if (parent)
-        {
-            parent->CallFunctionByNameWithArguments(outStr, out, NULL, true);           
-        }
-    }
+    actor->CallFunctionByNameWithArguments(outStr, out, NULL, true);        
 
     delete args;
 }
 
-void Action::AddParent(AActor *parent)
-{
-    this->parents.Add(parent);
-}
-
 void Action::UpdateSchema(UFunction *handler)
 {
-
     this->props->Empty();
 
     for (TFieldIterator<FProperty> It(handler); It && (It->PropertyFlags & (CPF_Parm)) == CPF_Parm; ++It)

@@ -25,9 +25,6 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
 {
 	GENERATED_BODY()
 
-	TMap<FString, Target*> AllTargets;
-	TMap<FString, int> TargetCounts;
-
 	AEmitterHandler *EmitterHandler;
 
 	TSharedPtr<IWebSocket> WebSocket;
@@ -44,7 +41,6 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
 	void SendAction(Action* action, FString targetId);
 	void SendEmitter(EmitterContainer* emitter, FString targetId);
 	void SendTargetStatus(Target* target, bool online);
-	void SendAll();
 	void ProcessMessage(const FString& message);
 
 public:
@@ -52,11 +48,12 @@ public:
 	virtual void Deinitialize() override;
 
 	void Reconnect();
-	void Reset();
-
-	void RegisterTarget(AActor *target, UWorld *world);
 	void PulseEmitter(FString TargetId, FString EmitterId, TSharedPtr<FJsonObject> data);
+	void SendAll();
 
 	EmitterContainer* GetEmitterInfo(FString targetId, FString emitterId);
 
+	TSet<URshipTargetComponent*>* TargetComponents;
+
+	FString GetServiceId();
 };

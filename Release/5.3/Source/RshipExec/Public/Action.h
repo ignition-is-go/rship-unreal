@@ -16,7 +16,6 @@ class RSHIPEXEC_API Action
 
 private:
 	FString functionName;
-	TSet<AActor*> parents;
 	FString id;
 	FString name;
 	TDoubleLinkedList<RshipSchemaProperty> *props;
@@ -27,7 +26,6 @@ public:
 	FString GetId();
 	FString GetName();
 	TSharedPtr<FJsonObject> GetSchema();
-	void Take(const TSharedRef<FJsonObject> data);
-	void AddParent(AActor *parent);
+	void Take(AActor* actor, const TSharedRef<FJsonObject> data);
 	void UpdateSchema(UFunction* handler);
 };

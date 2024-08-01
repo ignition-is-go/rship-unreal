@@ -37,6 +37,8 @@ void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
     if (world != nullptr) {
         this->EmitterHandler = GetWorld()->SpawnActor<AEmitterHandler>();
     }
+
+    this->TargetComponents = new TSet<URshipTargetComponent*>;
 }
 
 void URshipSubsystem::Reconnect()
@@ -146,18 +148,23 @@ void URshipSubsystem::ProcessMessage(const FString &message)
 
             FString targetId = execAction->GetStringField(TEXT("targetId"));
 
-            if (!AllTargets.Contains(targetId))
-            {
-                UE_LOG(LogTemp, Warning, TEXT("Target Not Found: [%s]"), *targetId);
-                return;
+
+
+            for (URshipTargetComponent* comp : *this->TargetComponents) {
+                
+                if (comp->TargetData->GetId() == targetId) {
+
+                    Target* target = comp->TargetData;
+                    AActor* owner = comp->GetOwner();
+
+                    if (target != nullptr)
+                    {
+                        UE_LOG(LogTemp, Warning, TEXT("Taking Action: %s"), *actionId);
+                        target->TakeAction(owner, actionId, execData);
+                    }
+                }
             }
 
-            Target *target = AllTargets[targetId];
-
-            if (target != nullptr)
-            {
-                target->TakeAction(actionId, execData);
-            }
             // command.Reset();
         }
         obj.Reset();
@@ -291,9 +298,8 @@ void URshipSubsystem::SendAll()
 
     SetItem("Instance", Instance);
 
-    for (auto &Elem : AllTargets)
-    {
-        SendTarget(Elem.Value);
+    for (auto& comp : *this->TargetComponents) {
+        SendTarget(comp->TargetData);
     }
 }
 
@@ -327,123 +333,6 @@ void URshipSubsystem::SetItem(FString itemType, TSharedPtr<FJsonObject> data)
     SendJson(WrapWSEvent(MakeSet(itemType, data)));
 }
 
-void URshipSubsystem::RegisterTarget(AActor *actor, UWorld *world)
-{
-
-    URshipTargetComponent *targetComponent = actor->GetComponentByClass<URshipTargetComponent>();
-
-    FString targetId = ServiceId + ":" + targetComponent->targetId;
-
-    if (!AllTargets.Contains(targetId))
-    {
-        AllTargets.Add(targetId, new Target(targetId));
-    }
-
-    Target *target = AllTargets[targetId];
-
-    UClass *ownerClass = actor->GetClass();
-
-    for (TFieldIterator<UFunction> field(ownerClass, EFieldIteratorFlags::ExcludeSuper); field; ++field)
-    {
-        UFunction *handler = *field;
-
-        FString name = field->GetName();
-
-        if (!name.StartsWith("RS_"))
-        {
-            continue;
-        }
-        FString fullActionId = targetId + ":" + name;
-
-        auto actions = target->GetActions();
- 
-        if (actions.Contains(fullActionId))
-        {
-            auto action = target->GetActions()[fullActionId];
-            action->AddParent(actor);
-            action->UpdateSchema(handler);
-        }
-        else
-        {
-            auto action = new Action(fullActionId, name, handler);
-            action->AddParent(actor);
-            target->AddAction(action);
-        }
-    }
-
-    for (TFieldIterator<FMulticastInlineDelegateProperty> It(ownerClass, EFieldIteratorFlags::ExcludeSuper); It; ++It)
-    {
-		FMulticastInlineDelegateProperty* EmitterProp = *It;
-		FString EmitterName = EmitterProp->GetName();
-		FName EmitterType = EmitterProp->GetClass()->GetFName();
-
-		UE_LOG(LogTemp, Warning, TEXT("Emitter: %s, Type: %s"), *EmitterName, *EmitterType.ToString());
-
-        if (!EmitterName.StartsWith("RS_"))
-        {
-			continue;
-		}
-
-        auto emitters = target->GetEmitters();
-
-        FString fullEmitterId = targetId + ":" + EmitterName;
-
-        if (emitters.Contains(fullEmitterId))
-        {
-            auto emitter = emitters[fullEmitterId];
-            emitter->UpdateSchema(EmitterProp);
-        }
-        else {
-			auto emitter = new EmitterContainer(fullEmitterId, EmitterName, EmitterProp);
-            target->AddEmitter(emitter);
-        }
-
-        FMulticastScriptDelegate EmitterDelegate = EmitterProp->GetPropertyValue_InContainer(actor);
-
-        TScriptDelegate localDelegate;
-     
-         if (!world) {
-			 UE_LOG(LogTemp, Warning, TEXT("World Not Found"));
-			 return;
-		 }
-
-
-
-
-         FActorSpawnParameters spawnInfo;
-         spawnInfo.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-         spawnInfo.Owner = actor;
-         spawnInfo.bNoFail = true;
-         spawnInfo.bDeferConstruction = false;
-         spawnInfo.bAllowDuringConstructionScript = true;
-
-         
-         if (targetComponent->EmitterHandlers.Contains(EmitterName)) {
-             return;
-         }
-
-         AEmitterHandler* handler =  world->SpawnActor<AEmitterHandler>(spawnInfo);
-
-         handler->SetActorLabel(actor->GetActorLabel() + " " + EmitterName + " Handler");
-
-         handler->SetServiceId(ServiceId);
-         handler->SetTargetId(targetId);
-         handler->SetEmitterId(EmitterName);
-         handler->SetDelegate(&localDelegate);
-
-         localDelegate.BindUFunction(handler, TEXT("ProcessEmitter"));
-
-         EmitterDelegate.Add(localDelegate);
-
-         EmitterProp->SetPropertyValue_InContainer(actor, EmitterDelegate);
-
-         targetComponent->EmitterHandlers.Add(EmitterName, handler);
-
-	}
-
-    AllTargets.Add(targetId, target);
-    SendAll();
-}
 
 void URshipSubsystem::PulseEmitter(FString targetId, FString emitterId, TSharedPtr<FJsonObject> data)
 {
@@ -462,12 +351,18 @@ void URshipSubsystem::PulseEmitter(FString targetId, FString emitterId, TSharedP
 
 EmitterContainer* URshipSubsystem::GetEmitterInfo(FString fullTargetId, FString emitterId)
 {
-    if (!AllTargets.Contains(fullTargetId))
-    {
-		return nullptr;
-	}
+    Target* target = nullptr;
 
-    auto target = AllTargets[fullTargetId];
+    for (auto& comp : *this->TargetComponents) {
+        if (comp->TargetData->GetId() ==  fullTargetId) {
+            target = comp->TargetData;
+            break;
+        }
+    }
+
+    if (target == nullptr) {
+        return nullptr;
+    }
 
     FString fullEmitterId = fullTargetId + ":" + emitterId;
 
@@ -482,7 +377,9 @@ EmitterContainer* URshipSubsystem::GetEmitterInfo(FString fullTargetId, FString 
 
 }
 
-void URshipSubsystem::Reset()
+
+
+FString URshipSubsystem::GetServiceId() 
 {
-    AllTargets.Reset();
+    return ServiceId;
 }
