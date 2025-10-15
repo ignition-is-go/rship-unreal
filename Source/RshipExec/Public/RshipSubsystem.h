@@ -12,6 +12,8 @@
 #include "GameFramework/Actor.h"
 #include "Containers/List.h"
 #include "Target.h"
+#include "RshipTargetIntrospection.h"
+#include "RshipFrameSyncSubsystem.h"
 #include "RshipSubsystem.generated.h"
 
 
@@ -37,11 +39,14 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
 
 	void SetItem(FString itemType, TSharedPtr<FJsonObject> data);
 	void SendJson(TSharedPtr<FJsonObject> Payload);
-	void SendTarget(Target* target);
-	void SendAction(Action* action, FString targetId);
-	void SendEmitter(EmitterContainer* emitter, FString targetId);
-	void SendTargetStatus(Target* target, bool online);
-	void ProcessMessage(const FString& message);
+        void SendTarget(Target* target);
+        void SendAction(Action* action, FString targetId);
+        void SendEmitter(EmitterContainer* emitter, FString targetId);
+        void SendTargetStatus(Target* target, bool online);
+        void SendFrameSyncStatus();
+        void SendTargetSnapshotEvent();
+        void ConfigureFrameSyncFromSettings();
+        void ProcessMessage(const FString& message);
 
 public:
 	virtual void Initialize(FSubsystemCollectionBase &Collection) override;
@@ -49,11 +54,23 @@ public:
 
 	void Reconnect();
 	void PulseEmitter(FString TargetId, FString EmitterId, TSharedPtr<FJsonObject> data);
-	void SendAll();
+        void SendAll();
 
-	EmitterContainer* GetEmitterInfo(FString targetId, FString emitterId);
+        EmitterContainer* GetEmitterInfo(FString targetId, FString emitterId);
 
-	TSet<URshipTargetComponent*>* TargetComponents;
+        TSet<URshipTargetComponent*>* TargetComponents;
 
-	FString GetServiceId();
+        FString GetServiceId();
+
+        UFUNCTION(BlueprintCallable, Category = "RshipExec|Introspection")
+        TArray<FRshipTargetDescription> GetTargetSnapshot() const;
+
+        UFUNCTION(BlueprintCallable, Category = "RshipExec|Introspection")
+        void DumpTargetSnapshotToLog() const;
+
+        UFUNCTION(BlueprintCallable, Category = "RshipExec|FrameSync")
+        FString GetFrameSyncReportJson() const;
+
+        UFUNCTION(BlueprintCallable, Category = "RshipExec|FrameSync")
+        void BroadcastFrameSyncStatus();
 };

@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "EmitterHandler.h"
+#include "RshipTargetIntrospection.h"
 #include "Target.h"
 #include "RshipTargetComponent.generated.h"
 
@@ -26,13 +27,23 @@ public:
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "RshipTarget")
 	void Register();
 
-	UPROPERTY(EditAnywhere, config, Category = "RshipTarget", meta = (DisplayName = "Target Name"))
-	FString targetName;
+        UPROPERTY(EditAnywhere, config, Category = "RshipTarget", meta = (DisplayName = "Target Name"))
+        FString targetName;
 
-	TMap<FString, AEmitterHandler*> EmitterHandlers;
+        TMap<FString, AEmitterHandler*> EmitterHandlers;
 
-	Target* TargetData;
+        Target* TargetData;
 
 
-private: 
+        UFUNCTION(BlueprintCallable, Category = "RshipTarget")
+        FRshipTargetDescription GetTargetDescription() const;
+
+        UFUNCTION(BlueprintCallable, Category = "RshipTarget")
+        TArray<FRshipActionDescription> GetActionDescriptions() const;
+
+        UFUNCTION(BlueprintCallable, Category = "RshipTarget")
+        TArray<FRshipEmitterDescription> GetEmitterDescriptions() const;
+
+
+private:
 };

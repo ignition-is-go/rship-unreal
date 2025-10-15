@@ -24,8 +24,10 @@ public:
 	Action(FString id, FString name, UFunction *handler);
 	~Action();
 	FString GetId();
-	FString GetName();
-	TSharedPtr<FJsonObject> GetSchema();
-	void Take(AActor* actor, const TSharedRef<FJsonObject> data);
-	void UpdateSchema(UFunction* handler);
+        FString GetName();
+        FString GetFunctionName() const { return functionName; }
+        TSharedPtr<FJsonObject> GetSchema();
+        void Take(AActor* actor, const TSharedRef<FJsonObject> data);
+        void UpdateSchema(UFunction* handler);
+        TDoubleLinkedList<RshipSchemaProperty>* GetProps() const { return props; }
 };
