@@ -12,6 +12,7 @@
 #include "GameFramework/Actor.h"
 #include "Containers/List.h"
 #include "Target.h"
+#include "Containers/Map.h"
 #include "RshipSubsystem.generated.h"
 
 
@@ -32,26 +33,29 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
 	FString ServiceId;
 	FString MachineId;
 
-	FString ClientId = "UNSET";
-	FString ClusterId;
+        FString ClientId = "UNSET";
+        FString ClusterId;
+        TMap<FString, uint32> SentPayloadHashes;
 
-	void SetItem(FString itemType, TSharedPtr<FJsonObject> data);
-	void SendJson(TSharedPtr<FJsonObject> Payload);
-	void SendTarget(Target* target);
-	void SendAction(Action* action, FString targetId);
-	void SendEmitter(EmitterContainer* emitter, FString targetId);
-	void SendTargetStatus(Target* target, bool online);
-	void ProcessMessage(const FString& message);
+        void SetItem(const FString& itemType, const TSharedPtr<FJsonObject>& data);
+        void SendJson(const TSharedPtr<FJsonObject>& Payload);
+        void SendSerialized(FString&& Payload);
+        void ResetPayloadDeduplication();
+        void SendTarget(Target* target);
+        void SendAction(Action* action, const FString& targetId);
+        void SendEmitter(EmitterContainer* emitter, const FString& targetId);
+        void SendTargetStatus(Target* target, bool online);
+        void ProcessMessage(const FString& message);
 
 public:
 	virtual void Initialize(FSubsystemCollectionBase &Collection) override;
 	virtual void Deinitialize() override;
 
-	void Reconnect();
-	void PulseEmitter(FString TargetId, FString EmitterId, TSharedPtr<FJsonObject> data);
-	void SendAll();
+        void Reconnect();
+        void PulseEmitter(const FString& TargetId, const FString& EmitterId, const TSharedPtr<FJsonObject>& data);
+        void SendAll();
 
-	EmitterContainer* GetEmitterInfo(FString targetId, FString emitterId);
+        EmitterContainer* GetEmitterInfo(const FString& targetId, const FString& emitterId);
 
 	TSet<URshipTargetComponent*>* TargetComponents;
 
