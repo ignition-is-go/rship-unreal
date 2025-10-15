@@ -25,13 +25,13 @@ void Target::AddEmitter(EmitterContainer* emitter)
 }
 
 
-TMap<FString, Action*> Target::GetActions() {
-	return this->actions;
+const TMap<FString, Action*>& Target::GetActions() const {
+        return this->actions;
 }
 
-TMap<FString, EmitterContainer*> Target::GetEmitters()
+const TMap<FString, EmitterContainer*>& Target::GetEmitters() const
 {
-	return this->emitters;
+        return this->emitters;
 }
 
 FString Target::GetId() {

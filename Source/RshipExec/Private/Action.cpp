@@ -33,29 +33,22 @@ void Action::Take(AActor* actor, const TSharedRef<FJsonObject> data)
 
     // use our props list to build a string of our arguments
 
-    FString *args = new FString();
+    FString Args = this->functionName;
+    Args.Reserve(Args.Len() + this->props->Num() * 8);
 
-    args->Append(this->functionName);
-
-    for (const auto prop : *this->props)
+    for (const RshipSchemaProperty& Prop : *this->props)
     {
-        auto piece = data->TryGetField(prop.Name)->AsString();
-        args->Append(" \"");
-        args->Append(piece);
-        args->Append("\"");
+        const TSharedPtr<FJsonValue> FieldValue = data->TryGetField(Prop.Name);
+        const FString Piece = FieldValue.IsValid() ? FieldValue->AsString() : FString();
+        Args.Append(TEXT(" \""));
+        Args.Append(Piece);
+        Args.Append(TEXT("\""));
     }
 
-    // get current output device
+    FOutputDeviceNull Out;
+    UE_LOG(LogTemp, Warning, TEXT("Calling function with args: %s"), *Args);
 
-    FOutputDeviceNull out = FOutputDeviceNull();
-
-    TCHAR *outStr = args->GetCharArray().GetData();
-
-    UE_LOG(LogTemp, Warning, TEXT("Calling function with args: %s"), outStr);
-
-    actor->CallFunctionByNameWithArguments(outStr, out, NULL, true);        
-
-    delete args;
+    actor->CallFunctionByNameWithArguments(*Args, Out, nullptr, true);
 }
 
 void Action::UpdateSchema(UFunction *handler)
