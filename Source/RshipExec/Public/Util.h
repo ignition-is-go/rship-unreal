@@ -1,11 +1,13 @@
 #pragma once
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonSerializer.h"
+#include "UObject/UnrealType.h"
 
 struct RshipSchemaProperty
 {
-	FString Name;
-	FString Type;
+        FString Name;
+        FString Type;
+        FProperty* Property;
 };
 
 TSharedPtr<FJsonObject> ParseJSON(const FString& JsonString);

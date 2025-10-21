@@ -8,6 +8,30 @@
 #include "GameFramework/Actor.h"
 #include "Misc/DefaultValueHelper.h"
 #include "Util.h"
+#include "Action.h"
+#include "EmitterContainer.h"
+
+namespace
+{
+static TArray<FRshipSchemaField> BuildSchemaFields(TDoubleLinkedList<RshipSchemaProperty>* Props)
+{
+        TArray<FRshipSchemaField> Fields;
+        if (!Props)
+        {
+                return Fields;
+        }
+
+        for (const RshipSchemaProperty& Prop : *Props)
+        {
+                FRshipSchemaField Field;
+                Field.Name = Prop.Name;
+                Field.Type = Prop.Type;
+                Fields.Add(Field);
+        }
+
+        return Fields;
+}
+}
 
 using namespace std;
 
@@ -152,5 +176,92 @@ void URshipTargetComponent::Register()
 
     subsystem->SendAll();
 
-	UE_LOG(LogTemp, Warning, TEXT("Component Registered: %s"), *parent->GetName());
+    FRshipTargetDescription Snapshot = GetTargetDescription();
+
+    UE_LOG(LogTemp, Display, TEXT("Rship Target '%s' exposes %d actions and %d emitters"),
+        *Snapshot.TargetId, Snapshot.Actions.Num(), Snapshot.Emitters.Num());
+
+    for (const FRshipActionDescription& ActionDesc : Snapshot.Actions)
+    {
+        FString ParamText;
+        for (const FRshipSchemaField& Field : ActionDesc.Parameters)
+        {
+                ParamText += FString::Printf(TEXT("%s(%s) "), *Field.Name, *Field.Type);
+        }
+        UE_LOG(LogTemp, Display, TEXT("  Action: %s [%s] %s"), *ActionDesc.ActionId, *ActionDesc.FunctionName, *ParamText);
+    }
+
+    for (const FRshipEmitterDescription& EmitterDesc : Snapshot.Emitters)
+    {
+        FString PayloadText;
+        for (const FRshipSchemaField& Field : EmitterDesc.Payload)
+        {
+                PayloadText += FString::Printf(TEXT("%s(%s) "), *Field.Name, *Field.Type);
+        }
+        UE_LOG(LogTemp, Display, TEXT("  Emitter: %s %s"), *EmitterDesc.EmitterId, *PayloadText);
+    }
+
+        UE_LOG(LogTemp, Warning, TEXT("Component Registered: %s"), *parent->GetName());
+}
+
+FRshipTargetDescription URshipTargetComponent::GetTargetDescription() const
+{
+        FRshipTargetDescription Description;
+        Description.TargetName = targetName;
+
+        if (!TargetData)
+        {
+                return Description;
+        }
+
+        Description.TargetId = TargetData->GetId();
+        if (Description.TargetName.IsEmpty())
+        {
+                Description.TargetName = Description.TargetId;
+        }
+
+        auto Actions = TargetData->GetActions();
+        for (const TPair<FString, Action*>& Pair : Actions)
+        {
+                if (!Pair.Value)
+                {
+                        continue;
+                }
+
+                FRshipActionDescription ActionDesc;
+                ActionDesc.ActionId = Pair.Value->GetId();
+                ActionDesc.DisplayName = Pair.Value->GetName();
+                ActionDesc.FunctionName = Pair.Value->GetFunctionName();
+                ActionDesc.Parameters = BuildSchemaFields(Pair.Value->GetProps());
+
+                Description.Actions.Add(ActionDesc);
+        }
+
+        auto Emitters = TargetData->GetEmitters();
+        for (const TPair<FString, EmitterContainer*>& Pair : Emitters)
+        {
+                if (!Pair.Value)
+                {
+                        continue;
+                }
+
+                FRshipEmitterDescription EmitterDesc;
+                EmitterDesc.EmitterId = Pair.Value->GetId();
+                EmitterDesc.DisplayName = Pair.Value->GetName();
+                EmitterDesc.Payload = BuildSchemaFields(Pair.Value->GetProps());
+
+                Description.Emitters.Add(EmitterDesc);
+        }
+
+        return Description;
+}
+
+TArray<FRshipActionDescription> URshipTargetComponent::GetActionDescriptions() const
+{
+        return GetTargetDescription().Actions;
+}
+
+TArray<FRshipEmitterDescription> URshipTargetComponent::GetEmitterDescriptions() const
+{
+        return GetTargetDescription().Emitters;
 }

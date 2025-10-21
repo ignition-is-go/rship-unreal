@@ -30,7 +30,7 @@ void EmitterContainer::UpdateSchema(FMulticastInlineDelegateProperty* Emitter)
         FName PropertyType = Property->GetClass()->GetFName();
         UE_LOG(LogTemp, Warning, TEXT("Emitter Property: %s, Type: %s"), *PropertyName, *PropertyType.ToString());
 
-        RshipSchemaProperty prop = RshipSchemaProperty({ PropertyName, PropertyType.ToString() });
+        RshipSchemaProperty prop = RshipSchemaProperty({ PropertyName, PropertyType.ToString(), Property });
 
         this->props->AddTail(prop);
 

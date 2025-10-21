@@ -31,11 +31,12 @@ public class RshipExec : ModuleRules
 				"Core",
 				// ... add other public dependencies that you statically link with here ...
 				"CoreUObject",
-				"WebSockets",
-				"Json",
-				"JsonUtilities",
-			}
-			);
+                                "WebSockets",
+                                "Json",
+                                "JsonUtilities",
+                                "TimeManagement",
+                        }
+                        );
 
 
 		PrivateDependencyModuleNames.AddRange(

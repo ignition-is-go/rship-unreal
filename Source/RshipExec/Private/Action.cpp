@@ -68,7 +68,7 @@ void Action::UpdateSchema(UFunction *handler)
         FString PropertyName = Property->GetName();
         FName PropertyType = Property->GetClass()->GetFName();
 
-        RshipSchemaProperty prop = RshipSchemaProperty({PropertyName, PropertyType.ToString()});
+        RshipSchemaProperty prop = RshipSchemaProperty({PropertyName, PropertyType.ToString(), Property});
 
         UE_LOG(LogTemp, Warning, TEXT("Property: %s, Type: %s"), *PropertyName, *PropertyType.ToString());
 
