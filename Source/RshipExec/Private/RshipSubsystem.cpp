@@ -51,9 +51,9 @@ void URshipSubsystem::Reconnect()
     // Send Exec
     MachineId = GetUniqueMachineId();
     ServiceId = FApp::GetProjectName();
-    InstanceId = FGuid::NewGuid().ToString();
 
     ClusterId = MachineId + ":" + ServiceId;
+    InstanceId = ClusterId;
 
     const URshipSettings *Settings = GetDefault<URshipSettings>();
     FString rshipHostAddress = *Settings->rshipHostAddress;
