@@ -3,6 +3,7 @@
 
 #include "EmitterContainer.h"
 #include "Util.h"
+#include "SchemaHelpers.h"
 
 
 EmitterContainer::EmitterContainer(FString id, FString name,  FMulticastInlineDelegateProperty* Emitter)
@@ -10,8 +11,7 @@ EmitterContainer::EmitterContainer(FString id, FString name,  FMulticastInlineDe
 
 	this->id = id;
     this->name = name;
-    this->props = new TDoubleLinkedList<RshipSchemaProperty>();
-	this->UpdateSchema(Emitter);
+    this->UpdateSchema(Emitter);
 
 }
 
@@ -21,32 +21,20 @@ EmitterContainer::~EmitterContainer()
 
 void EmitterContainer::UpdateSchema(FMulticastInlineDelegateProperty* Emitter)
 {
-    this->props->Empty();
-
-    for (TFieldIterator<FProperty> PropIt(Emitter->SignatureFunction); PropIt; ++PropIt)
-    {
-        FProperty* Property = *PropIt;
-        FString PropertyName = Property->GetName();
-        FName PropertyType = Property->GetClass()->GetFName();
-        UE_LOG(LogTemp, Warning, TEXT("Emitter Property: %s, Type: %s"), *PropertyName, *PropertyType.ToString());
-
-        RshipSchemaProperty prop = RshipSchemaProperty({ PropertyName, PropertyType.ToString() });
-
-        this->props->AddTail(prop);
-
-        UE_LOG(LogTemp, Warning, TEXT("Property: %s, Type: %s"), *PropertyName, *PropertyType.ToString());
-    }
+    this->props.Empty();
+    // Build schema props from the delegate signature function
+    BuildSchemaPropsFromUFunction(Emitter->SignatureFunction, this->props);
 
 }
 
 TSharedPtr<FJsonObject> EmitterContainer::GetSchema()
 {
-    return PropsToSchema(this->props);
+    return PropsToSchema(&this->props);
 }
 
-TDoubleLinkedList<RshipSchemaProperty>* EmitterContainer::GetProps()
+TDoubleLinkedList<SchemaNode>* EmitterContainer::GetProps()
 {
-    return this->props;
+    return &this->props;
 }
 
 FString EmitterContainer::GetId()

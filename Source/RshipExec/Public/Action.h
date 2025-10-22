@@ -18,7 +18,7 @@ private:
 	FString functionName;
 	FString id;
 	FString name;
-	TDoubleLinkedList<RshipSchemaProperty> *props;
+	TDoubleLinkedList<SchemaNode> props;
 
 public:
 	Action(FString id, FString name, UFunction *handler);

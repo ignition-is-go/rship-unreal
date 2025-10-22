@@ -14,7 +14,7 @@ class RSHIPEXEC_API EmitterContainer
 private:
 	FString id;
 	FString name;
-	TDoubleLinkedList<RshipSchemaProperty> *props;
+	TDoubleLinkedList<SchemaNode> props;
 
 public:
 	EmitterContainer(FString id, FString name, FMulticastInlineDelegateProperty* Emitter);
@@ -24,7 +24,7 @@ public:
 
 	TSharedPtr<FJsonObject> GetSchema();
 
-	TDoubleLinkedList<RshipSchemaProperty> *GetProps();
+	TDoubleLinkedList<SchemaNode> *GetProps();
 
 	FString GetId();
 	FString GetName();

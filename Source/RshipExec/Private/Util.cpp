@@ -124,7 +124,7 @@ FString UnrealToJsonSchemaTypeLookup(FString unrealType)
     }
 }
 
-static TSharedPtr<FJsonObject> RshipPropToSchemaObject(const RshipSchemaProperty &prop)
+static TSharedPtr<FJsonObject> RshipPropToSchemaObject(const SchemaNode &prop)
 {
     TSharedPtr<FJsonObject> propObj = MakeShareable(new FJsonObject());
 
@@ -135,7 +135,7 @@ static TSharedPtr<FJsonObject> RshipPropToSchemaObject(const RshipSchemaProperty
         // Build nested schema from children
         propObj->SetStringField("type", "object");
         TSharedPtr<FJsonObject> childProps = MakeShareable(new FJsonObject());
-        for (const RshipSchemaProperty &child : prop.Children)
+    for (const SchemaNode &child : prop.Children)
         {
             childProps->SetObjectField(child.Name, RshipPropToSchemaObject(child));
         }
@@ -155,11 +155,11 @@ static TSharedPtr<FJsonObject> RshipPropToSchemaObject(const RshipSchemaProperty
     return propObj;
 }
 
-TSharedPtr<FJsonObject> PropsToSchema(TDoubleLinkedList<RshipSchemaProperty> *props)
+TSharedPtr<FJsonObject> PropsToSchema(TDoubleLinkedList<SchemaNode> *props)
 {
     TSharedPtr<FJsonObject> properties = MakeShareable(new FJsonObject());
 
-    for (RshipSchemaProperty const &prop : *props)
+    for (SchemaNode const &prop : *props)
     {
         properties->SetObjectField(prop.Name, RshipPropToSchemaObject(prop));
     }

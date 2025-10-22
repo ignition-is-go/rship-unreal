@@ -1,15 +1,138 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
-
 #include "EmitterHandler.h"
 #include "RshipSubsystem.h"
 #include "Util.h"
 #include "Engine/Engine.h"
 
+// Helpers to decode emitter argument slots into JSON based on SchemaNode
+static TSharedPtr<FJsonValue> ExtractValueFromArgs(const SchemaNode &Node, const uint64 *Args, int &Index)
+{
+	if (Index >= 32)
+	{
+		return TSharedPtr<FJsonValue>();
+	}
+	// Recursively build an FJsonValue matching the SchemaNode type using the raw slots
+	if (Node.Type == TEXT("StructProperty"))
+	{
+		TSharedPtr<FJsonObject> Obj = MakeShareable(new FJsonObject());
+		for (const SchemaNode &Child : Node.Children)
+		{
+			TSharedPtr<FJsonValue> ChildVal = ExtractValueFromArgs(Child, Args, Index);
+			if (ChildVal.IsValid())
+			{
+				// Assign by type
+				switch (ChildVal->Type)
+				{
+				case EJson::String:
+					Obj->SetStringField(Child.Name, ChildVal->AsString());
+					break;
+				case EJson::Number:
+					Obj->SetNumberField(Child.Name, ChildVal->AsNumber());
+					break;
+				case EJson::Boolean:
+					Obj->SetBoolField(Child.Name, ChildVal->AsBool());
+					break;
+				case EJson::Object:
+					Obj->SetObjectField(Child.Name, ChildVal->AsObject());
+					break;
+				default:
+					break;
+				}
+			}
+		}
+		return MakeShareable(new FJsonValueObject(Obj));
+	}
+
+	// Primitive decoding from one slot, best-effort
+	if (Node.Type == TEXT("IntProperty"))
+	{
+		int64 v = static_cast<int64>(Args[Index++]);
+		return MakeShareable(new FJsonValueNumber(static_cast<double>(v)));
+	}
+	if (Node.Type == TEXT("UIntProperty") || Node.Type == TEXT("UInt32Property"))
+	{
+		uint64 v = Args[Index++];
+		return MakeShareable(new FJsonValueNumber(static_cast<double>(static_cast<uint32>(v))));
+	}
+	if (Node.Type == TEXT("Int64Property"))
+	{
+		int64 v = static_cast<int64>(Args[Index++]);
+		return MakeShareable(new FJsonValueNumber(static_cast<double>(v)));
+	}
+	if (Node.Type == TEXT("UInt64Property"))
+	{
+		uint64 v = Args[Index++];
+		return MakeShareable(new FJsonValueNumber(static_cast<double>(v)));
+	}
+	if (Node.Type == TEXT("ByteProperty"))
+	{
+		uint8 v = static_cast<uint8>(Args[Index++] & 0xFF);
+		return MakeShareable(new FJsonValueNumber(static_cast<double>(v)));
+	}
+	if (Node.Type == TEXT("BoolProperty"))
+	{
+		bool b = static_cast<bool>(Args[Index++]);
+		return MakeShareable(new FJsonValueBoolean(b));
+	}
+	if (Node.Type == TEXT("FloatProperty"))
+	{
+		uint64 raw = Args[Index++];
+		uint32 low = static_cast<uint32>(raw & 0xFFFFFFFFu);
+		float f;
+		FMemory::Memcpy(&f, &low, sizeof(float));
+		return MakeShareable(new FJsonValueNumber(static_cast<double>(f)));
+	}
+	if (Node.Type == TEXT("DoubleProperty"))
+	{
+		int64 raw = static_cast<int64>(Args[Index++]);
+		double d = *(reinterpret_cast<double *>(&raw));
+		return MakeShareable(new FJsonValueNumber(d));
+	}
+	if (Node.Type == TEXT("StrProperty"))
+	{
+		uint64 ptrVal = Args[Index++];
+		FString out;
+		if (ptrVal != 0)
+		{
+			const FString* pStr = reinterpret_cast<const FString*>(ptrVal);
+			// Best-effort: pointer assumed valid during this call frame
+			out = *pStr;
+		}
+		return MakeShareable(new FJsonValueString(out));
+	}
+	if (Node.Type == TEXT("NameProperty"))
+	{
+		uint64 ptrVal = Args[Index++];
+		FString out;
+		if (ptrVal != 0)
+		{
+			const FName* pName = reinterpret_cast<const FName*>(ptrVal);
+			out = pName->ToString();
+		}
+		return MakeShareable(new FJsonValueString(out));
+	}
+	if (Node.Type == TEXT("TextProperty"))
+	{
+		uint64 ptrVal = Args[Index++];
+		FString out;
+		if (ptrVal != 0)
+		{
+			const FText* pText = reinterpret_cast<const FText*>(ptrVal);
+			out = pText->ToString();
+		}
+		return MakeShareable(new FJsonValueString(out));
+	}
+
+	// Unknown types: consume one slot to keep moving and emit null
+	++Index;
+	return TSharedPtr<FJsonValue>();
+}
+
 // Sets default values
 AEmitterHandler::AEmitterHandler()
 {
- 	// Set this actor to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
+	// Set this actor to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
 	PrimaryActorTick.bCanEverTick = true;
 }
 
@@ -45,8 +168,7 @@ void AEmitterHandler::ProcessEmitter(
 	uint64 arg28,
 	uint64 arg29,
 	uint64 arg30,
-	uint64 arg31
-)
+	uint64 arg31)
 {
 	uint64 args[32] = {
 		arg0,
@@ -80,64 +202,66 @@ void AEmitterHandler::ProcessEmitter(
 		arg28,
 		arg29,
 		arg30,
-		arg31
-	};
+		arg31};
 
-	URshipSubsystem* subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+	URshipSubsystem *subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
 
-	EmitterContainer* emitter = subsystem->GetEmitterInfo(this->targetId, this->emitterId);
+	EmitterContainer *emitter = subsystem->GetEmitterInfo(this->targetId, this->emitterId);
 
-	if (this->targetId.IsEmpty() || this->emitterId.IsEmpty()) {
+	if (this->targetId.IsEmpty() || this->emitterId.IsEmpty())
+	{
 		return;
 	}
 
-	if (emitter == nullptr) {
+	if (emitter == nullptr)
+	{
 		UE_LOG(LogTemp, Error, TEXT("EMITTER CANNOT PROCEED - Emitter not found: %s:%s"), *this->targetId, *this->emitterId);
 		return;
 	}
 
 	auto props = emitter->GetProps();
+	int32 PropCount = 0;
+	for (const auto& _ : *props) { (void)_; ++PropCount; }
+	UE_LOG(LogTemp, Verbose, TEXT("Emitter props count: %d"), PropCount);
 
 	TSharedPtr<FJsonObject> json = MakeShareable(new FJsonObject);
 
 	int argIndex = 0;
 
-	for (const auto& prop : *props) {
-		//for each arg, get the next mem address
-		//cast to the right type of pointer
-		//check for NULL
-		//dereference the pointer to get the value
-
-		if (prop.Type == "StrProperty") {
-			FString strValue = "test string";
-			json->SetStringField(prop.Name, strValue);
-			// bump an extra one cuz strings are 2....
-			argIndex++;
+	for (const auto &prop : *props)
+	{
+		TSharedPtr<FJsonValue> val = ExtractValueFromArgs(prop, args, argIndex);
+		if (!val.IsValid())
+		{
+			UE_LOG(LogTemp, Warning, TEXT("Emitter skipping unsupported or null value for %s (Type: %s)"), *prop.Name, *prop.Type);
+			continue;
 		}
-		else if (prop.Type == "IntProperty") {
-			int intValue = args[argIndex];
-			json->SetNumberField(prop.Name, intValue);
+		switch (val->Type)
+		{
+		case EJson::String:
+			json->SetStringField(prop.Name, val->AsString());
+			break;
+		case EJson::Number:
+			json->SetNumberField(prop.Name, val->AsNumber());
+			break;
+		case EJson::Boolean:
+			json->SetBoolField(prop.Name, val->AsBool());
+			break;
+		case EJson::Object:
+			json->SetObjectField(prop.Name, val->AsObject());
+			break;
+		default:
+			break;
 		}
-		else if (prop.Type == "BoolProperty") {
-			bool boolValue = (bool)args[argIndex];
-			json->SetBoolField(prop.Name, boolValue);
-		}
-		else if (prop.Type == "DoubleProperty") {
-
-			int64 doubleBinary = args[argIndex];
-			double doubleValue = *(double*)&doubleBinary;
-			json->SetNumberField(prop.Name, doubleValue);
-		}
-		else {
-			UE_LOG(LogTemp, Error, TEXT("EMITTER CANNOT PROCEED - Unknown Type: %s"), *prop.Type);
-			return;
-		}
-
-		argIndex++;
 	}
 
-	subsystem->PulseEmitter(this->targetId, this->emitterId, json);
+	if (json->Values.Num() == 0)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Emitter produced empty JSON for %s:%s"), *this->targetId, *this->emitterId);
+	}
 
+	UE_LOG(LogTemp, Verbose, TEXT("Emitter JSON: %s"), *GetJsonString(json));
+	subsystem->PulseEmitter(this->targetId, this->emitterId, json);
 }
 
 // Called when the game starts or when spawned
@@ -167,10 +291,7 @@ void AEmitterHandler::SetEmitterId(FString eid)
 	this->emitterId = eid;
 }
 
-void AEmitterHandler::SetDelegate(FScriptDelegate* d)
+void AEmitterHandler::SetDelegate(FScriptDelegate *d)
 {
 	this->delegate = d;
 }
-
-
-

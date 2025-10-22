@@ -2,12 +2,12 @@
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonSerializer.h"
 
-struct RshipSchemaProperty
+struct SchemaNode
 {
 	FString Name;
 	FString Type;
 	// For StructProperty types, Children describes nested fields.
-	TArray<RshipSchemaProperty> Children;
+	TArray<SchemaNode> Children;
 };
 
 TSharedPtr<FJsonObject> ParseJSON(const FString &JsonString);
@@ -19,4 +19,4 @@ FString GetJsonString(TSharedPtr<FJsonObject> JsonObject);
 
 FString UnrealToJsonSchemaTypeLookup(FString unrealType);
 
-TSharedPtr<FJsonObject> PropsToSchema(TDoubleLinkedList<RshipSchemaProperty> *props);
+TSharedPtr<FJsonObject> PropsToSchema(TDoubleLinkedList<SchemaNode> *props);
