@@ -23,11 +23,12 @@ FString Action::GetId()
     return this->id;
 }
 
-FString Action::GetName() {
+FString Action::GetName()
+{
     return this->name;
 }
 
-void Action::Take(AActor* actor, const TSharedRef<FJsonObject> data)
+void Action::Take(AActor *actor, const TSharedRef<FJsonObject> data)
 {
     // UE_LOG(LogTemp, Warning, TEXT("Taking Action %s"), *this->id);
 
@@ -37,7 +38,7 @@ void Action::Take(AActor* actor, const TSharedRef<FJsonObject> data)
 
     args->Append(this->functionName);
 
-    for (const auto prop : *this->props)
+    for (RshipSchemaProperty const &prop : *this->props)
     {
         auto piece = data->TryGetField(prop.Name)->AsString();
         args->Append(" \"");
@@ -53,7 +54,7 @@ void Action::Take(AActor* actor, const TSharedRef<FJsonObject> data)
 
     UE_LOG(LogTemp, Warning, TEXT("Calling function with args: %s"), outStr);
 
-    actor->CallFunctionByNameWithArguments(outStr, out, NULL, true);        
+    actor->CallFunctionByNameWithArguments(outStr, out, NULL, true);
 
     delete args;
 }

@@ -1,7 +1,6 @@
 #include "Util.h"
 
-
-TSharedPtr<FJsonObject> ParseJSON(const FString& JsonString)
+TSharedPtr<FJsonObject> ParseJSON(const FString &JsonString)
 {
     TSharedPtr<FJsonObject> JsonObject;
     TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonString);
@@ -14,7 +13,7 @@ TSharedPtr<FJsonObject> ParseJSON(const FString& JsonString)
     return nullptr;
 }
 
-TSharedPtr<FJsonObject> ParseJSONObject(const TWeakPtr<FJsonValue>& WeakValue)
+TSharedPtr<FJsonObject> ParseJSONObject(const TWeakPtr<FJsonValue> &WeakValue)
 {
     if (auto Value = WeakValue.Pin())
     {
@@ -26,7 +25,7 @@ TSharedPtr<FJsonObject> ParseJSONObject(const TWeakPtr<FJsonValue>& WeakValue)
     return nullptr;
 }
 
-TArray<TSharedPtr<FJsonValue>> ParseJSONArray(const TWeakPtr<FJsonValue>& WeakValue)
+TArray<TSharedPtr<FJsonValue>> ParseJSONArray(const TWeakPtr<FJsonValue> &WeakValue)
 {
     TArray<TSharedPtr<FJsonValue>> Array;
     if (auto Value = WeakValue.Pin())
@@ -34,7 +33,7 @@ TArray<TSharedPtr<FJsonValue>> ParseJSONArray(const TWeakPtr<FJsonValue>& WeakVa
         if (Value->Type == EJson::Array)
         {
             Array = Value->AsArray();
-            for (const auto& Item : Array)
+            for (const auto &Item : Array)
             {
                 if (Item->Type == EJson::Object)
                 {
@@ -63,7 +62,8 @@ FString GetJsonString(TSharedPtr<FJsonObject> JsonObject)
     return OutputString;
 }
 
-FString UnrealToJsonSchemaTypeLookup(FString unrealType) {
+FString UnrealToJsonSchemaTypeLookup(FString unrealType)
+{
 
     /*
 
@@ -81,35 +81,44 @@ FString UnrealToJsonSchemaTypeLookup(FString unrealType) {
 
    */
 
-
-    if (unrealType == "BoolProperty") {
+    if (unrealType == "BoolProperty")
+    {
         return "boolean";
     }
-    else if (unrealType == "ByteProperty") {
+    else if (unrealType == "ByteProperty")
+    {
         return "number";
     }
-    else if (unrealType == "IntProperty") {
+    else if (unrealType == "IntProperty")
+    {
         return "number";
     }
-    else if (unrealType == "Int64Property") {
+    else if (unrealType == "Int64Property")
+    {
         return "number";
     }
-    else if (unrealType == "DoubleProperty") {
+    else if (unrealType == "DoubleProperty")
+    {
         return "number";
     }
-    else if (unrealType == "NameProperty") {
+    else if (unrealType == "NameProperty")
+    {
         return "string";
     }
-    else if (unrealType == "StrProperty") {
+    else if (unrealType == "StrProperty")
+    {
         return "string";
     }
-    else if (unrealType == "TextProperty") {
+    else if (unrealType == "TextProperty")
+    {
         return "string";
     }
-    else if (unrealType == "StructProperty") {
+    else if (unrealType == "StructProperty")
+    {
         return "unknown";
     }
-    else {
+    else
+    {
         return "unknown";
     }
 }
@@ -118,11 +127,12 @@ TSharedPtr<FJsonObject> PropsToSchema(TDoubleLinkedList<RshipSchemaProperty> *pr
 {
     TSharedPtr<FJsonObject> properties = MakeShareable(new FJsonObject());
 
-    for (const auto prop : *props)
+    for (RshipSchemaProperty const &prop : *props)
     {
         TSharedPtr<FJsonObject> propObj = MakeShareable(new FJsonObject());
         FString jsonType = UnrealToJsonSchemaTypeLookup(prop.Type);
-        if (jsonType == "unknown") {
+        if (jsonType == "unknown")
+        {
             UE_LOG(LogTemp, Warning, TEXT("Unknown Type: %s"), *jsonType);
             continue;
         }
@@ -139,4 +149,3 @@ TSharedPtr<FJsonObject> PropsToSchema(TDoubleLinkedList<RshipSchemaProperty> *pr
 
     return schema;
 }
-
