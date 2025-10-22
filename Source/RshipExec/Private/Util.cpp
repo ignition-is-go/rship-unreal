@@ -80,7 +80,7 @@ FString UnrealToJsonSchemaTypeLookup(FString unrealType)
    [2024-03-20T18:20:37.719Z]LogTemp: Warning: Property: Transform, Type: StructProperty
 
    */
-
+    UE_LOG(LogTemp, Warning, TEXT("Schema Type Type: %s"), *unrealType);
     if (unrealType == "BoolProperty")
     {
         return "boolean";
@@ -115,12 +115,44 @@ FString UnrealToJsonSchemaTypeLookup(FString unrealType)
     }
     else if (unrealType == "StructProperty")
     {
-        return "unknown";
+        // Structs will be expanded as nested objects; type decided by caller
+        return "object";
     }
     else
     {
         return "unknown";
     }
+}
+
+static TSharedPtr<FJsonObject> RshipPropToSchemaObject(const RshipSchemaProperty &prop)
+{
+    TSharedPtr<FJsonObject> propObj = MakeShareable(new FJsonObject());
+
+    // Primitive Unreal property classes map directly.
+    const FString jsonType = UnrealToJsonSchemaTypeLookup(prop.Type);
+    if (prop.Type == "StructProperty")
+    {
+        // Build nested schema from children
+        propObj->SetStringField("type", "object");
+        TSharedPtr<FJsonObject> childProps = MakeShareable(new FJsonObject());
+        for (const RshipSchemaProperty &child : prop.Children)
+        {
+            childProps->SetObjectField(child.Name, RshipPropToSchemaObject(child));
+        }
+        propObj->SetObjectField("properties", childProps);
+    }
+    else if (jsonType != "unknown")
+    {
+        propObj->SetStringField("type", jsonType);
+    }
+    else
+    {
+        // Unknowns are represented loosely as strings
+        UE_LOG(LogTemp, Warning, TEXT("Unknown Type in schema: %s for %s. Defaulting to string."), *prop.Type, *prop.Name);
+        propObj->SetStringField("type", "string");
+    }
+
+    return propObj;
 }
 
 TSharedPtr<FJsonObject> PropsToSchema(TDoubleLinkedList<RshipSchemaProperty> *props)
@@ -129,15 +161,7 @@ TSharedPtr<FJsonObject> PropsToSchema(TDoubleLinkedList<RshipSchemaProperty> *pr
 
     for (RshipSchemaProperty const &prop : *props)
     {
-        TSharedPtr<FJsonObject> propObj = MakeShareable(new FJsonObject());
-        FString jsonType = UnrealToJsonSchemaTypeLookup(prop.Type);
-        if (jsonType == "unknown")
-        {
-            UE_LOG(LogTemp, Warning, TEXT("Unknown Type: %s"), *jsonType);
-            continue;
-        }
-        propObj->SetStringField("type", jsonType);
-        properties->SetObjectField(prop.Name, propObj);
+        properties->SetObjectField(prop.Name, RshipPropToSchemaObject(prop));
     }
 
     TSharedPtr<FJsonObject> schema = MakeShareable(new FJsonObject());
@@ -145,7 +169,7 @@ TSharedPtr<FJsonObject> PropsToSchema(TDoubleLinkedList<RshipSchemaProperty> *pr
     schema->SetStringField("$schema", "http://json-schema.org/draft-07/schema#");
     schema->SetStringField("type", "object");
 
-    UE_LOG(LogTemp, Warning, TEXT("Schema: %s"), *GetJsonString(schema));
+    // UE_LOG(LogTemp, Warning, TEXT("Schema: %s"), *GetJsonString(schema));
 
     return schema;
 }
