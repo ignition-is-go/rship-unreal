@@ -57,6 +57,7 @@ void URshipSubsystem::Reconnect()
 
     const URshipSettings *Settings = GetDefault<URshipSettings>();
     FString rshipHostAddress = *Settings->rshipHostAddress;
+    int32 rshipServerPort = Settings->rshipServerPort;
 
     if (rshipHostAddress.IsEmpty() || rshipHostAddress.Len() == 0)
     {
@@ -68,7 +69,7 @@ void URshipSubsystem::Reconnect()
         WebSocket->Close();
     }
 
-    WebSocket = FWebSocketsModule::Get().CreateWebSocket("ws://" + rshipHostAddress + ":5155/myko");
+    WebSocket = FWebSocketsModule::Get().CreateWebSocket("ws://" + rshipHostAddress + ":" + FString::FromInt(rshipServerPort) + "/myko");
 
     WebSocket->OnConnected().AddLambda([&]()
                                        {
