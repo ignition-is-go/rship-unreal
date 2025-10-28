@@ -1,4 +1,5 @@
 #include "Util.h"
+#include "Logs.h"
 
 TSharedPtr<FJsonObject> ParseJSON(const FString &JsonString)
 {
@@ -80,7 +81,7 @@ FString UnrealToJsonSchemaTypeLookup(FString unrealType)
    [2024-03-20T18:20:37.719Z]LogTemp: Warning: Property: Transform, Type: StructProperty
 
    */
-    UE_LOG(LogTemp, Warning, TEXT("Schema Type Type: %s"), *unrealType);
+    UE_LOG(LogRshipExec, Verbose, TEXT("Schema Type Type: %s"), *unrealType);
     if (unrealType == "BoolProperty")
     {
         return "boolean";
@@ -135,7 +136,7 @@ static TSharedPtr<FJsonObject> RshipPropToSchemaObject(const SchemaNode &prop)
         // Build nested schema from children
         propObj->SetStringField("type", "object");
         TSharedPtr<FJsonObject> childProps = MakeShareable(new FJsonObject());
-    for (const SchemaNode &child : prop.Children)
+        for (const SchemaNode &child : prop.Children)
         {
             childProps->SetObjectField(child.Name, RshipPropToSchemaObject(child));
         }

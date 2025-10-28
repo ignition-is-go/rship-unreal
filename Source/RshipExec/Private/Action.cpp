@@ -31,7 +31,7 @@ FString Action::GetName()
 
 bool Action::Take(AActor *actor, const TSharedRef<FJsonObject> data)
 {
-    // UE_LOG(LogRshipExec, Warning, TEXT("Taking Action %s"), *this->id);
+    UE_LOG(LogRshipExec, Verbose, TEXT("Taking Action %s"), *this->id);
 
     // use our props list to build a string of our arguments
 

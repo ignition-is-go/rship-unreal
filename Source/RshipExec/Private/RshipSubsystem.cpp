@@ -29,7 +29,7 @@ using namespace std;
 
 void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
 {
-    UE_LOG(LogRshipExec, Warning, TEXT("RshipSubsystem::Initialize"));
+    UE_LOG(LogRshipExec, Log, TEXT("RshipSubsystem::Initialize"));
     Reconnect();
 
     auto world = GetWorld();
@@ -74,7 +74,7 @@ void URshipSubsystem::Reconnect()
 
     WebSocket->OnConnected().AddLambda([&]()
                                        {
-                                           UE_LOG(LogRshipExec, Warning, TEXT("Connected"));
+                                           UE_LOG(LogRshipExec, Log, TEXT("Connected"));
                                            SendAll();
                                            //
                                        });
@@ -122,7 +122,7 @@ void URshipSubsystem::ProcessMessage(const FString &message)
     TSharedRef<FJsonObject> objRef = obj.ToSharedRef();
 
     FString type = objRef->GetStringField(TEXT("event"));
-    // UE_LOG(LogRshipExec, Warning, TEXT("Received Event %s"), *type);
+    UE_LOG(LogRshipExec, Verbose, TEXT("Received Event %s"), *type);
 
     if (type == "ws:m:command")
     {
@@ -193,6 +193,7 @@ void URshipSubsystem::ProcessMessage(const FString &message)
             else
             {
                 // send failure response
+                UE_LOG(LogRshipExec, Warning, TEXT("Action not taken: %s on Target %s"), *actionId, *targetId);
                 TSharedPtr<FJsonObject> response = MakeShareable(new FJsonObject);
                 response->SetStringField(TEXT("event"), TEXT("ws:m:command-error"));
                 response->SetObjectField(TEXT("data"), responseData);
@@ -209,7 +210,7 @@ void URshipSubsystem::ProcessMessage(const FString &message)
 void URshipSubsystem::Deinitialize()
 {
 
-    UE_LOG(LogRshipExec, Warning, TEXT("RshipSubsystem::Deinitialize"));
+    UE_LOG(LogRshipExec, Log, TEXT("RshipSubsystem::Deinitialize"));
 
     if (WebSocket->IsConnected())
     {

@@ -93,7 +93,7 @@ void URshipTargetComponent::Register()
         FString EmitterName = EmitterProp->GetName();
         FName EmitterType = EmitterProp->GetClass()->GetFName();
 
-        UE_LOG(LogRshipExec, Warning, TEXT("Emitter: %s, Type: %s"), *EmitterName, *EmitterType.ToString());
+        UE_LOG(LogRshipExec, Log, TEXT("Emitter: %s, Type: %s"), *EmitterName, *EmitterType.ToString());
 
         if (!EmitterName.StartsWith("RS_"))
         {
@@ -151,5 +151,5 @@ void URshipTargetComponent::Register()
 
     subsystem->SendAll();
 
-    UE_LOG(LogRshipExec, Warning, TEXT("Component Registered: %s"), *parent->GetName());
+    UE_LOG(LogRshipExec, Log, TEXT("Component Registered: %s"), *parent->GetName());
 }
