@@ -23,12 +23,13 @@
 
 #include "Myko.h"
 #include "EmitterHandler.h"
+#include "Logs.h"
 
 using namespace std;
 
 void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
 {
-    UE_LOG(LogTemp, Warning, TEXT("RshipSubsystem::Initialize"));
+    UE_LOG(LogRshipExec, Warning, TEXT("RshipSubsystem::Initialize"));
     Reconnect();
 
     auto world = GetWorld();
@@ -73,33 +74,33 @@ void URshipSubsystem::Reconnect()
 
     WebSocket->OnConnected().AddLambda([&]()
                                        {
-                                           UE_LOG(LogTemp, Warning, TEXT("Connected"));
+                                           UE_LOG(LogRshipExec, Warning, TEXT("Connected"));
                                            SendAll();
                                            //
                                        });
 
     WebSocket->OnConnectionError().AddLambda([](const FString &Error)
                                              {
-                                                 UE_LOG(LogTemp, Warning, TEXT("Connection Error %s"), *Error);
+                                                 UE_LOG(LogRshipExec, Warning, TEXT("Connection Error %s"), *Error);
                                                  //
                                              });
 
     WebSocket->OnClosed().AddLambda([](int32 StatusCode, const FString &Reason, bool bWasClean)
                                     {
-                                        UE_LOG(LogTemp, Warning, TEXT("Closed %d %s %d"), StatusCode, *Reason, bWasClean);
+                                        UE_LOG(LogRshipExec, Warning, TEXT("Closed %d %s %d"), StatusCode, *Reason, bWasClean);
                                         //
                                     });
 
     WebSocket->OnMessage().AddLambda([&](const FString &MessageString)
                                      {
-                                         // UE_LOG(LogTemp, Warning, TEXT("Message %s"), *MessageString);
+                                         // UE_LOG(LogRshipExec, Warning, TEXT("Message %s"), *MessageString);
                                          ProcessMessage(*MessageString);
                                          //
                                      });
 
     WebSocket->OnMessageSent().AddLambda([](const FString &MessageString)
                                          {
-                                             // UE_LOG(LogTemp, Warning, TEXT("Message Sent %s"), *MessageString);
+                                             // UE_LOG(LogRshipExec, Warning, TEXT("Message Sent %s"), *MessageString);
 
                                              //
                                          });
@@ -121,7 +122,7 @@ void URshipSubsystem::ProcessMessage(const FString &message)
     TSharedRef<FJsonObject> objRef = obj.ToSharedRef();
 
     FString type = objRef->GetStringField(TEXT("event"));
-    // UE_LOG(LogTemp, Warning, TEXT("Received Event %s"), *type);
+    // UE_LOG(LogRshipExec, Warning, TEXT("Received Event %s"), *type);
 
     if (type == "ws:m:command")
     {
@@ -130,11 +131,13 @@ void URshipSubsystem::ProcessMessage(const FString &message)
         FString commandId = data->GetStringField(TEXT("commandId"));
         TSharedRef<FJsonObject> command = data->GetObjectField(TEXT("command")).ToSharedRef();
 
+        FString txId = command->GetStringField(TEXT("tx"));
+
         if (commandId == "SetClientId")
         {
 
             ClientId = command->GetStringField(TEXT("clientId"));
-            UE_LOG(LogTemp, Warning, TEXT("Received ClientId %s"), *ClientId);
+            UE_LOG(LogRshipExec, Warning, TEXT("Received ClientId %s"), *ClientId);
             SendAll();
             return;
         }
@@ -149,6 +152,8 @@ void URshipSubsystem::ProcessMessage(const FString &message)
 
             FString targetId = execAction->GetStringField(TEXT("targetId"));
 
+            bool result = false;
+
             for (URshipTargetComponent *comp : *this->TargetComponents)
             {
 
@@ -160,14 +165,39 @@ void URshipSubsystem::ProcessMessage(const FString &message)
 
                     if (target != nullptr)
                     {
-                        // UE_LOG(LogTemp, Warning, TEXT("Taking Action: %s"), *actionId);
-                        target->TakeAction(owner, actionId, execData);
+                        // UE_LOG(LogRshipExec, Warning, TEXT("Taking Action: %s"), *actionId);
+                        bool takeResult = target->TakeAction(owner, actionId, execData);
+                        result |= takeResult;
                     }
                     else
                     {
-                        UE_LOG(LogTemp, Warning, TEXT("Target not found: %s"), *targetId);
+                        UE_LOG(LogRshipExec, Warning, TEXT("Target not found: %s"), *targetId);
                     }
                 }
+            }
+
+            TSharedPtr<FJsonObject> responseData = MakeShareable(new FJsonObject);
+
+            responseData->SetStringField(TEXT("commandId"), commandId);
+            responseData->SetStringField(TEXT("tx"), txId);
+
+            if (result)
+            {
+                // send success response
+                TSharedPtr<FJsonObject> response = MakeShareable(new FJsonObject);
+                response->SetStringField(TEXT("event"), TEXT("ws:m:command-response"));
+                response->SetObjectField(TEXT("data"), responseData);
+
+                SendJson(response);
+            }
+            else
+            {
+                // send failure response
+                TSharedPtr<FJsonObject> response = MakeShareable(new FJsonObject);
+                response->SetStringField(TEXT("event"), TEXT("ws:m:command-error"));
+                response->SetObjectField(TEXT("data"), responseData);
+
+                SendJson(response);
             }
 
             // command.Reset();
@@ -179,7 +209,7 @@ void URshipSubsystem::ProcessMessage(const FString &message)
 void URshipSubsystem::Deinitialize()
 {
 
-    UE_LOG(LogTemp, Warning, TEXT("RshipSubsystem::Deinitialize"));
+    UE_LOG(LogRshipExec, Warning, TEXT("RshipSubsystem::Deinitialize"));
 
     if (WebSocket->IsConnected())
     {
@@ -313,15 +343,15 @@ void URshipSubsystem::SendJson(TSharedPtr<FJsonObject> Payload)
     TSharedRef<TJsonWriter<>> JsonWriter = TJsonWriterFactory<>::Create(&JsonString);
     if (FJsonSerializer::Serialize(Payload.ToSharedRef(), JsonWriter))
     {
-        // UE_LOG(LogTemp, Warning, TEXT("JSON: %s"), *JsonString);
+        // UE_LOG(LogRshipExec, Warning, TEXT("JSON: %s"), *JsonString);
     }
     else
     {
-        UE_LOG(LogTemp, Error, TEXT("Failed to serialize JSON object."));
+        UE_LOG(LogRshipExec, Error, TEXT("Failed to serialize JSON object."));
     }
     if (WebSocket == nullptr)
     {
-        UE_LOG(LogTemp, Error, TEXT("Failed to send JSON object. Socket Not Initialized"));
+        UE_LOG(LogRshipExec, Error, TEXT("Failed to send JSON object. Socket Not Initialized"));
         return;
     }
 

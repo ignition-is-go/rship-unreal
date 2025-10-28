@@ -5,6 +5,7 @@
 #include "Misc/OutputDeviceNull.h"
 #include "Util.h"
 #include "SchemaHelpers.h"
+#include "Logs.h"
 
 Action::Action(FString id, FString name, UFunction *function)
 {
@@ -28,18 +29,14 @@ FString Action::GetName()
     return this->name;
 }
 
-void Action::Take(AActor *actor, const TSharedRef<FJsonObject> data)
+bool Action::Take(AActor *actor, const TSharedRef<FJsonObject> data)
 {
-    // UE_LOG(LogTemp, Warning, TEXT("Taking Action %s"), *this->id);
+    // UE_LOG(LogRshipExec, Warning, TEXT("Taking Action %s"), *this->id);
 
     // use our props list to build a string of our arguments
 
     FString args;
     args.Append(this->functionName);
-
-
-
-
 
     const FString argList = BuildArgStringFromJson(this->props, data);
     if (!argList.IsEmpty())
@@ -54,9 +51,9 @@ void Action::Take(AActor *actor, const TSharedRef<FJsonObject> data)
 
     TCHAR *outStr = args.GetCharArray().GetData();
 
-    // UE_LOG(LogTemp, Warning, TEXT("Calling function with args: %s"), outStr);
+    UE_LOG(LogRshipExec, Log, TEXT("Calling function with args: %s"), outStr);
 
-    actor->CallFunctionByNameWithArguments(outStr, out, NULL, true);
+    return actor->CallFunctionByNameWithArguments(outStr, out, NULL, true);
 }
 
 void Action::UpdateSchema(UFunction *handler)

@@ -8,6 +8,7 @@
 #include "GameFramework/Actor.h"
 #include "Misc/DefaultValueHelper.h"
 #include "Util.h"
+#include "Logs.h"
 
 using namespace std;
 
@@ -15,64 +16,62 @@ using namespace std;
 void URshipTargetComponent::OnRegister()
 {
 
-	Super::OnRegister();
-	// Set this component to be initialized when the game starts, and to be ticked every frame.  You can turn these features
-	// off to improve performance if you don't need them.
-	PrimaryComponentTick.bCanEverTick = true;
+    Super::OnRegister();
+    // Set this component to be initialized when the game starts, and to be ticked every frame.  You can turn these features
+    // off to improve performance if you don't need them.
+    PrimaryComponentTick.bCanEverTick = true;
 
-	Register();
+    Register();
 }
 
 void URshipTargetComponent::OnComponentDestroyed(bool bDestoryHierarchy)
 {
 
-	for (const auto& handler : EmitterHandlers)
-	{
-		handler.Value->Destroy();
-	}
+    for (const auto &handler : EmitterHandlers)
+    {
+        handler.Value->Destroy();
+    }
 
-	URshipSubsystem* subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+    URshipSubsystem *subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
 
-	subsystem->TargetComponents->Remove(this);
+    subsystem->TargetComponents->Remove(this);
 }
 
 // Called every frame
 void URshipTargetComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction *ThisTickFunction)
 {
-	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+    Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 }
 
 void URshipTargetComponent::Reconnect()
 {
-	URshipSubsystem *subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
-	subsystem->Reconnect();
+    URshipSubsystem *subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+    subsystem->Reconnect();
 }
-
-
 
 void URshipTargetComponent::Register()
 {
 
-	URshipSubsystem* subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+    URshipSubsystem *subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
 
-	AActor *parent = GetOwner();
+    AActor *parent = GetOwner();
 
-	if (!parent)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("Parent not found"));
-	}
+    if (!parent)
+    {
+        UE_LOG(LogRshipExec, Warning, TEXT("Parent not found"));
+    }
 
-	subsystem->TargetComponents->Add(this);
+    subsystem->TargetComponents->Add(this);
 
     FString fullTargetId = subsystem->GetServiceId() + ":" + this->targetName;
 
     this->TargetData = new Target(fullTargetId);
 
-    UClass* ownerClass = parent->GetClass();
+    UClass *ownerClass = parent->GetClass();
 
     for (TFieldIterator<UFunction> field(ownerClass, EFieldIteratorFlags::ExcludeSuper); field; ++field)
     {
-        UFunction* handler = *field;
+        UFunction *handler = *field;
 
         FString name = field->GetName();
 
@@ -90,11 +89,11 @@ void URshipTargetComponent::Register()
 
     for (TFieldIterator<FMulticastInlineDelegateProperty> It(ownerClass, EFieldIteratorFlags::ExcludeSuper); It; ++It)
     {
-        FMulticastInlineDelegateProperty* EmitterProp = *It;
+        FMulticastInlineDelegateProperty *EmitterProp = *It;
         FString EmitterName = EmitterProp->GetName();
         FName EmitterType = EmitterProp->GetClass()->GetFName();
 
-        UE_LOG(LogTemp, Warning, TEXT("Emitter: %s, Type: %s"), *EmitterName, *EmitterType.ToString());
+        UE_LOG(LogRshipExec, Warning, TEXT("Emitter: %s, Type: %s"), *EmitterName, *EmitterType.ToString());
 
         if (!EmitterName.StartsWith("RS_"))
         {
@@ -104,7 +103,7 @@ void URshipTargetComponent::Register()
         auto emitters = this->TargetData->GetEmitters();
 
         FString fullEmitterId = fullTargetId + ":" + EmitterName;
-   
+
         auto emitter = new EmitterContainer(fullEmitterId, EmitterName, EmitterProp);
         this->TargetData->AddEmitter(emitter);
 
@@ -114,8 +113,9 @@ void URshipTargetComponent::Register()
 
         auto world = GetWorld();
 
-        if (!world) {
-            UE_LOG(LogTemp, Warning, TEXT("World Not Found"));
+        if (!world)
+        {
+            UE_LOG(LogRshipExec, Warning, TEXT("World Not Found"));
             return;
         }
 
@@ -126,12 +126,12 @@ void URshipTargetComponent::Register()
         spawnInfo.bDeferConstruction = false;
         spawnInfo.bAllowDuringConstructionScript = true;
 
-
-        if (this->EmitterHandlers.Contains(EmitterName)) {
+        if (this->EmitterHandlers.Contains(EmitterName))
+        {
             return;
         }
 
-        AEmitterHandler* handler = world->SpawnActor<AEmitterHandler>(spawnInfo);
+        AEmitterHandler *handler = world->SpawnActor<AEmitterHandler>(spawnInfo);
 
         handler->SetActorLabel(parent->GetActorLabel() + " " + EmitterName + " Handler");
 
@@ -147,10 +147,9 @@ void URshipTargetComponent::Register()
         EmitterProp->SetPropertyValue_InContainer(parent, EmitterDelegate);
 
         this->EmitterHandlers.Add(EmitterName, handler);
-
     }
 
     subsystem->SendAll();
 
-	UE_LOG(LogTemp, Warning, TEXT("Component Registered: %s"), *parent->GetName());
+    UE_LOG(LogRshipExec, Warning, TEXT("Component Registered: %s"), *parent->GetName());
 }

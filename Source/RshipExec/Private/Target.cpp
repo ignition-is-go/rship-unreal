@@ -1,48 +1,50 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
-
 #include "Target.h"
+#include "Logs.h"
 
 Target::Target(FString id)
 {
 	this->id = id;
-
 }
 
 Target::~Target()
 {
 }
 
-void Target::AddAction(Action* action) {
+void Target::AddAction(Action *action)
+{
 
 	this->actions.Add(action->GetId(), action);
 }
 
-
-void Target::AddEmitter(EmitterContainer* emitter)
+void Target::AddEmitter(EmitterContainer *emitter)
 {
 	this->emitters.Add(emitter->GetId(), emitter);
 }
 
-
-TMap<FString, Action*> Target::GetActions() {
+TMap<FString, Action *> Target::GetActions()
+{
 	return this->actions;
 }
 
-TMap<FString, EmitterContainer*> Target::GetEmitters()
+TMap<FString, EmitterContainer *> Target::GetEmitters()
 {
 	return this->emitters;
 }
 
-FString Target::GetId() {
+FString Target::GetId()
+{
 	return this->id;
 }
 
-void Target::TakeAction(AActor* actor, FString actionId, const TSharedRef<FJsonObject> data) {
-	if (!this->actions.Contains(actionId)) {
-		UE_LOG(LogTemp, Warning, TEXT("Action not found: [%s]"), *actionId);
-		return;
+int Target::TakeAction(AActor *actor, FString actionId, const TSharedRef<FJsonObject> data)
+{
+	if (!this->actions.Contains(actionId))
+	{
+		UE_LOG(LogRshipExec, Warning, TEXT("Action not found: [%s]"), *actionId);
+		return 1;
 	}
 
-	this->actions[actionId]->Take(actor, data);
+	return this->actions[actionId]->Take(actor, data);
 }

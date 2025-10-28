@@ -6,28 +6,27 @@
 #include "Action.h"
 #include "EmitterContainer.h"
 /**
- * 
+ *
  */
 class RSHIPEXEC_API Target
 {
 
-private: 
+private:
 	FString id;
-	TMap<FString, Action*> actions;
-	TMap<FString, EmitterContainer*> emitters;
+	TMap<FString, Action *> actions;
+	TMap<FString, EmitterContainer *> emitters;
 
 public:
 	Target(FString id);
 	~Target();
 
-
-	void AddAction(Action* action);
-	void AddEmitter(EmitterContainer* emitter);
+	void AddAction(Action *action);
+	void AddEmitter(EmitterContainer *emitter);
 
 	FString GetId();
 
-	TMap<FString, Action*> GetActions();
-	TMap<FString, EmitterContainer*> GetEmitters();
+	TMap<FString, Action *> GetActions();
+	TMap<FString, EmitterContainer *> GetEmitters();
 
-	void TakeAction(AActor * actor, FString actionId, const TSharedRef<FJsonObject> data);
+	int TakeAction(AActor *actor, FString actionId, const TSharedRef<FJsonObject> data);
 };

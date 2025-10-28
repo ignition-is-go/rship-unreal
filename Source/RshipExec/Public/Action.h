@@ -6,8 +6,6 @@
 #include "GameFramework/Actor.h"
 #include "Util.h"
 
-
-
 /**
  *
  */
@@ -26,6 +24,6 @@ public:
 	FString GetId();
 	FString GetName();
 	TSharedPtr<FJsonObject> GetSchema();
-	void Take(AActor* actor, const TSharedRef<FJsonObject> data);
-	void UpdateSchema(UFunction* handler);
+	bool Take(AActor *actor, const TSharedRef<FJsonObject> data);
+	void UpdateSchema(UFunction *handler);
 };
