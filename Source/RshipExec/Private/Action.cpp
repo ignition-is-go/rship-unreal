@@ -36,7 +36,9 @@ bool Action::Take(AActor *actor, const TSharedRef<FJsonObject> data)
     // use our props list to build a string of our arguments
 
     FString args;
+    args.Append(TEXT("\""));
     args.Append(this->functionName);
+    args.Append(TEXT("\""));
 
     const FString argList = BuildArgStringFromJson(this->props, data);
     if (!argList.IsEmpty())
