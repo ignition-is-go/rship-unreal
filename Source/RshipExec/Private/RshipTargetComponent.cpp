@@ -49,6 +49,21 @@ void URshipTargetComponent::Reconnect()
     subsystem->Reconnect();
 }
 
+void URshipTargetComponent::RegisterFunction(UObject* owner, UFunction* func, FString *targetId) {
+    FString name = func->GetName();
+
+    if (!name.StartsWith("RS_")) {
+        return;
+    }
+
+    FString fullActionId = *targetId + ":" + name;
+
+    auto actions = this->TargetData->GetActions();
+
+    auto action = new Action(fullActionId, name, func, owner);
+    this->TargetData->AddAction(action);
+}
+
 void URshipTargetComponent::Register()
 {
 
@@ -63,6 +78,10 @@ void URshipTargetComponent::Register()
 
     subsystem->TargetComponents->Add(this);
 
+    FString outlinerName = parent->GetName();
+
+    UE_LOG(LogRshipExec, Log, TEXT("Registering OUTLINER: %s as %s"), *outlinerName, *this->targetName);
+
     FString fullTargetId = subsystem->GetServiceId() + ":" + this->targetName;
 
     this->TargetData = new Target(fullTargetId);
@@ -71,20 +90,18 @@ void URshipTargetComponent::Register()
 
     for (TFieldIterator<UFunction> field(ownerClass, EFieldIteratorFlags::ExcludeSuper); field; ++field)
     {
-        UFunction *handler = *field;
+        this->RegisterFunction(parent, *field, &fullTargetId);
+    }
 
-        FString name = field->GetName();
+    TArray<UActorComponent*> siblingComponents;
 
-        if (!name.StartsWith("RS_"))
-        {
-            continue;
+    parent->GetComponents(siblingComponents);
+
+    for (UActorComponent* sibling : siblingComponents) {
+        UClass* siblingClass = sibling->GetClass();
+        for (TFieldIterator<UFunction> siblingFunc(siblingClass, EFieldIteratorFlags::ExcludeSuper); siblingFunc; ++siblingFunc) {
+            this->RegisterFunction(sibling, *siblingFunc, &fullTargetId);
         }
-        FString fullActionId = fullTargetId + ":" + name;
-
-        auto actions = this->TargetData->GetActions();
-
-        auto action = new Action(fullActionId, name, handler);
-        this->TargetData->AddAction(action);
     }
 
     for (TFieldIterator<FMulticastInlineDelegateProperty> It(ownerClass, EFieldIteratorFlags::ExcludeSuper); It; ++It)

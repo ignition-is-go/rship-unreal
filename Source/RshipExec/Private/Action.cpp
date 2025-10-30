@@ -7,11 +7,12 @@
 #include "SchemaHelpers.h"
 #include "Logs.h"
 
-Action::Action(FString id, FString name, UFunction *function)
+Action::Action(FString id, FString name, UFunction *function, UObject *owner)
 {
     this->id = id;
     this->name = name;
     this->functionName = function->GetName();
+    this->owner = owner;
     this->UpdateSchema(function);
 }
 
@@ -55,7 +56,7 @@ bool Action::Take(AActor *actor, const TSharedRef<FJsonObject> data)
 
     UE_LOG(LogRshipExec, Log, TEXT("Calling function with args: %s"), outStr);
 
-    return actor->CallFunctionByNameWithArguments(outStr, out, NULL, true);
+    return this->owner->CallFunctionByNameWithArguments(outStr, *GLog, NULL, true);
 }
 
 void Action::UpdateSchema(UFunction *handler)

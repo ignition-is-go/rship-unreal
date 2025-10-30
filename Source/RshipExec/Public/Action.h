@@ -16,10 +16,11 @@ private:
 	FString functionName;
 	FString id;
 	FString name;
+	UObject* owner;
 	TDoubleLinkedList<SchemaNode> props;
 
 public:
-	Action(FString id, FString name, UFunction *handler);
+	Action(FString id, FString name, UFunction *handler, UObject *owner);
 	~Action();
 	FString GetId();
 	FString GetName();

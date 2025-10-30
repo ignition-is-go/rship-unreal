@@ -26,7 +26,7 @@ public:
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "RshipTarget")
 	void Register();
 
-	UPROPERTY(EditAnywhere, config, Category = "RshipTarget", meta = (DisplayName = "Target Name"))
+	UPROPERTY(EditAnywhere, config, Category = "RshipTarget", meta = (DisplayName = "Target Id"))
 	FString targetName;
 
 	TMap<FString, AEmitterHandler*> EmitterHandlers;
@@ -35,4 +35,6 @@ public:
 
 
 private: 
+
+	void RegisterFunction(UObject* owner, UFunction* func, FString *targetId);
 };
