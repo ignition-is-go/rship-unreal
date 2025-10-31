@@ -16,15 +16,22 @@
 
 PRAGMA_DISABLE_DEPRECATION_WARNINGS
 
+// ********** Begin Delegate FOnRshipData **********************************************************
+#define FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipTargetComponent_h_11_DELEGATE \
+RSHIPEXEC_API void FOnRshipData_DelegateWrapper(const FMulticastScriptDelegate& OnRshipData);
+
+
+// ********** End Delegate FOnRshipData ************************************************************
+
 // ********** Begin Class URshipTargetComponent ****************************************************
-#define FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_RshipExec_Source_RshipExec_Public_RshipTargetComponent_h_14_RPC_WRAPPERS_NO_PURE_DECLS \
+#define FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipTargetComponent_h_17_RPC_WRAPPERS_NO_PURE_DECLS \
 	DECLARE_FUNCTION(execRegister); \
 	DECLARE_FUNCTION(execReconnect);
 
 
 RSHIPEXEC_API UClass* Z_Construct_UClass_URshipTargetComponent_NoRegister();
 
-#define FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_RshipExec_Source_RshipExec_Public_RshipTargetComponent_h_14_INCLASS_NO_PURE_DECLS \
+#define FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipTargetComponent_h_17_INCLASS_NO_PURE_DECLS \
 private: \
 	static void StaticRegisterNativesURshipTargetComponent(); \
 	friend struct Z_Construct_UClass_URshipTargetComponent_Statics; \
@@ -35,7 +42,7 @@ public: \
 	DECLARE_SERIALIZER(URshipTargetComponent)
 
 
-#define FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_RshipExec_Source_RshipExec_Public_RshipTargetComponent_h_14_ENHANCED_CONSTRUCTORS \
+#define FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipTargetComponent_h_17_ENHANCED_CONSTRUCTORS \
 	/** Standard constructor, called after all reflected properties have been initialized */ \
 	NO_API URshipTargetComponent(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get()); \
 	/** Deleted move- and copy-constructors, should never be used */ \
@@ -47,13 +54,13 @@ public: \
 	NO_API virtual ~URshipTargetComponent();
 
 
-#define FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_RshipExec_Source_RshipExec_Public_RshipTargetComponent_h_11_PROLOG
-#define FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_RshipExec_Source_RshipExec_Public_RshipTargetComponent_h_14_GENERATED_BODY \
+#define FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipTargetComponent_h_14_PROLOG
+#define FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipTargetComponent_h_17_GENERATED_BODY \
 PRAGMA_DISABLE_DEPRECATION_WARNINGS \
 public: \
-	FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_RshipExec_Source_RshipExec_Public_RshipTargetComponent_h_14_RPC_WRAPPERS_NO_PURE_DECLS \
-	FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_RshipExec_Source_RshipExec_Public_RshipTargetComponent_h_14_INCLASS_NO_PURE_DECLS \
-	FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_RshipExec_Source_RshipExec_Public_RshipTargetComponent_h_14_ENHANCED_CONSTRUCTORS \
+	FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipTargetComponent_h_17_RPC_WRAPPERS_NO_PURE_DECLS \
+	FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipTargetComponent_h_17_INCLASS_NO_PURE_DECLS \
+	FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipTargetComponent_h_17_ENHANCED_CONSTRUCTORS \
 private: \
 PRAGMA_ENABLE_DEPRECATION_WARNINGS
 
@@ -63,6 +70,6 @@ class URshipTargetComponent;
 // ********** End Class URshipTargetComponent ******************************************************
 
 #undef CURRENT_FILE_ID
-#define CURRENT_FILE_ID FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_RshipExec_Source_RshipExec_Public_RshipTargetComponent_h
+#define CURRENT_FILE_ID FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipTargetComponent_h
 
 PRAGMA_ENABLE_DEPRECATION_WARNINGS

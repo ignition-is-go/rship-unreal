@@ -15,8 +15,35 @@ void EmptyLinkFunctionForGeneratedCodeRshipTargetComponent() {}
 ENGINE_API UClass* Z_Construct_UClass_UActorComponent();
 RSHIPEXEC_API UClass* Z_Construct_UClass_URshipTargetComponent();
 RSHIPEXEC_API UClass* Z_Construct_UClass_URshipTargetComponent_NoRegister();
+RSHIPEXEC_API UFunction* Z_Construct_UDelegateFunction_RshipExec_OnRshipData__DelegateSignature();
 UPackage* Z_Construct_UPackage__Script_RshipExec();
 // ********** End Cross Module References **********************************************************
+
+// ********** Begin Delegate FOnRshipData **********************************************************
+struct Z_Construct_UDelegateFunction_RshipExec_OnRshipData__DelegateSignature_Statics
+{
+#if WITH_METADATA
+	static constexpr UECodeGen_Private::FMetaDataPairParam Function_MetaDataParams[] = {
+		{ "ModuleRelativePath", "Public/RshipTargetComponent.h" },
+	};
+#endif // WITH_METADATA
+	static const UECodeGen_Private::FDelegateFunctionParams FuncParams;
+};
+const UECodeGen_Private::FDelegateFunctionParams Z_Construct_UDelegateFunction_RshipExec_OnRshipData__DelegateSignature_Statics::FuncParams = { { (UObject*(*)())Z_Construct_UPackage__Script_RshipExec, nullptr, "OnRshipData__DelegateSignature", nullptr, 0, 0, RF_Public|RF_Transient|RF_MarkAsNative, (EFunctionFlags)0x00130000, 0, 0, METADATA_PARAMS(UE_ARRAY_COUNT(Z_Construct_UDelegateFunction_RshipExec_OnRshipData__DelegateSignature_Statics::Function_MetaDataParams), Z_Construct_UDelegateFunction_RshipExec_OnRshipData__DelegateSignature_Statics::Function_MetaDataParams)},  };
+UFunction* Z_Construct_UDelegateFunction_RshipExec_OnRshipData__DelegateSignature()
+{
+	static UFunction* ReturnFunction = nullptr;
+	if (!ReturnFunction)
+	{
+		UECodeGen_Private::ConstructUDelegateFunction(&ReturnFunction, Z_Construct_UDelegateFunction_RshipExec_OnRshipData__DelegateSignature_Statics::FuncParams);
+	}
+	return ReturnFunction;
+}
+void FOnRshipData_DelegateWrapper(const FMulticastScriptDelegate& OnRshipData)
+{
+	OnRshipData.ProcessMulticastDelegate<UObject>(NULL);
+}
+// ********** End Delegate FOnRshipData ************************************************************
 
 // ********** Begin Class URshipTargetComponent Function Reconnect *********************************
 struct Z_Construct_UFunction_URshipTargetComponent_Reconnect_Statics
@@ -128,12 +155,16 @@ struct Z_Construct_UClass_URshipTargetComponent_Statics
 		{ "IncludePath", "RshipTargetComponent.h" },
 		{ "ModuleRelativePath", "Public/RshipTargetComponent.h" },
 	};
+	static constexpr UECodeGen_Private::FMetaDataPairParam NewProp_OnRshipData_MetaData[] = {
+		{ "ModuleRelativePath", "Public/RshipTargetComponent.h" },
+	};
 	static constexpr UECodeGen_Private::FMetaDataPairParam NewProp_targetName_MetaData[] = {
 		{ "Category", "RshipTarget" },
 		{ "DisplayName", "Target Id" },
 		{ "ModuleRelativePath", "Public/RshipTargetComponent.h" },
 	};
 #endif // WITH_METADATA
+	static const UECodeGen_Private::FMulticastDelegatePropertyParams NewProp_OnRshipData;
 	static const UECodeGen_Private::FStrPropertyParams NewProp_targetName;
 	static const UECodeGen_Private::FPropertyParamsBase* const PropPointers[];
 	static UObject* (*const DependentSingletons[])();
@@ -147,8 +178,10 @@ struct Z_Construct_UClass_URshipTargetComponent_Statics
 	};
 	static const UECodeGen_Private::FClassParams ClassParams;
 };
+const UECodeGen_Private::FMulticastDelegatePropertyParams Z_Construct_UClass_URshipTargetComponent_Statics::NewProp_OnRshipData = { "OnRshipData", nullptr, (EPropertyFlags)0x0010000010080000, UECodeGen_Private::EPropertyGenFlags::InlineMulticastDelegate, RF_Public|RF_Transient|RF_MarkAsNative, nullptr, nullptr, 1, STRUCT_OFFSET(URshipTargetComponent, OnRshipData), Z_Construct_UDelegateFunction_RshipExec_OnRshipData__DelegateSignature, METADATA_PARAMS(UE_ARRAY_COUNT(NewProp_OnRshipData_MetaData), NewProp_OnRshipData_MetaData) }; // 1619050811
 const UECodeGen_Private::FStrPropertyParams Z_Construct_UClass_URshipTargetComponent_Statics::NewProp_targetName = { "targetName", nullptr, (EPropertyFlags)0x0010000000004001, UECodeGen_Private::EPropertyGenFlags::Str, RF_Public|RF_Transient|RF_MarkAsNative, nullptr, nullptr, 1, STRUCT_OFFSET(URshipTargetComponent, targetName), METADATA_PARAMS(UE_ARRAY_COUNT(NewProp_targetName_MetaData), NewProp_targetName_MetaData) };
 const UECodeGen_Private::FPropertyParamsBase* const Z_Construct_UClass_URshipTargetComponent_Statics::PropPointers[] = {
+	(const UECodeGen_Private::FPropertyParamsBase*)&Z_Construct_UClass_URshipTargetComponent_Statics::NewProp_OnRshipData,
 	(const UECodeGen_Private::FPropertyParamsBase*)&Z_Construct_UClass_URshipTargetComponent_Statics::NewProp_targetName,
 };
 static_assert(UE_ARRAY_COUNT(Z_Construct_UClass_URshipTargetComponent_Statics::PropPointers) < 2048);
@@ -186,14 +219,14 @@ URshipTargetComponent::~URshipTargetComponent() {}
 // ********** End Class URshipTargetComponent ******************************************************
 
 // ********** Begin Registration *******************************************************************
-struct Z_CompiledInDeferFile_FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_RshipExec_Source_RshipExec_Public_RshipTargetComponent_h__Script_RshipExec_Statics
+struct Z_CompiledInDeferFile_FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipTargetComponent_h__Script_RshipExec_Statics
 {
 	static constexpr FClassRegisterCompiledInInfo ClassInfo[] = {
-		{ Z_Construct_UClass_URshipTargetComponent, URshipTargetComponent::StaticClass, TEXT("URshipTargetComponent"), &Z_Registration_Info_UClass_URshipTargetComponent, CONSTRUCT_RELOAD_VERSION_INFO(FClassReloadVersionInfo, sizeof(URshipTargetComponent), 1249294444U) },
+		{ Z_Construct_UClass_URshipTargetComponent, URshipTargetComponent::StaticClass, TEXT("URshipTargetComponent"), &Z_Registration_Info_UClass_URshipTargetComponent, CONSTRUCT_RELOAD_VERSION_INFO(FClassReloadVersionInfo, sizeof(URshipTargetComponent), 907475556U) },
 	};
 };
-static FRegisterCompiledInInfo Z_CompiledInDeferFile_FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_RshipExec_Source_RshipExec_Public_RshipTargetComponent_h__Script_RshipExec_3677843513(TEXT("/Script/RshipExec"),
-	Z_CompiledInDeferFile_FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_RshipExec_Source_RshipExec_Public_RshipTargetComponent_h__Script_RshipExec_Statics::ClassInfo, UE_ARRAY_COUNT(Z_CompiledInDeferFile_FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_RshipExec_Source_RshipExec_Public_RshipTargetComponent_h__Script_RshipExec_Statics::ClassInfo),
+static FRegisterCompiledInInfo Z_CompiledInDeferFile_FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipTargetComponent_h__Script_RshipExec_3687156371(TEXT("/Script/RshipExec"),
+	Z_CompiledInDeferFile_FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipTargetComponent_h__Script_RshipExec_Statics::ClassInfo, UE_ARRAY_COUNT(Z_CompiledInDeferFile_FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipTargetComponent_h__Script_RshipExec_Statics::ClassInfo),
 	nullptr, 0,
 	nullptr, 0);
 // ********** End Registration *********************************************************************

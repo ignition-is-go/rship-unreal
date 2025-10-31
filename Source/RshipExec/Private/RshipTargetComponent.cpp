@@ -43,6 +43,10 @@ void URshipTargetComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 }
 
+void URshipTargetComponent::OnDataReceived() {
+    this->OnRshipData.Broadcast();
+}
+
 void URshipTargetComponent::Reconnect()
 {
     URshipSubsystem *subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
@@ -58,10 +62,23 @@ void URshipTargetComponent::RegisterFunction(UObject* owner, UFunction* func, FS
 
     FString fullActionId = *targetId + ":" + name;
 
-    auto actions = this->TargetData->GetActions();
-
     auto action = new Action(fullActionId, name, func, owner);
     this->TargetData->AddAction(action);
+}
+
+void URshipTargetComponent::RegisterProperty(UObject* owner, FProperty* prop, FString* targetId) {
+
+
+    FString name = prop->GetName();
+    UE_LOG(LogRshipExec, Verbose, TEXT("RshipTargetComponent: Processing Property [%s]"), *name);
+    if (!name.StartsWith("RS_")) {
+        return;
+    }
+
+    FString fullActionId = *targetId + ":" + name;
+    auto action = new Action(fullActionId, name, prop, owner);
+    this->TargetData->AddAction(action);
+    UE_LOG(LogRshipExec, Verbose, TEXT("RshipTargetComponent: Added Action [%s]"), *fullActionId);
 }
 
 void URshipTargetComponent::Register()
@@ -93,6 +110,11 @@ void URshipTargetComponent::Register()
         this->RegisterFunction(parent, *field, &fullTargetId);
     }
 
+    for(TFieldIterator<FProperty> propIt(ownerClass, EFieldIteratorFlags::ExcludeSuper); propIt; ++propIt) {
+        FProperty* property = *propIt;
+        this->RegisterProperty(parent, property, &fullTargetId);
+	}
+
     TArray<UActorComponent*> siblingComponents;
 
     parent->GetComponents(siblingComponents);
@@ -101,6 +123,10 @@ void URshipTargetComponent::Register()
         UClass* siblingClass = sibling->GetClass();
         for (TFieldIterator<UFunction> siblingFunc(siblingClass, EFieldIteratorFlags::ExcludeSuper); siblingFunc; ++siblingFunc) {
             this->RegisterFunction(sibling, *siblingFunc, &fullTargetId);
+        }
+
+        for (TFieldIterator<FProperty> siblingProp(siblingClass, EFieldIteratorFlags::ExcludeSuper); siblingProp; ++siblingProp) {
+            this->RegisterProperty(sibling, *siblingProp, &fullTargetId);
         }
     }
 

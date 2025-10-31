@@ -152,7 +152,7 @@ static TSharedPtr<FJsonObject> RshipPropToSchemaObject(const SchemaNode &prop)
         UE_LOG(LogTemp, Warning, TEXT("Unknown Type in schema: %s for %s. Defaulting to string."), *prop.Type, *prop.Name);
         propObj->SetStringField("type", "string");
     }
-
+    UE_LOG(LogRshipExec, Verbose, TEXT("Added %s: %s"), *prop.Name, *prop.Type);
     return propObj;
 }
 

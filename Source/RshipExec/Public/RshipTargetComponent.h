@@ -8,6 +8,9 @@
 #include "Target.h"
 #include "RshipTargetComponent.generated.h"
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnRshipData);
+
+
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
 class URshipTargetComponent : public UActorComponent
 {
@@ -19,6 +22,11 @@ public:
 	virtual void OnRegister() override;
 
 	virtual void OnComponentDestroyed(bool bDestoryHierarchy) override;
+
+	void OnDataReceived();
+
+	UPROPERTY(BlueprintAssignable)
+	FOnRshipData OnRshipData;
 
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "RshipTarget")
 	void Reconnect();
@@ -37,4 +45,5 @@ public:
 private: 
 
 	void RegisterFunction(UObject* owner, UFunction* func, FString *targetId);
+	void RegisterProperty(UObject* owner, FProperty* prop, FString* targetId);
 };

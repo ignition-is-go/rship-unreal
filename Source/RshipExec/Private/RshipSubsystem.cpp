@@ -168,6 +168,7 @@ void URshipSubsystem::ProcessMessage(const FString &message)
                         // UE_LOG(LogRshipExec, Warning, TEXT("Taking Action: %s"), *actionId);
                         bool takeResult = target->TakeAction(owner, actionId, execData);
                         result |= takeResult;
+                        comp->OnDataReceived();
                     }
                     else
                     {
@@ -344,7 +345,7 @@ void URshipSubsystem::SendJson(TSharedPtr<FJsonObject> Payload)
     TSharedRef<TJsonWriter<>> JsonWriter = TJsonWriterFactory<>::Create(&JsonString);
     if (FJsonSerializer::Serialize(Payload.ToSharedRef(), JsonWriter))
     {
-        // UE_LOG(LogRshipExec, Warning, TEXT("JSON: %s"), *JsonString);
+         UE_LOG(LogRshipExec, Verbose, TEXT("JSON: %s"), *JsonString);
     }
     else
     {

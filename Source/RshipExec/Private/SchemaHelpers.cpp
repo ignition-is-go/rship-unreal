@@ -1,4 +1,5 @@
 #include "SchemaHelpers.h"
+#include "Logs.h"
 
 static void BuildChildrenForStruct(const UScriptStruct *InStruct, SchemaNode &OutProp)
 {
@@ -26,21 +27,37 @@ void BuildSchemaPropsFromUFunction(UFunction* Handler, TDoubleLinkedList<SchemaN
     for (TFieldIterator<FProperty> It(Handler); It && (It->PropertyFlags & (CPF_Parm)) == CPF_Parm; ++It)
     {
         FProperty *Property = *It;
-    SchemaNode Prop;
-        Prop.Name = Property->GetName();
-        Prop.Type = Property->GetClass()->GetFName().ToString();
-
-        if (const FStructProperty *StructProp = CastField<FStructProperty>(Property))
-        {
-            if (const UScriptStruct *ScriptStruct = StructProp->Struct)
-            {
-                BuildChildrenForStruct(ScriptStruct, Prop);
-            }
-        }
-
+        SchemaNode Prop;
+		ConstructSchemaProp(Property, Prop);
         OutProps.AddTail(Prop);
     }
 }
+
+void BuildSchemaPropsFromFProperty(FProperty* Property, TDoubleLinkedList<SchemaNode>& OutProps)
+{
+    OutProps.Empty();
+	SchemaNode Prop;
+    ConstructSchemaProp(Property, Prop);
+	OutProps.AddTail(Prop);
+}
+
+void ConstructSchemaProp(FProperty* Property, SchemaNode& OutProp)
+{
+    OutProp.Name = Property->GetName();
+    OutProp.Type = Property->GetClass()->GetFName().ToString();
+
+    if (const FStructProperty *StructProp = CastField<FStructProperty>(Property))
+    {
+        if (const UScriptStruct *ScriptStruct = StructProp->Struct)
+        {
+            BuildChildrenForStruct(ScriptStruct, OutProp);
+        }
+    }
+
+    UE_LOG(LogRshipExec, Verbose, TEXT("Constructed SchemaNode - %s: %s"), *OutProp.Name, *OutProp.Type);
+}
+
+
 
 static bool IsStringLike(const FString &UnrealType)
 {
