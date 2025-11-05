@@ -175,8 +175,9 @@ void URshipTargetComponent::Register()
         }
 
         AEmitterHandler *handler = world->SpawnActor<AEmitterHandler>(spawnInfo);
-
+#if WITH_EDITOR
         handler->SetActorLabel(parent->GetActorLabel() + " " + EmitterName + " Handler");
+#endif
 
         handler->SetServiceId(subsystem->GetServiceId());
         handler->SetTargetId(fullTargetId);
