@@ -34,6 +34,17 @@ void URshipTargetComponent::OnComponentDestroyed(bool bDestoryHierarchy)
 
     URshipSubsystem *subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
 
+    if(!subsystem)
+    {
+        UE_LOG(LogRshipExec, Warning, TEXT("RshipTargetComponent: Subsystem not found during destruction"));
+        return;
+	}
+
+    if (!subsystem->TargetComponents) {
+        UE_LOG(LogRshipExec, Warning, TEXT("RshipTargetComponent: Subsystem TargetComponents not found during destruction"));
+		return;
+    }
+
     subsystem->TargetComponents->Remove(this);
 }
 
