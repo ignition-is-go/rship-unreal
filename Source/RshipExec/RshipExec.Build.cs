@@ -1,42 +1,85 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 using UnrealBuildTool;
+using System.IO;
 
 public class RshipExec : ModuleRules
 {
+	// Auto-detected based on presence of IXWebSocket in ThirdParty folder
+	private bool bUseIXWebSocket = false;
 
 	public RshipExec(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
-
 		PrecompileForTargets = PrecompileTargetsType.Any;
 
-		PublicIncludePaths.AddRange(
-			new string[] {
-				// ... add public include paths required here ...
+		// Check if IXWebSocket is available (bundled as submodule)
+		string IXWebSocketPath = Path.Combine(ModuleDirectory, "ThirdParty", "IXWebSocket", "ixwebsocket");
+		if (Directory.Exists(IXWebSocketPath))
+		{
+			bUseIXWebSocket = true;
+			System.Console.WriteLine("RshipExec: IXWebSocket found, enabling high-performance WebSocket");
+		}
+		else
+		{
+			System.Console.WriteLine("RshipExec: IXWebSocket not found, using UE WebSocket with send thread optimization");
+		}
+
+		// Define whether to use IXWebSocket - IXWebSocketWrapper.cpp checks this
+		if (bUseIXWebSocket)
+		{
+			PublicDefinitions.Add("RSHIP_USE_IXWEBSOCKET=1");
+		}
+		else
+		{
+			PublicDefinitions.Add("RSHIP_USE_IXWEBSOCKET=0");
+		}
+
+		// Add IXWebSocket includes if available
+		if (bUseIXWebSocket)
+		{
+			string IXWebSocketRoot = Path.Combine(ModuleDirectory, "ThirdParty", "IXWebSocket");
+
+			// Add include paths for IXWebSocket headers
+			PublicIncludePaths.Add(IXWebSocketRoot);
+			PrivateIncludePaths.Add(IXWebSocketPath);
+
+			// IXWebSocket build configuration
+			PublicDefinitions.Add("IXWEBSOCKET_USE_TLS=0");  // Disable TLS (can enable if needed)
+			PublicDefinitions.Add("IXWEBSOCKET_USE_ZLIB=0"); // Disable zlib compression
+
+			// Platform-specific defines
+			if (Target.Platform == UnrealTargetPlatform.Win64)
+			{
+				PublicDefinitions.Add("_WIN32");
 			}
-			);
-
-
-		PrivateIncludePaths.AddRange(
-			new string[] {
-				// ... add other private include paths required here ...
+			else if (Target.Platform == UnrealTargetPlatform.Mac)
+			{
+				PublicDefinitions.Add("__APPLE__");
 			}
-			);
+			else if (Target.Platform == UnrealTargetPlatform.Linux)
+			{
+				PublicDefinitions.Add("__linux__");
+			}
 
+			// Enable exceptions for IXWebSocket (it uses them internally)
+			bEnableExceptions = true;
+
+			// IXWebSocket sources are compiled via Private/IXWebSocketWrapper.cpp (unity build)
+		}
 
 		PublicDependencyModuleNames.AddRange(
 			new string[]
 			{
 				"Core",
-				// ... add other public dependencies that you statically link with here ...
 				"CoreUObject",
-				"WebSockets",
+				"WebSockets",  // Still needed for fallback mode
 				"Json",
 				"JsonUtilities",
+				"Sockets",     // For socket options
+				"Networking",  // For network utilities
 			}
-			);
-
+		);
 
 		PrivateDependencyModuleNames.AddRange(
 			new string[]
@@ -46,15 +89,19 @@ public class RshipExec : ModuleRules
 				"Slate",
 				"SlateCore",
 				"Settings",
-            }
-			);
-
+			}
+		);
 
 		DynamicallyLoadedModuleNames.AddRange(
 			new string[]
 			{
-				// ... add any modules that your module loads dynamically here ...
 			}
-			);
+		);
+
+		// Platform-specific libraries
+		if (Target.Platform == UnrealTargetPlatform.Win64)
+		{
+			PublicSystemLibraries.Add("Ws2_32.lib");
+		}
 	}
 }

@@ -1,0 +1,3 @@
+[submodule "Source/RshipExec/ThirdParty/IXWebSocket"]
+	path = Source/RshipExec/ThirdParty/IXWebSocket
+	url = https://github.com/machinezone/IXWebSocket.git
