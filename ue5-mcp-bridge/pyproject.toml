@@ -1,0 +1,61 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ue5-mcp-bridge"
+version = "1.0.0"
+description = "MCP server for controlling Unreal Engine 5 via the UltimateControl plugin. Works with Claude Code, Claude Desktop, and any MCP-compatible AI assistant."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "Rocketship" }
+]
+keywords = ["mcp", "unreal-engine", "ue5", "ai-agents", "game-development", "claude", "anthropic"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Games/Entertainment",
+]
+
+dependencies = [
+    "mcp>=1.0.0",
+    "httpx>=0.25.0",
+    "pydantic>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+]
+
+[project.scripts]
+ue5-mcp = "ue5_mcp_bridge.server:main"
+ue5-mcp-install = "ue5_mcp_bridge.install:install_claude"
+
+[project.urls]
+Homepage = "https://github.com/rocketship/ue5-mcp-bridge"
+Documentation = "https://github.com/rocketship/ue5-mcp-bridge#readme"
+Repository = "https://github.com/rocketship/ue5-mcp-bridge"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ue5_mcp_bridge"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+select = ["E", "F", "I", "N", "W"]
