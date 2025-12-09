@@ -1,6 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "RshipTargetComponent.h"
+#include "RshipTargetGroup.h"
 #include <iostream>
 #include "Engine/World.h"
 #include "Engine/Engine.h"
@@ -46,6 +47,12 @@ void URshipTargetComponent::OnComponentDestroyed(bool bDestoryHierarchy)
     }
 
     subsystem->TargetComponents->Remove(this);
+
+    // Unregister from GroupManager
+    if (URshipTargetGroupManager* GroupManager = subsystem->GetGroupManager())
+    {
+        GroupManager->UnregisterTarget(this);
+    }
 }
 
 // Called every frame
@@ -206,5 +213,25 @@ void URshipTargetComponent::Register()
 
     subsystem->SendAll();
 
+    // Register with GroupManager for tagging/grouping support
+    if (URshipTargetGroupManager* GroupManager = subsystem->GetGroupManager())
+    {
+        GroupManager->RegisterTarget(this);
+    }
+
     UE_LOG(LogRshipExec, Log, TEXT("Component Registered: %s"), *parent->GetName());
+}
+
+bool URshipTargetComponent::HasTag(const FString& Tag) const
+{
+    // Case-insensitive tag search
+    FString NormalizedTag = Tag.TrimStartAndEnd().ToLower();
+    for (const FString& ExistingTag : Tags)
+    {
+        if (ExistingTag.TrimStartAndEnd().ToLower() == NormalizedTag)
+        {
+            return true;
+        }
+    }
+    return false;
 }

@@ -78,6 +78,8 @@ public class RshipExec : ModuleRules
 				"JsonUtilities",
 				"Sockets",     // For socket options
 				"Networking",  // For network utilities
+				"HTTP",        // For IES profile fetching
+				"RenderCore",  // For texture generation
 			}
 		);
 
@@ -91,6 +93,18 @@ public class RshipExec : ModuleRules
 				"Settings",
 			}
 		);
+
+		// Editor-only dependencies for viewport selection sync
+		if (Target.bBuildEditor)
+		{
+			PrivateDependencyModuleNames.AddRange(
+				new string[]
+				{
+					"UnrealEd",
+					"LevelEditor",
+				}
+			);
+		}
 
 		DynamicallyLoadedModuleNames.AddRange(
 			new string[]

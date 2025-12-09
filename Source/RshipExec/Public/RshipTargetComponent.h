@@ -37,6 +37,26 @@ public:
 	UPROPERTY(EditAnywhere, config, Category = "RshipTarget", meta = (DisplayName = "Target Id"))
 	FString targetName;
 
+	// ========================================================================
+	// ORGANIZATION - Tags and Groups
+	// ========================================================================
+
+	/** User-defined tags for organizing and filtering targets */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RshipTarget|Organization")
+	TArray<FString> Tags;
+
+	/** Groups this target belongs to (managed by URshipTargetGroupManager) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "RshipTarget|Organization")
+	TArray<FString> GroupIds;
+
+	/** Check if this target has a specific tag */
+	UFUNCTION(BlueprintCallable, Category = "RshipTarget|Organization")
+	bool HasTag(const FString& Tag) const;
+
+	/** Get all tags on this target */
+	UFUNCTION(BlueprintCallable, Category = "RshipTarget|Organization")
+	TArray<FString> GetTags() const { return Tags; }
+
 	TMap<FString, AEmitterHandler*> EmitterHandlers;
 
 	Target* TargetData;

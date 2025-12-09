@@ -35,6 +35,35 @@ void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
     ConnectionState = ERshipConnectionState::Disconnected;
     ReconnectAttempts = 0;
     bUsingHighPerfWebSocket = false;
+    GroupManager = nullptr;
+    HealthMonitor = nullptr;
+    PresetManager = nullptr;
+    TemplateManager = nullptr;
+    LevelManager = nullptr;
+    EditorSelection = nullptr;
+    DataLayerManager = nullptr;
+    FixtureManager = nullptr;
+    CameraManager = nullptr;
+    IESProfileService = nullptr;
+    SceneConverter = nullptr;
+    EditorTransformSync = nullptr;
+    PulseReceiver = nullptr;
+    FeedbackReporter = nullptr;
+    VisualizationManager = nullptr;
+    TimecodeSync = nullptr;
+    FixtureLibrary = nullptr;
+    MultiCameraManager = nullptr;
+    SceneValidator = nullptr;
+    NiagaraManager = nullptr;
+    SequencerSync = nullptr;
+    MaterialManager = nullptr;
+    DMXOutput = nullptr;
+    OSCBridge = nullptr;
+    LiveLinkService = nullptr;
+    AudioManager = nullptr;
+    Recorder = nullptr;
+    ControlRigManager = nullptr;
+    LastTickTime = 0.0;
 
     // Initialize rate limiter
     InitializeRateLimiter();
@@ -60,6 +89,18 @@ void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
             this,
             &URshipSubsystem::ProcessMessageQueue,
             Settings->QueueProcessInterval,
+            true  // Looping
+        );
+    }
+
+    // Start subsystem tick timer (60Hz for smooth updates)
+    if (world != nullptr)
+    {
+        world->GetTimerManager().SetTimer(
+            SubsystemTickTimerHandle,
+            this,
+            &URshipSubsystem::TickSubsystems,
+            1.0f / 60.0f,  // 60Hz tick rate
             true  // Looping
         );
     }
@@ -377,6 +418,74 @@ void URshipSubsystem::ProcessMessageQueue()
     RateLimiter->ProcessQueue();
 }
 
+void URshipSubsystem::TickSubsystems()
+{
+    // Calculate delta time
+    double CurrentTime = FPlatformTime::Seconds();
+    float DeltaTime = (LastTickTime > 0.0) ? (float)(CurrentTime - LastTickTime) : 0.0f;
+    LastTickTime = CurrentTime;
+
+    // Tick timecode sync for playback and cue points
+    if (TimecodeSync)
+    {
+        TimecodeSync->Tick(DeltaTime);
+    }
+
+    // Tick multi-camera manager for transitions
+    if (MultiCameraManager)
+    {
+        MultiCameraManager->Tick(DeltaTime);
+    }
+
+    // Tick visualization manager for beam updates
+    if (VisualizationManager)
+    {
+        VisualizationManager->Tick(DeltaTime);
+    }
+
+    // Tick Niagara manager for parameter updates
+    if (NiagaraManager)
+    {
+        NiagaraManager->Tick(DeltaTime);
+    }
+
+    // Tick sequencer sync for timeline integration
+    if (SequencerSync)
+    {
+        SequencerSync->Tick(DeltaTime);
+    }
+
+    // Tick material manager for global updates
+    if (MaterialManager)
+    {
+        MaterialManager->Tick(DeltaTime);
+    }
+
+    // Tick DMX output for continuous transmission
+    if (DMXOutput)
+    {
+        DMXOutput->Tick(DeltaTime);
+    }
+
+    // Tick OSC bridge for message processing
+    if (OSCBridge)
+    {
+        OSCBridge->Tick(DeltaTime);
+    }
+
+    // Tick Live Link service for smoothing
+    if (LiveLinkService)
+    {
+        LiveLinkService->Tick(DeltaTime);
+    }
+
+    // Tick Recorder for playback
+    if (Recorder)
+    {
+        Recorder->Tick(DeltaTime);
+    }
+}
+
 void URshipSubsystem::QueueMessage(TSharedPtr<FJsonObject> Payload, ERshipMessagePriority Priority,
                                     ERshipMessageType Type, const FString& CoalesceKey)
 {
@@ -548,6 +657,132 @@ void URshipSubsystem::ProcessMessage(const FString &message)
         }
         obj.Reset();
     }
+    else if (type == "ws:m:set" || type == "ws:m:del")
+    {
+        // Entity event - route to appropriate manager
+        bool bIsDelete = (type == "ws:m:del");
+        TSharedPtr<FJsonObject> data = obj->GetObjectField(TEXT("data"));
+
+        if (!data.IsValid())
+        {
+            return;
+        }
+
+        FString itemType = data->GetStringField(TEXT("itemType"));
+        TSharedPtr<FJsonObject> item = data->GetObjectField(TEXT("item"));
+
+        if (!item.IsValid())
+        {
+            return;
+        }
+
+        UE_LOG(LogRshipExec, Verbose, TEXT("Entity event: %s %s"), *type, *itemType);
+
+        // Route to fixture manager
+        if (itemType == TEXT("Fixture"))
+        {
+            if (FixtureManager)
+            {
+                FixtureManager->ProcessFixtureEvent(item, bIsDelete);
+            }
+        }
+        else if (itemType == TEXT("FixtureType"))
+        {
+            if (FixtureManager)
+            {
+                FixtureManager->ProcessFixtureTypeEvent(item, bIsDelete);
+            }
+        }
+        else if (itemType == TEXT("FixtureCalibration"))
+        {
+            if (FixtureManager)
+            {
+                FixtureManager->ProcessCalibrationEvent(item, bIsDelete);
+            }
+        }
+        // Route to camera manager
+        else if (itemType == TEXT("Camera"))
+        {
+            if (CameraManager)
+            {
+                CameraManager->ProcessCameraEvent(item, bIsDelete);
+            }
+        }
+        else if (itemType == TEXT("Calibration"))
+        {
+            // OpenCV camera calibration result
+            if (CameraManager)
+            {
+                CameraManager->ProcessCalibrationEvent(item, bIsDelete);
+            }
+        }
+        else if (itemType == TEXT("ColorProfile"))
+        {
+            if (CameraManager)
+            {
+                CameraManager->ProcessColorProfileEvent(item, bIsDelete);
+            }
+        }
+        // Route pulses to pulse receiver
+        else if (itemType == TEXT("Pulse") && !bIsDelete)
+        {
+            if (PulseReceiver)
+            {
+                // Extract emitterId and data from the pulse
+                FString EmitterId = item->GetStringField(TEXT("emitterId"));
+                TSharedPtr<FJsonObject> PulseData = item->GetObjectField(TEXT("data"));
+
+                if (!EmitterId.IsEmpty() && PulseData.IsValid())
+                {
+                    PulseReceiver->ProcessPulseEvent(EmitterId, PulseData);
+                }
+            }
+        }
+        // Route timecode events
+        else if (itemType == TEXT("Timecode") && !bIsDelete)
+        {
+            if (TimecodeSync)
+            {
+                TimecodeSync->ProcessTimecodeEvent(item);
+            }
+        }
+        // Route event track events
+        else if (itemType == TEXT("EventTrack"))
+        {
+            if (TimecodeSync && !bIsDelete)
+            {
+                TimecodeSync->ProcessEventTrackEvent(item);
+            }
+        }
+        // Route fixture profile events to library
+        else if (itemType == TEXT("FixtureProfile"))
+        {
+            if (FixtureLibrary)
+            {
+                FixtureLibrary->ProcessProfileEvent(item, bIsDelete);
+            }
+        }
+        // Route camera switch commands
+        else if (itemType == TEXT("CameraSwitch") && !bIsDelete)
+        {
+            if (MultiCameraManager)
+            {
+                MultiCameraManager->ProcessCameraSwitchCommand(item);
+            }
+        }
+        // Route camera view events
+        else if (itemType == TEXT("CameraView"))
+        {
+            if (MultiCameraManager && !bIsDelete)
+            {
+                // Sync camera views from rship
+                FRshipCameraView View;
+                View.Id = item->GetStringField(TEXT("id"));
+                View.Name = item->GetStringField(TEXT("name"));
+                MultiCameraManager->AddView(View);
+            }
+        }
+    }
 }
 
 void URshipSubsystem::Deinitialize()
@@ -559,6 +794,196 @@ void URshipSubsystem::Deinitialize()
     {
         world->GetTimerManager().ClearTimer(QueueProcessTimerHandle);
         world->GetTimerManager().ClearTimer(ReconnectTimerHandle);
+        world->GetTimerManager().ClearTimer(SubsystemTickTimerHandle);
+    }
+
+    // Shutdown health monitor
+    if (HealthMonitor)
+    {
+        HealthMonitor->Shutdown();
+        HealthMonitor = nullptr;
+    }
+
+    // Shutdown preset manager
+    if (PresetManager)
+    {
+        PresetManager->Shutdown();
+        PresetManager = nullptr;
+    }
+
+    // Shutdown template manager
+    if (TemplateManager)
+    {
+        TemplateManager->Shutdown();
+        TemplateManager = nullptr;
+    }
+
+    // Shutdown level manager
+    if (LevelManager)
+    {
+        LevelManager->Shutdown();
+        LevelManager = nullptr;
+    }
+
+    // Shutdown editor selection
+    if (EditorSelection)
+    {
+        EditorSelection->Shutdown();
+        EditorSelection = nullptr;
+    }
+
+    // Shutdown Data Layer manager
+    if (DataLayerManager)
+    {
+        DataLayerManager->Shutdown();
+        DataLayerManager = nullptr;
+    }
+
+    // Shutdown Fixture manager
+    if (FixtureManager)
+    {
+        FixtureManager->Shutdown();
+        FixtureManager = nullptr;
+    }
+
+    // Shutdown Camera manager
+    if (CameraManager)
+    {
+        CameraManager->Shutdown();
+        CameraManager = nullptr;
+    }
+
+    // Shutdown IES profile service
+    if (IESProfileService)
+    {
+        IESProfileService->Shutdown();
+        IESProfileService = nullptr;
+    }
+
+    // Shutdown Scene converter
+    if (SceneConverter)
+    {
+        SceneConverter->Shutdown();
+        SceneConverter = nullptr;
+    }
+
+    // Shutdown Editor transform sync
+    if (EditorTransformSync)
+    {
+        EditorTransformSync->Shutdown();
+        EditorTransformSync = nullptr;
+    }
+
+    // Shutdown Pulse receiver
+    if (PulseReceiver)
+    {
+        PulseReceiver->Shutdown();
+        PulseReceiver = nullptr;
+    }
+
+    // Shutdown Feedback reporter
+    if (FeedbackReporter)
+    {
+        FeedbackReporter->Shutdown();
+        FeedbackReporter = nullptr;
+    }
+
+    // Shutdown Visualization manager
+    if (VisualizationManager)
+    {
+        VisualizationManager->Shutdown();
+        VisualizationManager = nullptr;
+    }
+
+    // Shutdown Timecode sync
+    if (TimecodeSync)
+    {
+        TimecodeSync->Shutdown();
+        TimecodeSync = nullptr;
+    }
+
+    // Shutdown Fixture library
+    if (FixtureLibrary)
+    {
+        FixtureLibrary->Shutdown();
+        FixtureLibrary = nullptr;
+    }
+
+    // Shutdown Multi-camera manager
+    if (MultiCameraManager)
+    {
+        MultiCameraManager->Shutdown();
+        MultiCameraManager = nullptr;
+    }
+
+    // Shutdown Scene validator
+    if (SceneValidator)
+    {
+        SceneValidator->Shutdown();
+        SceneValidator = nullptr;
+    }
+
+    // Shutdown Niagara manager
+    if (NiagaraManager)
+    {
+        NiagaraManager->Shutdown();
+        NiagaraManager = nullptr;
+    }
+
+    // Shutdown Sequencer sync
+    if (SequencerSync)
+    {
+        SequencerSync->Shutdown();
+        SequencerSync = nullptr;
+    }
+
+    // Shutdown Material manager
+    if (MaterialManager)
+    {
+        MaterialManager->Shutdown();
+        MaterialManager = nullptr;
+    }
+
+    // Shutdown DMX output
+    if (DMXOutput)
+    {
+        DMXOutput->Shutdown();
+        DMXOutput = nullptr;
+    }
+
+    // Shutdown OSC bridge
+    if (OSCBridge)
+    {
+        OSCBridge->Shutdown();
+        OSCBridge = nullptr;
+    }
+
+    // Shutdown Live Link service
+    if (LiveLinkService)
+    {
+        LiveLinkService->Shutdown();
+        LiveLinkService = nullptr;
+    }
+
+    // Shutdown Audio manager
+    if (AudioManager)
+    {
+        AudioManager->Shutdown();
+        AudioManager = nullptr;
+    }
+
+    // Shutdown Recorder
+    if (Recorder)
+    {
+        Recorder->Shutdown();
+        Recorder = nullptr;
+    }
+
+    // Shutdown Control Rig manager
+    if (ControlRigManager)
+    {
+        ControlRigManager->Shutdown();
+        ControlRigManager = nullptr;
     }
 
     // Clear rate limiter
@@ -619,6 +1044,36 @@ void URshipSubsystem::SendTarget(Target *target)
     Target->SetStringField(TEXT("bgColor"), ColorHex);
     Target->SetStringField(TEXT("name"), target->GetId());
     Target->SetStringField(TEXT("serviceId"), ServiceId);
+
+    // Add tags and groups from the target component
+    URshipTargetComponent* TargetComp = nullptr;
+    for (URshipTargetComponent* Comp : *TargetComponents)
+    {
+        if (Comp && Comp->TargetData == target)
+        {
+            TargetComp = Comp;
+            break;
+        }
+    }
+
+    if (TargetComp)
+    {
+        // Add tags array
+        TArray<TSharedPtr<FJsonValue>> TagsJson;
+        for (const FString& Tag : TargetComp->Tags)
+        {
+            TagsJson.Add(MakeShareable(new FJsonValueString(Tag)));
+        }
+        Target->SetArrayField(TEXT("tags"), TagsJson);
+
+        // Add group IDs array
+        TArray<TSharedPtr<FJsonValue>> GroupIdsJson;
+        for (const FString& GroupId : TargetComp->GroupIds)
+        {
+            GroupIdsJson.Add(MakeShareable(new FJsonValueString(GroupId)));
+        }
+        Target->SetArrayField(TEXT("groupIds"), GroupIdsJson);
+    }
 
     // Target registration - HIGH priority, coalesce by target ID
     SetItem("Target", Target, ERshipMessagePriority::High, target->GetId());
@@ -747,6 +1202,18 @@ void URshipSubsystem::PulseEmitter(FString targetId, FString emitterId, TSharedP
     // Emitter pulses are LOW priority and coalesce by emitter ID
     // This means rapid pulses from the same emitter will be coalesced
     SetItem("Pulse", pulse, ERshipMessagePriority::Low, fullEmitterId);
+
+    // Record pulse in health monitor for activity tracking
+    if (HealthMonitor)
+    {
+        HealthMonitor->RecordPulse(targetId);
+    }
+
+    // Cache emitter value for preset capture
+    if (PresetManager)
+    {
+        PresetManager->CacheEmitterValue(targetId, emitterId, data);
+    }
 }
 
 EmitterContainer *URshipSubsystem::GetEmitterInfo(FString fullTargetId, FString emitterId)
@@ -886,4 +1353,499 @@ void URshipSubsystem::ResetRateLimiterStats()
         RateLimiter->ResetStats();
         UE_LOG(LogRshipExec, Log, TEXT("Rate limiter statistics reset"));
     }
+}
+
+// ============================================================================
+// GROUP MANAGEMENT
+// ============================================================================
+
+URshipTargetGroupManager* URshipSubsystem::GetGroupManager()
+{
+    // Lazy initialization
+    if (!GroupManager)
+    {
+        GroupManager = NewObject<URshipTargetGroupManager>(this);
+
+        // Register all existing targets with the group manager
+        if (TargetComponents)
+        {
+            for (URshipTargetComponent* Comp : *TargetComponents)
+            {
+                if (Comp)
+                {
+                    GroupManager->RegisterTarget(Comp);
+                }
+            }
+        }
+
+        UE_LOG(LogRshipExec, Log, TEXT("GroupManager initialized with %d targets"),
+            TargetComponents ? TargetComponents->Num() : 0);
+    }
+    return GroupManager;
+}
+
+// ============================================================================
+// HEALTH MONITORING
+// ============================================================================
+
+URshipHealthMonitor* URshipSubsystem::GetHealthMonitor()
+{
+    // Lazy initialization
+    if (!HealthMonitor)
+    {
+        HealthMonitor = NewObject<URshipHealthMonitor>(this);
+        HealthMonitor->Initialize(this);
+
+        UE_LOG(LogRshipExec, Log, TEXT("HealthMonitor initialized"));
+    }
+    return HealthMonitor;
+}
+
+// ============================================================================
+// PRESET MANAGEMENT
+// ============================================================================
+
+URshipPresetManager* URshipSubsystem::GetPresetManager()
+{
+    // Lazy initialization
+    if (!PresetManager)
+    {
+        PresetManager = NewObject<URshipPresetManager>(this);
+        PresetManager->Initialize(this);
+
+        // Load saved presets
+        PresetManager->LoadPresetsFromFile();
+
+        UE_LOG(LogRshipExec, Log, TEXT("PresetManager initialized"));
+    }
+    return PresetManager;
+}
+
+// ============================================================================
+// TEMPLATE MANAGEMENT
+// ============================================================================
+
+URshipTemplateManager* URshipSubsystem::GetTemplateManager()
+{
+    // Lazy initialization
+    if (!TemplateManager)
+    {
+        TemplateManager = NewObject<URshipTemplateManager>(this);
+        TemplateManager->Initialize(this);
+
+        // Load saved templates
+        TemplateManager->LoadTemplatesFromFile();
+
+        UE_LOG(LogRshipExec, Log, TEXT("TemplateManager initialized"));
+    }
+    return TemplateManager;
+}
+
+// ============================================================================
+// LEVEL MANAGEMENT
+// ============================================================================
+
+URshipLevelManager* URshipSubsystem::GetLevelManager()
+{
+    // Lazy initialization
+    if (!LevelManager)
+    {
+        LevelManager = NewObject<URshipLevelManager>(this);
+        LevelManager->Initialize(this);
+
+        UE_LOG(LogRshipExec, Log, TEXT("LevelManager initialized"));
+    }
+    return LevelManager;
+}
+
+// ============================================================================
+// EDITOR SELECTION
+// ============================================================================
+
+URshipEditorSelection* URshipSubsystem::GetEditorSelection()
+{
+    // Lazy initialization
+    if (!EditorSelection)
+    {
+        EditorSelection = NewObject<URshipEditorSelection>(this);
+        EditorSelection->Initialize(this);
+
+        UE_LOG(LogRshipExec, Log, TEXT("EditorSelection initialized (available=%s)"),
+            EditorSelection->IsEditorSyncAvailable() ? TEXT("Yes") : TEXT("No"));
+    }
+    return EditorSelection;
+}
+
+// ============================================================================
+// DATA LAYER MANAGEMENT
+// ============================================================================
+
+URshipDataLayerManager* URshipSubsystem::GetDataLayerManager()
+{
+    // Lazy initialization
+    if (!DataLayerManager)
+    {
+        DataLayerManager = NewObject<URshipDataLayerManager>(this);
+        DataLayerManager->Initialize(this);
+
+        UE_LOG(LogRshipExec, Log, TEXT("DataLayerManager initialized"));
+    }
+    return DataLayerManager;
+}
+
+// ============================================================================
+// FIXTURE MANAGEMENT
+// ============================================================================
+
+URshipFixtureManager* URshipSubsystem::GetFixtureManager()
+{
+    // Lazy initialization
+    if (!FixtureManager)
+    {
+        FixtureManager = NewObject<URshipFixtureManager>(this);
+        FixtureManager->Initialize(this);
+
+        UE_LOG(LogRshipExec, Log, TEXT("FixtureManager initialized"));
+    }
+    return FixtureManager;
+}
+
+// ============================================================================
+// CAMERA MANAGEMENT
+// ============================================================================
+
+URshipCameraManager* URshipSubsystem::GetCameraManager()
+{
+    // Lazy initialization
+    if (!CameraManager)
+    {
+        CameraManager = NewObject<URshipCameraManager>(this);
+        CameraManager->Initialize(this);
+
+        UE_LOG(LogRshipExec, Log, TEXT("CameraManager initialized"));
+    }
+    return CameraManager;
+}
+
+// ============================================================================
+// IES PROFILE SERVICE
+// ============================================================================
+
+URshipIESProfileService* URshipSubsystem::GetIESProfileService()
+{
+    // Lazy initialization
+    if (!IESProfileService)
+    {
+        IESProfileService = NewObject<URshipIESProfileService>(this);
+        IESProfileService->Initialize(this);
+
+        UE_LOG(LogRshipExec, Log, TEXT("IESProfileService initialized"));
+    }
+    return IESProfileService;
+}
+
+// ============================================================================
+// SCENE CONVERSION
+// ============================================================================
+
+URshipSceneConverter* URshipSubsystem::GetSceneConverter()
+{
+    // Lazy initialization
+    if (!SceneConverter)
+    {
+        SceneConverter = NewObject<URshipSceneConverter>(this);
+        SceneConverter->Initialize(this);
+
+        UE_LOG(LogRshipExec, Log, TEXT("SceneConverter initialized"));
+    }
+    return SceneConverter;
+}
+
+// ============================================================================
+// EDITOR TRANSFORM SYNC
+// ============================================================================
+
+URshipEditorTransformSync* URshipSubsystem::GetEditorTransformSync()
+{
+    // Lazy initialization
+    if (!EditorTransformSync)
+    {
+        EditorTransformSync = NewObject<URshipEditorTransformSync>(this);
+        EditorTransformSync->Initialize(this);
+
+        UE_LOG(LogRshipExec, Log, TEXT("EditorTransformSync initialized"));
+    }
+    return EditorTransformSync;
+}
+
+// ============================================================================
+// PULSE RECEIVER
+// ============================================================================
+
+URshipPulseReceiver* URshipSubsystem::GetPulseReceiver()
+{
+    // Lazy initialization
+    if (!PulseReceiver)
+    {
+        PulseReceiver = NewObject<URshipPulseReceiver>(this);
+        PulseReceiver->Initialize(this);
+
+        UE_LOG(LogRshipExec, Log, TEXT("PulseReceiver initialized"));
+    }
+    return PulseReceiver;
+}
+
+// ============================================================================
+// FEEDBACK REPORTER
+// ============================================================================
+
+URshipFeedbackReporter* URshipSubsystem::GetFeedbackReporter()
+{
+    // Lazy initialization
+    if (!FeedbackReporter)
+    {
+        FeedbackReporter = NewObject<URshipFeedbackReporter>(this);
+        FeedbackReporter->Initialize(this);
+
+        UE_LOG(LogRshipExec, Log, TEXT("FeedbackReporter initialized"));
+    }
+    return FeedbackReporter;
+}
+
+// ============================================================================
+// VISUALIZATION MANAGER
+// ============================================================================
+
+URshipVisualizationManager* URshipSubsystem::GetVisualizationManager()
+{
+    // Lazy initialization
+    if (!VisualizationManager)
+    {
+        VisualizationManager = NewObject<URshipVisualizationManager>(this);
+        VisualizationManager->Initialize(this);
+
+        UE_LOG(LogRshipExec, Log, TEXT("VisualizationManager initialized"));
+    }
+    return VisualizationManager;
+}
+
+// ============================================================================
+// TIMECODE SYNC
+// ============================================================================
+
+URshipTimecodeSync* URshipSubsystem::GetTimecodeSync()
+{
+    // Lazy initialization
+    if (!TimecodeSync)
+    {
+        TimecodeSync = NewObject<URshipTimecodeSync>(this);
+        TimecodeSync->Initialize(this);
+
+        UE_LOG(LogRshipExec, Log, TEXT("TimecodeSync initialized"));
+    }
+    return TimecodeSync;
+}
+
+// ============================================================================
+// FIXTURE LIBRARY
+// ============================================================================
+
+URshipFixtureLibrary* URshipSubsystem::GetFixtureLibrary()
+{
+    // Lazy initialization
+    if (!FixtureLibrary)
+    {
+        FixtureLibrary = NewObject<URshipFixtureLibrary>(this);
+        FixtureLibrary->Initialize(this);
+
+        UE_LOG(LogRshipExec, Log, TEXT("FixtureLibrary initialized with %d profiles"), FixtureLibrary->GetAllProfiles().Num());
+    }
+    return FixtureLibrary;
+}
+
+// ============================================================================
+// MULTI-CAMERA MANAGER
+// ============================================================================
+
+URshipMultiCameraManager* URshipSubsystem::GetMultiCameraManager()
+{
+    // Lazy initialization
+    if (!MultiCameraManager)
+    {
+        MultiCameraManager = NewObject<URshipMultiCameraManager>(this);
+        MultiCameraManager->Initialize(this);
+
+        UE_LOG(LogRshipExec, Log, TEXT("MultiCameraManager initialized"));
+    }
+    return MultiCameraManager;
+}
+
+// ============================================================================
+// SCENE VALIDATOR
+// ============================================================================
+
+URshipSceneValidator* URshipSubsystem::GetSceneValidator()
+{
+    // Lazy initialization
+    if (!SceneValidator)
+    {
+        SceneValidator = NewObject<URshipSceneValidator>(this);
+        SceneValidator->Initialize(this);
+
+        UE_LOG(LogRshipExec, Log, TEXT("SceneValidator initialized"));
+    }
+    return SceneValidator;
+}
+
+// ============================================================================
+// NIAGARA MANAGER
+// ============================================================================
+
+URshipNiagaraManager* URshipSubsystem::GetNiagaraManager()
+{
+    // Lazy initialization
+    if (!NiagaraManager)
+    {
+        NiagaraManager = NewObject<URshipNiagaraManager>(this);
+        NiagaraManager->Initialize(this);
+
+        UE_LOG(LogRshipExec, Log, TEXT("NiagaraManager initialized"));
+    }
+    return NiagaraManager;
+}
+
+// ============================================================================
+// SEQUENCER SYNC
+// ============================================================================
+
+URshipSequencerSync* URshipSubsystem::GetSequencerSync()
+{
+    // Lazy initialization
+    if (!SequencerSync)
+    {
+        SequencerSync = NewObject<URshipSequencerSync>(this);
+        SequencerSync->Initialize(this);
+
+        UE_LOG(LogRshipExec, Log, TEXT("SequencerSync initialized"));
+    }
+    return SequencerSync;
+}
+
+// ============================================================================
+// MATERIAL MANAGER
+// ============================================================================
+
+URshipMaterialManager* URshipSubsystem::GetMaterialManager()
+{
+    // Lazy initialization
+    if (!MaterialManager)
+    {
+        MaterialManager = NewObject<URshipMaterialManager>(this);
+        MaterialManager->Initialize(this);
+
+        UE_LOG(LogRshipExec, Log, TEXT("MaterialManager initialized"));
+    }
+    return MaterialManager;
+}
+
+// ============================================================================
+// DMX OUTPUT
+// ============================================================================
+
+URshipDMXOutput* URshipSubsystem::GetDMXOutput()
+{
+    // Lazy initialization
+    if (!DMXOutput)
+    {
+        DMXOutput = NewObject<URshipDMXOutput>(this);
+        DMXOutput->Initialize(this);
+
+        UE_LOG(LogRshipExec, Log, TEXT("DMXOutput initialized"));
+    }
+    return DMXOutput;
+}
+
+// ============================================================================
+// OSC BRIDGE
+// ============================================================================
+
+URshipOSCBridge* URshipSubsystem::GetOSCBridge()
+{
+    // Lazy initialization
+    if (!OSCBridge)
+    {
+        OSCBridge = NewObject<URshipOSCBridge>(this);
+        OSCBridge->Initialize(this);
+
+        UE_LOG(LogRshipExec, Log, TEXT("OSCBridge initialized"));
+    }
+    return OSCBridge;
+}
+
+// ============================================================================
+// LIVE LINK SERVICE
+// ============================================================================
+
+URshipLiveLinkService* URshipSubsystem::GetLiveLinkService()
+{
+    // Lazy initialization
+    if (!LiveLinkService)
+    {
+        LiveLinkService = NewObject<URshipLiveLinkService>(this);
+        LiveLinkService->Initialize(this);
+
+        UE_LOG(LogRshipExec, Log, TEXT("LiveLinkService initialized"));
+    }
+    return LiveLinkService;
+}
+
+// ============================================================================
+// AUDIO MANAGER
+// ============================================================================
+
+URshipAudioManager* URshipSubsystem::GetAudioManager()
+{
+    // Lazy initialization
+    if (!AudioManager)
+    {
+        AudioManager = NewObject<URshipAudioManager>(this);
+        AudioManager->Initialize(this);
+
+        UE_LOG(LogRshipExec, Log, TEXT("AudioManager initialized"));
+    }
+    return AudioManager;
+}
+
+// ============================================================================
+// RECORDER
+// ============================================================================
+
+URshipRecorder* URshipSubsystem::GetRecorder()
+{
+    // Lazy initialization
+    if (!Recorder)
+    {
+        Recorder = NewObject<URshipRecorder>(this);
+        Recorder->Initialize(this);
+
+        UE_LOG(LogRshipExec, Log, TEXT("Recorder initialized"));
+    }
+    return Recorder;
+}
+
+// ============================================================================
+// CONTROL RIG MANAGER
+// ============================================================================
+
+URshipControlRigManager* URshipSubsystem::GetControlRigManager()
+{
+    // Lazy initialization
+    if (!ControlRigManager)
+    {
+        ControlRigManager = NewObject<URshipControlRigManager>(this);
+        ControlRigManager->Initialize(this);
+
+        UE_LOG(LogRshipExec, Log, TEXT("ControlRigManager initialized"));
+    }
+    return ControlRigManager;
 }
