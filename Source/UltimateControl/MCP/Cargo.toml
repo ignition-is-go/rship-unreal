@@ -1,0 +1,26 @@
+[package]
+name = "ue5-mcp"
+version = "0.1.0"
+edition = "2021"
+description = "MCP server for UltimateControl plugin - controls Unreal Engine 5.7"
+license = "MIT"
+
+[[bin]]
+name = "ue5-mcp"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.11", features = ["json"] }
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
