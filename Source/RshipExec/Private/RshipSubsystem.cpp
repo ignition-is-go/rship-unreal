@@ -63,6 +63,7 @@ void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
     AudioManager = nullptr;
     Recorder = nullptr;
     ControlRigManager = nullptr;
+    PCGManager = nullptr;
     LastTickTime = 0.0;
 
     // Initialize rate limiter
@@ -483,6 +484,12 @@ void URshipSubsystem::TickSubsystems()
     if (Recorder)
     {
         Recorder->Tick(DeltaTime);
+    }
+
+    // Tick PCG manager for regeneration budget
+    if (PCGManager)
+    {
+        PCGManager->Tick(DeltaTime);
     }
 }
 
@@ -984,6 +991,13 @@ void URshipSubsystem::Deinitialize()
     {
         ControlRigManager->Shutdown();
         ControlRigManager = nullptr;
+    }
+
+    // Shutdown PCG manager
+    if (PCGManager)
+    {
+        PCGManager->Shutdown();
+        PCGManager = nullptr;
     }
 
     // Clear rate limiter
@@ -1848,4 +1862,21 @@ URshipControlRigManager* URshipSubsystem::GetControlRigManager()
         UE_LOG(LogRshipExec, Log, TEXT("ControlRigManager initialized"));
     }
     return ControlRigManager;
+}
+
+// ============================================================================
+// PCG MANAGER
+// ============================================================================
+
+URshipPCGManager* URshipSubsystem::GetPCGManager()
+{
+    // Lazy initialization
+    if (!PCGManager)
+    {
+        PCGManager = NewObject<URshipPCGManager>(this);
+        PCGManager->Initialize(this);
+
+        UE_LOG(LogRshipExec, Log, TEXT("PCGManager initialized"));
+    }
+    return PCGManager;
 }

@@ -37,6 +37,7 @@
 #include "RshipAudioReactive.h"
 #include "RshipRecorder.h"
 #include "RshipControlRigBinding.h"
+#include "RshipPCGBinding.h"
 #include "GameFramework/Actor.h"
 #include "Containers/List.h"
 #include "Target.h"
@@ -195,6 +196,10 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     // Control Rig manager for binding pulse data to Control Rigs (lazy initialized)
     UPROPERTY()
     URshipControlRigManager* ControlRigManager;
+
+    // PCG manager for binding pulse data to PCG graphs (lazy initialized)
+    UPROPERTY()
+    URshipPCGManager* PCGManager;
 
     // Connection state management
     ERshipConnectionState ConnectionState;
@@ -368,6 +373,10 @@ public:
     /** Get the Control Rig manager for binding pulse data to Control Rigs */
     UFUNCTION(BlueprintCallable, Category = "Rship|ControlRig")
     URshipControlRigManager* GetControlRigManager();
+
+    /** Get the PCG manager for binding pulse data to PCG graphs */
+    UFUNCTION(BlueprintCallable, Category = "Rship|PCG")
+    URshipPCGManager* GetPCGManager();
 
     // ========================================================================
     // SELECTION (for bulk operations)

@@ -80,6 +80,7 @@ public class RshipExec : ModuleRules
 				"Networking",  // For network utilities
 				"HTTP",        // For IES profile fetching
 				"RenderCore",  // For texture generation
+				"PCG",         // For PCG binding system
 			}
 		);
 
