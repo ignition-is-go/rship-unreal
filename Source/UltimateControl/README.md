@@ -1,6 +1,22 @@
 # UltimateControl Plugin
 
-A comprehensive HTTP JSON-RPC API plugin for Unreal Engine 5.7 that enables AI agents and external tools to control the editor.
+Control Unreal Engine with AI assistants like Claude. **350+ tools, one command to install.**
+
+## Quick Start
+
+```bash
+# 1. Copy plugin to your UE5 project
+cp -r UltimateControl YourProject/Plugins/
+
+# 2. Build and launch UE5 editor (server starts automatically on port 7777)
+
+# 3. Run the installer to configure Claude
+./UltimateControl/install.sh
+```
+
+That's it! Ask Claude: *"List all actors in my level"*
+
+---
 
 ## Overview
 
