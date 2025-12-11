@@ -118,3 +118,90 @@ Due to some pesky aspects of Unreal's implementation of C++, we are still workin
 | Targets          | Emitters                                  | Actions                  |
 |------------------|-------------------------------------------|--------------------------|
 | **Actors**       | - Any Event dispatcher Parameter          | - Any Function Argument  |
+
+---
+
+## AI Control (UltimateControl Plugin)
+
+Control Unreal Engine directly from AI assistants like Claude. **350+ methods** for complete editor control.
+
+### Quick Start
+
+**Option A: Bundled Plugin (Recommended - Zero Dependencies)**
+
+```bash
+# 1. Copy plugin to your UE5 project
+cp -r Source/UltimateControl YourProject/Plugins/
+
+# 2. Build and launch UE5 editor (HTTP server starts on port 7777)
+
+# 3. Configure Claude (builds Rust MCP server automatically)
+cd YourProject/Plugins/UltimateControl && ./install.sh
+```
+
+**Option B: Python Package**
+
+```bash
+# Install and configure in one command
+pip install ue5-mcp-bridge
+ue5-mcp-install
+
+# Then copy the UltimateControl plugin to your project
+```
+
+### What You Can Do
+
+Ask Claude to control your Unreal project:
+
+- *"List all actors in my level"*
+- *"Spawn a point light at 0, 0, 500"*
+- *"Take a screenshot of the viewport"*
+- *"Set the sun intensity to 10"*
+- *"Build lighting"*
+- *"Open level /Game/Maps/MainLevel"*
+
+### Tool Categories
+
+| Category | Methods | Examples |
+|----------|---------|----------|
+| **Actors** | 15+ | Spawn, destroy, transform, select, properties |
+| **Assets** | 12+ | List, search, import, export, duplicate |
+| **Blueprints** | 10+ | Inspect graphs, variables, compile |
+| **Viewport** | 8+ | Camera control, screenshots, view modes |
+| **Materials** | 8+ | Parameters, instances, create |
+| **Sequencer** | 10+ | Playback, timeline, tracks |
+| **Lighting** | 6+ | Intensity, color, build |
+| **Physics** | 6+ | Simulate, impulses, collision |
+| **Audio** | 4+ | Play sounds, volume |
+| **Animation** | 5+ | Play, Animation Blueprints |
+| **Navigation** | 5+ | Build navmesh, pathfinding |
+| **Niagara** | 5+ | Spawn VFX, parameters |
+| **Landscape** | 4+ | Heights, layers |
+| **World Partition** | 5+ | Cells, data layers |
+| **Source Control** | 7+ | Checkout, checkin, sync |
+| **Live Coding** | 4+ | Hot reload, recompile |
+| **Editor UI** | 10+ | Windows, tabs, notifications |
+| **And more...** | 200+ | Console, automation, profiling |
+
+### Documentation
+
+- **Full API Reference**: [Source/UltimateControl/README.md](Source/UltimateControl/README.md)
+- **Python Bridge**: [ue5-mcp-bridge/README.md](ue5-mcp-bridge/README.md)
+
+### Architecture
+
+```
+┌─────────────────┐                      ┌─────────────────┐
+│  Claude         │◄─── MCP Protocol ───►│  MCP Server     │
+│  Desktop/Code   │                      │  (Rust/Python)  │
+└─────────────────┘                      └────────┬────────┘
+                                                  │
+                                         HTTP JSON-RPC 2.0
+                                                  │
+                                         ┌────────▼────────┐
+                                         │ UltimateControl │
+                                         │ Plugin (C++)    │
+                                         │                 │
+                                         │ Unreal Engine   │
+                                         └─────────────────┘
+```

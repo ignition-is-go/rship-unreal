@@ -2,9 +2,24 @@
 
 Control Unreal Engine 5 with AI assistants like Claude. **One command to install.**
 
+> **Note:** This is the **Python-based** MCP server. For a **zero-dependency** solution, use the [bundled Rust MCP server](../Source/UltimateControl/README.md#quick-start) included in the UltimateControl plugin.
+
 ## Quick Start
 
-### Step 1: Install & Configure (One Command)
+### Option A: Bundled Rust Server (Recommended)
+
+The UltimateControl plugin includes a bundled Rust MCP server with no external dependencies:
+
+```bash
+cd YourProject/Plugins/UltimateControl
+./install.sh
+```
+
+See [UltimateControl README](../Source/UltimateControl/README.md) for details.
+
+### Option B: Python Package
+
+If you prefer Python or need to customize the MCP server:
 
 ```bash
 # Using uvx (recommended - no install needed)
@@ -17,7 +32,7 @@ ue5-mcp-install
 
 This automatically configures both **Claude Desktop** and **Claude Code**.
 
-### Step 2: Enable the Unreal Plugin
+### Enable the Unreal Plugin
 
 Copy the `UltimateControl` plugin to your project's Plugins folder:
 
@@ -39,7 +54,7 @@ Or add to your `.uproject` file:
 
 Build and launch the editor. The HTTP server starts automatically on **port 7777**.
 
-### Step 3: Talk to Claude
+### Talk to Claude
 
 Open Claude Desktop or Claude Code and try:
 

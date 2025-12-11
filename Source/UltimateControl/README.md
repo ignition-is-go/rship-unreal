@@ -2,6 +2,8 @@
 
 Control Unreal Engine with AI assistants like Claude. **350+ tools, one command to install.**
 
+> **Part of [rship-unreal](../../README.md#ai-control-ultimatecontrol-plugin)** - See the main README for an overview of both RshipExec and UltimateControl plugins.
+
 ## Quick Start
 
 ```bash
