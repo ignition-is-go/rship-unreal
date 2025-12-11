@@ -39,6 +39,9 @@
 #include "RshipControlRigBinding.h"
 #include "RshipPCGBinding.h"
 #include "GameFramework/Actor.h"
+
+// Forward declaration for optional SpatialAudio plugin
+class URshipSpatialAudioManager;
 #include "Containers/List.h"
 #include "Target.h"
 #include "RshipRateLimiter.h"
@@ -200,6 +203,11 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     // PCG manager for binding pulse data to PCG graphs (lazy initialized)
     UPROPERTY()
     URshipPCGManager* PCGManager;
+
+    // Spatial Audio manager for loudspeaker management and spatialization (lazy initialized)
+    // Note: Requires RshipSpatialAudio plugin to be enabled
+    UPROPERTY()
+    URshipSpatialAudioManager* SpatialAudioManager;
 
     // Connection state management
     ERshipConnectionState ConnectionState;
@@ -377,6 +385,11 @@ public:
     /** Get the PCG manager for binding pulse data to PCG graphs */
     UFUNCTION(BlueprintCallable, Category = "Rship|PCG")
     URshipPCGManager* GetPCGManager();
+
+    /** Get the Spatial Audio manager for loudspeaker management and spatialization.
+     *  Note: Returns nullptr if RshipSpatialAudio plugin is not enabled. */
+    UFUNCTION(BlueprintCallable, Category = "Rship|SpatialAudio")
+    URshipSpatialAudioManager* GetSpatialAudioManager();
 
     // ========================================================================
     // SELECTION (for bulk operations)

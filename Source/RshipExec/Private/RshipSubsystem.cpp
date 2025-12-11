@@ -1880,3 +1880,41 @@ URshipPCGManager* URshipSubsystem::GetPCGManager()
     }
     return PCGManager;
 }
+
+URshipSpatialAudioManager* URshipSubsystem::GetSpatialAudioManager()
+{
+    // Lazy initialization - only if RshipSpatialAudio module is loaded
+    // This is an optional plugin dependency - returns nullptr if plugin is not enabled
+    if (!SpatialAudioManager)
+    {
+        // Check if the SpatialAudio module is available
+        if (FModuleManager::Get().IsModuleLoaded("RshipSpatialAudioRuntime"))
+        {
+            // Use reflection to create the manager since RshipExec doesn't have
+            // a compile-time dependency on RshipSpatialAudioRuntime
+            UClass* ManagerClass = FindObject<UClass>(nullptr, TEXT("/Script/RshipSpatialAudioRuntime.RshipSpatialAudioManager"));
+            if (ManagerClass)
+            {
+                SpatialAudioManager = NewObject<URshipSpatialAudioManager>(this, ManagerClass);
+
+                // Call Initialize via reflection (it's a UFUNCTION in the manager)
+                UFunction* InitFunc = ManagerClass->FindFunctionByName(TEXT("Initialize"));
+                if (InitFunc)
+                {
+                    struct { URshipSubsystem* Subsystem; } Params = { this };
+                    SpatialAudioManager->ProcessEvent(InitFunc, &Params);
+                    UE_LOG(LogRshipExec, Log, TEXT("SpatialAudioManager initialized"));
+                }
+                else
+                {
+                    UE_LOG(LogRshipExec, Warning, TEXT("SpatialAudioManager::Initialize not found"));
+                }
+            }
+            else
+            {
+                UE_LOG(LogRshipExec, Verbose, TEXT("SpatialAudioManager class not found - RshipSpatialAudio plugin may need rebuild"));
+            }
+        }
+    }
+    return SpatialAudioManager;
+}
