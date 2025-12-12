@@ -5,6 +5,7 @@
 #include "Rship2110Subsystem.h"
 #include "Rship2110Settings.h"
 #include "Rship2110.h"
+#include "SocketSubsystem.h"
 
 #if RSHIP_RIVERMAX_AVAILABLE
 // Rivermax SDK 1.8+ headers (modern rmx_* API)

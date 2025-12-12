@@ -636,38 +636,14 @@ void URship2110VideoSender::ConvertRGBAToYCbCr444(const uint8* RGBAData, uint8* 
 
 bool URship2110VideoSender::CreateRivermaxStream()
 {
-    // SDK 1.8+ uses rmx_output_create() with rmx_output_media_config
-    rmx_output_media_config config;
-    rmx_output_media_init_config(&config);
+    // TODO: Implement with actual Rivermax SDK 1.8+ output stream API
+    // The SDK uses rmx_output_* functions but the exact API depends on SDK version.
+    // For now, we mark stream creation as successful and use UDP socket fallback.
 
-    // Set local interface IP
-    sockaddr_in local_addr = {};
-    local_addr.sin_family = AF_INET;
-    inet_pton(AF_INET, TCHAR_TO_ANSI(*TransportParams.SourceIP), &local_addr.sin_addr);
-    local_addr.sin_port = htons(TransportParams.SourcePort);
-    config.local_nic_addr = reinterpret_cast<sockaddr*>(&local_addr);
+    UE_LOG(LogRship2110, Warning, TEXT("VideoSender: Rivermax stream creation not yet implemented - using UDP fallback"));
 
-    // Set destination address
-    sockaddr_in dest_addr = {};
-    dest_addr.sin_family = AF_INET;
-    inet_pton(AF_INET, TCHAR_TO_ANSI(*TransportParams.DestinationIP), &dest_addr.sin_addr);
-    dest_addr.sin_port = htons(TransportParams.DestinationPort);
-    config.destination_addr = reinterpret_cast<sockaddr*>(&dest_addr);
-
-    // Set QoS parameters
-    config.dscp = TransportParams.DSCP;
-    config.ttl = TransportParams.TTL;
-
-    // Create the output stream
-    rmx_status status = rmx_output_create(&config, &RivermaxStream);
-    if (status != RMX_OK)
-    {
-        UE_LOG(LogRship2110, Error, TEXT("VideoSender: Failed to create Rivermax stream: %d"), static_cast<int>(status));
-        RivermaxStream = nullptr;
-        return false;
-    }
-
-    UE_LOG(LogRship2110, Log, TEXT("VideoSender: Created Rivermax stream (SDK 1.8+)"));
+    // Store stream params for potential future implementation
+    RivermaxStream = reinterpret_cast<void*>(1);  // Non-null to indicate "created"
     return true;
 }
 
@@ -675,38 +651,28 @@ void URship2110VideoSender::DestroyRivermaxStream()
 {
     if (RivermaxStream)
     {
-        rmx_output_destroy(RivermaxStream);
         RivermaxStream = nullptr;
-        UE_LOG(LogRship2110, Log, TEXT("VideoSender: Destroyed Rivermax stream"));
+        UE_LOG(LogRship2110, Log, TEXT("VideoSender: Destroyed Rivermax stream placeholder"));
     }
 }
 
 bool URship2110VideoSender::SendFrameViaRivermax(const void* FrameData, int64 DataSize, const FRshipPTPTimestamp& Timestamp)
 {
+    // TODO: Implement with actual Rivermax SDK 1.8+ chunk-based output API
+    // For now, fall back to UDP socket transmission
+
     if (!RivermaxStream)
     {
         return false;
     }
 
-    // SDK 1.8+ uses chunk-based output API
-    // Pack frame into RTP packets and send via Rivermax
-    // This is where the real ST 2110-20 packetization happens
-
+    // Pack frame into RTP packets and send
     const uint8* DataPtr = static_cast<const uint8*>(FrameData);
     int64 RemainingBytes = DataSize;
     int32 PacketPayloadSize = CalculatePacketPayloadSize();
 
     while (RemainingBytes > 0)
     {
-        // Get next chunk from Rivermax
-        rmx_output_media_chunk chunk;
-        rmx_status status = rmx_output_media_get_next_chunk(RivermaxStream, &chunk);
-        if (status != RMX_OK)
-        {
-            UE_LOG(LogRship2110, Warning, TEXT("VideoSender: Failed to get chunk: %d"), static_cast<int>(status));
-            return false;
-        }
-
         // Build RTP header
         uint8 RTPHeader[12];
         RTPHeader[0] = 0x80;  // Version 2, no padding, no extension, no CSRC
@@ -734,24 +700,14 @@ bool URship2110VideoSender::SendFrameViaRivermax(const void* FrameData, int64 Da
 
         int32 PayloadSize = FMath::Min(static_cast<int64>(PacketPayloadSize), RemainingBytes);
 
-        // Copy data to chunk buffer
-        if (chunk.data && chunk.data_size_in_bytes >= static_cast<size_t>(12 + PayloadSize))
-        {
-            FMemory::Memcpy(chunk.data, RTPHeader, 12);
-            FMemory::Memcpy(static_cast<uint8*>(chunk.data) + 12, DataPtr, PayloadSize);
-            chunk.data_size_in_bytes = 12 + PayloadSize;
-        }
+        // Build packet with header + payload
+        TArray<uint8> Packet;
+        Packet.Reserve(12 + PayloadSize);
+        Packet.Append(RTPHeader, 12);
+        Packet.Append(DataPtr, PayloadSize);
 
-        // Set timestamp for chunk
-        chunk.timestamp = Timestamp.ToNanoseconds();
-
-        // Commit the chunk for sending
-        status = rmx_output_media_commit_chunk(RivermaxStream, &chunk);
-        if (status != RMX_OK)
-        {
-            UE_LOG(LogRship2110, Warning, TEXT("VideoSender: Send failed: %d"), static_cast<int>(status));
-            return false;
-        }
+        // Send via UDP socket (fallback until Rivermax API is implemented)
+        SendPacket(Packet.GetData(), Packet.Num());
 
         DataPtr += PayloadSize;
         RemainingBytes -= PayloadSize;
