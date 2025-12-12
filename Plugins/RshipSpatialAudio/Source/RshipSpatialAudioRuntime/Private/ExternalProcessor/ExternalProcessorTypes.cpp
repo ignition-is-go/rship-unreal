@@ -152,10 +152,10 @@ TArray<uint8> FOSCMessage::Serialize() const
 		case EOSCArgumentType::Blob:
 			TypeTag.AppendChar('b');
 			break;
-		case EOSCArgumentType::True:
+		case EOSCArgumentType::BoolTrue:
 			TypeTag.AppendChar('T');
 			break;
-		case EOSCArgumentType::False:
+		case EOSCArgumentType::BoolFalse:
 			TypeTag.AppendChar('F');
 			break;
 		case EOSCArgumentType::Nil:
@@ -303,11 +303,11 @@ bool FOSCMessage::Parse(const TArray<uint8>& Data, FOSCMessage& OutMessage)
 			break;
 
 		case 'T':
-			Arg.Type = EOSCArgumentType::True;
+			Arg.Type = EOSCArgumentType::BoolTrue;
 			break;
 
 		case 'F':
-			Arg.Type = EOSCArgumentType::False;
+			Arg.Type = EOSCArgumentType::BoolFalse;
 			break;
 
 		case 'N':

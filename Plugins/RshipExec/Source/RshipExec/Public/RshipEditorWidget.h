@@ -21,6 +21,11 @@
 class URshipSubsystem;
 class URshipHealthMonitor;
 class URshipFixtureManager;
+class ACineCameraActor;
+
+#if RSHIP_HAS_NDI
+class URshipNDIStreamComponent;
+#endif
 
 // ============================================================================
 // DASHBOARD DATA STRUCTURES
@@ -45,6 +50,39 @@ struct FRshipDashboardPulseItem
     FString Data;
     double Time;
 };
+
+#if RSHIP_HAS_NDI
+/** Info for displaying an NDI stream in the list */
+struct FRshipDashboardNDIItem
+{
+    /** The NDI stream component */
+    TWeakObjectPtr<URshipNDIStreamComponent> Component;
+    /** Owning camera actor */
+    TWeakObjectPtr<ACineCameraActor> CameraActor;
+    /** Stream name */
+    FString StreamName;
+    /** Camera name */
+    FString CameraName;
+    /** Resolution string (e.g., "7680x4320") */
+    FString Resolution;
+    /** Current FPS */
+    float CurrentFPS;
+    /** Target FPS */
+    int32 TargetFPS;
+    /** Connected receivers */
+    int32 Receivers;
+    /** Bandwidth in Mbps */
+    float BandwidthMbps;
+    /** Total frames sent */
+    int64 FramesSent;
+    /** Dropped frames */
+    int64 DroppedFrames;
+    /** Stream state (0=Stopped, 1=Starting, 2=Streaming, 3=Error) */
+    int32 State;
+    /** Is NDI sender available */
+    bool bSenderAvailable;
+};
+#endif
 
 // ============================================================================
 // MAIN DASHBOARD WIDGET
@@ -88,6 +126,13 @@ private:
     TArray<TSharedPtr<FRshipDashboardFixtureItem>> FixtureItems;
     TArray<TSharedPtr<FRshipDashboardPulseItem>> PulseItems;
 
+#if RSHIP_HAS_NDI
+    TArray<TSharedPtr<FRshipDashboardNDIItem>> NDIItems;
+    int32 NDIStreamCount;
+    int32 NDIActiveStreamCount;
+    int32 NDITotalReceivers;
+#endif
+
     // ========================================================================
     // UI WIDGETS
     // ========================================================================
@@ -101,6 +146,13 @@ private:
     TSharedPtr<SListView<TSharedPtr<FRshipDashboardFixtureItem>>> FixtureListView;
     TSharedPtr<SListView<TSharedPtr<FRshipDashboardPulseItem>>> PulseLogView;
 
+#if RSHIP_HAS_NDI
+    TSharedPtr<SListView<TSharedPtr<FRshipDashboardNDIItem>>> NDIListView;
+    TSharedPtr<STextBlock> NDIStreamCountText;
+    TSharedPtr<STextBlock> NDIReceiverCountText;
+    TSharedPtr<STextBlock> NDISenderStatusText;
+#endif
+
     // ========================================================================
     // UI BUILDERS
     // ========================================================================
@@ -111,9 +163,17 @@ private:
     TSharedRef<SWidget> BuildPulseLogPanel();
     TSharedRef<SWidget> BuildQuickActionsPanel();
 
+#if RSHIP_HAS_NDI
+    TSharedRef<SWidget> BuildNDIPanel();
+#endif
+
     // List view generators
     TSharedRef<ITableRow> GenerateFixtureRow(TSharedPtr<FRshipDashboardFixtureItem> Item, const TSharedRef<STableViewBase>& OwnerTable);
     TSharedRef<ITableRow> GeneratePulseRow(TSharedPtr<FRshipDashboardPulseItem> Item, const TSharedRef<STableViewBase>& OwnerTable);
+
+#if RSHIP_HAS_NDI
+    TSharedRef<ITableRow> GenerateNDIRow(TSharedPtr<FRshipDashboardNDIItem> Item, const TSharedRef<STableViewBase>& OwnerTable);
+#endif
 
     // ========================================================================
     // ACTIONS
@@ -130,6 +190,12 @@ private:
 
     void OnMasterDimmerChanged(float NewValue);
 
+#if RSHIP_HAS_NDI
+    FReply OnNDIStartAllClicked();
+    FReply OnNDIStopAllClicked();
+    void OnNDIStreamStartStopClicked(TSharedPtr<FRshipDashboardNDIItem> Item);
+#endif
+
     // ========================================================================
     // DATA UPDATE
     // ========================================================================
@@ -137,6 +203,10 @@ private:
     void RefreshData();
     void RefreshFixtureList();
     void AddPulseLogEntry(const FString& EmitterId, const FString& Data);
+
+#if RSHIP_HAS_NDI
+    void RefreshNDIList();
+#endif
 };
 
 // ============================================================================
@@ -174,6 +244,30 @@ public:
 private:
     TSharedPtr<FRshipDashboardPulseItem> Item;
 };
+
+#if RSHIP_HAS_NDI
+// ============================================================================
+// NDI STREAM ROW WIDGET
+// ============================================================================
+
+class SRshipNDIRowWidget : public SMultiColumnTableRow<TSharedPtr<FRshipDashboardNDIItem>>
+{
+public:
+    SLATE_BEGIN_ARGS(SRshipNDIRowWidget) {}
+        SLATE_EVENT(FSimpleDelegate, OnStartStopClicked)
+    SLATE_END_ARGS()
+
+    void Construct(const FArguments& InArgs, const TSharedRef<STableViewBase>& InOwnerTableView, TSharedPtr<FRshipDashboardNDIItem> InItem);
+
+    virtual TSharedRef<SWidget> GenerateWidgetForColumn(const FName& ColumnName) override;
+
+private:
+    TSharedPtr<FRshipDashboardNDIItem> Item;
+    FSimpleDelegate OnStartStopClicked;
+
+    FReply HandleStartStopClicked();
+};
+#endif
 
 // ============================================================================
 // TAB SPAWNER

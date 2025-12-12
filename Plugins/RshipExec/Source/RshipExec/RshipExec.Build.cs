@@ -98,6 +98,7 @@ public class RshipExec : ModuleRules
 				"LevelSequence",     // For RshipSequencerSync
 				"MovieScene",        // For sequencer playback
 				"ProceduralMeshComponent", // For RshipFixtureVisualizer
+				"CinematicCamera",         // For CineCameraActor (NDI panel, camera managers)
 			}
 		);
 
@@ -134,6 +135,23 @@ public class RshipExec : ModuleRules
 			PublicDefinitions.Add("RSHIP_HAS_PCG=0");
 			// PCG files are in Public/PCG and Private/PCG - not included when PCG disabled
 			System.Console.WriteLine("RshipExec: PCG plugin not enabled, PCG bindings disabled");
+		}
+
+		// RshipNDI plugin for NDI streaming (optional)
+		// Check if the RshipNDI plugin exists in sibling directory
+		string RshipNDIPluginPath = Path.Combine(ModuleDirectory, "..", "..", "..", "RshipNDI");
+		bool bHasRshipNDI = Directory.Exists(RshipNDIPluginPath);
+
+		if (bHasRshipNDI)
+		{
+			PrivateDependencyModuleNames.Add("RshipNDI");
+			PublicDefinitions.Add("RSHIP_HAS_NDI=1");
+			System.Console.WriteLine("RshipExec: RshipNDI plugin found, NDI dashboard enabled");
+		}
+		else
+		{
+			PublicDefinitions.Add("RSHIP_HAS_NDI=0");
+			System.Console.WriteLine("RshipExec: RshipNDI plugin not found, NDI dashboard disabled");
 		}
 
 		PrivateDependencyModuleNames.AddRange(

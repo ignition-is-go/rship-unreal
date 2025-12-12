@@ -12,7 +12,16 @@
 #include "RshipOSCBridge.h"
 #include "RshipLiveLinkSource.h"
 #include "RshipPulseReceiver.h"
+#include "CineCameraActor.h"
+#include "EngineUtils.h"
+
+#if RSHIP_HAS_NDI
+#include "RshipNDIStreamComponent.h"
+#include "RshipNDIStreamTypes.h"
+#endif
+
 #include "Engine/Engine.h"
+#include "Editor.h"
 #include "Framework/Docking/TabManager.h"
 #include "Widgets/Docking/SDockTab.h"
 #include "Widgets/Layout/SBorder.h"
@@ -75,6 +84,12 @@ void SRshipDashboardWidget::Construct(const FArguments& InArgs)
     TargetCount = 0;
     FixtureCount = 0;
 
+#if RSHIP_HAS_NDI
+    NDIStreamCount = 0;
+    NDIActiveStreamCount = 0;
+    NDITotalReceivers = 0;
+#endif
+
     ChildSlot
     [
         SNew(SBorder)
@@ -109,6 +124,16 @@ void SRshipDashboardWidget::Construct(const FArguments& InArgs)
                 [
                     BuildQuickActionsPanel()
                 ]
+
+#if RSHIP_HAS_NDI
+                // NDI Streaming
+                +SVerticalBox::Slot()
+                .AutoHeight()
+                .Padding(0, 0, 0, 8)
+                [
+                    BuildNDIPanel()
+                ]
+#endif
 
                 // Fixtures
                 +SVerticalBox::Slot()
@@ -680,6 +705,10 @@ void SRshipDashboardWidget::RefreshData()
     }
 
     RefreshFixtureList();
+
+#if RSHIP_HAS_NDI
+    RefreshNDIList();
+#endif
 }
 
 void SRshipDashboardWidget::RefreshFixtureList()
@@ -811,6 +840,395 @@ TSharedRef<SWidget> SRshipPulseRowWidget::GenerateWidgetForColumn(const FName& C
 
     return SNullWidget::NullWidget;
 }
+
+// ============================================================================
+// NDI STREAMING
+// ============================================================================
+
+#if RSHIP_HAS_NDI
+
+TSharedRef<SWidget> SRshipDashboardWidget::BuildNDIPanel()
+{
+    return SNew(SExpandableArea)
+        .AreaTitle(LOCTEXT("NDITitle", "NDI Streaming"))
+        .InitiallyCollapsed(false)
+        .BodyContent()
+        [
+            SNew(SVerticalBox)
+
+            // Status bar
+            +SVerticalBox::Slot()
+            .AutoHeight()
+            .Padding(4)
+            [
+                SNew(SHorizontalBox)
+
+                +SHorizontalBox::Slot()
+                .AutoWidth()
+                .VAlign(VAlign_Center)
+                [
+                    SNew(STextBlock)
+                    .Text(LOCTEXT("NDISenderLabel", "Sender: "))
+                ]
+
+                +SHorizontalBox::Slot()
+                .AutoWidth()
+                .VAlign(VAlign_Center)
+                .Padding(0, 0, 16, 0)
+                [
+                    SAssignNew(NDISenderStatusText, STextBlock)
+                    .Text(LOCTEXT("NDISenderUnavailable", "Unavailable"))
+                    .ColorAndOpacity(FSlateColor(FLinearColor::Red))
+                ]
+
+                +SHorizontalBox::Slot()
+                .AutoWidth()
+                .VAlign(VAlign_Center)
+                [
+                    SNew(STextBlock)
+                    .Text(LOCTEXT("NDIStreamsLabel", "Streams: "))
+                ]
+
+                +SHorizontalBox::Slot()
+                .AutoWidth()
+                .VAlign(VAlign_Center)
+                .Padding(0, 0, 16, 0)
+                [
+                    SAssignNew(NDIStreamCountText, STextBlock)
+                    .Text(LOCTEXT("NDIStreamsZero", "0 / 0"))
+                ]
+
+                +SHorizontalBox::Slot()
+                .AutoWidth()
+                .VAlign(VAlign_Center)
+                [
+                    SNew(STextBlock)
+                    .Text(LOCTEXT("NDIReceiversLabel", "Receivers: "))
+                ]
+
+                +SHorizontalBox::Slot()
+                .AutoWidth()
+                .VAlign(VAlign_Center)
+                [
+                    SAssignNew(NDIReceiverCountText, STextBlock)
+                    .Text(LOCTEXT("NDIReceiversZero", "0"))
+                ]
+
+                +SHorizontalBox::Slot()
+                .FillWidth(1.0f)
+                [
+                    SNullWidget::NullWidget
+                ]
+
+                +SHorizontalBox::Slot()
+                .AutoWidth()
+                .Padding(4, 0)
+                [
+                    SNew(SButton)
+                    .Text(LOCTEXT("NDIStartAll", "Start All"))
+                    .OnClicked(this, &SRshipDashboardWidget::OnNDIStartAllClicked)
+                ]
+
+                +SHorizontalBox::Slot()
+                .AutoWidth()
+                [
+                    SNew(SButton)
+                    .Text(LOCTEXT("NDIStopAll", "Stop All"))
+                    .OnClicked(this, &SRshipDashboardWidget::OnNDIStopAllClicked)
+                ]
+            ]
+
+            // Stream list
+            +SVerticalBox::Slot()
+            .AutoHeight()
+            .MaxHeight(200.0f)
+            [
+                SNew(SBorder)
+                .BorderImage(FAppStyle::GetBrush("ToolPanel.DarkGroupBorder"))
+                [
+                    SAssignNew(NDIListView, SListView<TSharedPtr<FRshipDashboardNDIItem>>)
+                    .ListItemsSource(&NDIItems)
+                    .OnGenerateRow(this, &SRshipDashboardWidget::GenerateNDIRow)
+                    .HeaderRow
+                    (
+                        SNew(SHeaderRow)
+                        +SHeaderRow::Column("Camera")
+                        .DefaultLabel(LOCTEXT("NDICameraColumn", "Camera"))
+                        .FillWidth(0.2f)
+
+                        +SHeaderRow::Column("Stream")
+                        .DefaultLabel(LOCTEXT("NDIStreamColumn", "Stream Name"))
+                        .FillWidth(0.2f)
+
+                        +SHeaderRow::Column("Resolution")
+                        .DefaultLabel(LOCTEXT("NDIResColumn", "Resolution"))
+                        .FillWidth(0.15f)
+
+                        +SHeaderRow::Column("FPS")
+                        .DefaultLabel(LOCTEXT("NDIFPSColumn", "FPS"))
+                        .FillWidth(0.1f)
+
+                        +SHeaderRow::Column("Receivers")
+                        .DefaultLabel(LOCTEXT("NDIRxColumn", "Rx"))
+                        .FillWidth(0.08f)
+
+                        +SHeaderRow::Column("Status")
+                        .DefaultLabel(LOCTEXT("NDIStatusColumn", "Status"))
+                        .FillWidth(0.12f)
+
+                        +SHeaderRow::Column("Action")
+                        .DefaultLabel(LOCTEXT("NDIActionColumn", ""))
+                        .FillWidth(0.15f)
+                    )
+                ]
+            ]
+        ];
+}
+
+TSharedRef<ITableRow> SRshipDashboardWidget::GenerateNDIRow(TSharedPtr<FRshipDashboardNDIItem> Item, const TSharedRef<STableViewBase>& OwnerTable)
+{
+    return SNew(SRshipNDIRowWidget, OwnerTable, Item)
+        .OnStartStopClicked(FSimpleDelegate::CreateSP(this, &SRshipDashboardWidget::OnNDIStreamStartStopClicked, Item));
+}
+
+void SRshipDashboardWidget::RefreshNDIList()
+{
+    NDIItems.Empty();
+    NDIStreamCount = 0;
+    NDIActiveStreamCount = 0;
+    NDITotalReceivers = 0;
+
+    // Check sender availability
+    bool bSenderAvailable = URshipNDIStreamComponent::IsNDISenderAvailable();
+
+    if (NDISenderStatusText.IsValid())
+    {
+        if (bSenderAvailable)
+        {
+            NDISenderStatusText->SetText(LOCTEXT("NDISenderAvailable", "Available"));
+            NDISenderStatusText->SetColorAndOpacity(FSlateColor(FLinearColor::Green));
+        }
+        else
+        {
+            NDISenderStatusText->SetText(LOCTEXT("NDISenderUnavailable", "Unavailable"));
+            NDISenderStatusText->SetColorAndOpacity(FSlateColor(FLinearColor::Red));
+        }
+    }
+
+    // Find all CineCameraActors with NDI components
+    UWorld* World = GEngine ? GEngine->GetCurrentPlayWorld() : nullptr;
+    if (!World)
+    {
+        World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+    }
+
+    if (World)
+    {
+        for (TActorIterator<ACineCameraActor> It(World); It; ++It)
+        {
+            ACineCameraActor* CameraActor = *It;
+            if (!CameraActor) continue;
+
+            URshipNDIStreamComponent* NDIComp = CameraActor->FindComponentByClass<URshipNDIStreamComponent>();
+            if (!NDIComp) continue;
+
+            TSharedPtr<FRshipDashboardNDIItem> Item = MakeShared<FRshipDashboardNDIItem>();
+            Item->Component = NDIComp;
+            Item->CameraActor = CameraActor;
+            Item->CameraName = CameraActor->GetActorLabel();
+            Item->StreamName = NDIComp->Config.StreamName;
+            Item->Resolution = FString::Printf(TEXT("%dx%d"), NDIComp->Config.Width, NDIComp->Config.Height);
+            Item->TargetFPS = NDIComp->Config.FrameRate;
+            Item->bSenderAvailable = bSenderAvailable;
+
+            // Get runtime stats
+            FRshipNDIStreamStats Stats = NDIComp->GetStats();
+            Item->CurrentFPS = Stats.CurrentFPS;
+            Item->Receivers = Stats.ConnectedReceivers;
+            Item->BandwidthMbps = Stats.BandwidthMbps;
+            Item->FramesSent = Stats.TotalFramesSent;
+            Item->DroppedFrames = Stats.DroppedFrames;
+            Item->State = static_cast<int32>(NDIComp->GetStreamState());
+
+            NDIItems.Add(Item);
+            NDIStreamCount++;
+            NDITotalReceivers += Item->Receivers;
+
+            if (Item->State == 2) // Streaming
+            {
+                NDIActiveStreamCount++;
+            }
+        }
+    }
+
+    // Update summary texts
+    if (NDIStreamCountText.IsValid())
+    {
+        NDIStreamCountText->SetText(FText::Format(
+            LOCTEXT("NDIStreamCountFmt", "{0} / {1}"),
+            FText::AsNumber(NDIActiveStreamCount),
+            FText::AsNumber(NDIStreamCount)
+        ));
+    }
+
+    if (NDIReceiverCountText.IsValid())
+    {
+        NDIReceiverCountText->SetText(FText::AsNumber(NDITotalReceivers));
+    }
+
+    if (NDIListView.IsValid())
+    {
+        NDIListView->RequestListRefresh();
+    }
+}
+
+FReply SRshipDashboardWidget::OnNDIStartAllClicked()
+{
+    for (const TSharedPtr<FRshipDashboardNDIItem>& Item : NDIItems)
+    {
+        if (Item.IsValid() && Item->Component.IsValid())
+        {
+            URshipNDIStreamComponent* Comp = Item->Component.Get();
+            if (!Comp->IsStreaming())
+            {
+                Comp->StartStreaming();
+            }
+        }
+    }
+    return FReply::Handled();
+}
+
+FReply SRshipDashboardWidget::OnNDIStopAllClicked()
+{
+    for (const TSharedPtr<FRshipDashboardNDIItem>& Item : NDIItems)
+    {
+        if (Item.IsValid() && Item->Component.IsValid())
+        {
+            URshipNDIStreamComponent* Comp = Item->Component.Get();
+            if (Comp->IsStreaming())
+            {
+                Comp->StopStreaming();
+            }
+        }
+    }
+    return FReply::Handled();
+}
+
+void SRshipDashboardWidget::OnNDIStreamStartStopClicked(TSharedPtr<FRshipDashboardNDIItem> Item)
+{
+    if (!Item.IsValid() || !Item->Component.IsValid())
+    {
+        return;
+    }
+
+    URshipNDIStreamComponent* Comp = Item->Component.Get();
+    if (Comp->IsStreaming())
+    {
+        Comp->StopStreaming();
+    }
+    else
+    {
+        Comp->StartStreaming();
+    }
+}
+
+// ============================================================================
+// NDI ROW WIDGET
+// ============================================================================
+
+void SRshipNDIRowWidget::Construct(const FArguments& InArgs, const TSharedRef<STableViewBase>& InOwnerTableView, TSharedPtr<FRshipDashboardNDIItem> InItem)
+{
+    Item = InItem;
+    OnStartStopClicked = InArgs._OnStartStopClicked;
+    SMultiColumnTableRow<TSharedPtr<FRshipDashboardNDIItem>>::Construct(FSuperRowType::FArguments(), InOwnerTableView);
+}
+
+TSharedRef<SWidget> SRshipNDIRowWidget::GenerateWidgetForColumn(const FName& ColumnName)
+{
+    if (!Item.IsValid())
+    {
+        return SNullWidget::NullWidget;
+    }
+
+    if (ColumnName == "Camera")
+    {
+        return SNew(STextBlock).Text(FText::FromString(Item->CameraName));
+    }
+    else if (ColumnName == "Stream")
+    {
+        return SNew(STextBlock).Text(FText::FromString(Item->StreamName));
+    }
+    else if (ColumnName == "Resolution")
+    {
+        return SNew(STextBlock).Text(FText::FromString(Item->Resolution));
+    }
+    else if (ColumnName == "FPS")
+    {
+        FText FPSText = FText::Format(
+            LOCTEXT("NDIFPSFmt", "{0}/{1}"),
+            FText::AsNumber(FMath::RoundToInt(Item->CurrentFPS)),
+            FText::AsNumber(Item->TargetFPS)
+        );
+        return SNew(STextBlock).Text(FPSText);
+    }
+    else if (ColumnName == "Receivers")
+    {
+        return SNew(STextBlock).Text(FText::AsNumber(Item->Receivers));
+    }
+    else if (ColumnName == "Status")
+    {
+        FText StatusText;
+        FLinearColor StatusColor;
+
+        switch (Item->State)
+        {
+        case 0: // Stopped
+            StatusText = LOCTEXT("NDIStopped", "Stopped");
+            StatusColor = FLinearColor::Gray;
+            break;
+        case 1: // Starting
+            StatusText = LOCTEXT("NDIStarting", "Starting");
+            StatusColor = FLinearColor::Yellow;
+            break;
+        case 2: // Streaming
+            StatusText = LOCTEXT("NDIStreaming", "Streaming");
+            StatusColor = FLinearColor::Green;
+            break;
+        case 3: // Error
+            StatusText = LOCTEXT("NDIError", "Error");
+            StatusColor = FLinearColor::Red;
+            break;
+        default:
+            StatusText = LOCTEXT("NDIUnknown", "Unknown");
+            StatusColor = FLinearColor::Gray;
+            break;
+        }
+
+        return SNew(STextBlock)
+            .Text(StatusText)
+            .ColorAndOpacity(FSlateColor(StatusColor));
+    }
+    else if (ColumnName == "Action")
+    {
+        FText ButtonText = (Item->State == 2) ? LOCTEXT("NDIStop", "Stop") : LOCTEXT("NDIStart", "Start");
+        bool bEnabled = Item->bSenderAvailable && (Item->State == 0 || Item->State == 2);
+
+        return SNew(SButton)
+            .Text(ButtonText)
+            .IsEnabled(bEnabled)
+            .OnClicked(this, &SRshipNDIRowWidget::HandleStartStopClicked);
+    }
+
+    return SNullWidget::NullWidget;
+}
+
+FReply SRshipNDIRowWidget::HandleStartStopClicked()
+{
+    OnStartStopClicked.ExecuteIfBound();
+    return FReply::Handled();
+}
+
+#endif // RSHIP_HAS_NDI
 
 #undef LOCTEXT_NAMESPACE
 

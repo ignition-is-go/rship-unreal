@@ -452,7 +452,7 @@ FOSCMessageBuilder& FOSCMessageBuilder::Blob(const TArray<uint8>& Value)
 FOSCMessageBuilder& FOSCMessageBuilder::True()
 {
 	FOSCArgument Arg;
-	Arg.Type = EOSCArgumentType::True;
+	Arg.Type = EOSCArgumentType::BoolTrue;
 	Message.Arguments.Add(Arg);
 	return *this;
 }
@@ -460,7 +460,7 @@ FOSCMessageBuilder& FOSCMessageBuilder::True()
 FOSCMessageBuilder& FOSCMessageBuilder::False()
 {
 	FOSCArgument Arg;
-	Arg.Type = EOSCArgumentType::False;
+	Arg.Type = EOSCArgumentType::BoolFalse;
 	Message.Arguments.Add(Arg);
 	return *this;
 }

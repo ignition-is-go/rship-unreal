@@ -75,8 +75,8 @@ enum class EOSCArgumentType : uint8
 	Float,
 	String,
 	Blob,
-	True,
-	False,
+	BoolTrue	UMETA(DisplayName = "True"),
+	BoolFalse	UMETA(DisplayName = "False"),
 	Nil,
 	Int64,
 	Double,
@@ -406,6 +406,7 @@ struct RSHIPSPATIALAUDIORUNTIME_API FExternalProcessorStatus
 UENUM(BlueprintType)
 enum class EDS100MappingArea : uint8
 {
+	None = 0			UMETA(DisplayName = "None"),
 	MappingArea1 = 1	UMETA(DisplayName = "Mapping Area 1"),
 	MappingArea2 = 2	UMETA(DisplayName = "Mapping Area 2"),
 	MappingArea3 = 3	UMETA(DisplayName = "Mapping Area 3"),
