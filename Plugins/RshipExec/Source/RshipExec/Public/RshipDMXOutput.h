@@ -9,6 +9,7 @@
 
 class URshipSubsystem;
 class URshipFixtureManager;
+class URshipPulseReceiver;
 
 /** DMX Protocol selection */
 UENUM(BlueprintType)
@@ -359,6 +360,9 @@ private:
 
     UPROPERTY()
     URshipFixtureManager* FixtureManager;
+
+    UPROPERTY()
+    URshipPulseReceiver* PulseReceiver;
 
     TArray<FRshipDMXFixtureOutput> FixtureOutputs;
     TMap<FString, FRshipDMXProfile> Profiles;

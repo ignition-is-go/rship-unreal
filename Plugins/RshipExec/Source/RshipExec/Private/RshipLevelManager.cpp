@@ -280,8 +280,17 @@ int32 URshipLevelManager::SetLevelTargetsOffline(const FString& LevelName)
 {
 	TArray<URshipTargetComponent*> Targets = GetTargetsInLevel(LevelName);
 
-	// TODO: Implement sending offline status through subsystem
-	// For now just log
+	if (Subsystem)
+	{
+		for (URshipTargetComponent* Target : Targets)
+		{
+			if (Target && Target->TargetData)
+			{
+				// Send offline status to rship server
+				Subsystem->SendTargetStatus(Target->TargetData, false);
+			}
+		}
+	}
 
 	UE_LOG(LogTemp, Log, TEXT("RshipLevelManager: Set %d targets offline in level '%s'"),
 		Targets.Num(), *LevelName);

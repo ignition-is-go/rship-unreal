@@ -4,6 +4,7 @@
 #include "RshipSubsystem.h"
 #include "RshipTargetComponent.h"
 #include "RshipTargetGroup.h"
+#include "Action.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
 #include "Misc/FileHelper.h"
@@ -533,20 +534,72 @@ void URshipPresetManager::ApplySnapshot(const FRshipEmitterSnapshot& Snapshot)
 		return;
 	}
 
-	// Find the target and trigger an action to set these values
-	// This requires the target to have actions that can set the emitter values
-	// For now, we'll update the cache and log
+	// Update the cache
 	CacheEmitterValue(Snapshot.TargetId, Snapshot.EmitterName, Values);
 
-	// TODO: Actually push the values to the target via actions
-	// This would require knowing the action schema and calling the appropriate setters
-	UE_LOG(LogTemp, Verbose, TEXT("RshipPresets: Applied snapshot for %s:%s"),
-		*Snapshot.TargetId, *Snapshot.EmitterName);
+	// Find the target component and invoke the corresponding action
+	if (!Subsystem->TargetComponents) return;
+
+	for (URshipTargetComponent* TargetComp : *Subsystem->TargetComponents)
+	{
+		if (!TargetComp || TargetComp->targetName != Snapshot.TargetId) continue;
+		if (!TargetComp->TargetData) continue;
+
+		// Try to find an action with the same name as the emitter
+		// This is the typical rship pattern: emitter "intensity" pairs with action "intensity"
+		TMap<FString, Action*> Actions = TargetComp->TargetData->GetActions();
+
+		// Try exact match first
+		Action** FoundAction = Actions.Find(Snapshot.EmitterName);
+
+		// Try common variations if exact match fails
+		if (!FoundAction)
+		{
+			// Try with "set" prefix (e.g., emitter "intensity" -> action "setIntensity")
+			FString SetterName = TEXT("set") + Snapshot.EmitterName.Left(1).ToUpper() + Snapshot.EmitterName.Mid(1);
+			FoundAction = Actions.Find(SetterName);
+		}
+		if (!FoundAction)
+		{
+			// Try with underscore (e.g., emitter "intensity" -> action "set_intensity")
+			FString SetterName = TEXT("set_") + Snapshot.EmitterName.ToLower();
+			FoundAction = Actions.Find(SetterName);
+		}
+
+		if (FoundAction && *FoundAction)
+		{
+			// Get the owning actor
+			AActor* OwningActor = TargetComp->GetOwner();
+			if (OwningActor)
+			{
+				// Invoke the action with the snapshot values
+				bool bSuccess = (*FoundAction)->Take(OwningActor, Values.ToSharedRef());
+				if (bSuccess)
+				{
+					UE_LOG(LogTemp, Log, TEXT("RshipPresets: Applied snapshot for %s:%s via action"),
+						*Snapshot.TargetId, *Snapshot.EmitterName);
+				}
+				else
+				{
+					UE_LOG(LogTemp, Warning, TEXT("RshipPresets: Action failed for %s:%s"),
+						*Snapshot.TargetId, *Snapshot.EmitterName);
+				}
+			}
+		}
+		else
+		{
+			UE_LOG(LogTemp, Verbose, TEXT("RshipPresets: No matching action found for emitter %s on target %s"),
+				*Snapshot.EmitterName, *Snapshot.TargetId);
+		}
+
+		break;  // Found the target, done
+	}
 }
 
 void URshipPresetManager::ApplyInterpolatedSnapshot(const FRshipEmitterSnapshot& From, const FRshipEmitterSnapshot& To, float Alpha)
 {
 	if (!From.IsValid() || !To.IsValid()) return;
+	if (!Subsystem || !Subsystem->TargetComponents) return;
 
 	// Parse both JSON values
 	TSharedPtr<FJsonObject> FromValues, ToValues;
@@ -558,10 +611,42 @@ void URshipPresetManager::ApplyInterpolatedSnapshot(const FRshipEmitterSnapshot&
 
 	// Interpolate
 	TSharedPtr<FJsonObject> Interpolated = LerpJsonObjects(FromValues, ToValues, Alpha);
-	if (Interpolated.IsValid())
+	if (!Interpolated.IsValid()) return;
+
+	CacheEmitterValue(To.TargetId, To.EmitterName, Interpolated);
+
+	// Find the target component and invoke the corresponding action
+	for (URshipTargetComponent* TargetComp : *Subsystem->TargetComponents)
 	{
-		CacheEmitterValue(To.TargetId, To.EmitterName, Interpolated);
-		// TODO: Actually push values
+		if (!TargetComp || TargetComp->targetName != To.TargetId) continue;
+		if (!TargetComp->TargetData) continue;
+
+		// Try to find an action with the same name as the emitter
+		TMap<FString, Action*> Actions = TargetComp->TargetData->GetActions();
+		Action** FoundAction = Actions.Find(To.EmitterName);
+
+		// Try common variations if exact match fails
+		if (!FoundAction)
+		{
+			FString SetterName = TEXT("set") + To.EmitterName.Left(1).ToUpper() + To.EmitterName.Mid(1);
+			FoundAction = Actions.Find(SetterName);
+		}
+		if (!FoundAction)
+		{
+			FString SetterName = TEXT("set_") + To.EmitterName.ToLower();
+			FoundAction = Actions.Find(SetterName);
+		}
+
+		if (FoundAction && *FoundAction)
+		{
+			AActor* OwningActor = TargetComp->GetOwner();
+			if (OwningActor)
+			{
+				(*FoundAction)->Take(OwningActor, Interpolated.ToSharedRef());
+			}
+		}
+
+		break;  // Found the target, done
 	}
 }
 

@@ -3,6 +3,7 @@
 #include "RshipDMXOutput.h"
 #include "RshipSubsystem.h"
 #include "RshipFixtureManager.h"
+#include "RshipPulseReceiver.h"
 #include "RshipCalibrationTypes.h"
 #include "Logs.h"
 #include "Sockets.h"
@@ -16,6 +17,7 @@ void URshipDMXOutput::Initialize(URshipSubsystem* InSubsystem)
     if (Subsystem)
     {
         FixtureManager = Subsystem->GetFixtureManager();
+        PulseReceiver = Subsystem->GetPulseReceiver();
     }
 
     CreateDefaultProfiles();
@@ -32,6 +34,7 @@ void URshipDMXOutput::Shutdown()
 
     Subsystem = nullptr;
     FixtureManager = nullptr;
+    PulseReceiver = nullptr;
 
     UE_LOG(LogRshipExec, Log, TEXT("DMXOutput shutdown"));
 }
@@ -413,17 +416,51 @@ void URshipDMXOutput::UpdateFixtureToBuffer(const FRshipDMXFixtureOutput& Output
 
     FRshipDMXUniverseBuffer& Buffer = GetOrCreateBuffer(Output.Universe);
 
-    // NOTE: Runtime state (Intensity, Color, Pan, Tilt, etc.) must come from pulse data
-    // FRshipFixtureInfo only contains entity metadata, not live state
-    // TODO: Integrate with URshipPulseReceiver to get current fixture state
-
-    // For now, use default values - actual implementation needs pulse integration
-    float CurrentIntensity = 1.0f;
+    // Get current fixture state from pulse receiver
+    float CurrentIntensity = 0.0f;
     FLinearColor CurrentColor = FLinearColor::White;
     float CurrentPan = 0.0f;
     float CurrentTilt = 0.0f;
     float CurrentZoom = 0.5f;
     float CurrentFocus = 0.5f;
+
+    if (PulseReceiver)
+    {
+        FRshipFixturePulse Pulse;
+        if (PulseReceiver->GetLastPulse(Output.FixtureId, Pulse))
+        {
+            // Use pulse values if available
+            if (Pulse.bHasIntensity)
+            {
+                CurrentIntensity = Pulse.Intensity;
+            }
+            if (Pulse.bHasColor)
+            {
+                CurrentColor = Pulse.Color;
+            }
+            else if (Pulse.bHasColorTemperature)
+            {
+                // Convert color temperature to RGB
+                CurrentColor = FLinearColor::MakeFromColorTemperature(Pulse.ColorTemperature);
+            }
+            if (Pulse.bHasPan)
+            {
+                CurrentPan = Pulse.Pan;
+            }
+            if (Pulse.bHasTilt)
+            {
+                CurrentTilt = Pulse.Tilt;
+            }
+            if (Pulse.bHasZoom)
+            {
+                CurrentZoom = Pulse.Zoom;
+            }
+            if (Pulse.bHasFocus)
+            {
+                CurrentFocus = Pulse.Focus;
+            }
+        }
+    }
 
     // Map each channel
     for (const FRshipDMXChannel& Channel : Profile.Channels)

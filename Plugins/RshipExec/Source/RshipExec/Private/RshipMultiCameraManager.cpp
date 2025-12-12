@@ -4,6 +4,8 @@
 #include "RshipSubsystem.h"
 #include "Logs.h"
 #include "Kismet/GameplayStatics.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
 
 void URshipMultiCameraManager::Initialize(URshipSubsystem* InSubsystem)
 {
@@ -109,7 +111,93 @@ void URshipMultiCameraManager::AddAutoSwitchRule(const FRshipAutoSwitchRule& Rul
     AutoSwitchRules.Sort([](const FRshipAutoSwitchRule& A, const FRshipAutoSwitchRule& B) { return A.Priority > B.Priority; });
 }
 void URshipMultiCameraManager::RemoveAutoSwitchRule(const FString& RuleId) { AutoSwitchRules.RemoveAll([&](const FRshipAutoSwitchRule& R) { return R.Id == RuleId; }); }
-void URshipMultiCameraManager::EvaluateAutoSwitchRules() { /* TODO: Implement rule evaluation */ }
+
+void URshipMultiCameraManager::EvaluateAutoSwitchRules()
+{
+    if (AutoSwitchRules.Num() == 0) return;
+
+    double CurrentTime = FPlatformTime::Seconds();
+
+    // Track timing state per view for time-based rules
+    static TMap<FString, double> ViewSwitchTimes;
+    static TMap<FString, double> RandomNextTimes;
+
+    // Evaluate rules in priority order (already sorted)
+    for (const FRshipAutoSwitchRule& Rule : AutoSwitchRules)
+    {
+        if (!Rule.bEnabled) continue;
+
+        // Skip if already on target view
+        if (ProgramView.Id == Rule.TargetViewId) continue;
+
+        // Check target view exists
+        if (!Views.Contains(Rule.TargetViewId)) continue;
+
+        bool bShouldTrigger = false;
+
+        // Evaluate trigger based on type
+        if (Rule.TriggerType == TEXT("TimeBased"))
+        {
+            // Time-based auto-switch: switch after N seconds on current view
+            // TriggerParams expected: {"intervalSeconds": 10.0}
+            TSharedPtr<FJsonObject> Params;
+            TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Rule.TriggerParams);
+            if (FJsonSerializer::Deserialize(Reader, Params) && Params.IsValid())
+            {
+                double Interval = 0.0;
+                Params->TryGetNumberField(TEXT("intervalSeconds"), Interval);
+
+                double* LastSwitch = ViewSwitchTimes.Find(ProgramView.Id);
+                if (!LastSwitch)
+                {
+                    ViewSwitchTimes.Add(ProgramView.Id, CurrentTime);
+                }
+                else if (Interval > 0.0 && (CurrentTime - *LastSwitch) >= Interval)
+                {
+                    bShouldTrigger = true;
+                }
+            }
+        }
+        else if (Rule.TriggerType == TEXT("Random"))
+        {
+            // Random switching within a time window
+            // TriggerParams expected: {"minSeconds": 5.0, "maxSeconds": 15.0}
+            TSharedPtr<FJsonObject> Params;
+            TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Rule.TriggerParams);
+            if (FJsonSerializer::Deserialize(Reader, Params) && Params.IsValid())
+            {
+                double MinSeconds = 5.0, MaxSeconds = 15.0;
+                Params->TryGetNumberField(TEXT("minSeconds"), MinSeconds);
+                Params->TryGetNumberField(TEXT("maxSeconds"), MaxSeconds);
+
+                double* NextSwitch = RandomNextTimes.Find(Rule.Id);
+                if (!NextSwitch)
+                {
+                    double RandomDelay = FMath::FRandRange(MinSeconds, MaxSeconds);
+                    RandomNextTimes.Add(Rule.Id, CurrentTime + RandomDelay);
+                }
+                else if (CurrentTime >= *NextSwitch)
+                {
+                    bShouldTrigger = true;
+                    double RandomDelay = FMath::FRandRange(MinSeconds, MaxSeconds);
+                    RandomNextTimes[Rule.Id] = CurrentTime + RandomDelay;
+                }
+            }
+        }
+        // Additional trigger types can be added: "EmitterValue", "CuePoint", etc.
+
+        if (bShouldTrigger)
+        {
+            UE_LOG(LogRshipExec, Log, TEXT("Auto-switch rule '%s' triggered, switching to view '%s'"),
+                *Rule.Name, *Rule.TargetViewId);
+            SwitchWithTransition(Rule.TargetViewId, Rule.Transition);
+
+            // Update timing for view we just switched to
+            ViewSwitchTimes.Add(Rule.TargetViewId, CurrentTime);
+            break;  // Only trigger one rule per evaluation
+        }
+    }
+}
 
 void URshipMultiCameraManager::SetTallyState(const FString& ViewId, ERshipCameraTallyState State)
 {
@@ -127,7 +215,44 @@ void URshipMultiCameraManager::UpdateTallyStates()
     if (!ProgramView.Id.IsEmpty()) SetTallyState(ProgramView.Id, ERshipCameraTallyState::Program);
 }
 
-void URshipMultiCameraManager::SendTallyToRship(const FString& ViewId, ERshipCameraTallyState State) { /* TODO: Send to rship */ }
+void URshipMultiCameraManager::SendTallyToRship(const FString& ViewId, ERshipCameraTallyState State)
+{
+    if (!Subsystem) return;
+
+    // Get the view to find the rship camera ID
+    const FRshipCameraView* View = Views.Find(ViewId);
+    if (!View) return;
+
+    // Build tally state JSON
+    TSharedPtr<FJsonObject> TallyData = MakeShareable(new FJsonObject);
+    TallyData->SetStringField(TEXT("viewId"), ViewId);
+    TallyData->SetStringField(TEXT("rshipCameraId"), View->RshipCameraId);
+
+    // Convert tally state to string
+    FString StateString;
+    switch (State)
+    {
+        case ERshipCameraTallyState::Off: StateString = TEXT("off"); break;
+        case ERshipCameraTallyState::Preview: StateString = TEXT("preview"); break;
+        case ERshipCameraTallyState::Program: StateString = TEXT("program"); break;
+        case ERshipCameraTallyState::Recording: StateString = TEXT("recording"); break;
+    }
+    TallyData->SetStringField(TEXT("tallyState"), StateString);
+
+    // Build the event payload
+    TSharedPtr<FJsonObject> Payload = MakeShareable(new FJsonObject);
+    Payload->SetStringField(TEXT("event"), TEXT("ws:m:tally"));
+    Payload->SetObjectField(TEXT("data"), TallyData);
+
+    // Serialize and send
+    FString JsonString;
+    TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&JsonString);
+    FJsonSerializer::Serialize(Payload.ToSharedRef(), Writer);
+
+    Subsystem->SendJsonDirect(JsonString);
+
+    UE_LOG(LogRshipExec, Verbose, TEXT("Sent tally state to rship: %s = %s"), *ViewId, *StateString);
+}
 
 void URshipMultiCameraManager::StartRecording(const TArray<FString>& ViewIds, const FString& OutputPath)
 {

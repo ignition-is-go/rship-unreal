@@ -254,13 +254,11 @@ float ARshipFixtureActor::GetCalibratedDimmerOutput() const
 
 FLinearColor ARshipFixtureActor::GetCalibratedColor() const
 {
-    // Start with base color from color temperature
-    FLinearColor BaseColor = FLinearColor::White;
+    // Convert color temperature to RGB using UE's built-in conversion
+    // CurrentColorTemp is in Kelvin (typically 2700-6500K range)
+    FLinearColor BaseColor = FLinearColor::MakeFromColorTemperature(CurrentColorTemp);
 
-    // TODO: Convert color temperature to RGB
-    // For now, use white
-
-    // Apply color calibration correction
+    // Apply color calibration correction if available
     if (CachedCalibration.HasColorCalibration())
     {
         FLinearColor Correction = CachedCalibration.GetColorCorrection(CurrentColorTemp);

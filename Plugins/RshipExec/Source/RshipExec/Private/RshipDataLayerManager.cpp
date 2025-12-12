@@ -24,15 +24,28 @@ void URshipDataLayerManager::Initialize(URshipSubsystem* InSubsystem)
 		return;
 	}
 
-	// NOTE: UE 5.6 changed DataLayer APIs significantly
-	// OnDataLayerRuntimeStateChanged and ForEachDataLayerInstance are deprecated
-	// TODO: Update to use UDataLayerManager::OnDataLayerInstanceRuntimeStateChanged
-	UE_LOG(LogTemp, Log, TEXT("RshipDataLayerManager: Initialized (DataLayer events disabled pending API update)"));
+	// Bind to Data Layer state changes
+	UDataLayerSubsystem* DataLayerSS = GetDataLayerSubsystem();
+	if (DataLayerSS)
+	{
+		// UE 5.6 uses OnDataLayerInstanceRuntimeStateChanged delegate
+		DataLayerStateChangedHandle = DataLayerSS->OnDataLayerInstanceRuntimeStateChanged().AddUObject(
+			this, &URshipDataLayerManager::OnDataLayerRuntimeStateChanged);
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("RshipDataLayerManager: Initialized"));
 }
 
 void URshipDataLayerManager::Shutdown()
 {
-	// NOTE: UE 5.6 changed DataLayer APIs - event unbinding disabled
+	// Unbind from Data Layer events
+	UDataLayerSubsystem* DataLayerSS = GetDataLayerSubsystem();
+	if (DataLayerSS && DataLayerStateChangedHandle.IsValid())
+	{
+		DataLayerSS->OnDataLayerInstanceRuntimeStateChanged().Remove(DataLayerStateChangedHandle);
+	}
+	DataLayerStateChangedHandle.Reset();
+
 	DataLayerStates.Empty();
 	Subsystem = nullptr;
 
@@ -45,9 +58,75 @@ void URshipDataLayerManager::Shutdown()
 
 TArray<FRshipDataLayerInfo> URshipDataLayerManager::GetAllDataLayers()
 {
-	// NOTE: UE 5.6 deprecated ForEachDataLayerInstance
-	// TODO: Update to use new DataLayerManager APIs
 	TArray<FRshipDataLayerInfo> Result;
+
+	if (!Subsystem) return Result;
+
+	UDataLayerSubsystem* DataLayerSS = GetDataLayerSubsystem();
+	if (!DataLayerSS) return Result;
+
+	// Collect unique data layers from all target actors
+	TSet<const UDataLayerInstance*> FoundDataLayers;
+
+	if (Subsystem->TargetComponents)
+	{
+		for (URshipTargetComponent* Comp : *Subsystem->TargetComponents)
+		{
+			if (!Comp || !Comp->GetOwner()) continue;
+
+			TArray<const UDataLayerInstance*> ActorDataLayers = Comp->GetOwner()->GetDataLayerInstances();
+			for (const UDataLayerInstance* DataLayer : ActorDataLayers)
+			{
+				if (DataLayer)
+				{
+					FoundDataLayers.Add(DataLayer);
+				}
+			}
+		}
+	}
+
+	// Also check World Partition's data layers if available
+	UWorld* World = Subsystem->GetWorld();
+	if (World)
+	{
+		for (TActorIterator<AActor> It(World); It; ++It)
+		{
+			AActor* Actor = *It;
+			if (!Actor) continue;
+
+			TArray<const UDataLayerInstance*> ActorDataLayers = Actor->GetDataLayerInstances();
+			for (const UDataLayerInstance* DataLayer : ActorDataLayers)
+			{
+				if (DataLayer)
+				{
+					FoundDataLayers.Add(DataLayer);
+				}
+			}
+		}
+	}
+
+	// Build info for each unique data layer
+	for (const UDataLayerInstance* DataLayer : FoundDataLayers)
+	{
+		FRshipDataLayerInfo Info;
+		Info.DataLayerName = DataLayer->GetDataLayerShortName();
+		Info.RuntimeState = DataLayer->GetRuntimeState();
+		Info.bIsLoaded = Info.RuntimeState == EDataLayerRuntimeState::Loaded ||
+		                 Info.RuntimeState == EDataLayerRuntimeState::Activated;
+		Info.bIsActivated = Info.RuntimeState == EDataLayerRuntimeState::Activated;
+		Info.DebugColor = DataLayer->GetDebugColor();
+
+		if (const UDataLayerAsset* Asset = DataLayer->GetAsset())
+		{
+			Info.DataLayerAssetName = Asset->GetName();
+		}
+
+		TArray<URshipTargetComponent*> Targets = GetTargetsForDataLayerInstance(DataLayer);
+		Info.TargetCount = Targets.Num();
+
+		Result.Add(Info);
+	}
+
 	return Result;
 }
 
@@ -92,9 +171,56 @@ TArray<URshipTargetComponent*> URshipDataLayerManager::GetTargetsInDataLayer(con
 
 TArray<URshipTargetComponent*> URshipDataLayerManager::GetTargetsByDataLayerPattern(const FString& WildcardPattern)
 {
-	// NOTE: UE 5.6 deprecated ForEachDataLayerInstance
-	// TODO: Update to use new DataLayerManager APIs
 	TArray<URshipTargetComponent*> Result;
+
+	if (!Subsystem || !Subsystem->TargetComponents) return Result;
+
+	// Convert wildcard pattern to regex-like matching
+	// Simple wildcard: * matches any characters
+	FString Pattern = WildcardPattern.ToLower().Replace(TEXT("*"), TEXT(""));
+
+	for (URshipTargetComponent* Comp : *Subsystem->TargetComponents)
+	{
+		if (!Comp || !Comp->GetOwner()) continue;
+
+		TArray<const UDataLayerInstance*> ActorDataLayers = Comp->GetOwner()->GetDataLayerInstances();
+		for (const UDataLayerInstance* DataLayer : ActorDataLayers)
+		{
+			if (!DataLayer) continue;
+
+			FString LayerName = DataLayer->GetDataLayerShortName().ToLower();
+
+			// Check if pattern matches (simple contains for now)
+			bool bMatches = false;
+			if (WildcardPattern.StartsWith(TEXT("*")) && WildcardPattern.EndsWith(TEXT("*")))
+			{
+				// *pattern* = contains
+				bMatches = LayerName.Contains(Pattern);
+			}
+			else if (WildcardPattern.StartsWith(TEXT("*")))
+			{
+				// *pattern = ends with
+				bMatches = LayerName.EndsWith(Pattern);
+			}
+			else if (WildcardPattern.EndsWith(TEXT("*")))
+			{
+				// pattern* = starts with
+				bMatches = LayerName.StartsWith(Pattern);
+			}
+			else
+			{
+				// Exact match
+				bMatches = (LayerName == WildcardPattern.ToLower());
+			}
+
+			if (bMatches)
+			{
+				Result.AddUnique(Comp);
+				break;  // Found a matching layer, no need to check more
+			}
+		}
+	}
+
 	return Result;
 }
 
@@ -345,10 +471,44 @@ void URshipDataLayerManager::SetAutoDataLayerGrouping(bool bEnabled)
 
 int32 URshipDataLayerManager::CreateGroupsForAllDataLayers()
 {
-	// NOTE: UE 5.6 deprecated ForEachDataLayerInstance
-	// TODO: Update to use new DataLayerManager APIs
-	UE_LOG(LogTemp, Warning, TEXT("RshipDataLayerManager: CreateGroupsForAllDataLayers disabled pending API update"));
-	return 0;
+	if (!Subsystem) return 0;
+
+	URshipTargetGroupManager* GroupManager = Subsystem->GetGroupManager();
+	if (!GroupManager) return 0;
+
+	// Get all data layers and create a group for each
+	TArray<FRshipDataLayerInfo> AllDataLayers = GetAllDataLayers();
+	int32 Count = 0;
+
+	for (const FRshipDataLayerInfo& Info : AllDataLayers)
+	{
+		FString GroupId = TEXT("DataLayer_") + Info.DataLayerName;
+
+		// Create group if it doesn't exist
+		FRshipTargetGroup Group;
+		if (!GroupManager->GetGroup(GroupId, Group))
+		{
+			Group.GroupId = GroupId;
+			Group.DisplayName = Info.DataLayerName;
+			Group.Description = FString::Printf(TEXT("Auto-created group for Data Layer '%s'"), *Info.DataLayerName);
+			GroupManager->CreateGroup(Group);
+		}
+
+		// Add all targets from this data layer to the group
+		TArray<URshipTargetComponent*> Targets = GetTargetsInDataLayer(Info.DataLayerName);
+		for (URshipTargetComponent* Target : Targets)
+		{
+			if (Target)
+			{
+				GroupManager->AddTargetToGroup(Target->targetName, GroupId);
+			}
+		}
+
+		Count++;
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("RshipDataLayerManager: Created groups for %d Data Layers"), Count);
+	return Count;
 }
 
 // ============================================================================
@@ -507,8 +667,33 @@ TArray<URshipTargetComponent*> URshipDataLayerManager::GetTargetsForDataLayerIns
 
 const UDataLayerInstance* URshipDataLayerManager::FindDataLayerByName(const FString& DataLayerName) const
 {
-	// NOTE: UE 5.6 deprecated ForEachDataLayerInstance
-	// TODO: Update to use new DataLayerManager APIs
+	if (!Subsystem) return nullptr;
+
+	UWorld* World = Subsystem->GetWorld();
+	if (!World) return nullptr;
+
+	// Search through all actors to find a data layer instance with matching name
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		AActor* Actor = *It;
+		if (!Actor) continue;
+
+		TArray<const UDataLayerInstance*> ActorDataLayers = Actor->GetDataLayerInstances();
+		for (const UDataLayerInstance* DataLayer : ActorDataLayers)
+		{
+			if (DataLayer)
+			{
+				FString LayerName = DataLayer->GetDataLayerShortName();
+				if (LayerName.Equals(DataLayerName, ESearchCase::IgnoreCase) ||
+				    LayerName.Contains(DataLayerName) ||
+				    DataLayerName.Contains(LayerName))
+				{
+					return DataLayer;
+				}
+			}
+		}
+	}
+
 	return nullptr;
 }
 

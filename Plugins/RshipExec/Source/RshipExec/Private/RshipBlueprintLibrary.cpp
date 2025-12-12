@@ -4,6 +4,7 @@
 #include "RshipSubsystem.h"
 #include "RshipTargetComponent.h"
 #include "RshipFixtureManager.h"
+#include "RshipPulseReceiver.h"
 #include "RshipSceneConverter.h"
 #include "RshipSceneValidator.h"
 #include "RshipTimecodeSync.h"
@@ -144,20 +145,79 @@ bool URshipBlueprintLibrary::GetFixtureById(const FString& FixtureId, FRshipFixt
 
 void URshipBlueprintLibrary::SetFixtureIntensity(const FString& FixtureId, float Intensity)
 {
-    // TODO: Implement fixture intensity control via pulse system
-    UE_LOG(LogTemp, Warning, TEXT("SetFixtureIntensity not yet implemented"));
+    URshipSubsystem* Subsystem = GetSubsystem();
+    if (!Subsystem) return;
+
+    URshipFixtureManager* FixtureManager = Subsystem->GetFixtureManager();
+    URshipPulseReceiver* PulseReceiver = Subsystem->GetPulseReceiver();
+    if (!FixtureManager || !PulseReceiver) return;
+
+    FRshipFixtureInfo FixtureInfo;
+    if (!FixtureManager->GetFixtureById(FixtureId, FixtureInfo))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("SetFixtureIntensity: Fixture '%s' not found"), *FixtureId);
+        return;
+    }
+
+    // Create pulse data with intensity
+    TSharedPtr<FJsonObject> Data = MakeShareable(new FJsonObject());
+    Data->SetNumberField(TEXT("intensity"), FMath::Clamp(Intensity, 0.0f, 1.0f));
+
+    // Route through pulse receiver to update all subscribers
+    PulseReceiver->ProcessPulseEvent(FixtureInfo.EmitterId, Data);
 }
 
 void URshipBlueprintLibrary::SetFixtureColor(const FString& FixtureId, FLinearColor Color)
 {
-    // TODO: Implement fixture color control via pulse system
-    UE_LOG(LogTemp, Warning, TEXT("SetFixtureColor not yet implemented"));
+    URshipSubsystem* Subsystem = GetSubsystem();
+    if (!Subsystem) return;
+
+    URshipFixtureManager* FixtureManager = Subsystem->GetFixtureManager();
+    URshipPulseReceiver* PulseReceiver = Subsystem->GetPulseReceiver();
+    if (!FixtureManager || !PulseReceiver) return;
+
+    FRshipFixtureInfo FixtureInfo;
+    if (!FixtureManager->GetFixtureById(FixtureId, FixtureInfo))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("SetFixtureColor: Fixture '%s' not found"), *FixtureId);
+        return;
+    }
+
+    // Create pulse data with color
+    TSharedPtr<FJsonObject> Data = MakeShareable(new FJsonObject());
+    Data->SetNumberField(TEXT("r"), Color.R);
+    Data->SetNumberField(TEXT("g"), Color.G);
+    Data->SetNumberField(TEXT("b"), Color.B);
+
+    // Route through pulse receiver to update all subscribers
+    PulseReceiver->ProcessPulseEvent(FixtureInfo.EmitterId, Data);
 }
 
 void URshipBlueprintLibrary::SetFixtureState(const FString& FixtureId, float Intensity, FLinearColor Color)
 {
-    // TODO: Implement fixture state control via pulse system
-    UE_LOG(LogTemp, Warning, TEXT("SetFixtureState not yet implemented"));
+    URshipSubsystem* Subsystem = GetSubsystem();
+    if (!Subsystem) return;
+
+    URshipFixtureManager* FixtureManager = Subsystem->GetFixtureManager();
+    URshipPulseReceiver* PulseReceiver = Subsystem->GetPulseReceiver();
+    if (!FixtureManager || !PulseReceiver) return;
+
+    FRshipFixtureInfo FixtureInfo;
+    if (!FixtureManager->GetFixtureById(FixtureId, FixtureInfo))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("SetFixtureState: Fixture '%s' not found"), *FixtureId);
+        return;
+    }
+
+    // Create pulse data with intensity and color
+    TSharedPtr<FJsonObject> Data = MakeShareable(new FJsonObject());
+    Data->SetNumberField(TEXT("intensity"), FMath::Clamp(Intensity, 0.0f, 1.0f));
+    Data->SetNumberField(TEXT("r"), Color.R);
+    Data->SetNumberField(TEXT("g"), Color.G);
+    Data->SetNumberField(TEXT("b"), Color.B);
+
+    // Route through pulse receiver to update all subscribers
+    PulseReceiver->ProcessPulseEvent(FixtureInfo.EmitterId, Data);
 }
 
 // ============================================================================

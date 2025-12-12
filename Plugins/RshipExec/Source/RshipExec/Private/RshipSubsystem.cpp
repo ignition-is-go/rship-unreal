@@ -1175,7 +1175,18 @@ void URshipSubsystem::SendEmitter(EmitterContainer *emitter, FString targetId)
 
 void URshipSubsystem::SendTargetStatus(Target *target, bool online)
 {
-    // TODO: Implement status update
+    if (!target) return;
+
+    TSharedPtr<FJsonObject> TargetStatus = MakeShareable(new FJsonObject);
+
+    TargetStatus->SetStringField(TEXT("targetId"), target->GetId());
+    TargetStatus->SetStringField(TEXT("instanceId"), InstanceId);
+    TargetStatus->SetStringField(TEXT("status"), online ? TEXT("online") : TEXT("offline"));
+    TargetStatus->SetStringField(TEXT("id"), InstanceId + TEXT(":") + target->GetId());
+
+    SetItem("TargetStatus", TargetStatus, ERshipMessagePriority::High, target->GetId() + TEXT(":status"));
+
+    UE_LOG(LogRshipExec, Log, TEXT("Sent target status: %s = %s"), *target->GetId(), online ? TEXT("online") : TEXT("offline"));
 }
 
 void URshipSubsystem::SendAll()
