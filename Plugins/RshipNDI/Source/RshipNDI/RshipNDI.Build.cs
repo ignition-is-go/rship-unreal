@@ -145,6 +145,53 @@ public class RshipNDI : ModuleRules
 		// NOTE: This plugin must be enabled in the project
 		PrivateDependencyModuleNames.Add("CineCameraSceneCapture");
 
+		// Add explicit include path for CineCameraSceneCapture module
+		// The module doesn't expose its headers via the standard mechanism
+		// EngineDirectory points to Engine/Source, so we go up to Engine root first
+		string EngineRoot = Path.GetFullPath(Path.Combine(EngineDirectory, ".."));
+		System.Console.WriteLine("RshipNDI: Engine root detected at: " + EngineRoot);
+
+		// Try multiple potential plugin locations
+		string[] PotentialPluginPaths = new string[]
+		{
+			// Standard engine installation - VirtualProduction category
+			Path.Combine(EngineRoot, "Plugins", "VirtualProduction", "CineCameraSceneCapture", "Source", "CineCameraSceneCapture", "Public"),
+			Path.Combine(EngineRoot, "Plugins", "VirtualProduction", "CineCameraSceneCapture", "Source", "CineCameraSceneCapture"),
+			// Alternative - root Plugins folder
+			Path.Combine(EngineRoot, "Plugins", "CineCameraSceneCapture", "Source", "CineCameraSceneCapture", "Public"),
+			Path.Combine(EngineRoot, "Plugins", "CineCameraSceneCapture", "Source", "CineCameraSceneCapture"),
+			// Alternative - Media category
+			Path.Combine(EngineRoot, "Plugins", "Media", "CineCameraSceneCapture", "Source", "CineCameraSceneCapture", "Public"),
+			// Alternative - Runtime category
+			Path.Combine(EngineRoot, "Plugins", "Runtime", "CineCameraSceneCapture", "Source", "CineCameraSceneCapture", "Public"),
+			// Alternative - Compositing category (sometimes VirtualProduction plugins are here)
+			Path.Combine(EngineRoot, "Plugins", "Compositing", "CineCameraSceneCapture", "Source", "CineCameraSceneCapture", "Public"),
+		};
+
+		bool bFoundIncludePath = false;
+		foreach (string IncludePath in PotentialPluginPaths)
+		{
+			if (Directory.Exists(IncludePath))
+			{
+				PublicIncludePaths.Add(IncludePath);
+				System.Console.WriteLine("RshipNDI: Added CineCameraSceneCapture include path: " + IncludePath);
+				bFoundIncludePath = true;
+				break;
+			}
+		}
+
+		if (!bFoundIncludePath)
+		{
+			System.Console.WriteLine("RshipNDI: WARNING - CineCameraSceneCapture include path not found");
+			System.Console.WriteLine("RshipNDI:   The CineCameraSceneCapture plugin may not expose public headers.");
+			System.Console.WriteLine("RshipNDI:   Build may fail with 'CineCaptureComponent2D.h' not found.");
+			System.Console.WriteLine("RshipNDI:   Searched paths:");
+			foreach (string IncludePath in PotentialPluginPaths)
+			{
+				System.Console.WriteLine("RshipNDI:     - " + IncludePath);
+			}
+		}
+
 		// Editor-only dependencies
 		if (Target.bBuildEditor)
 		{

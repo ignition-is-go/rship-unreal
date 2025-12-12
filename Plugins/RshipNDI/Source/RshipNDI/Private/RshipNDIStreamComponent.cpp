@@ -6,6 +6,8 @@
 
 #include "CineCameraActor.h"
 #include "CineCameraComponent.h"
+// CineCameraSceneCapture module
+// The include path is added in RshipNDI.Build.cs
 #include "CineCaptureComponent2D.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "Kismet/GameplayStatics.h"
@@ -24,6 +26,12 @@ URshipNDIStreamComponent::URshipNDIStreamComponent()
 	Config.BufferCount = 3;
 	Config.bUseAsyncReadback = true;
 	Config.bAutoStartOnBeginPlay = false;
+}
+
+URshipNDIStreamComponent::~URshipNDIStreamComponent()
+{
+	// Ensure resources are cleaned up
+	// TUniquePtr<FNDIStreamRenderer> will be deleted here with full type info
 }
 
 void URshipNDIStreamComponent::BeginPlay()

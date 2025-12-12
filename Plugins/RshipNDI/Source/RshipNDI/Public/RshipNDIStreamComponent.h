@@ -45,6 +45,7 @@ class RSHIPNDI_API URshipNDIStreamComponent : public UActorComponent
 
 public:
 	URshipNDIStreamComponent();
+	~URshipNDIStreamComponent();
 
 	// ========================================================================
 	// UActorComponent Interface
