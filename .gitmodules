@@ -1,3 +1,0 @@
-[submodule "Source/RshipExec/ThirdParty/IXWebSocket"]
-	path = Plugins/RshipExec/Source/RshipExec/ThirdParty/IXWebSocket
-	url = https://github.com/machinezone/IXWebSocket.git
