@@ -26,11 +26,5 @@
 				"Linux"
 			]
 		}
-	],
-	"Plugins": [
-		{
-			"Name": "HTTPServer",
-			"Enabled": true
-		}
 	]
 }
