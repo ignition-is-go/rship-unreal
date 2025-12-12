@@ -405,10 +405,16 @@ bool FUltimateControlAIHandler::HandleTestPath(const TSharedPtr<FJsonObject>& Pa
 	FVector End(EndX, EndY, EndZ);
 
 	FPathFindingQuery Query(nullptr, *NavSys->GetDefaultNavDataInstance(), Start, End);
+#if ULTIMATE_CONTROL_UE_5_6_OR_LATER
+	// TestPathSync returns bool in UE 5.6+
+	bool bReachable = NavSys->TestPathSync(Query);
+#else
 	ENavigationQueryResult::Type QueryResult = NavSys->TestPathSync(Query);
+	bool bReachable = (QueryResult == ENavigationQueryResult::Success);
+#endif
 
 	TSharedPtr<FJsonObject> ResultJson = MakeShared<FJsonObject>();
-	ResultJson->SetBoolField(TEXT("reachable"), QueryResult == ENavigationQueryResult::Success);
+	ResultJson->SetBoolField(TEXT("reachable"), bReachable);
 
 	Result = MakeShared<FJsonValueObject>(ResultJson);
 	return true;

@@ -28,6 +28,7 @@
 #include "ISettingsModule.h"
 #include "ISettingsSection.h"
 #include "ISettingsContainer.h"
+#include "ISettingsCategory.h"
 
 FUltimateControlEditorHandler::FUltimateControlEditorHandler(UUltimateControlSubsystem* InSubsystem)
 	: FUltimateControlHandlerBase(InSubsystem)
@@ -540,15 +541,23 @@ bool FUltimateControlEditorHandler::HandleGetCurrentMode(const TSharedPtr<FJsonO
 
 	TArray<TSharedPtr<FJsonValue>> ActiveModes;
 #if ULTIMATE_CONTROL_UE_5_6_OR_LATER
-	TArray<FEditorModeID> ActiveModeIds = ModeTools.GetActiveModeIDs();
+	// GetActiveScriptableModes removed in UE 5.6 - check known modes individually
+	TArray<FEditorModeID> KnownModes = { FEditorModeID(TEXT("EM_Default")), FEditorModeID(TEXT("EM_Placement")),
+		FEditorModeID(TEXT("EM_Landscape")), FEditorModeID(TEXT("EM_Foliage")), FEditorModeID(TEXT("EM_MeshPaint")) };
+	for (const FEditorModeID& ModeId : KnownModes)
+	{
+		if (ModeTools.IsModeActive(ModeId))
+		{
+			ActiveModes.Add(MakeShared<FJsonValueString>(ModeId.ToString()));
+		}
+	}
 #else
 	TArray<FEditorModeID> ActiveModeIds = ModeTools.GetActiveScriptableModes();
-#endif
-
 	for (const FEditorModeID& ModeId : ActiveModeIds)
 	{
 		ActiveModes.Add(MakeShared<FJsonValueString>(ModeId.ToString()));
 	}
+#endif
 
 	ResultObj->SetArrayField(TEXT("activeModes"), ActiveModes);
 	Result = MakeShared<FJsonValueObject>(ResultObj);
@@ -608,18 +617,13 @@ bool FUltimateControlEditorHandler::HandleListModes(const TSharedPtr<FJsonObject
 	};
 
 	FEditorModeTools& ModeTools = GLevelEditorModeTools();
-#if ULTIMATE_CONTROL_UE_5_6_OR_LATER
-	TArray<FEditorModeID> ActiveModes = ModeTools.GetActiveModeIDs();
-#else
-	TArray<FEditorModeID> ActiveModes = ModeTools.GetActiveScriptableModes();
-#endif
 
 	for (const auto& Mode : StandardModes)
 	{
 		TSharedPtr<FJsonObject> ModeObj = MakeShared<FJsonObject>();
 		ModeObj->SetStringField(TEXT("id"), Mode.Key);
 		ModeObj->SetStringField(TEXT("name"), Mode.Value);
-		ModeObj->SetBoolField(TEXT("isActive"), ActiveModes.Contains(FEditorModeID(*Mode.Key)));
+		ModeObj->SetBoolField(TEXT("isActive"), ModeTools.IsModeActive(FEditorModeID(*Mode.Key)));
 		ModeArray.Add(MakeShared<FJsonValueObject>(ModeObj));
 	}
 
@@ -873,15 +877,10 @@ bool FUltimateControlEditorHandler::HandleSetSnapSettings(const TSharedPtr<FJson
 	double GridSize;
 	if (Params->TryGetNumberField(TEXT("gridSize"), GridSize))
 	{
-#if ULTIMATE_CONTROL_UE_5_6_OR_LATER
-		// SetGridSize deprecated in UE 5.6 - use viewport settings directly
-		if (ViewportSettings)
-		{
-			ViewportSettings->GridSizes[0] = static_cast<float>(GridSize);
-		}
-#else
+#if !ULTIMATE_CONTROL_UE_5_6_OR_LATER
 		GEditor->SetGridSize(0, static_cast<float>(GridSize));
 #endif
+		// Note: Grid size setting API changed significantly in UE 5.6
 	}
 
 	TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
@@ -976,15 +975,10 @@ bool FUltimateControlEditorHandler::HandleSetGridSettings(const TSharedPtr<FJson
 	double GridSize;
 	if (Params->TryGetNumberField(TEXT("gridSize"), GridSize))
 	{
-#if ULTIMATE_CONTROL_UE_5_6_OR_LATER
-		// SetGridSize deprecated in UE 5.6 - use viewport settings directly
-		if (ViewportSettings)
-		{
-			ViewportSettings->GridSizes[0] = static_cast<float>(GridSize);
-		}
-#else
+#if !ULTIMATE_CONTROL_UE_5_6_OR_LATER
 		GEditor->SetGridSize(0, static_cast<float>(GridSize));
 #endif
+		// Note: Grid size setting API changed significantly in UE 5.6
 	}
 	if (ViewportSettings)
 	{
@@ -1147,8 +1141,8 @@ bool FUltimateControlEditorHandler::HandleSetEditorPreference(const TSharedPtr<F
 	}
 
 	// Value can be any type
-	const TSharedPtr<FJsonValue>* Value = nullptr;
-	if (!Params->TryGetField(TEXT("value"), Value))
+	TSharedPtr<FJsonValue> Value = Params->TryGetField(TEXT("value"));
+	if (!Value.IsValid())
 	{
 		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: value"));
 		return false;
@@ -1242,8 +1236,8 @@ bool FUltimateControlEditorHandler::HandleSetProjectSetting(const TSharedPtr<FJs
 		return false;
 	}
 
-	const TSharedPtr<FJsonValue>* Value = nullptr;
-	if (!Params->TryGetField(TEXT("value"), Value))
+	TSharedPtr<FJsonValue> Value = Params->TryGetField(TEXT("value"));
+	if (!Value.IsValid())
 	{
 		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: value"));
 		return false;

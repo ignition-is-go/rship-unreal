@@ -2,6 +2,7 @@
 
 #include "Handlers/UltimateControlNiagaraHandler.h"
 #include "UltimateControlSubsystem.h"
+#include "UltimateControlVersion.h"
 #include "Editor.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
@@ -532,6 +533,17 @@ bool FUltimateControlNiagaraHandler::HandleGetNiagaraParameters(const TSharedPtr
 	TArray<TSharedPtr<FJsonValue>> ParametersArray;
 
 	// Get override parameters from the component
+#if ULTIMATE_CONTROL_UE_5_6_OR_LATER
+	// API changed in UE 5.6 - ReadParameterVariables returns TArrayView<const FNiagaraVariableWithOffset>
+	auto OverrideParameters = Component->GetOverrideParameters().ReadParameterVariables();
+	for (const auto& Var : OverrideParameters)
+	{
+		TSharedPtr<FJsonObject> ParamJson = MakeShared<FJsonObject>();
+		ParamJson->SetStringField(TEXT("name"), Var.GetName().ToString());
+		ParamJson->SetStringField(TEXT("type"), Var.GetType().GetName());
+		ParametersArray.Add(MakeShared<FJsonValueObject>(ParamJson));
+	}
+#else
 	const TArray<FNiagaraVariableBase>& OverrideParameters = Component->GetOverrideParameters().ReadParameterVariables();
 	for (const FNiagaraVariableBase& Var : OverrideParameters)
 	{
@@ -540,6 +552,7 @@ bool FUltimateControlNiagaraHandler::HandleGetNiagaraParameters(const TSharedPtr
 		ParamJson->SetStringField(TEXT("type"), Var.GetType().GetName());
 		ParametersArray.Add(MakeShared<FJsonValueObject>(ParamJson));
 	}
+#endif
 
 	Result = MakeShared<FJsonValueArray>(ParametersArray);
 	return true;

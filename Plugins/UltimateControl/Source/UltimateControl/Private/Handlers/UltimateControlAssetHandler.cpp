@@ -149,18 +149,21 @@ TSharedPtr<FJsonObject> FUltimateControlAssetHandler::AssetDataToJson(const FAss
 	{
 		TSharedPtr<FJsonObject> MetadataObj = MakeShared<FJsonObject>();
 
-		// Get all tags
+		// Get all tags - API changed in UE 5.6
 #if ULTIMATE_CONTROL_UE_5_6_OR_LATER
-		// GetTagsAndValues API changed in UE 5.6 - now returns map directly
-		const FAssetDataTagMap& TagsAndValues = AssetData.TagsAndValues.GetMap();
+		// In UE 5.6+, iterate directly over TagsAndValues
+		for (const auto& Tag : AssetData.TagsAndValues)
+		{
+			MetadataObj->SetStringField(Tag.Key.ToString(), Tag.Value.ToString());
+		}
 #else
 		FAssetDataTagMap TagsAndValues;
 		AssetData.GetTagsAndValues(TagsAndValues);
-#endif
 		for (const auto& Tag : TagsAndValues)
 		{
 			MetadataObj->SetStringField(Tag.Key.ToString(), Tag.Value.GetValue());
 		}
+#endif
 
 		Obj->SetObjectField(TEXT("metadata"), MetadataObj);
 	}

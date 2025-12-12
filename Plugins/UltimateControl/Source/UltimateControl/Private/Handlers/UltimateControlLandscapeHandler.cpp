@@ -395,9 +395,6 @@ bool FUltimateControlLandscapeHandler::HandleGetHeightAtLocation(const TSharedPt
 		return true;
 	}
 
-	FVector Location(X, Y, 0);
-	FVector WorldLocation;
-
 	// Get the landscape info for height sampling
 	ULandscapeInfo* LandscapeInfo = Landscape->GetLandscapeInfo();
 	if (!LandscapeInfo)

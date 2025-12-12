@@ -697,7 +697,7 @@ bool FUltimateControlBlueprintHandler::HandleAddFunction(const TSharedPtr<FJsonO
 		return false;
 	}
 
-	FBlueprintEditorUtils::AddFunctionGraph(Blueprint, NewGraph, /* bIsUserCreated */ true, nullptr);
+	FBlueprintEditorUtils::AddFunctionGraph(Blueprint, NewGraph, /* bIsUserCreated */ true, static_cast<UFunction*>(nullptr));
 	Blueprint->MarkPackageDirty();
 
 	TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();

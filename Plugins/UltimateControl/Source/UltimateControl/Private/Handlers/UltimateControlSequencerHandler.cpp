@@ -2,6 +2,7 @@
 
 #include "Handlers/UltimateControlSequencerHandler.h"
 #include "UltimateControlSubsystem.h"
+#include "UltimateControlVersion.h"
 #include "LevelSequence.h"
 #include "LevelSequenceActor.h"
 #include "LevelSequencePlayer.h"
@@ -14,8 +15,17 @@
 #include "LevelEditor.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "EngineUtils.h"
-#include "Factories/LevelSequenceFactoryNew.h"
 #include "AssetToolsModule.h"
+// LevelSequenceFactoryNew location changed in UE 5.6
+#if __has_include("Factories/LevelSequenceFactoryNew.h")
+#include "Factories/LevelSequenceFactoryNew.h"
+#define HAS_LEVEL_SEQUENCE_FACTORY 1
+#elif __has_include("LevelSequenceFactoryNew.h")
+#include "LevelSequenceFactoryNew.h"
+#define HAS_LEVEL_SEQUENCE_FACTORY 1
+#else
+#define HAS_LEVEL_SEQUENCE_FACTORY 0
+#endif
 
 FUltimateControlSequencerHandler::FUltimateControlSequencerHandler(UUltimateControlSubsystem* InSubsystem)
 	: FUltimateControlHandlerBase(InSubsystem)
@@ -191,6 +201,7 @@ bool FUltimateControlSequencerHandler::HandleGetSequence(const TSharedPtr<FJsonO
 
 bool FUltimateControlSequencerHandler::HandleCreateSequence(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
 {
+#if HAS_LEVEL_SEQUENCE_FACTORY
 	FString Path;
 	if (!RequireString(Params, TEXT("path"), Path, Error))
 	{
@@ -214,6 +225,10 @@ bool FUltimateControlSequencerHandler::HandleCreateSequence(const TSharedPtr<FJs
 	ULevelSequence* NewSequence = Cast<ULevelSequence>(NewAsset);
 	Result = MakeShared<FJsonValueObject>(SequenceToJson(NewSequence));
 	return true;
+#else
+	Error = UUltimateControlSubsystem::MakeError(-32001, TEXT("Sequence creation not available in this UE version"));
+	return false;
+#endif
 }
 
 bool FUltimateControlSequencerHandler::HandlePlaySequence(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
