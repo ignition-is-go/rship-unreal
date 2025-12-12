@@ -6,9 +6,15 @@
 #include "RshipTargetGroup.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
+#include "Runtime/Launch/Resources/Version.h"
 #include "WorldPartition/DataLayer/DataLayerSubsystem.h"
 #include "WorldPartition/DataLayer/DataLayerInstance.h"
 #include "WorldPartition/DataLayer/DataLayerAsset.h"
+
+// DataLayer delegate API:
+// - UE 5.6+: OnDataLayerInstanceRuntimeStateChanged() on UDataLayerSubsystem
+// - Future versions may change - update guards as needed
+#define RSHIP_USE_DATALAYER_SUBSYSTEM_DELEGATE (ENGINE_MAJOR_VERSION > 5 || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 6))
 
 URshipDataLayerManager::URshipDataLayerManager()
 {
@@ -28,9 +34,14 @@ void URshipDataLayerManager::Initialize(URshipSubsystem* InSubsystem)
 	UDataLayerSubsystem* DataLayerSS = GetDataLayerSubsystem();
 	if (DataLayerSS)
 	{
-		// UE 5.6 uses OnDataLayerInstanceRuntimeStateChanged delegate
+#if RSHIP_USE_DATALAYER_SUBSYSTEM_DELEGATE
+		// UE 5.6+: OnDataLayerInstanceRuntimeStateChanged is on UDataLayerSubsystem
 		DataLayerStateChangedHandle = DataLayerSS->OnDataLayerInstanceRuntimeStateChanged().AddUObject(
 			this, &URshipDataLayerManager::OnDataLayerRuntimeStateChanged);
+#else
+		// Pre-5.6: Would need to use UDataLayerManager delegate (not supported - plugin requires 5.6+)
+		UE_LOG(LogTemp, Warning, TEXT("RshipDataLayerManager: DataLayer delegate not available in this UE version"));
+#endif
 	}
 
 	UE_LOG(LogTemp, Log, TEXT("RshipDataLayerManager: Initialized"));
@@ -39,11 +50,13 @@ void URshipDataLayerManager::Initialize(URshipSubsystem* InSubsystem)
 void URshipDataLayerManager::Shutdown()
 {
 	// Unbind from Data Layer events
+#if RSHIP_USE_DATALAYER_SUBSYSTEM_DELEGATE
 	UDataLayerSubsystem* DataLayerSS = GetDataLayerSubsystem();
 	if (DataLayerSS && DataLayerStateChangedHandle.IsValid())
 	{
 		DataLayerSS->OnDataLayerInstanceRuntimeStateChanged().Remove(DataLayerStateChangedHandle);
 	}
+#endif
 	DataLayerStateChangedHandle.Reset();
 
 	DataLayerStates.Empty();

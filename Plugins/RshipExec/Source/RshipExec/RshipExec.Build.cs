@@ -13,6 +13,10 @@ public class RshipExec : ModuleRules
 		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
 		PrecompileForTargets = PrecompileTargetsType.Any;
 
+		// Memory optimization: Use unity builds to reduce parallel compile memory pressure
+		bUseUnity = true;
+		MinSourceFilesForUnityBuildOverride = 8; // Group more files to reduce memory (RshipExec has many files)
+
 		// Check if IXWebSocket is available (bundled as submodule)
 		string IXWebSocketPath = Path.Combine(ModuleDirectory, "ThirdParty", "IXWebSocket", "ixwebsocket");
 		if (Directory.Exists(IXWebSocketPath))

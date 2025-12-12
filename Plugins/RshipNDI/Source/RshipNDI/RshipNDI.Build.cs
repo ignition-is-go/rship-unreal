@@ -17,6 +17,10 @@ public class RshipNDI : ModuleRules
 		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
 		PrecompileForTargets = PrecompileTargetsType.Any;
 
+		// Memory optimization: Use unity builds to reduce parallel compile memory pressure
+		bUseUnity = true;
+		MinSourceFilesForUnityBuildOverride = 1; // Combine all files into fewer unity files
+
 		// Check for Rust NDI sender library
 		string RustLibPath = Path.Combine(ModuleDirectory, "ThirdParty", "rship-ndi-sender");
 		string RustLibRelease = Path.Combine(RustLibPath, "target", "release");

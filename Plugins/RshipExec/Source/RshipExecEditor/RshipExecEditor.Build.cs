@@ -8,10 +8,10 @@ public class RshipExecEditor : ModuleRules
 	{
 		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
 
-		// Reduce memory pressure during compilation
-		// If you encounter PCH virtual memory errors, also try: -MaxParallelActions=32
-		bUseUnity = false;
-		MinFilesUsingPrecompiledHeader = 1;
+		// Memory optimization: Use unity builds to reduce parallel compile memory pressure
+		// Unity builds combine multiple .cpp files, reducing total memory needed
+		bUseUnity = true;
+		MinSourceFilesForUnityBuildOverride = 1;
 
 		PublicDependencyModuleNames.AddRange(
 			new string[]
