@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "SpatialAudioTypes.h"
+#include "SpatialDSPTypes.h"
 #include "Components/AudioComponent.h"
 #include "SpatialAudioObject.generated.h"
 

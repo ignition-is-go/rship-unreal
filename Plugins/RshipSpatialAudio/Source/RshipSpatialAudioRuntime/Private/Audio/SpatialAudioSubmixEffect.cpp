@@ -51,12 +51,15 @@ FSpatialAudioSubmixEffect::~FSpatialAudioSubmixEffect()
 
 void FSpatialAudioSubmixEffect::Init(const FSoundEffectSubmixInitData& InitData)
 {
+	// UE 5.6+: FSoundEffectSubmixInitData only has SampleRate
+	// NumInputChannels and NumFramesPerBuffer are obtained from first OnProcessAudio call
 	SampleRate = InitData.SampleRate;
-	NumInputChannels = InitData.NumInputChannels;
-	NumFramesPerBuffer = InitData.NumFramesPerBuffer > 0 ? InitData.NumFramesPerBuffer : 512;
+	NumInputChannels = 0;
+	NumFramesPerBuffer = 512; // Default, will be updated on first process
 
-	// Create processor
+	// Create processor (but don't fully initialize yet)
 	Processor = MakeUnique<FSpatialAudioProcessor>();
+	bProcessorInitialized = false;
 
 	// Apply initial settings from preset
 	if (USpatialAudioSubmixEffectPreset* EffectPreset = Cast<USpatialAudioSubmixEffectPreset>(Preset.Get()))
@@ -65,6 +68,23 @@ void FSpatialAudioSubmixEffect::Init(const FSoundEffectSubmixInitData& InitData)
 	}
 
 	NumOutputChannels = CurrentSettings.OutputChannelCount;
+
+	// Register as active effect
+	RegisterActiveSpatialAudioSubmixEffect(this);
+
+	UE_LOG(LogRshipSpatialAudio, Log, TEXT("SpatialAudioSubmixEffect created: %.0f Hz, %d outputs (deferred init)"),
+		SampleRate, NumOutputChannels);
+}
+
+void FSpatialAudioSubmixEffect::InitializeProcessor(int32 InNumInputChannels, int32 InNumFrames)
+{
+	if (bProcessorInitialized)
+	{
+		return;
+	}
+
+	NumInputChannels = InNumInputChannels;
+	NumFramesPerBuffer = InNumFrames > 0 ? InNumFrames : 512;
 
 	// Initialize processor
 	Processor->Initialize(SampleRate, NumFramesPerBuffer, NumOutputChannels);
@@ -82,10 +102,9 @@ void FSpatialAudioSubmixEffect::Init(const FSoundEffectSubmixInitData& InitData)
 		OutputBufferPtrs[i] = OutputBuffers[i].GetData();
 	}
 
-	// Register as active effect
-	RegisterActiveSpatialAudioSubmixEffect(this);
+	bProcessorInitialized = true;
 
-	UE_LOG(LogRshipSpatialAudio, Log, TEXT("SpatialAudioSubmixEffect initialized: %.0f Hz, %d frames, %d inputs, %d outputs"),
+	UE_LOG(LogRshipSpatialAudio, Log, TEXT("SpatialAudioSubmixEffect processor initialized: %.0f Hz, %d frames, %d inputs, %d outputs"),
 		SampleRate, NumFramesPerBuffer, NumInputChannels, NumOutputChannels);
 }
 
@@ -105,6 +124,12 @@ uint32 FSpatialAudioSubmixEffect::GetDesiredInputChannelCountOverride() const
 
 void FSpatialAudioSubmixEffect::OnProcessAudio(const FSoundEffectSubmixInputData& InData, FSoundEffectSubmixOutputData& OutData)
 {
+	// Deferred initialization (UE 5.6+ pattern)
+	if (!bProcessorInitialized && Processor)
+	{
+		InitializeProcessor(InData.NumChannels, InData.NumFrames);
+	}
+
 	if (!Processor || !Processor->IsInitialized())
 	{
 		// Pass through if not initialized

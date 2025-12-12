@@ -115,16 +115,16 @@ FSpatialSpeaker USpatialSpeakerComponent::BuildSpeakerConfig() const
 	AActor* Owner = GetOwner();
 	if (Owner)
 	{
-		Config.Position = Owner->GetActorLocation();
+		Config.WorldPosition = Owner->GetActorLocation();
 
-		// Calculate aim direction
+		// Calculate orientation
 		FRotator WorldAim = Owner->GetActorRotation() + AimOffset;
-		Config.AimDirection = WorldAim.Vector();
+		Config.Orientation = WorldAim;
 	}
 
 	// Coverage
-	Config.HorizontalCoverage = HorizontalCoverage;
-	Config.VerticalCoverage = VerticalCoverage;
+	Config.NominalDispersionH = HorizontalCoverage;
+	Config.NominalDispersionV = VerticalCoverage;
 
 	// DSP State
 	Config.DSP.OutputGainDb = OutputGain;
@@ -210,10 +210,10 @@ void USpatialSpeakerComponent::UpdateSpeakerTransform()
 		AActor* Owner = GetOwner();
 		if (Owner)
 		{
-			CurrentConfig.Position = Owner->GetActorLocation();
+			CurrentConfig.WorldPosition = Owner->GetActorLocation();
 
 			FRotator WorldAim = Owner->GetActorRotation() + AimOffset;
-			CurrentConfig.AimDirection = WorldAim.Vector();
+			CurrentConfig.Orientation = WorldAim;
 
 			Manager->UpdateSpeaker(SpeakerId, CurrentConfig);
 		}

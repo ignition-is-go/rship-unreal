@@ -239,7 +239,7 @@ void FAmbisonicsDecoder::Configure(
 	SpeakerDirections.SetNum(NumSpeakers);
 	for (int32 i = 0; i < NumSpeakers; ++i)
 	{
-		SpeakerDirections[i] = Speakers[i].Position.GetSafeNormal();
+		SpeakerDirections[i] = Speakers[i].WorldPosition.GetSafeNormal();
 		if (SpeakerDirections[i].IsNearlyZero())
 		{
 			SpeakerDirections[i] = FVector::ForwardVector;
@@ -650,8 +650,8 @@ void FSpatialRendererHOA::ComputeGains(
 
 		// Compute delay for phase coherence
 		// Distance from object to speaker (simplified - assumes speakers at same distance from listener)
-		float SpeakerDistance = (ConfiguredSpeakers[i].Position - ListenerPosition).Size();
-		float ObjectToSpeaker = (ConfiguredSpeakers[i].Position - ObjectPosition).Size();
+		float SpeakerDistance = (ConfiguredSpeakers[i].WorldPosition - ListenerPosition).Size();
+		float ObjectToSpeaker = (ConfiguredSpeakers[i].WorldPosition - ObjectPosition).Size();
 		float DelayMs = (ObjectToSpeaker / SPEED_OF_SOUND_CM) * 1000.0f;
 		OutGains[i].DelayMs = DelayMs;
 	}
@@ -709,7 +709,7 @@ TArray<FString> FSpatialRendererHOA::Validate() const
 	// Check for degenerate speaker positions
 	for (int32 i = 0; i < ConfiguredSpeakers.Num(); ++i)
 	{
-		if (ConfiguredSpeakers[i].Position.IsNearlyZero())
+		if (ConfiguredSpeakers[i].WorldPosition.IsNearlyZero())
 		{
 			Errors.Add(FString::Printf(TEXT("Speaker %d has zero position"), i));
 		}

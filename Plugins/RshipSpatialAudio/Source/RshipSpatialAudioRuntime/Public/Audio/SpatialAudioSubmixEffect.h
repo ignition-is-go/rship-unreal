@@ -89,8 +89,14 @@ protected:
 	/** Pointers to output buffer data */
 	TArray<float*> OutputBufferPtrs;
 
+	/** Whether the processor has been fully initialized (deferred to first OnProcessAudio) */
+	bool bProcessorInitialized;
+
 	/** Apply settings from preset */
 	void ApplySettings(const FSpatialAudioSubmixEffectSettings& Settings);
+
+	/** Initialize processor on first process call (UE 5.6+ deferred init pattern) */
+	void InitializeProcessor(int32 InNumInputChannels, int32 InNumFrames);
 };
 
 /**

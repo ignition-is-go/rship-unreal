@@ -923,9 +923,9 @@ void USpatialAudioBlueprintLibrary::TestAllSpeakers(UObject* WorldContextObject,
 		UE_LOG(LogTemp, Log, TEXT("  [%d] %s at (%0.f, %.0f, %.0f) -> Channel %d"),
 			i + 1,
 			*Speakers[i].Name,
-			Speakers[i].Position.X,
-			Speakers[i].Position.Y,
-			Speakers[i].Position.Z,
+			Speakers[i].WorldPosition.X,
+			Speakers[i].WorldPosition.Y,
+			Speakers[i].WorldPosition.Z,
 			Speakers[i].OutputChannel);
 	}
 }

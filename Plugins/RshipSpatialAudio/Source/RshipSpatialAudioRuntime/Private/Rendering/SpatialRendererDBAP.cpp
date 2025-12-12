@@ -29,7 +29,7 @@ void FSpatialRendererDBAP::Configure(const TArray<FSpatialSpeaker>& Speakers)
 	SpeakerPositions.SetNum(Speakers.Num());
 	for (int32 i = 0; i < Speakers.Num(); ++i)
 	{
-		SpeakerPositions[i] = Speakers[i].Position;
+		SpeakerPositions[i] = Speakers[i].WorldPosition;
 	}
 
 	bIsConfigured = true;
@@ -179,7 +179,7 @@ TArray<FString> FSpatialRendererDBAP::Validate() const
 	{
 		for (int32 j = i + 1; j < CachedSpeakers.Num(); ++j)
 		{
-			float Dist = FVector::Dist(CachedSpeakers[i].Position, CachedSpeakers[j].Position);
+			float Dist = FVector::Dist(CachedSpeakers[i].WorldPosition, CachedSpeakers[j].WorldPosition);
 			if (Dist < 1.0f)
 			{
 				Errors.Add(FString::Printf(

@@ -505,8 +505,8 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
 	EExternalProcessorType, ProcessorType,
 	const FString&, ErrorMessage);
 
-/** Delegate for received OSC messages */
+/** Delegate for received OSC messages from spatial audio processors */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
-	FOnOSCMessageReceived,
+	FOnSpatialOSCMessageReceived,
 	EExternalProcessorType, ProcessorType,
 	const FSpatialOSCMessage&, Message);

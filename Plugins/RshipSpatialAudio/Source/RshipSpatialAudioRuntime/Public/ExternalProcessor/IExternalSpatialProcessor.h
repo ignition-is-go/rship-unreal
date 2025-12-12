@@ -335,7 +335,7 @@ public:
 	FOnProcessorError OnError;
 
 	/** Called when OSC message is received */
-	FOnOSCMessageReceived OnOSCMessageReceived;
+	FOnSpatialOSCMessageReceived OnOSCMessageReceived;
 
 protected:
 	// ========================================================================

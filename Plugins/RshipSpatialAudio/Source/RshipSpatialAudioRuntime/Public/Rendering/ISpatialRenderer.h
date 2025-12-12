@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Core/SpatialAudioTypes.h"
 #include "Core/SpatialSpeaker.h"
+#include "ISpatialRenderer.generated.h"
 
 /**
  * Interface for spatial audio renderers.

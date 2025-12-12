@@ -782,8 +782,8 @@ bool URshipSpatialAudioManager::FindClosestSpeaker(FVector Position, FSpatialSpe
 
 bool URshipSpatialAudioManager::AddSpeakerToZone(const FGuid& SpeakerId, const FGuid& ZoneId)
 {
-	FSpatialZone* Zone = Venue.GetZoneMutable(ZoneId);
-	FSpatialSpeaker* Speaker = Venue.GetSpeakerMutable(SpeakerId);
+	FSpatialZone* Zone = Venue.GetZone(ZoneId);
+	FSpatialSpeaker* Speaker = Venue.GetSpeaker(SpeakerId);
 
 	if (!Zone || !Speaker)
 	{
@@ -805,8 +805,8 @@ bool URshipSpatialAudioManager::AddSpeakerToZone(const FGuid& SpeakerId, const F
 
 bool URshipSpatialAudioManager::RemoveSpeakerFromZone(const FGuid& SpeakerId, const FGuid& ZoneId)
 {
-	FSpatialZone* Zone = Venue.GetZoneMutable(ZoneId);
-	FSpatialSpeaker* Speaker = Venue.GetSpeakerMutable(SpeakerId);
+	FSpatialZone* Zone = Venue.GetZone(ZoneId);
+	FSpatialSpeaker* Speaker = Venue.GetSpeaker(SpeakerId);
 
 	if (!Zone)
 	{

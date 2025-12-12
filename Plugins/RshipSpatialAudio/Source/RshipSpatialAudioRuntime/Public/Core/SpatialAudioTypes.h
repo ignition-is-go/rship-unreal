@@ -143,6 +143,10 @@ struct RSHIPSPATIALAUDIORUNTIME_API FSpatialSpeakerGain
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SpatialAudio")
 	FGuid SpeakerId;
 
+	/** Speaker index for audio thread processing (maps to speaker array index) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SpatialAudio")
+	int32 SpeakerIndex = -1;
+
 	/** Linear amplitude gain (0.0 to 1.0+, typically power-normalized) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SpatialAudio")
 	float Gain = 0.0f;
@@ -159,6 +163,15 @@ struct RSHIPSPATIALAUDIORUNTIME_API FSpatialSpeakerGain
 
 	FSpatialSpeakerGain(const FGuid& InSpeakerId, float InGain, float InDelayMs = 0.0f, float InPhase = 0.0f)
 		: SpeakerId(InSpeakerId)
+		, SpeakerIndex(-1)
+		, Gain(InGain)
+		, DelayMs(InDelayMs)
+		, PhaseRadians(InPhase)
+	{}
+
+	FSpatialSpeakerGain(int32 InSpeakerIndex, float InGain, float InDelayMs = 0.0f, float InPhase = 0.0f)
+		: SpeakerId()
+		, SpeakerIndex(InSpeakerIndex)
 		, Gain(InGain)
 		, DelayMs(InDelayMs)
 		, PhaseRadians(InPhase)

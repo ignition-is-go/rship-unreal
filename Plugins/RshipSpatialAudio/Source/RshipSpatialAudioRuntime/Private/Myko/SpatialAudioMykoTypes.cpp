@@ -76,10 +76,7 @@ TSharedPtr<FJsonObject> FSpatialAudioMykoSerializer::ZoneToJson(const FSpatialZo
 		StaticEnum<ESpatialRendererType>()->GetNameStringByValue(static_cast<int64>(Zone.RendererType)));
 
 	// Bounds
-	Json->SetObjectField(SpatialAudioMykoSchema::PropBounds, BoxToJson(Zone.Bounds));
-
-	// Priority
-	Json->SetNumberField(SpatialAudioMykoSchema::PropPriority, Zone.Priority);
+	Json->SetObjectField(SpatialAudioMykoSchema::PropBounds, BoxToJson(Zone.BoundingBox));
 
 	// Speaker IDs
 	TArray<TSharedPtr<FJsonValue>> SpeakerArray;
@@ -280,12 +277,7 @@ bool FSpatialAudioMykoSerializer::ParseZoneUpdate(const TSharedPtr<FJsonObject>&
 
 	if (Json->HasField(SpatialAudioMykoSchema::PropBounds))
 	{
-		ParseBox(Json->GetObjectField(SpatialAudioMykoSchema::PropBounds), OutZone.Bounds);
-	}
-
-	if (Json->HasField(SpatialAudioMykoSchema::PropPriority))
-	{
-		OutZone.Priority = static_cast<int32>(Json->GetNumberField(SpatialAudioMykoSchema::PropPriority));
+		ParseBox(Json->GetObjectField(SpatialAudioMykoSchema::PropBounds), OutZone.BoundingBox);
 	}
 
 	if (Json->HasField(SpatialAudioMykoSchema::PropSpeakers))

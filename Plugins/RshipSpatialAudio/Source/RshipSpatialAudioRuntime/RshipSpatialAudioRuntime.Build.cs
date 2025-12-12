@@ -73,6 +73,7 @@ public class RshipSpatialAudioRuntime : ModuleRules
 
 		// Maximum supported configuration
 		PublicDefinitions.Add("SPATIAL_AUDIO_MAX_SPEAKERS=512");
+		PublicDefinitions.Add("SPATIAL_AUDIO_MAX_SPEAKERS_PER_OBJECT=64");
 		PublicDefinitions.Add("SPATIAL_AUDIO_MAX_OBJECTS=512");
 		PublicDefinitions.Add("SPATIAL_AUDIO_MAX_OUTPUTS=256");
 		PublicDefinitions.Add("SPATIAL_AUDIO_MAX_EQ_BANDS=16");

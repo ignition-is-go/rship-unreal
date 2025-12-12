@@ -52,7 +52,7 @@ void FSpatialRendererVBAP::Configure(const TArray<FSpatialSpeaker>& Speakers)
 
 	for (int32 i = 0; i < Speakers.Num(); ++i)
 	{
-		FVector RelativePos = Speakers[i].Position - ReferencePoint;
+		FVector RelativePos = Speakers[i].WorldPosition - ReferencePoint;
 		float Distance = RelativePos.Size();
 
 		SpeakerDistances[i] = Distance;
@@ -225,7 +225,7 @@ TArray<FString> FSpatialRendererVBAP::Validate() const
 	{
 		for (int32 j = i + 1; j < CachedSpeakers.Num(); ++j)
 		{
-			float Dist = FVector::Dist(CachedSpeakers[i].Position, CachedSpeakers[j].Position);
+			float Dist = FVector::Dist(CachedSpeakers[i].WorldPosition, CachedSpeakers[j].WorldPosition);
 			if (Dist < 1.0f) // Less than 1cm
 			{
 				Errors.Add(FString::Printf(
