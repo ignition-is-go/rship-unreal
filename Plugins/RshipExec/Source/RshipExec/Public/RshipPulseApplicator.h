@@ -137,7 +137,8 @@ private:
     // Refresh calibration data
     void RefreshCalibration();
 
-    // Called when a pulse is received
+    // Called when a pulse is received (UFUNCTION required for dynamic delegate binding)
+    UFUNCTION()
     void OnPulseReceived(const FString& InFixtureId, const FRshipFixturePulse& Pulse);
 
     // Apply calibration to a raw intensity value

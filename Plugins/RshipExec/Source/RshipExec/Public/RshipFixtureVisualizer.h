@@ -296,6 +296,7 @@ private:
     void UpdateSymbol();
 
     // Pulse event handler
+    UFUNCTION()
     void OnPulseReceived(const FString& InFixtureId, const FRshipFixturePulse& Pulse);
 
     // Geometry generation

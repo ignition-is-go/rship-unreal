@@ -166,8 +166,33 @@ void URshipPulseReceiver::ProcessPulseEvent(const FString& EmitterId, const TSha
         return;
     }
 
+    // Extract intensity and color for the broadcast
+    float Intensity = 0.0f;
+    FLinearColor Color = FLinearColor::White;
+
+    if (Data.IsValid())
+    {
+        double IntensityVal = 0.0;
+        if (Data->TryGetNumberField(TEXT("intensity"), IntensityVal) ||
+            Data->TryGetNumberField(TEXT("value"), IntensityVal) ||
+            Data->TryGetNumberField(TEXT("dim"), IntensityVal))
+        {
+            Intensity = (float)IntensityVal;
+        }
+
+        const TSharedPtr<FJsonObject>* ColorObj;
+        if (Data->TryGetObjectField(TEXT("color"), ColorObj))
+        {
+            double R = 1.0, G = 1.0, B = 1.0;
+            (*ColorObj)->TryGetNumberField(TEXT("r"), R);
+            (*ColorObj)->TryGetNumberField(TEXT("g"), G);
+            (*ColorObj)->TryGetNumberField(TEXT("b"), B);
+            Color = FLinearColor((float)R, (float)G, (float)B);
+        }
+    }
+
     // Broadcast raw event for any listeners
-    OnEmitterPulseReceived.Broadcast(EmitterId, Data);
+    OnEmitterPulseReceived.Broadcast(EmitterId, Intensity, Color, Data);
 
     // Find the fixture for this emitter
     FString* FixtureIdPtr = EmitterToFixture.Find(EmitterId);

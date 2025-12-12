@@ -19,14 +19,9 @@ void URshipSequencerSync::Initialize(URshipSubsystem* InSubsystem)
         URshipTimecodeSync* Timecode = Subsystem->GetTimecodeSync();
         if (Timecode)
         {
-            TimecodeChangedHandle = Timecode->OnTimecodeChanged.AddUObject(
-                this, &URshipSequencerSync::OnTimecodeChanged);
-
-            TimecodeStateHandle = Timecode->OnStateChanged.AddUObject(
-                this, &URshipSequencerSync::OnTimecodeStateChanged);
-
-            CuePointHandle = Timecode->OnCuePointReached.AddUObject(
-                this, &URshipSequencerSync::OnCuePointReached);
+            Timecode->OnTimecodeChanged.AddDynamic(this, &URshipSequencerSync::OnTimecodeChanged);
+            Timecode->OnStateChanged.AddDynamic(this, &URshipSequencerSync::OnTimecodeStateChanged);
+            Timecode->OnCuePointReached.AddDynamic(this, &URshipSequencerSync::OnCuePointReached);
         }
     }
 
@@ -52,9 +47,9 @@ void URshipSequencerSync::Shutdown()
         URshipTimecodeSync* Timecode = Subsystem->GetTimecodeSync();
         if (Timecode)
         {
-            Timecode->OnTimecodeChanged.Remove(TimecodeChangedHandle);
-            Timecode->OnStateChanged.Remove(TimecodeStateHandle);
-            Timecode->OnCuePointReached.Remove(CuePointHandle);
+            Timecode->OnTimecodeChanged.RemoveDynamic(this, &URshipSequencerSync::OnTimecodeChanged);
+            Timecode->OnStateChanged.RemoveDynamic(this, &URshipSequencerSync::OnTimecodeStateChanged);
+            Timecode->OnCuePointReached.RemoveDynamic(this, &URshipSequencerSync::OnCuePointReached);
         }
     }
 

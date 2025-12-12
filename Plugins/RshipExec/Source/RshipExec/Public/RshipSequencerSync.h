@@ -256,7 +256,10 @@ private:
     FDelegateHandle TimecodeStateHandle;
     FDelegateHandle CuePointHandle;
 
+    UFUNCTION()
     void OnTimecodeChanged(const FRshipTimecodeStatus& Status);
+    UFUNCTION()
     void OnTimecodeStateChanged(ERshipTimecodeState OldState, ERshipTimecodeState NewState);
+    UFUNCTION()
     void OnCuePointReached(const FRshipCuePoint& CuePoint);
 };

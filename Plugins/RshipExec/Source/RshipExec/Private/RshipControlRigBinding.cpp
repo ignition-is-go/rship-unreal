@@ -139,10 +139,10 @@ void URshipControlRigBinding::BindToPulseReceiver()
     }
 
     // Use a general pulse callback
-    PulseReceiverHandle = PulseReceiver->OnPulseReceived.AddLambda(
-        [this](const FString& EmitterId, TSharedPtr<FJsonObject> Data)
+    PulseReceiverHandle = PulseReceiver->OnEmitterPulseReceived.AddLambda(
+        [this](const FString& EmitterId, float Intensity, FLinearColor Color, TSharedPtr<FJsonObject> Data)
         {
-            OnPulseReceived(EmitterId, Data);
+            OnPulseReceived(EmitterId, Intensity, Color, Data);
         }
     );
 }
@@ -157,12 +157,12 @@ void URshipControlRigBinding::UnbindFromPulseReceiver()
     URshipPulseReceiver* PulseReceiver = Subsystem->GetPulseReceiver();
     if (PulseReceiver && PulseReceiverHandle.IsValid())
     {
-        PulseReceiver->OnPulseReceived.Remove(PulseReceiverHandle);
+        PulseReceiver->OnEmitterPulseReceived.Remove(PulseReceiverHandle);
         PulseReceiverHandle.Reset();
     }
 }
 
-void URshipControlRigBinding::OnPulseReceived(const FString& EmitterId, TSharedPtr<FJsonObject> Data)
+void URshipControlRigBinding::OnPulseReceived(const FString& EmitterId, float /*Intensity*/, FLinearColor /*Color*/, TSharedPtr<FJsonObject> Data)
 {
     if (!Data.IsValid() || !BindingConfig.bEnabled)
     {

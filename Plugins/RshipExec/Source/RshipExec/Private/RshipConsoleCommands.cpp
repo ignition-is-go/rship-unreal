@@ -352,7 +352,7 @@ static FAutoConsoleCommand CmdRshipNiagara(
                 FString OwnerName = Owner ? Owner->GetActorLabel() : TEXT("Unknown");
                 UE_LOG(LogRshipExec, Log, TEXT("  %s - Emitter: %s (%d params, %d colors)"),
                     *OwnerName, *B->EmitterId,
-                    B->ParameterBindings.Num(), B->ColorBindings.Num());
+                    B->FloatBindings.Num(), B->ColorBindings.Num());
             }
         }
     })

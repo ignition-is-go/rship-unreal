@@ -373,7 +373,7 @@ private:
     void BindToPulseReceiver();
     void UnbindFromPulseReceiver();
 
-    void OnPulseReceived(const FString& EmitterId, TSharedPtr<FJsonObject> Data);
+    void OnPulseReceived(const FString& EmitterId, float Intensity, FLinearColor Color, TSharedPtr<FJsonObject> Data);
     void UpdateBinding(int32 Index, float DeltaTime);
     void ApplyBindingToControlRig(int32 Index);
 

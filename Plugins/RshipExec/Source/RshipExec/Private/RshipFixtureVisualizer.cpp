@@ -44,8 +44,7 @@ void URshipFixtureVisualizer::BeginPlay()
         URshipPulseReceiver* PulseReceiver = Subsystem->GetPulseReceiver();
         if (PulseReceiver)
         {
-            PulseReceivedHandle = PulseReceiver->OnFixturePulseReceived.AddUObject(
-                this, &URshipFixtureVisualizer::OnPulseReceived);
+            PulseReceiver->OnFixturePulseReceived.AddDynamic(this, &URshipFixtureVisualizer::OnPulseReceived);
         }
     }
 
@@ -63,7 +62,7 @@ void URshipFixtureVisualizer::EndPlay(const EEndPlayReason::Type EndPlayReason)
         URshipPulseReceiver* PulseReceiver = Subsystem->GetPulseReceiver();
         if (PulseReceiver)
         {
-            PulseReceiver->OnFixturePulseReceived.Remove(PulseReceivedHandle);
+            PulseReceiver->OnFixturePulseReceived.RemoveDynamic(this, &URshipFixtureVisualizer::OnPulseReceived);
         }
     }
 

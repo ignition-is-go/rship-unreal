@@ -93,11 +93,11 @@ FRshipFixtureProfile URshipFixtureLibrary::CreateProfileFromFixture(const FStrin
     URshipFixtureManager* FM = Subsystem->GetFixtureManager();
     if (!FM) return P;
     FRshipFixtureInfo Info;
-    if (!FM->GetFixture(FixtureId, Info)) return P;
+    if (!FM->GetFixtureById(FixtureId, Info)) return P;
     P.Id = FString::Printf(TEXT("custom_%s"), *FixtureId);
     P.DisplayName = Info.Name; P.Manufacturer = TEXT("Custom"); P.Model = Info.Name; P.Source = TEXT("UE_Reverse");
     FRshipFixtureCalibration Cal;
-    if (FM->GetCalibrationForFixture(FixtureId, Cal)) { P.DefaultCalibration = Cal; P.BeamProfile.BeamAngleMin = Cal.BeamAngle; P.BeamProfile.FieldAngleMin = Cal.FieldAngle; }
+    if (FM->GetCalibrationForFixture(FixtureId, Cal)) { P.DefaultCalibration = Cal; P.BeamProfile.BeamAngleMin = 25.0f * Cal.BeamAngleMultiplier; P.BeamProfile.FieldAngleMin = 35.0f * Cal.FieldAngleMultiplier; }
     P.LastUpdated = FDateTime::Now();
     return P;
 }

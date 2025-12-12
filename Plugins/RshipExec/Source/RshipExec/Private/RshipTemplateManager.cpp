@@ -187,7 +187,7 @@ void URshipTemplateManager::ApplyTemplate(const FRshipTargetTemplate& Template, 
 		{
 			for (const FString& GroupId : Template.GroupIds)
 			{
-				GroupManager->AddTargetToGroup(Target, GroupId);
+				GroupManager->AddTargetToGroup(Target->targetId, GroupId);
 			}
 		}
 	}

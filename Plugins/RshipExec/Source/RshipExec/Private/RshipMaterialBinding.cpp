@@ -185,7 +185,7 @@ void URshipMaterialBinding::BindToPulseReceiver()
     URshipPulseReceiver* Receiver = Subsystem->GetPulseReceiver();
     if (!Receiver) return;
 
-    PulseHandle = Receiver->OnPulseReceived.AddUObject(this, &URshipMaterialBinding::OnPulseReceived);
+    PulseHandle = Receiver->OnEmitterPulseReceived.AddUObject(this, &URshipMaterialBinding::OnPulseReceived);
 }
 
 void URshipMaterialBinding::UnbindFromPulseReceiver()
@@ -195,12 +195,12 @@ void URshipMaterialBinding::UnbindFromPulseReceiver()
     URshipPulseReceiver* Receiver = Subsystem->GetPulseReceiver();
     if (Receiver && PulseHandle.IsValid())
     {
-        Receiver->OnPulseReceived.Remove(PulseHandle);
+        Receiver->OnEmitterPulseReceived.Remove(PulseHandle);
         PulseHandle.Reset();
     }
 }
 
-void URshipMaterialBinding::OnPulseReceived(const FString& InEmitterId, TSharedPtr<FJsonObject> Data)
+void URshipMaterialBinding::OnPulseReceived(const FString& InEmitterId, float /*Intensity*/, FLinearColor /*Color*/, TSharedPtr<FJsonObject> Data)
 {
     if (InEmitterId != EmitterId || !Data.IsValid()) return;
 

@@ -278,7 +278,7 @@ private:
     void SetupMaterials();
     void BindToPulseReceiver();
     void UnbindFromPulseReceiver();
-    void OnPulseReceived(const FString& InEmitterId, TSharedPtr<FJsonObject> Data);
+    void OnPulseReceived(const FString& InEmitterId, float Intensity, FLinearColor Color, TSharedPtr<FJsonObject> Data);
 
     float ProcessScalarBinding(const FRshipMaterialScalarBinding& Binding, float InputValue);
     FLinearColor ProcessVectorBinding(const FRshipMaterialVectorBinding& Binding, const FLinearColor& InputColor, float Alpha);

@@ -46,31 +46,12 @@ void URshipNiagaraBinding::BeginPlay()
         URshipPulseReceiver* Receiver = Subsystem->GetPulseReceiver();
         if (Receiver)
         {
-            PulseReceivedHandle = Receiver->OnPulseReceived.AddLambda(
-                [this](const FString& InEmitterId, TSharedPtr<FJsonObject> Data)
+            PulseReceivedHandle = Receiver->OnEmitterPulseReceived.AddLambda(
+                [this](const FString& InEmitterId, float Intensity, FLinearColor Color, TSharedPtr<FJsonObject> Data)
                 {
                     FString MyEmitterId = GetFullEmitterId();
                     if (InEmitterId == MyEmitterId)
                     {
-                        // Extract intensity and color from pulse data
-                        float Intensity = 0.0f;
-                        FLinearColor Color = FLinearColor::White;
-
-                        if (Data.IsValid())
-                        {
-                            Data->TryGetNumberField(TEXT("intensity"), Intensity);
-
-                            const TSharedPtr<FJsonObject>* ColorObj;
-                            if (Data->TryGetObjectField(TEXT("color"), ColorObj))
-                            {
-                                double R = 1.0, G = 1.0, B = 1.0;
-                                (*ColorObj)->TryGetNumberField(TEXT("r"), R);
-                                (*ColorObj)->TryGetNumberField(TEXT("g"), G);
-                                (*ColorObj)->TryGetNumberField(TEXT("b"), B);
-                                Color = FLinearColor(R, G, B);
-                            }
-                        }
-
                         OnPulseReceivedInternal(InEmitterId, Intensity, Color, Data);
                     }
                 });
@@ -95,7 +76,7 @@ void URshipNiagaraBinding::EndPlay(const EEndPlayReason::Type EndPlayReason)
         URshipPulseReceiver* Receiver = Subsystem->GetPulseReceiver();
         if (Receiver)
         {
-            Receiver->OnPulseReceived.Remove(PulseReceivedHandle);
+            Receiver->OnEmitterPulseReceived.Remove(PulseReceivedHandle);
         }
     }
 

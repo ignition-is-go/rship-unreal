@@ -392,7 +392,7 @@ private:
 
     void BindToPulseReceiver();
     void UnbindFromPulseReceiver();
-    void OnPulseReceived(const FString& EmitterId, TSharedPtr<FJsonObject> Data);
+    void OnPulseReceived(const FString& EmitterId, float Intensity, FLinearColor Color, TSharedPtr<FJsonObject> Data);
 
     bool MatchesPattern(const FString& EmitterId, const FString& Pattern);
     float ExtractFloat(TSharedPtr<FJsonObject> Data, const FString& FieldPath, float Default = 0.0f);

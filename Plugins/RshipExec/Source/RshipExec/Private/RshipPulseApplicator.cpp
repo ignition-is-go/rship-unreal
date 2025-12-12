@@ -120,9 +120,8 @@ void URshipPulseApplicator::Subscribe()
     // Subscribe to pulses for this fixture
     PulseReceiver->SubscribeToFixture(FixtureId);
 
-    // Bind to pulse events
-    PulseReceivedHandle = PulseReceiver->OnFixturePulseReceived.AddUObject(
-        this, &URshipPulseApplicator::OnPulseReceived);
+    // Bind to pulse events (dynamic delegate requires AddDynamic)
+    PulseReceiver->OnFixturePulseReceived.AddDynamic(this, &URshipPulseApplicator::OnPulseReceived);
 
     bIsSubscribed = true;
 
@@ -144,7 +143,7 @@ void URshipPulseApplicator::Unsubscribe()
 
     if (PulseReceiver)
     {
-        PulseReceiver->OnFixturePulseReceived.Remove(PulseReceivedHandle);
+        PulseReceiver->OnFixturePulseReceived.RemoveDynamic(this, &URshipPulseApplicator::OnPulseReceived);
         PulseReceiver->UnsubscribeFromFixture(FixtureId);
     }
 

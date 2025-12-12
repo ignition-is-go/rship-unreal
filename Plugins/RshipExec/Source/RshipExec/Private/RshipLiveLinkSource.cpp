@@ -5,7 +5,6 @@
 #include "RshipPulseReceiver.h"
 #include "RshipFixtureManager.h"
 #include "ILiveLinkClient.h"
-#include "LiveLinkClient.h"
 #include "Roles/LiveLinkTransformRole.h"
 #include "Roles/LiveLinkCameraRole.h"
 #include "Roles/LiveLinkLightRole.h"
@@ -334,7 +333,7 @@ void URshipLiveLinkService::BindToPulseReceiver()
     URshipPulseReceiver* Receiver = Subsystem->GetPulseReceiver();
     if (!Receiver) return;
 
-    PulseHandle = Receiver->OnPulseReceived.AddUObject(this, &URshipLiveLinkService::OnPulseReceived);
+    PulseHandle = Receiver->OnEmitterPulseReceived.AddUObject(this, &URshipLiveLinkService::OnPulseReceived);
 }
 
 void URshipLiveLinkService::UnbindFromPulseReceiver()
@@ -344,12 +343,12 @@ void URshipLiveLinkService::UnbindFromPulseReceiver()
     URshipPulseReceiver* Receiver = Subsystem->GetPulseReceiver();
     if (Receiver && PulseHandle.IsValid())
     {
-        Receiver->OnPulseReceived.Remove(PulseHandle);
+        Receiver->OnEmitterPulseReceived.Remove(PulseHandle);
         PulseHandle.Reset();
     }
 }
 
-void URshipLiveLinkService::OnPulseReceived(const FString& EmitterId, TSharedPtr<FJsonObject> Data)
+void URshipLiveLinkService::OnPulseReceived(const FString& EmitterId, float /*Intensity*/, FLinearColor /*Color*/, TSharedPtr<FJsonObject> Data)
 {
     if (!Source.IsValid() || !Source->IsValid()) return;
 
