@@ -583,6 +583,7 @@ private:
     TSharedPtr<FJsonObject> ProfileToJson(const FRshipFixtureProfile& Profile) const;
     FRshipFixtureProfile JsonToProfile(const TSharedPtr<FJsonObject>& Json) const;
 
-    // Server sync handlers
+public:
+    // Server sync handlers (called by subsystem)
     void ProcessProfileEvent(const TSharedPtr<FJsonObject>& Data, bool bIsDelete);
 };

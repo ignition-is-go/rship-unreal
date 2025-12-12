@@ -406,7 +406,8 @@ private:
     double FrameToSeconds(int64 Frame) const;
     int64 SecondsToFrame(double Seconds) const;
 
-    // Process rship timecode message
+public:
+    // Process rship timecode message (called by subsystem)
     void ProcessTimecodeEvent(const TSharedPtr<FJsonObject>& Data);
     void ProcessEventTrackEvent(const TSharedPtr<FJsonObject>& Data);
 };

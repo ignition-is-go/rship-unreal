@@ -24,38 +24,15 @@ void URshipDataLayerManager::Initialize(URshipSubsystem* InSubsystem)
 		return;
 	}
 
-	// Bind to Data Layer state changes
-	if (UDataLayerSubsystem* DataLayerSS = GetDataLayerSubsystem())
-	{
-		DataLayerStateChangedHandle = DataLayerSS->OnDataLayerRuntimeStateChanged.AddUObject(
-			this, &URshipDataLayerManager::OnDataLayerRuntimeStateChanged);
-
-		// Cache initial states
-		DataLayerSS->ForEachDataLayerInstance([this](UDataLayerInstance* DataLayer) -> bool
-		{
-			if (DataLayer)
-			{
-				DataLayerStates.Add(DataLayer->GetDataLayerFName(), DataLayer->GetRuntimeState());
-			}
-			return true;
-		});
-
-		UE_LOG(LogTemp, Log, TEXT("RshipDataLayerManager: Initialized with %d Data Layers"), DataLayerStates.Num());
-	}
-	else
-	{
-		UE_LOG(LogTemp, Log, TEXT("RshipDataLayerManager: Initialized (no Data Layer subsystem available)"));
-	}
+	// NOTE: UE 5.6 changed DataLayer APIs significantly
+	// OnDataLayerRuntimeStateChanged and ForEachDataLayerInstance are deprecated
+	// TODO: Update to use UDataLayerManager::OnDataLayerInstanceRuntimeStateChanged
+	UE_LOG(LogTemp, Log, TEXT("RshipDataLayerManager: Initialized (DataLayer events disabled pending API update)"));
 }
 
 void URshipDataLayerManager::Shutdown()
 {
-	// Unbind from Data Layer events
-	if (UDataLayerSubsystem* DataLayerSS = GetDataLayerSubsystem())
-	{
-		DataLayerSS->OnDataLayerRuntimeStateChanged.Remove(DataLayerStateChangedHandle);
-	}
-
+	// NOTE: UE 5.6 changed DataLayer APIs - event unbinding disabled
 	DataLayerStates.Empty();
 	Subsystem = nullptr;
 
@@ -68,45 +45,9 @@ void URshipDataLayerManager::Shutdown()
 
 TArray<FRshipDataLayerInfo> URshipDataLayerManager::GetAllDataLayers()
 {
+	// NOTE: UE 5.6 deprecated ForEachDataLayerInstance
+	// TODO: Update to use new DataLayerManager APIs
 	TArray<FRshipDataLayerInfo> Result;
-
-	UDataLayerSubsystem* DataLayerSS = GetDataLayerSubsystem();
-	if (!DataLayerSS)
-	{
-		return Result;
-	}
-
-	DataLayerSS->ForEachDataLayerInstance([this, &Result](UDataLayerInstance* DataLayer) -> bool
-	{
-		if (!DataLayer) return true;
-
-		FRshipDataLayerInfo Info;
-		Info.DataLayerName = DataLayer->GetDataLayerShortName();
-		Info.RuntimeState = DataLayer->GetRuntimeState();
-		Info.bIsLoaded = Info.RuntimeState == EDataLayerRuntimeState::Loaded ||
-		                 Info.RuntimeState == EDataLayerRuntimeState::Activated;
-		Info.bIsActivated = Info.RuntimeState == EDataLayerRuntimeState::Activated;
-		Info.DebugColor = DataLayer->GetDebugColor();
-
-		if (const UDataLayerAsset* Asset = DataLayer->GetAsset())
-		{
-			Info.DataLayerAssetName = Asset->GetName();
-		}
-
-		// Count targets
-		TArray<URshipTargetComponent*> Targets = GetTargetsForDataLayerInstance(DataLayer);
-		Info.TargetCount = Targets.Num();
-
-		Result.Add(Info);
-		return true;
-	});
-
-	// Sort by name
-	Result.Sort([](const FRshipDataLayerInfo& A, const FRshipDataLayerInfo& B)
-	{
-		return A.DataLayerName < B.DataLayerName;
-	});
-
 	return Result;
 }
 
@@ -151,46 +92,10 @@ TArray<URshipTargetComponent*> URshipDataLayerManager::GetTargetsInDataLayer(con
 
 TArray<URshipTargetComponent*> URshipDataLayerManager::GetTargetsByDataLayerPattern(const FString& WildcardPattern)
 {
+	// NOTE: UE 5.6 deprecated ForEachDataLayerInstance
+	// TODO: Update to use new DataLayerManager APIs
 	TArray<URshipTargetComponent*> Result;
-
-	if (!Subsystem || !Subsystem->TargetComponents)
-	{
-		return Result;
-	}
-
-	UDataLayerSubsystem* DataLayerSS = GetDataLayerSubsystem();
-	if (!DataLayerSS)
-	{
-		return Result;
-	}
-
-	// Find all Data Layers matching the pattern
-	TArray<const UDataLayerInstance*> MatchingLayers;
-	DataLayerSS->ForEachDataLayerInstance([&WildcardPattern, &MatchingLayers](UDataLayerInstance* DataLayer) -> bool
-	{
-		if (DataLayer)
-		{
-			FString LayerName = DataLayer->GetDataLayerShortName();
-			if (LayerName.MatchesWildcard(WildcardPattern))
-			{
-				MatchingLayers.Add(DataLayer);
-			}
-		}
-		return true;
-	});
-
-	// Collect targets from all matching layers
-	TSet<URshipTargetComponent*> UniqueTargets;
-	for (const UDataLayerInstance* DataLayer : MatchingLayers)
-	{
-		TArray<URshipTargetComponent*> LayerTargets = GetTargetsForDataLayerInstance(DataLayer);
-		for (URshipTargetComponent* Target : LayerTargets)
-		{
-			UniqueTargets.Add(Target);
-		}
-	}
-
-	return UniqueTargets.Array();
+	return Result;
 }
 
 TArray<FString> URshipDataLayerManager::GetTargetDataLayers(URshipTargetComponent* Target)
@@ -327,7 +232,7 @@ int32 URshipDataLayerManager::AddDataLayerTargetsToGroup(const FString& DataLaye
 	{
 		if (Target)
 		{
-			GroupManager->AddTargetToGroup(Target, GroupId);
+			GroupManager->AddTargetToGroup(Target->targetName, GroupId);
 			Count++;
 		}
 	}
@@ -440,51 +345,10 @@ void URshipDataLayerManager::SetAutoDataLayerGrouping(bool bEnabled)
 
 int32 URshipDataLayerManager::CreateGroupsForAllDataLayers()
 {
-	if (!Subsystem) return 0;
-
-	URshipTargetGroupManager* GroupManager = Subsystem->GetGroupManager();
-	if (!GroupManager) return 0;
-
-	UDataLayerSubsystem* DataLayerSS = GetDataLayerSubsystem();
-	if (!DataLayerSS) return 0;
-
-	int32 Count = 0;
-
-	DataLayerSS->ForEachDataLayerInstance([this, GroupManager, &Count](UDataLayerInstance* DataLayer) -> bool
-	{
-		if (!DataLayer) return true;
-
-		FString GroupId = TEXT("DataLayer_") + DataLayer->GetDataLayerShortName();
-
-		// Check if group already exists
-		FRshipTargetGroup ExistingGroup;
-		if (!GroupManager->GetGroup(GroupId, ExistingGroup))
-		{
-			// Create new group
-			FRshipTargetGroup NewGroup;
-			NewGroup.GroupId = GroupId;
-			NewGroup.DisplayName = DataLayer->GetDataLayerShortName();
-			NewGroup.Color = FLinearColor(DataLayer->GetDebugColor());
-
-			GroupManager->CreateGroup(NewGroup.DisplayName, NewGroup.Color);
-			Count++;
-		}
-
-		// Add all targets in this Data Layer to the group
-		TArray<URshipTargetComponent*> Targets = GetTargetsForDataLayerInstance(DataLayer);
-		for (URshipTargetComponent* Target : Targets)
-		{
-			if (Target)
-			{
-				GroupManager->AddTargetToGroup(Target, GroupId);
-			}
-		}
-
-		return true;
-	});
-
-	UE_LOG(LogTemp, Log, TEXT("RshipDataLayerManager: Created %d groups for Data Layers"), Count);
-	return Count;
+	// NOTE: UE 5.6 deprecated ForEachDataLayerInstance
+	// TODO: Update to use new DataLayerManager APIs
+	UE_LOG(LogTemp, Warning, TEXT("RshipDataLayerManager: CreateGroupsForAllDataLayers disabled pending API update"));
+	return 0;
 }
 
 // ============================================================================
@@ -547,7 +411,7 @@ void URshipDataLayerManager::RegisterDataLayerTargets(const UDataLayerInstance* 
 				URshipTargetGroupManager* GroupManager = Subsystem->GetGroupManager();
 				if (GroupManager)
 				{
-					GroupManager->AddTargetToGroup(Target, GroupId);
+					GroupManager->AddTargetToGroup(Target->targetName, GroupId);
 				}
 			}
 
@@ -644,25 +508,9 @@ TArray<URshipTargetComponent*> URshipDataLayerManager::GetTargetsForDataLayerIns
 
 const UDataLayerInstance* URshipDataLayerManager::FindDataLayerByName(const FString& DataLayerName) const
 {
-	UDataLayerSubsystem* DataLayerSS = GetDataLayerSubsystem();
-	if (!DataLayerSS)
-	{
-		return nullptr;
-	}
-
-	const UDataLayerInstance* FoundLayer = nullptr;
-
-	DataLayerSS->ForEachDataLayerInstance([&DataLayerName, &FoundLayer](UDataLayerInstance* DataLayer) -> bool
-	{
-		if (DataLayer && DataLayer->GetDataLayerShortName() == DataLayerName)
-		{
-			FoundLayer = DataLayer;
-			return false; // Stop iteration
-		}
-		return true;
-	});
-
-	return FoundLayer;
+	// NOTE: UE 5.6 deprecated ForEachDataLayerInstance
+	// TODO: Update to use new DataLayerManager APIs
+	return nullptr;
 }
 
 UDataLayerSubsystem* URshipDataLayerManager::GetDataLayerSubsystem() const

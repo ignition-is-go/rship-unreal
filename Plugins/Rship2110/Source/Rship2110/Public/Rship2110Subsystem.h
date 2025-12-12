@@ -325,10 +325,14 @@ private:
     void InitializeIPMXService();
     void InitializeVideoCapture();
 
-    // Event handlers
+    // Event handlers (UFUNCTION required for AddDynamic)
+    UFUNCTION()
     void OnPTPStateChangedInternal(ERshipPTPState NewState);
+    UFUNCTION()
     void OnStreamStateChangedInternal(const FString& StreamId, ERship2110StreamState NewState);
+    UFUNCTION()
     void OnIPMXStateChangedInternal(ERshipIPMXConnectionState NewState);
+    UFUNCTION()
     void OnRivermaxDeviceChangedInternal(int32 DeviceIndex, const FRshipRivermaxDevice& Device);
 };
 

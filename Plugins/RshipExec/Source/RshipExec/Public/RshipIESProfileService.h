@@ -88,7 +88,7 @@ struct RSHIPEXEC_API FRshipIESProfile
     float GetIntensity(float VerticalAngle, float HorizontalAngle = 0.0f) const;
 };
 
-DECLARE_DYNAMIC_DELEGATE_TwoParams(FOnIESProfileLoaded, bool, bSuccess, const FRshipIESProfile&, Profile);
+DECLARE_DELEGATE_TwoParams(FOnIESProfileLoaded, bool /*bSuccess*/, const FRshipIESProfile& /*Profile*/);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnIESProfileCached, const FString&, Url, const FRshipIESProfile&, Profile);
 
 /**

@@ -341,6 +341,11 @@ void URshipNiagaraManager::Shutdown()
     Subsystem = nullptr;
 }
 
+void URshipNiagaraManager::Tick(float DeltaTime)
+{
+    // Stub - bindings update themselves through pulse callbacks
+}
+
 void URshipNiagaraManager::RegisterBinding(URshipNiagaraBinding* Binding)
 {
     if (Binding && !RegisteredBindings.Contains(Binding))

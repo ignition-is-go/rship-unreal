@@ -489,6 +489,7 @@ private:
     // Auto-switch evaluation
     void EvaluateAutoSwitchRules();
 
-    // Sync with rship
+public:
+    // Sync with rship (called by subsystem)
     void ProcessCameraSwitchCommand(const TSharedPtr<FJsonObject>& Data);
 };

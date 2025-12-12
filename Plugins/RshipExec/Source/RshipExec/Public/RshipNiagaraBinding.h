@@ -256,6 +256,7 @@ class RSHIPEXEC_API URshipNiagaraManager : public UObject
 public:
     void Initialize(URshipSubsystem* InSubsystem);
     void Shutdown();
+    void Tick(float DeltaTime);
 
     /** Register a Niagara binding */
     void RegisterBinding(URshipNiagaraBinding* Binding);

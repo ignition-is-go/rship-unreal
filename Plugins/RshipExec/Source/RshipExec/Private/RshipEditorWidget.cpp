@@ -699,9 +699,9 @@ void SRshipDashboardWidget::RefreshFixtureList()
         TSharedPtr<FRshipDashboardFixtureItem> Item = MakeShared<FRshipDashboardFixtureItem>();
         Item->Id = Fixture.Id;
         Item->Name = Fixture.Name;
-        Item->Type = Fixture.TypeName;
-        Item->Intensity = Fixture.Intensity;
-        Item->Color = Fixture.Color;
+        Item->Type = Fixture.FixtureTypeId;
+        Item->Intensity = 0.0f;  // Runtime state not available from FRshipFixtureInfo
+        Item->Color = FLinearColor::White;  // Runtime state not available from FRshipFixtureInfo
         Item->bOnline = true;
         FixtureItems.Add(Item);
     }

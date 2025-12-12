@@ -1911,7 +1911,8 @@ URshipSpatialAudioManager* URshipSubsystem::GetSpatialAudioManager()
                 if (InitFunc)
                 {
                     struct { URshipSubsystem* Subsystem; } Params = { this };
-                    SpatialAudioManager->ProcessEvent(InitFunc, &Params);
+                    // Cast to UObject* since URshipSpatialAudioManager is forward declared
+                    Cast<UObject>(SpatialAudioManager)->ProcessEvent(InitFunc, &Params);
                     UE_LOG(LogRshipExec, Log, TEXT("SpatialAudioManager initialized"));
                 }
                 else
