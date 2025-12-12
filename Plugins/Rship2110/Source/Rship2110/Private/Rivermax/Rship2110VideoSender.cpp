@@ -7,6 +7,9 @@
 #include "RenderGraphBuilder.h"
 #include "RenderGraphUtils.h"
 #include "Engine/TextureRenderTarget2D.h"
+#include "SocketSubsystem.h"
+#include "Sockets.h"
+#include "IPAddress.h"
 
 #if RSHIP_RIVERMAX_AVAILABLE
 #if PLATFORM_WINDOWS
@@ -108,6 +111,29 @@ bool URship2110VideoSender::Initialize(
         return false;
     }
 
+    // Create UDP socket for fallback transmission
+    ISocketSubsystem* SocketSubsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
+    if (SocketSubsystem)
+    {
+        UDPSocket = SocketSubsystem->CreateSocket(NAME_DGram, TEXT("Rship2110VideoSender"), false);
+        if (UDPSocket)
+        {
+            UDPSocket->SetNonBlocking(true);
+            UDPSocket->SetBroadcast(true);
+
+            // Set up destination address
+            DestinationAddr = SocketSubsystem->CreateInternetAddr();
+            bool bIsValid = false;
+            DestinationAddr->SetIp(*TransportParams.DestinationIP, bIsValid);
+            DestinationAddr->SetPort(TransportParams.DestinationPort);
+
+            if (!bIsValid)
+            {
+                UE_LOG(LogRship2110, Warning, TEXT("VideoSender: Invalid destination IP: %s"), *TransportParams.DestinationIP);
+            }
+        }
+    }
+
 #if RSHIP_RIVERMAX_AVAILABLE
     // Create Rivermax stream
     if (!CreateRivermaxStream())
@@ -131,6 +157,15 @@ void URship2110VideoSender::Shutdown()
 #if RSHIP_RIVERMAX_AVAILABLE
     DestroyRivermaxStream();
 #endif
+
+    // Clean up UDP socket
+    if (UDPSocket)
+    {
+        UDPSocket->Close();
+        ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM)->DestroySocket(UDPSocket);
+        UDPSocket = nullptr;
+    }
+    DestinationAddr.Reset();
 
     FreeBuffers();
 
@@ -721,3 +756,14 @@ bool URship2110VideoSender::SendFrameViaRivermax(const void* FrameData, int64 Da
 }
 
 #endif  // RSHIP_RIVERMAX_AVAILABLE
+
+void URship2110VideoSender::SendPacket(const void* PacketData, int32 PacketSize)
+{
+    if (!UDPSocket || !DestinationAddr.IsValid())
+    {
+        return;
+    }
+
+    int32 BytesSent = 0;
+    UDPSocket->SendTo(static_cast<const uint8*>(PacketData), PacketSize, BytesSent, *DestinationAddr);
+}

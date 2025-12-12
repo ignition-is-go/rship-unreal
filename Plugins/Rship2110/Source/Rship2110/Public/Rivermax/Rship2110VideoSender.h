@@ -23,6 +23,8 @@
 class URivermaxManager;
 class URshipPTPService;
 class URship2110Subsystem;
+class FSocket;
+class FInternetAddr;
 
 /**
  * Capture source for video sender
@@ -298,6 +300,10 @@ private:
     // Buffers (managed externally or via Rivermax)
     TArray<uint8> CaptureBuffer;
     TArray<uint8> PacketBuffer;
+
+    // UDP socket for fallback transmission
+    FSocket* UDPSocket = nullptr;
+    TSharedPtr<FInternetAddr> DestinationAddr;
 
     // Frame buffer pool for pipelining
     struct FFrameBuffer
