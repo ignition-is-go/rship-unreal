@@ -449,12 +449,20 @@ void SRshipStatusPanel::RefreshTargetList()
         if (Component && Component->IsValidLowLevel())
         {
             TSharedPtr<FRshipTargetListItem> Item = MakeShareable(new FRshipTargetListItem());
-            Item->TargetId = Component->TargetId;
-            Item->DisplayName = Component->GetOwner() ? Component->GetOwner()->GetActorLabel() : Component->TargetId;
-            Item->TargetType = Component->TargetType;
+            Item->TargetId = Component->targetName;
+            Item->DisplayName = Component->GetOwner() ? Component->GetOwner()->GetActorLabel() : Component->targetName;
+
+            // Get type from tags if available, otherwise use "Target"
+            Item->TargetType = Component->Tags.Num() > 0 ? Component->Tags[0] : TEXT("Target");
             Item->bIsOnline = true;  // If registered, it's online
-            Item->EmitterCount = Component->Emitters.Num();
-            Item->ActionCount = Component->Actions.Num();
+
+            // Get counts from TargetData if available
+            if (Component->TargetData)
+            {
+                Item->EmitterCount = Component->TargetData->GetEmitters().Num();
+                Item->ActionCount = Component->TargetData->GetActions().Num();
+            }
+
             Item->Component = Component;
             NewItems.Add(Item);
         }
