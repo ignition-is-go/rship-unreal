@@ -115,11 +115,11 @@ bool FUltimateControlProjectHandler::HandleGetInfo(const TSharedPtr<FJsonObject>
 		InfoObj->SetStringField(TEXT("category"), ProjectDesc.Category);
 		InfoObj->SetBoolField(TEXT("isEnterprise"), ProjectDesc.bIsEnterpriseProject);
 
-		// Target platforms
+		// Target platforms - UE 5.6: TargetPlatforms is now TArray<FName>
 		TArray<TSharedPtr<FJsonValue>> PlatformsArray;
-		for (const FString& Platform : ProjectDesc.TargetPlatforms)
+		for (const FName& Platform : ProjectDesc.TargetPlatforms)
 		{
-			PlatformsArray.Add(MakeShared<FJsonValueString>(Platform));
+			PlatformsArray.Add(MakeShared<FJsonValueString>(Platform.ToString()));
 		}
 		InfoObj->SetArrayField(TEXT("targetPlatforms"), PlatformsArray);
 	}

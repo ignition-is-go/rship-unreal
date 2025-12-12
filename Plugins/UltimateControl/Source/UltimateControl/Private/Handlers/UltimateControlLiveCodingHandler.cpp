@@ -2,7 +2,6 @@
 
 #include "Handlers/UltimateControlLiveCodingHandler.h"
 #include "Modules/ModuleManager.h"
-#include "Misc/HotReloadInterface.h"
 
 // Live Coding module is optional - check if header exists
 #if __has_include("ILiveCodingModule.h")
@@ -12,10 +11,9 @@
 	#define ULTIMATE_CONTROL_HAS_LIVE_CODING 0
 #endif
 
-// Hot Reload interface
-#if __has_include("IHotReload.h")
-	#include "IHotReload.h"
-#endif
+// Hot Reload was removed in UE 5.6 - Live Coding is the replacement
+// Disable hot reload functionality in modern UE versions
+#define ULTIMATE_CONTROL_HAS_HOT_RELOAD 0
 
 FUltimateControlLiveCodingHandler::FUltimateControlLiveCodingHandler(UUltimateControlSubsystem* InSubsystem)
 	: FUltimateControlHandlerBase(InSubsystem)
@@ -268,66 +266,23 @@ bool FUltimateControlLiveCodingHandler::HandleCancelCompile(const TSharedPtr<FJs
 
 bool FUltimateControlLiveCodingHandler::HandleHotReload(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
 {
-#if WITH_HOT_RELOAD
-	IHotReloadInterface* HotReload = &IHotReloadInterface::GetHotReloadInterface();
-	if (!HotReload)
-	{
-		TSharedPtr<FJsonObject> ResultJson = MakeShared<FJsonObject>();
-		ResultJson->SetBoolField(TEXT("success"), false);
-		ResultJson->SetStringField(TEXT("message"), TEXT("Hot reload interface not available"));
-		Result = MakeShared<FJsonValueObject>(ResultJson);
-		return true;
-	}
-
-	// Check if we can hot reload
-	if (!HotReload->IsCurrentlyCompiling())
-	{
-		// Trigger hot reload
-		HotReload->DoHotReloadFromEditor(EHotReloadFlags::None);
-
-		TSharedPtr<FJsonObject> ResultJson = MakeShared<FJsonObject>();
-		ResultJson->SetBoolField(TEXT("success"), true);
-		ResultJson->SetStringField(TEXT("message"), TEXT("Hot reload triggered"));
-
-		Result = MakeShared<FJsonValueObject>(ResultJson);
-	}
-	else
-	{
-		TSharedPtr<FJsonObject> ResultJson = MakeShared<FJsonObject>();
-		ResultJson->SetBoolField(TEXT("success"), false);
-		ResultJson->SetStringField(TEXT("message"), TEXT("Compilation in progress"));
-
-		Result = MakeShared<FJsonValueObject>(ResultJson);
-	}
-#else
+	// Hot Reload was removed in UE 5.6 - Live Coding is the replacement
 	TSharedPtr<FJsonObject> ResultJson = MakeShared<FJsonObject>();
 	ResultJson->SetBoolField(TEXT("success"), false);
-	ResultJson->SetStringField(TEXT("message"), TEXT("Hot reload not available in this build"));
+	ResultJson->SetStringField(TEXT("message"), TEXT("Hot reload was removed in UE 5.6. Use Live Coding instead (liveCoding.compile)."));
 
 	Result = MakeShared<FJsonValueObject>(ResultJson);
-#endif
-
 	return true;
 }
 
 bool FUltimateControlLiveCodingHandler::HandleCanHotReload(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
 {
-#if WITH_HOT_RELOAD
-	IHotReloadInterface* HotReload = &IHotReloadInterface::GetHotReloadInterface();
-
-	TSharedPtr<FJsonObject> StatusJson = MakeShared<FJsonObject>();
-	StatusJson->SetBoolField(TEXT("canHotReload"), HotReload != nullptr);
-	StatusJson->SetBoolField(TEXT("isCompiling"), HotReload ? HotReload->IsCurrentlyCompiling() : false);
-
-	Result = MakeShared<FJsonValueObject>(StatusJson);
-#else
+	// Hot Reload was removed in UE 5.6 - Live Coding is the replacement
 	TSharedPtr<FJsonObject> StatusJson = MakeShared<FJsonObject>();
 	StatusJson->SetBoolField(TEXT("canHotReload"), false);
-	StatusJson->SetStringField(TEXT("reason"), TEXT("Hot reload not available"));
+	StatusJson->SetStringField(TEXT("reason"), TEXT("Hot reload was removed in UE 5.6. Use Live Coding instead."));
 
 	Result = MakeShared<FJsonValueObject>(StatusJson);
-#endif
-
 	return true;
 }
 

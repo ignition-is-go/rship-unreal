@@ -939,7 +939,8 @@ bool FUltimateControlRenderHandler::HandleGetShowFlags(const TSharedPtr<FJsonObj
 		return true;
 	}
 
-	const FEngineShowFlags& ShowFlags = GEditor->GetActiveViewport()->GetClient()->GetEngineShowFlags();
+	// UE 5.6: GetEngineShowFlags() returns a pointer, dereference it
+	const FEngineShowFlags& ShowFlags = *GEditor->GetActiveViewport()->GetClient()->GetEngineShowFlags();
 
 	TSharedPtr<FJsonObject> FlagsJson = MakeShared<FJsonObject>();
 	FlagsJson->SetBoolField(TEXT("staticMeshes"), ShowFlags.StaticMeshes != 0);

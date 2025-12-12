@@ -206,10 +206,10 @@ bool FUltimateControlAutomationHandler::HandleGetTestResults(const TSharedPtr<FJ
 			TSharedPtr<FJsonObject> ReportObj = MakeShared<FJsonObject>();
 			ReportObj->SetStringField(TEXT("name"), Report->GetDisplayName());
 
-			// UE 5.6: GetState() now requires a cluster index parameter
-			// Use index 0 for the default cluster
+			// UE 5.6: GetState() now requires cluster index and pass index parameters
+			// Use index 0 for the default cluster and pass
 			FString StateStr = TEXT("Unknown");
-			EAutomationState State = Report->GetState(0);
+			EAutomationState State = Report->GetState(0, 0);
 			switch (State)
 			{
 			case EAutomationState::NotRun: StateStr = TEXT("NotRun"); break;

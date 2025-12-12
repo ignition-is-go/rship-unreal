@@ -349,7 +349,8 @@ bool FUltimateControlMaterialHandler::HandleGetMaterialParameter(const TSharedPt
 		return false;
 	}
 
-	FMaterialParameterInfo ParamInfo(FName(*ParameterName));
+	// UE 5.6: Use FHashedMaterialParameterInfo instead of FMaterialParameterInfo
+	FHashedMaterialParameterInfo ParamInfo(FName(*ParameterName));
 
 	TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
 	ResultObj->SetStringField(TEXT("name"), ParameterName);

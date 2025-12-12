@@ -88,6 +88,17 @@ public class UltimateControl : ModuleRules
 					"Niagara",
 					"NiagaraCore",
 					"NiagaraEditor",
+					// Sequencer support
+					"LevelSequence",
+					"MovieScene",
+					"MovieSceneTracks",
+					"Sequencer",
+					// Asset library
+					"EditorScriptingUtilities",
+					// Material editor
+					"MaterialEditor",
+					// Settings
+					"SettingsEditor",
 				}
 			);
 

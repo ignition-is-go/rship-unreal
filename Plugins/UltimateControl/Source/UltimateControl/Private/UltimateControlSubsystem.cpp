@@ -72,6 +72,11 @@ void UUltimateControlSubsystem::Deinitialize()
 	Super::Deinitialize();
 }
 
+UUltimateControlSubsystem::UUltimateControlSubsystem()
+{
+	// Default constructor defined here where complete types are available for TUniquePtr
+}
+
 UUltimateControlSubsystem::~UUltimateControlSubsystem()
 {
 	// Destructor defined here where complete types are available for TUniquePtr destruction

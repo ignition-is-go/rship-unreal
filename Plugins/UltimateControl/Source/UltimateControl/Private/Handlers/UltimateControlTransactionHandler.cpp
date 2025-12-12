@@ -134,7 +134,8 @@ bool FUltimateControlTransactionHandler::HandleGetUndoHistory(const TSharedPtr<F
 			TSharedPtr<FJsonObject> TransactionObj = MakeShared<FJsonObject>();
 			TransactionObj->SetNumberField(TEXT("index"), i);
 			TransactionObj->SetStringField(TEXT("title"), Transaction->GetTitle().ToString());
-			TransactionObj->SetStringField(TEXT("context"), Transaction->GetContext().Context.ToString());
+			// UE 5.6: Context is already FString, not FName - don't call ToString()
+			TransactionObj->SetStringField(TEXT("context"), Transaction->GetContext().Context);
 			HistoryArray.Add(MakeShared<FJsonValueObject>(TransactionObj));
 		}
 	}
@@ -177,7 +178,8 @@ bool FUltimateControlTransactionHandler::HandleGetRedoHistory(const TSharedPtr<F
 			TSharedPtr<FJsonObject> TransactionObj = MakeShared<FJsonObject>();
 			TransactionObj->SetNumberField(TEXT("index"), i);
 			TransactionObj->SetStringField(TEXT("title"), Transaction->GetTitle().ToString());
-			TransactionObj->SetStringField(TEXT("context"), Transaction->GetContext().Context.ToString());
+			// UE 5.6: Context is already FString, not FName - don't call ToString()
+			TransactionObj->SetStringField(TEXT("context"), Transaction->GetContext().Context);
 			HistoryArray.Add(MakeShared<FJsonValueObject>(TransactionObj));
 		}
 	}

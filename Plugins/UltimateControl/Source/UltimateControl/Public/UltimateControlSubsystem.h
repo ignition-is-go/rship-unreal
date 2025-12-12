@@ -95,6 +95,9 @@ class ULTIMATECONTROL_API UUltimateControlSubsystem : public UEditorSubsystem
 	GENERATED_BODY()
 
 public:
+	/** Default constructor - must be declared in header and defined in cpp for TUniquePtr with forward declarations */
+	UUltimateControlSubsystem();
+
 	/** Destructor - must be declared in header but defined in cpp for TUniquePtr with forward declarations */
 	virtual ~UUltimateControlSubsystem();
 

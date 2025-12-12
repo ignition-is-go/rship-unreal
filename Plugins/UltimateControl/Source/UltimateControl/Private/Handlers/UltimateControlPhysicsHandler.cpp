@@ -9,6 +9,7 @@
 #include "Kismet/KismetSystemLibrary.h"
 #include "CollisionQueryParams.h"
 #include "WorldCollision.h"
+#include "Engine/OverlapResult.h"
 #include "EngineUtils.h"
 
 FUltimateControlPhysicsHandler::FUltimateControlPhysicsHandler(UUltimateControlSubsystem* InSubsystem)

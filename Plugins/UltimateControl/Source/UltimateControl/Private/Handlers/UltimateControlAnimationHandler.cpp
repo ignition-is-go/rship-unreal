@@ -109,7 +109,8 @@ TSharedPtr<FJsonObject> FUltimateControlAnimationHandler::AnimSequenceToJson(UAn
 	TSharedPtr<FJsonObject> Result = AnimationToJson(AnimSequence);
 
 	Result->SetNumberField(TEXT("duration"), AnimSequence->GetPlayLength());
-	Result->SetNumberField(TEXT("frameRate"), AnimSequence->GetFrameRate().AsDecimal());
+	// UE 5.6: GetFrameRate() was replaced with GetSamplingFrameRate()
+	Result->SetNumberField(TEXT("frameRate"), AnimSequence->GetSamplingFrameRate().AsDecimal());
 	Result->SetNumberField(TEXT("numFrames"), AnimSequence->GetNumberOfSampledKeys());
 	Result->SetBoolField(TEXT("isLooping"), AnimSequence->bLoop);
 
