@@ -913,7 +913,7 @@ bool FUltimateControlLandscapeHandler::HandleGetLandscapeLODSettings(const TShar
 	TSharedPtr<FJsonObject> LODJson = MakeShared<FJsonObject>();
 	LODJson->SetNumberField(TEXT("staticLightingLOD"), Landscape->StaticLightingLOD);
 	LODJson->SetNumberField(TEXT("lodDistributionSetting"), Landscape->LODDistributionSetting);
-	LODJson->SetNumberField(TEXT("lodFalloff"), static_cast<int32>(Landscape->LODFalloff));
+	// Note: LODFalloff was removed in UE 5.6
 
 	Result = MakeShared<FJsonValueObject>(LODJson);
 	return true;

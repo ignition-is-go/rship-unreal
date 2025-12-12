@@ -11,6 +11,11 @@
 #include "Engine/World.h"
 #include "Engine/Level.h"
 #include "Engine/LevelStreaming.h"
+#include "Engine/StaticMeshActor.h"
+#include "Engine/PointLight.h"
+#include "Engine/SpotLight.h"
+#include "Engine/DirectionalLight.h"
+#include "Camera/CameraActor.h"
 #include "EngineUtils.h"
 #include "GameFramework/Actor.h"
 #include "Components/ActorComponent.h"
@@ -961,7 +966,14 @@ bool FUltimateControlLevelHandler::HandleFocusSelection(const TSharedPtr<FJsonOb
 {
 	if (GEditor)
 	{
-		GEditor->MoveViewportCamerasToActor(GEditor->GetSelectedActors()->GetTop<AActor>(), true);
+		AActor* SelectedActor = GEditor->GetSelectedActors()->GetTop<AActor>();
+		if (SelectedActor)
+		{
+			// UE 5.6: MoveViewportCamerasToActor takes a reference or array, not a pointer
+			TArray<AActor*> ActorsToFocus;
+			ActorsToFocus.Add(SelectedActor);
+			GEditor->MoveViewportCamerasToActor(ActorsToFocus, true);
+		}
 	}
 
 	TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();

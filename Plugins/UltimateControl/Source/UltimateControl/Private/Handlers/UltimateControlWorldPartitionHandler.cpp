@@ -232,38 +232,50 @@ bool FUltimateControlWorldPartitionHandler::HandleGetWorldBounds(const TSharedPt
 	// UE 5.6: Use GetRuntimeWorldBounds() or calculate from streaming generation
 	TSharedPtr<FJsonObject> BoundsJson = MakeShared<FJsonObject>();
 
-	// Get bounds from the world settings or streaming generation config
+	// UE 5.6: Calculate bounds from all actors in the world since GetWorldBounds() was removed
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (World)
 	{
-		FBox WorldBounds = World->GetWorldSettings()->GetWorldBounds();
+		// Calculate bounds from all actors
+		FBox WorldBounds(ForceInit);
+		for (TActorIterator<AActor> It(World); It; ++It)
+		{
+			AActor* Actor = *It;
+			if (Actor && !Actor->IsEditorOnly())
+			{
+				WorldBounds += Actor->GetComponentsBoundingBox();
+			}
+		}
 
-		TSharedPtr<FJsonObject> MinJson = MakeShared<FJsonObject>();
-		MinJson->SetNumberField(TEXT("x"), WorldBounds.Min.X);
-		MinJson->SetNumberField(TEXT("y"), WorldBounds.Min.Y);
-		MinJson->SetNumberField(TEXT("z"), WorldBounds.Min.Z);
-		BoundsJson->SetObjectField(TEXT("min"), MinJson);
+		if (WorldBounds.IsValid)
+		{
+			TSharedPtr<FJsonObject> MinJson = MakeShared<FJsonObject>();
+			MinJson->SetNumberField(TEXT("x"), WorldBounds.Min.X);
+			MinJson->SetNumberField(TEXT("y"), WorldBounds.Min.Y);
+			MinJson->SetNumberField(TEXT("z"), WorldBounds.Min.Z);
+			BoundsJson->SetObjectField(TEXT("min"), MinJson);
 
-		TSharedPtr<FJsonObject> MaxJson = MakeShared<FJsonObject>();
-		MaxJson->SetNumberField(TEXT("x"), WorldBounds.Max.X);
-		MaxJson->SetNumberField(TEXT("y"), WorldBounds.Max.Y);
-		MaxJson->SetNumberField(TEXT("z"), WorldBounds.Max.Z);
-		BoundsJson->SetObjectField(TEXT("max"), MaxJson);
+			TSharedPtr<FJsonObject> MaxJson = MakeShared<FJsonObject>();
+			MaxJson->SetNumberField(TEXT("x"), WorldBounds.Max.X);
+			MaxJson->SetNumberField(TEXT("y"), WorldBounds.Max.Y);
+			MaxJson->SetNumberField(TEXT("z"), WorldBounds.Max.Z);
+			BoundsJson->SetObjectField(TEXT("max"), MaxJson);
 
-		FVector Center = WorldBounds.GetCenter();
-		FVector Extent = WorldBounds.GetExtent();
+			FVector Center = WorldBounds.GetCenter();
+			FVector Extent = WorldBounds.GetExtent();
 
-		TSharedPtr<FJsonObject> CenterJson = MakeShared<FJsonObject>();
-		CenterJson->SetNumberField(TEXT("x"), Center.X);
-		CenterJson->SetNumberField(TEXT("y"), Center.Y);
-		CenterJson->SetNumberField(TEXT("z"), Center.Z);
-		BoundsJson->SetObjectField(TEXT("center"), CenterJson);
+			TSharedPtr<FJsonObject> CenterJson = MakeShared<FJsonObject>();
+			CenterJson->SetNumberField(TEXT("x"), Center.X);
+			CenterJson->SetNumberField(TEXT("y"), Center.Y);
+			CenterJson->SetNumberField(TEXT("z"), Center.Z);
+			BoundsJson->SetObjectField(TEXT("center"), CenterJson);
 
-		TSharedPtr<FJsonObject> ExtentJson = MakeShared<FJsonObject>();
-		ExtentJson->SetNumberField(TEXT("x"), Extent.X);
-		ExtentJson->SetNumberField(TEXT("y"), Extent.Y);
-		ExtentJson->SetNumberField(TEXT("z"), Extent.Z);
-		BoundsJson->SetObjectField(TEXT("extent"), ExtentJson);
+			TSharedPtr<FJsonObject> ExtentJson = MakeShared<FJsonObject>();
+			ExtentJson->SetNumberField(TEXT("x"), Extent.X);
+			ExtentJson->SetNumberField(TEXT("y"), Extent.Y);
+			ExtentJson->SetNumberField(TEXT("z"), Extent.Z);
+			BoundsJson->SetObjectField(TEXT("extent"), ExtentJson);
+		}
 	}
 
 	Result = MakeShared<FJsonValueObject>(BoundsJson);
