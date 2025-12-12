@@ -5,11 +5,10 @@
 #include "Materials/MaterialInstance.h"
 #include "Materials/MaterialInstanceConstant.h"
 #include "Materials/MaterialInstanceDynamic.h"
-// TODO(nf): MaterialExpressionTextureParameter may have moved in UE 5.6
 #include "Materials/MaterialExpressionParameter.h"
 #include "Materials/MaterialExpressionScalarParameter.h"
 #include "Materials/MaterialExpressionVectorParameter.h"
-// #include "Materials/MaterialExpressionTextureParameter.h"
+#include "Materials/MaterialExpressionTextureSampleParameter.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetToolsModule.h"
 #include "Factories/MaterialFactoryNew.h"

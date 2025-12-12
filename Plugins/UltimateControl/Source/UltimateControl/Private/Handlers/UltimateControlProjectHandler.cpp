@@ -9,8 +9,7 @@
 #include "Interfaces/IPluginManager.h"
 #include "Interfaces/IProjectManager.h"
 #include "ProjectDescriptor.h"
-// TODO(nf): GameProjectGenerationModule.h may not exist or has moved in UE 5.6
-// #include "GameProjectGenerationModule.h"
+// GameProjectGenerationModule not needed - using IProjectManager instead
 #include "Editor.h"
 #include "FileHelpers.h"
 #include "UObject/UObjectIterator.h"

@@ -1,12 +1,24 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Handlers/UltimateControlSessionHandler.h"
-// TODO(nf): Concert/Multi-User includes may have changed in UE 5.6
-// #include "IConcertSyncClient.h"
-// #include "IConcertClient.h"
-// #include "IConcertClientWorkspace.h"
-// #include "IConcertSyncClientModule.h"
-// #include "ConcertMessageData.h"
+
+// Concert/Multi-User includes - these are optional editor-only features
+#if WITH_EDITOR
+	#include "Modules/ModuleManager.h"
+	// Check if Concert modules are available
+	#if __has_include("IConcertSyncClient.h")
+		#include "IConcertSyncClient.h"
+		#include "IConcertClient.h"
+		#include "IConcertClientWorkspace.h"
+		#include "IConcertSyncClientModule.h"
+		#include "ConcertMessageData.h"
+		#define ULTIMATE_CONTROL_HAS_CONCERT 1
+	#else
+		#define ULTIMATE_CONTROL_HAS_CONCERT 0
+	#endif
+#else
+	#define ULTIMATE_CONTROL_HAS_CONCERT 0
+#endif
 
 void FUltimateControlSessionHandler::RegisterMethods(TMap<FString, FJsonRpcMethodHandler>& Methods)
 {
@@ -73,6 +85,7 @@ TSharedPtr<FJsonObject> FUltimateControlSessionHandler::UserToJson()
 
 bool FUltimateControlSessionHandler::HandleListSessions(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
 {
+#if ULTIMATE_CONTROL_HAS_CONCERT
 	IConcertSyncClientModule* ConcertModule = FModuleManager::GetModulePtr<IConcertSyncClientModule>("ConcertSyncClient");
 	if (!ConcertModule)
 	{
@@ -98,10 +111,19 @@ bool FUltimateControlSessionHandler::HandleListSessions(const TSharedPtr<FJsonOb
 
 	Result = MakeShared<FJsonValueArray>(SessionsArray);
 	return true;
+#else
+	TArray<TSharedPtr<FJsonValue>> EmptyArray;
+	TSharedPtr<FJsonObject> ResultJson = MakeShared<FJsonObject>();
+	ResultJson->SetArrayField(TEXT("sessions"), EmptyArray);
+	ResultJson->SetStringField(TEXT("message"), TEXT("Multi-User Editing not available in this build"));
+	Result = MakeShared<FJsonValueObject>(ResultJson);
+	return true;
+#endif
 }
 
 bool FUltimateControlSessionHandler::HandleGetCurrentSession(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
 {
+#if ULTIMATE_CONTROL_HAS_CONCERT
 	IConcertSyncClientModule* ConcertModule = FModuleManager::GetModulePtr<IConcertSyncClientModule>("ConcertSyncClient");
 	if (!ConcertModule)
 	{
@@ -137,10 +159,18 @@ bool FUltimateControlSessionHandler::HandleGetCurrentSession(const TSharedPtr<FJ
 
 	Result = MakeShared<FJsonValueObject>(SessionJson);
 	return true;
+#else
+	TSharedPtr<FJsonObject> SessionJson = MakeShared<FJsonObject>();
+	SessionJson->SetBoolField(TEXT("inSession"), false);
+	SessionJson->SetStringField(TEXT("message"), TEXT("Multi-User Editing not available in this build"));
+	Result = MakeShared<FJsonValueObject>(SessionJson);
+	return true;
+#endif
 }
 
 bool FUltimateControlSessionHandler::HandleIsInSession(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
 {
+#if ULTIMATE_CONTROL_HAS_CONCERT
 	IConcertSyncClientModule* ConcertModule = FModuleManager::GetModulePtr<IConcertSyncClientModule>("ConcertSyncClient");
 	if (!ConcertModule)
 	{
@@ -158,6 +188,10 @@ bool FUltimateControlSessionHandler::HandleIsInSession(const TSharedPtr<FJsonObj
 	TSharedPtr<IConcertClientSession> Session = Client->GetConcertClient()->GetCurrentSession();
 	Result = MakeShared<FJsonValueBoolean>(Session.IsValid());
 	return true;
+#else
+	Result = MakeShared<FJsonValueBoolean>(false);
+	return true;
+#endif
 }
 
 bool FUltimateControlSessionHandler::HandleCreateSession(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
@@ -196,6 +230,7 @@ bool FUltimateControlSessionHandler::HandleJoinSession(const TSharedPtr<FJsonObj
 
 bool FUltimateControlSessionHandler::HandleLeaveSession(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
 {
+#if ULTIMATE_CONTROL_HAS_CONCERT
 	IConcertSyncClientModule* ConcertModule = FModuleManager::GetModulePtr<IConcertSyncClientModule>("ConcertSyncClient");
 	if (!ConcertModule)
 	{
@@ -222,6 +257,13 @@ bool FUltimateControlSessionHandler::HandleLeaveSession(const TSharedPtr<FJsonOb
 
 	Result = MakeShared<FJsonValueObject>(ResultJson);
 	return true;
+#else
+	TSharedPtr<FJsonObject> ResultJson = MakeShared<FJsonObject>();
+	ResultJson->SetBoolField(TEXT("success"), false);
+	ResultJson->SetStringField(TEXT("message"), TEXT("Multi-User Editing not available in this build"));
+	Result = MakeShared<FJsonValueObject>(ResultJson);
+	return true;
+#endif
 }
 
 bool FUltimateControlSessionHandler::HandleDeleteSession(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
@@ -236,6 +278,7 @@ bool FUltimateControlSessionHandler::HandleDeleteSession(const TSharedPtr<FJsonO
 
 bool FUltimateControlSessionHandler::HandleListUsers(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
 {
+#if ULTIMATE_CONTROL_HAS_CONCERT
 	IConcertSyncClientModule* ConcertModule = FModuleManager::GetModulePtr<IConcertSyncClientModule>("ConcertSyncClient");
 	TArray<TSharedPtr<FJsonValue>> UsersArray;
 
@@ -261,10 +304,16 @@ bool FUltimateControlSessionHandler::HandleListUsers(const TSharedPtr<FJsonObjec
 
 	Result = MakeShared<FJsonValueArray>(UsersArray);
 	return true;
+#else
+	TArray<TSharedPtr<FJsonValue>> UsersArray;
+	Result = MakeShared<FJsonValueArray>(UsersArray);
+	return true;
+#endif
 }
 
 bool FUltimateControlSessionHandler::HandleGetCurrentUser(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
 {
+#if ULTIMATE_CONTROL_HAS_CONCERT
 	IConcertSyncClientModule* ConcertModule = FModuleManager::GetModulePtr<IConcertSyncClientModule>("ConcertSyncClient");
 
 	TSharedPtr<FJsonObject> UserJson = MakeShared<FJsonObject>();
@@ -283,6 +332,11 @@ bool FUltimateControlSessionHandler::HandleGetCurrentUser(const TSharedPtr<FJson
 
 	Result = MakeShared<FJsonValueObject>(UserJson);
 	return true;
+#else
+	TSharedPtr<FJsonObject> UserJson = MakeShared<FJsonObject>();
+	Result = MakeShared<FJsonValueObject>(UserJson);
+	return true;
+#endif
 }
 
 bool FUltimateControlSessionHandler::HandleGetUserInfo(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
@@ -348,6 +402,7 @@ bool FUltimateControlSessionHandler::HandleLockObject(const TSharedPtr<FJsonObje
 		return true;
 	}
 
+#if ULTIMATE_CONTROL_HAS_CONCERT
 	IConcertSyncClientModule* ConcertModule = FModuleManager::GetModulePtr<IConcertSyncClientModule>("ConcertSyncClient");
 
 	TSharedPtr<FJsonObject> ResultJson = MakeShared<FJsonObject>();
@@ -374,6 +429,13 @@ bool FUltimateControlSessionHandler::HandleLockObject(const TSharedPtr<FJsonObje
 
 	Result = MakeShared<FJsonValueObject>(ResultJson);
 	return true;
+#else
+	TSharedPtr<FJsonObject> ResultJson = MakeShared<FJsonObject>();
+	ResultJson->SetBoolField(TEXT("success"), false);
+	ResultJson->SetStringField(TEXT("message"), TEXT("Multi-User Editing not available in this build"));
+	Result = MakeShared<FJsonValueObject>(ResultJson);
+	return true;
+#endif
 }
 
 bool FUltimateControlSessionHandler::HandleUnlockObject(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
@@ -385,6 +447,7 @@ bool FUltimateControlSessionHandler::HandleUnlockObject(const TSharedPtr<FJsonOb
 		return true;
 	}
 
+#if ULTIMATE_CONTROL_HAS_CONCERT
 	IConcertSyncClientModule* ConcertModule = FModuleManager::GetModulePtr<IConcertSyncClientModule>("ConcertSyncClient");
 
 	TSharedPtr<FJsonObject> ResultJson = MakeShared<FJsonObject>();
@@ -410,6 +473,13 @@ bool FUltimateControlSessionHandler::HandleUnlockObject(const TSharedPtr<FJsonOb
 
 	Result = MakeShared<FJsonValueObject>(ResultJson);
 	return true;
+#else
+	TSharedPtr<FJsonObject> ResultJson = MakeShared<FJsonObject>();
+	ResultJson->SetBoolField(TEXT("success"), false);
+	ResultJson->SetStringField(TEXT("message"), TEXT("Multi-User Editing not available in this build"));
+	Result = MakeShared<FJsonValueObject>(ResultJson);
+	return true;
+#endif
 }
 
 bool FUltimateControlSessionHandler::HandleGetObjectLock(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
@@ -466,6 +536,7 @@ bool FUltimateControlSessionHandler::HandleGetTransactionHistory(const TSharedPt
 
 bool FUltimateControlSessionHandler::HandlePersistSession(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
 {
+#if ULTIMATE_CONTROL_HAS_CONCERT
 	IConcertSyncClientModule* ConcertModule = FModuleManager::GetModulePtr<IConcertSyncClientModule>("ConcertSyncClient");
 
 	TSharedPtr<FJsonObject> ResultJson = MakeShared<FJsonObject>();
@@ -491,6 +562,13 @@ bool FUltimateControlSessionHandler::HandlePersistSession(const TSharedPtr<FJson
 
 	Result = MakeShared<FJsonValueObject>(ResultJson);
 	return true;
+#else
+	TSharedPtr<FJsonObject> ResultJson = MakeShared<FJsonObject>();
+	ResultJson->SetBoolField(TEXT("success"), false);
+	ResultJson->SetStringField(TEXT("message"), TEXT("Multi-User Editing not available in this build"));
+	Result = MakeShared<FJsonValueObject>(ResultJson);
+	return true;
+#endif
 }
 
 bool FUltimateControlSessionHandler::HandleRestoreSession(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)

@@ -9,8 +9,7 @@
 #include "Widgets/Docking/SDockTab.h"
 #include "EditorModeManager.h"
 #include "EditorModes.h"
-// TODO(nf): EditorModeToolInstance.h may have moved or been removed in UE 5.6
-// #include "Tools/EditorModeToolInstance.h"
+// EditorModeToolInstance not needed for current functionality
 #include "UnrealEdGlobals.h"
 #include "Editor/UnrealEdEngine.h"
 #include "Settings/LevelEditorPlaySettings.h"

@@ -8,8 +8,7 @@
 #include "NiagaraSystem.h"
 #include "NiagaraComponent.h"
 #include "NiagaraActor.h"
-// TODO(nf): Niagara includes may have changed in UE 5.6
-// #include "NiagaraEmitter.h"
+// NiagaraEmitter.h removed - not needed for component-level Niagara control
 #include "NiagaraFunctionLibrary.h"
 #include "NiagaraDataInterfaceArrayFunctionLibrary.h"
 

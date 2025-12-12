@@ -83,6 +83,11 @@ public class UltimateControl : ModuleRules
 					"OutputLog",
 					"MessageLog",
 					"AutomationController",
+					"AIModule",
+					"NavigationSystem",
+					"Niagara",
+					"NiagaraCore",
+					"NiagaraEditor",
 				}
 			);
 
