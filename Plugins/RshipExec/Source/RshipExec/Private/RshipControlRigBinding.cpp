@@ -756,7 +756,8 @@ void URshipControlRigBinding::ApplyBindingToControlRig(int32 Index)
 
     case ERshipControlRigPropertyType::Rotator:
         {
-            // UE 5.6: Store euler angles as FVector3f (pitch, yaw, roll) for rotator controls
+#if ENGINE_MAJOR_VERSION >= 5 && ENGINE_MINOR_VERSION >= 6
+            // UE 5.6+: Store euler angles as FVector3f (pitch, yaw, roll) for rotator controls
             FVector3f EulerAngles(
                 State.CurrentRotator.Pitch,
                 State.CurrentRotator.Yaw,
@@ -765,18 +766,31 @@ void URshipControlRigBinding::ApplyBindingToControlRig(int32 Index)
             FRigControlValue Value;
             Value.Set<FVector3f>(EulerAngles);
             Hierarchy->SetControlValue(Key, Value, ERigControlValueType::Current);
+#else
+            // UE 5.5 and earlier: Use Set<FRotator> directly
+            FRigControlValue Value;
+            Value.Set<FRotator>(State.CurrentRotator);
+            Hierarchy->SetControlValue(Key, Value, ERigControlValueType::Current);
+#endif
         }
         break;
 
     case ERshipControlRigPropertyType::Transform:
         {
-            // UE 5.6: Use hierarchy's MakeControlValueFromEulerTransform method
+#if ENGINE_MAJOR_VERSION >= 5 && ENGINE_MINOR_VERSION >= 6
+            // UE 5.6+: Use hierarchy's MakeControlValueFromEulerTransform method
             FEulerTransform EulerTransform;
             EulerTransform.SetLocation(State.CurrentTransform.GetLocation());
             EulerTransform.SetRotator(State.CurrentTransform.Rotator());
             EulerTransform.SetScale3D(State.CurrentTransform.GetScale3D());
             FRigControlValue Value = Hierarchy->MakeControlValueFromEulerTransform(EulerTransform);
             Hierarchy->SetControlValue(Key, Value, ERigControlValueType::Current);
+#else
+            // UE 5.5 and earlier: Use Set<FTransform> directly
+            FRigControlValue Value;
+            Value.Set<FTransform>(State.CurrentTransform);
+            Hierarchy->SetControlValue(Key, Value, ERigControlValueType::Current);
+#endif
         }
         break;
 
