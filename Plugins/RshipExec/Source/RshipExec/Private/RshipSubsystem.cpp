@@ -1906,7 +1906,8 @@ URshipSpatialAudioManager* URshipSubsystem::GetSpatialAudioManager()
             {
                 // Use UObject-based NewObject since URshipSpatialAudioManager is forward-declared
                 UObject* ManagerObj = NewObject<UObject>(this, ManagerClass);
-                SpatialAudioManager = static_cast<URshipSpatialAudioManager*>(ManagerObj);
+                // reinterpret_cast needed since URshipSpatialAudioManager is only forward-declared
+                SpatialAudioManager = reinterpret_cast<URshipSpatialAudioManager*>(ManagerObj);
 
                 // Call Initialize via reflection (it's a UFUNCTION in the manager)
                 UFunction* InitFunc = ManagerClass->FindFunctionByName(TEXT("Initialize"));

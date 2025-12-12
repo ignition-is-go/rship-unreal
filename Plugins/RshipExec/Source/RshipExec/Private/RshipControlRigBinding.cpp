@@ -5,7 +5,7 @@
 #include "RshipSubsystem.h"
 #include "RshipPulseReceiver.h"
 #include "ControlRig.h"
-#include "Components/ControlRigComponent.h"
+#include "ControlRigComponent.h"
 #include "Rigs/RigHierarchy.h"
 #include "Rigs/RigHierarchyElements.h"
 #include "Curves/CurveFloat.h"

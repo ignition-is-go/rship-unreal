@@ -443,8 +443,7 @@ void URshipDataLayerManager::UnregisterDataLayerTargets(const UDataLayerInstance
 				RemoveAutoDataLayerTags(Target);
 			}
 
-			// Unregister from server
-			Target->Unregister();
+			// Note: URshipTargetComponent unregisters automatically via OnComponentDestroyed
 		}
 	}
 
