@@ -1904,15 +1904,16 @@ URshipSpatialAudioManager* URshipSubsystem::GetSpatialAudioManager()
             UClass* ManagerClass = FindObject<UClass>(nullptr, TEXT("/Script/RshipSpatialAudioRuntime.RshipSpatialAudioManager"));
             if (ManagerClass)
             {
-                SpatialAudioManager = NewObject<URshipSpatialAudioManager>(this, ManagerClass);
+                // Use UObject-based NewObject since URshipSpatialAudioManager is forward-declared
+                UObject* ManagerObj = NewObject<UObject>(this, ManagerClass);
+                SpatialAudioManager = static_cast<URshipSpatialAudioManager*>(ManagerObj);
 
                 // Call Initialize via reflection (it's a UFUNCTION in the manager)
                 UFunction* InitFunc = ManagerClass->FindFunctionByName(TEXT("Initialize"));
                 if (InitFunc)
                 {
                     struct { URshipSubsystem* Subsystem; } Params = { this };
-                    // Cast to UObject* since URshipSpatialAudioManager is forward declared
-                    Cast<UObject>(SpatialAudioManager)->ProcessEvent(InitFunc, &Params);
+                    ManagerObj->ProcessEvent(InitFunc, &Params);
                     UE_LOG(LogRshipExec, Log, TEXT("SpatialAudioManager initialized"));
                 }
                 else

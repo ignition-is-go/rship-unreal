@@ -9,6 +9,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Curves/CurveFloat.h"
+#include "Dom/JsonObject.h"
 
 // ============================================================================
 // MATERIAL BINDING COMPONENT

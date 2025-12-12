@@ -6,6 +6,7 @@
 #include "Logs.h"
 #include "Engine/Engine.h"
 #include "NiagaraComponent.h"
+#include "Dom/JsonObject.h"
 
 // ============================================================================
 // NIAGARA BINDING COMPONENT
