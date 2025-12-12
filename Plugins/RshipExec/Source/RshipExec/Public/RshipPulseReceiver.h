@@ -152,7 +152,8 @@ struct RSHIPEXEC_API FRshipFixturePulse
 // ============================================================================
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnFixturePulseReceived, const FString&, FixtureId, const FRshipFixturePulse&, Pulse);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnEmitterPulseReceived, const FString&, EmitterId, const TSharedPtr<FJsonObject>&, Data);
+// Non-dynamic delegate because TSharedPtr is not supported by UHT in dynamic delegates
+DECLARE_MULTICAST_DELEGATE_FourParams(FOnEmitterPulseReceived, const FString& /*EmitterId*/, float /*Intensity*/, FLinearColor /*Color*/, TSharedPtr<FJsonObject> /*Data*/);
 
 // ============================================================================
 // PULSE RECEIVER SERVICE
@@ -238,12 +239,13 @@ public:
     // EVENTS
     // ========================================================================
 
-    /** Fired when a fixture pulse is received */
+    /** Fired when a fixture pulse is received (Blueprint-accessible) */
     UPROPERTY(BlueprintAssignable, Category = "Rship|Pulse")
     FOnFixturePulseReceived OnFixturePulseReceived;
 
-    /** Fired when any emitter pulse is received (raw) */
-    UPROPERTY(BlueprintAssignable, Category = "Rship|Pulse")
+    /** Fired when any emitter pulse is received (raw, C++ only)
+     *  Not exposed to Blueprint because non-dynamic delegates can't be BlueprintAssignable.
+     *  Use OnFixturePulseReceived for Blueprint access to pulse data. */
     FOnEmitterPulseReceived OnEmitterPulseReceived;
 
     // ========================================================================

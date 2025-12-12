@@ -207,12 +207,12 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
 
     // PCG manager for binding pulse data to PCG graphs (lazy initialized)
     // Note: Returns nullptr if PCG plugin is not enabled
-    UPROPERTY()
+    // Not a UPROPERTY because UHT requires full UCLASS definition which is only available when PCG plugin is enabled
     URshipPCGManager* PCGManager;
 
     // Spatial Audio manager for loudspeaker management and spatialization (lazy initialized)
-    // Note: Requires RshipSpatialAudio plugin to be enabled
-    UPROPERTY()
+    // Note: Returns nullptr if RshipSpatialAudio plugin is not enabled
+    // Not a UPROPERTY because UHT requires full UCLASS definition which is only available when SpatialAudio plugin is enabled
     URshipSpatialAudioManager* SpatialAudioManager;
 
     // Connection state management
@@ -388,13 +388,14 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Rship|ControlRig")
     URshipControlRigManager* GetControlRigManager();
 
-    /** Get the PCG manager for binding pulse data to PCG graphs */
-    UFUNCTION(BlueprintCallable, Category = "Rship|PCG")
+    /** Get the PCG manager for binding pulse data to PCG graphs.
+     *  Note: Returns nullptr if PCG plugin is not enabled.
+     *  Not exposed to Blueprint because UHT requires full UCLASS definition. */
     URshipPCGManager* GetPCGManager();
 
     /** Get the Spatial Audio manager for loudspeaker management and spatialization.
-     *  Note: Returns nullptr if RshipSpatialAudio plugin is not enabled. */
-    UFUNCTION(BlueprintCallable, Category = "Rship|SpatialAudio")
+     *  Note: Returns nullptr if RshipSpatialAudio plugin is not enabled.
+     *  Not exposed to Blueprint because UHT requires full UCLASS definition. */
     URshipSpatialAudioManager* GetSpatialAudioManager();
 
     // ========================================================================
