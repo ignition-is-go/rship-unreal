@@ -215,7 +215,7 @@ struct RSHIPEXEC_API FRshipFeedbackResult
 // ============================================================================
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnFeedbackSubmitted, const FRshipFeedbackResult&, Result);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnScreenshotCaptured, const FString&, ScreenshotPath);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnRshipScreenshotCaptured, const FString&, ScreenshotPath);
 
 // ============================================================================
 // FEEDBACK REPORTER SERVICE
@@ -363,7 +363,7 @@ public:
 
     /** Fired when a screenshot is captured */
     UPROPERTY(BlueprintAssignable, Category = "Rship|Feedback")
-    FOnScreenshotCaptured OnScreenshotCaptured;
+    FOnRshipScreenshotCaptured OnScreenshotCaptured;
 
 private:
     UPROPERTY()

@@ -87,6 +87,7 @@ public class RshipExec : ModuleRules
 				"LiveLinkInterface", // For RshipLiveLinkSource
 				"LevelSequence",     // For RshipSequencerSync
 				"MovieScene",        // For sequencer playback
+				"ProceduralMeshComponent", // For RshipFixtureVisualizer
 			}
 		);
 

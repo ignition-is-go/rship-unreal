@@ -16,7 +16,7 @@
 #include "Widgets/Views/SListView.h"
 #include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/Layout/SSplitter.h"
-#include "EditorStyleSet.h"
+#include "Styling/AppStyle.h"
 
 class URshipSubsystem;
 class URshipHealthMonitor;

@@ -16,7 +16,8 @@ class URshipSubsystem;
 class URshipFixtureManager;
 class URshipIESProfileService;
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnFixtureDMXUpdated, const TMap<FString, float>&, DMXValues);
+// Non-dynamic delegate because TMap is not supported in dynamic delegates
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnFixtureDMXUpdated, const TMap<FString, float>& /*DMXValues*/);
 
 /**
  * Actor that visualizes a fixture from rship with calibration-accurate rendering.
@@ -106,8 +107,7 @@ public:
     // EVENTS
     // ========================================================================
 
-    /** Called when DMX values are updated */
-    UPROPERTY(BlueprintAssignable, Category = "Rship|Fixture")
+    /** Called when DMX values are updated (C++ only, non-dynamic delegate) */
     FOnFixtureDMXUpdated OnDMXUpdated;
 
     // ========================================================================
