@@ -20,10 +20,10 @@
 class URship2110Subsystem;
 class URship2110VideoSender;
 
-// Forward declarations for Rivermax types (only when SDK available)
+// Forward declarations for Rivermax types (SDK 1.8+)
 #if RSHIP_RIVERMAX_AVAILABLE
-struct rmax_device_config;
-struct rmax_stream_id;
+// SDK 1.8+ uses rmx_* types - no forward declarations needed here
+// Stream handles are opaque void* in the new API
 #endif
 
 /**

@@ -189,15 +189,15 @@ public class Rship2110 : ModuleRules
         if (!hasInclude || !hasLib || !hasHeader)
             return false;
 
-        // Check SDK version - 1.30+ uses new API
+        // Check SDK version - 1.3+ uses new API
         string deprecatedHeader = Path.Combine(includeDir, "rivermax_deprecated.h");
         if (File.Exists(deprecatedHeader))
         {
-            System.Console.WriteLine("Rship2110: Detected Rivermax SDK 1.30+ (new API)");
+            System.Console.WriteLine("Rship2110: Detected Rivermax SDK 1.3+ (modern API)");
         }
         else
         {
-            System.Console.WriteLine("Rship2110: Detected Rivermax SDK < 1.30 (legacy API)");
+            System.Console.WriteLine("Rship2110: Detected Rivermax SDK < 1.3 (legacy API)");
         }
 
         return true;

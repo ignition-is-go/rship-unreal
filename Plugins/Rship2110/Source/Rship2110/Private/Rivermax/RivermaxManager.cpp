@@ -7,8 +7,18 @@
 #include "Rship2110.h"
 
 #if RSHIP_RIVERMAX_AVAILABLE
-// Include Rivermax SDK headers
+// Rivermax SDK 1.8+ headers (modern rmx_* API)
 #include "rivermax_api.h"
+#include "rivermax_defs.h"
+
+// Platform includes for network interface enumeration
+#if PLATFORM_WINDOWS
+#include "Windows/AllowWindowsPlatformTypes.h"
+#include <winsock2.h>
+#include <iphlpapi.h>
+#include "Windows/HideWindowsPlatformTypes.h"
+#pragma comment(lib, "iphlpapi.lib")
+#endif
 #endif
 
 bool URivermaxManager::Initialize(URship2110Subsystem* InSubsystem)
@@ -103,78 +113,57 @@ int32 URivermaxManager::EnumerateDevices()
     Devices.Empty();
 
 #if RSHIP_RIVERMAX_AVAILABLE
-    // Query Rivermax for available devices
-    rmax_device_info_t* device_list = nullptr;
-    uint32_t device_count = 0;
+    // SDK 1.8+ uses rmx_* API - device enumeration happens via platform network APIs
+    // The actual Rivermax device selection happens when creating streams
+    UE_LOG(LogRship2110, Log, TEXT("RivermaxManager: Using platform device enumeration for Rivermax 1.8+"));
+#endif
 
-    rmax_status_t status = rmax_get_device_list(&device_list, &device_count);
-    if (status != RMAX_OK)
-    {
-        UE_LOG(LogRship2110, Warning, TEXT("RivermaxManager: Failed to enumerate devices: %d"), status);
-        return 0;
-    }
-
-    for (uint32_t i = 0; i < device_count; i++)
-    {
-        FRshipRivermaxDevice Device;
-        Device.DeviceIndex = i;
-        Device.Name = UTF8_TO_TCHAR(device_list[i].name);
-        Device.IPAddress = UTF8_TO_TCHAR(device_list[i].ip_address);
-
-        // Format MAC address
-        uint8_t* mac = device_list[i].mac_address;
-        Device.MACAddress = FString::Printf(TEXT("%02X:%02X:%02X:%02X:%02X:%02X"),
-            mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-
-        Device.bSupportsGPUDirect = device_list[i].gpu_direct_supported;
-        Device.bSupportsPTPHardware = device_list[i].ptp_hw_supported;
-        Device.MaxBandwidthGbps = device_list[i].max_bandwidth_gbps;
-
-        Devices.Add(Device);
-    }
-
-    rmax_free_device_list(device_list);
-
-#else
-    // Stub implementation - try to enumerate NICs manually
-    // This provides basic functionality when Rivermax SDK is not available
-
-    // For now, create a placeholder device
-    FRshipRivermaxDevice StubDevice;
-    StubDevice.DeviceIndex = 0;
-    StubDevice.Name = TEXT("Network Adapter (Stub Mode)");
-    StubDevice.IPAddress = TEXT("127.0.0.1");
-    StubDevice.MACAddress = TEXT("00:00:00:00:00:00");
-    StubDevice.bSupportsGPUDirect = false;
-    StubDevice.bSupportsPTPHardware = false;
-    StubDevice.MaxBandwidthGbps = 1.0f;
-
-    // Try to get actual local IP
-    bool bFoundIP = false;
+    // Enumerate network interfaces using platform APIs
+    // This works for both Rivermax mode and stub mode
     ISocketSubsystem* SocketSubsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
     if (SocketSubsystem)
     {
         TArray<TSharedPtr<FInternetAddr>> Addrs;
         if (SocketSubsystem->GetLocalAdapterAddresses(Addrs))
         {
+            int32 DeviceIdx = 0;
             for (const TSharedPtr<FInternetAddr>& Addr : Addrs)
             {
                 if (Addr.IsValid() && Addr->IsValid())
                 {
                     FString IPStr = Addr->ToString(false);
-                    if (!IPStr.StartsWith(TEXT("127.")))
+                    // Skip loopback and link-local addresses
+                    if (!IPStr.StartsWith(TEXT("127.")) && !IPStr.StartsWith(TEXT("169.254.")))
                     {
-                        StubDevice.IPAddress = IPStr;
-                        bFoundIP = true;
-                        break;
+                        FRshipRivermaxDevice Device;
+                        Device.DeviceIndex = DeviceIdx++;
+                        Device.Name = FString::Printf(TEXT("Network Adapter %d"), Device.DeviceIndex);
+                        Device.IPAddress = IPStr;
+                        Device.MACAddress = TEXT("00:00:00:00:00:00");  // MAC not available from socket API
+                        Device.bSupportsGPUDirect = false;  // Will be determined when stream is created
+                        Device.bSupportsPTPHardware = false;
+                        Device.MaxBandwidthGbps = 10.0f;  // Assume 10GbE
+
+                        Devices.Add(Device);
                     }
                 }
             }
         }
     }
 
-    Devices.Add(StubDevice);
-#endif
+    // If no devices found, add a placeholder
+    if (Devices.Num() == 0)
+    {
+        FRshipRivermaxDevice StubDevice;
+        StubDevice.DeviceIndex = 0;
+        StubDevice.Name = TEXT("Network Adapter (Default)");
+        StubDevice.IPAddress = TEXT("0.0.0.0");
+        StubDevice.MACAddress = TEXT("00:00:00:00:00:00");
+        StubDevice.bSupportsGPUDirect = false;
+        StubDevice.bSupportsPTPHardware = false;
+        StubDevice.MaxBandwidthGbps = 1.0f;
+        Devices.Add(StubDevice);
+    }
 
     UE_LOG(LogRship2110, Log, TEXT("RivermaxManager: Enumerated %d devices"), Devices.Num());
 
@@ -266,10 +255,11 @@ bool URivermaxManager::IsAvailable() const
 FString URivermaxManager::GetSDKVersion() const
 {
 #if RSHIP_RIVERMAX_AVAILABLE
-    rmax_version_t version;
-    if (rmax_get_version(&version) == RMAX_OK)
+    // SDK 1.8+ uses rmx_get_version_numbers() which returns a const rmx_version*
+    const rmx_version* version = rmx_get_version_numbers();
+    if (version)
     {
-        return FString::Printf(TEXT("%d.%d.%d"), version.major, version.minor, version.patch);
+        return FString::Printf(TEXT("%d.%d.%d"), version->major, version->minor, version->patch);
     }
 #endif
     return TEXT("Not Available");
@@ -397,22 +387,11 @@ bool URivermaxManager::SetGPUDirectEnabled(bool bEnable)
 
 void* URivermaxManager::AllocateStreamMemory(size_t SizeBytes, size_t Alignment)
 {
-#if RSHIP_RIVERMAX_AVAILABLE
-    if (bGPUDirectEnabled)
-    {
-        // Use Rivermax aligned allocation for GPUDirect
-        void* Ptr = nullptr;
-        rmax_status_t status = rmax_alloc_aligned(SizeBytes, Alignment, &Ptr);
-        if (status == RMAX_OK && Ptr)
-        {
-            AllocatedMemory.Add(Ptr, SizeBytes);
-            TotalAllocatedBytes += SizeBytes;
-            return Ptr;
-        }
-    }
-#endif
+    // SDK 1.8+ memory management is different - memory blocks are assigned to streams
+    // via rmx_output_media_assign_mem_blocks() after standard/CUDA allocation
+    // For GPUDirect, CUDA memory allocation should be used and then assigned to the stream
 
-    // Fall back to standard aligned allocation
+    // Use UE's aligned allocation
     void* Ptr = FMemory::Malloc(SizeBytes, Alignment);
     if (Ptr)
     {
@@ -436,28 +415,20 @@ void URivermaxManager::FreeStreamMemory(void* Ptr)
         AllocatedMemory.Remove(Ptr);
     }
 
-#if RSHIP_RIVERMAX_AVAILABLE
-    if (bGPUDirectEnabled)
-    {
-        rmax_free(Ptr);
-        return;
-    }
-#endif
-
+    // SDK 1.8+ uses standard memory management
+    // For GPUDirect, CUDA memory should be freed via CUDA APIs
     FMemory::Free(Ptr);
 }
 
 bool URivermaxManager::InitializeSDK()
 {
 #if RSHIP_RIVERMAX_AVAILABLE
-    rmax_init_config_t config;
-    rmax_init_config_init(&config);
-
-    rmax_status_t status = rmax_init(&config);
-    if (status != RMAX_OK)
+    // SDK 1.8+ uses rmx_init()
+    rmx_status status = rmx_init();
+    if (status != RMX_OK)
     {
-        UE_LOG(LogRship2110, Error, TEXT("RivermaxManager: rmax_init failed: %d"), status);
-        LastError = FString::Printf(TEXT("Rivermax init failed: %d"), status);
+        UE_LOG(LogRship2110, Error, TEXT("RivermaxManager: rmx_init failed: %d"), static_cast<int>(status));
+        LastError = FString::Printf(TEXT("Rivermax init failed: %d"), static_cast<int>(status));
         return false;
     }
 
@@ -479,7 +450,7 @@ void URivermaxManager::ShutdownSDK()
 #if RSHIP_RIVERMAX_AVAILABLE
     if (bIsInitialized)
     {
-        rmax_cleanup();
+        rmx_cleanup();
         UE_LOG(LogRship2110, Log, TEXT("RivermaxManager: SDK cleaned up"));
     }
 #endif
