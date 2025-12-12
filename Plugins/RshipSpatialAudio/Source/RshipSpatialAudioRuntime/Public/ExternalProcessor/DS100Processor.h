@@ -69,8 +69,8 @@ public:
 	virtual bool SetObjectReverbSend(const FGuid& ObjectId, float SendLevel) override;
 	virtual bool SetObjectMute(const FGuid& ObjectId, bool bMute) override;
 
-	virtual bool SendOSCMessage(const FRshipOSCMessage& Message) override;
-	virtual bool SendOSCBundle(const FRshipOSCBundle& Bundle) override;
+	virtual bool SendOSCMessage(const FSpatialOSCMessage& Message) override;
+	virtual bool SendOSCBundle(const FSpatialOSCBundle& Bundle) override;
 
 	virtual EExternalProcessorType GetType() const override { return EExternalProcessorType::DS100; }
 	virtual FString GetName() const override { return TEXT("d&b DS100"); }
@@ -164,7 +164,7 @@ protected:
 	// INTERNAL IMPLEMENTATION
 	// ========================================================================
 
-	virtual bool SendQueuedMessages(const TArray<FRshipOSCMessage>& Messages) override;
+	virtual bool SendQueuedMessages(const TArray<FSpatialOSCMessage>& Messages) override;
 
 private:
 	// DS100 configuration
@@ -182,8 +182,8 @@ private:
 	void SendHeartbeat();
 
 	// OSC message handlers
-	void HandleReceivedOSCMessage(const FRshipOSCMessage& Message);
-	void HandlePositionResponse(const FRshipOSCMessage& Message);
+	void HandleReceivedOSCMessage(const FSpatialOSCMessage& Message);
+	void HandlePositionResponse(const FSpatialOSCMessage& Message);
 
 	// OSC address builders
 	FString BuildPositionXYAddress(int32 MappingArea, int32 SourceId) const;

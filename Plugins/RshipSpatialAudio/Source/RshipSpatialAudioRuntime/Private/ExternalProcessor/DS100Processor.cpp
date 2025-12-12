@@ -207,7 +207,7 @@ bool FDS100Processor::SetObjectPosition(const FGuid& ObjectId, const FVector& Po
 	FVector DS100Pos = ConvertToDS100Coordinates(Position);
 
 	// Build OSC message
-	FRshipOSCMessage Msg;
+	FSpatialOSCMessage Msg;
 
 	if (DS100Config.bUseXYOnly)
 	{
@@ -260,7 +260,7 @@ bool FDS100Processor::SetObjectSpread(const FGuid& ObjectId, float Spread)
 	EDS100MappingArea MappingArea = GetObjectMappingArea(ObjectId);
 	int32 MappingAreaInt = static_cast<int32>(MappingArea);
 
-	FRshipOSCMessage Msg;
+	FSpatialOSCMessage Msg;
 	Msg.Address = BuildSpreadAddress(MappingAreaInt, SourceId);
 	Msg.AddInt(MappingAreaInt);
 	Msg.AddInt(SourceId);
@@ -311,7 +311,7 @@ bool FDS100Processor::SetObjectMute(const FGuid& ObjectId, bool bMute)
 	return SetMatrixInputMute(SourceId, bMute);
 }
 
-bool FDS100Processor::SendOSCMessage(const FRshipOSCMessage& Message)
+bool FDS100Processor::SendOSCMessage(const FSpatialOSCMessage& Message)
 {
 	if (!OSCClient || !OSCClient->IsInitialized())
 	{
@@ -320,7 +320,7 @@ bool FDS100Processor::SendOSCMessage(const FRshipOSCMessage& Message)
 	return OSCClient->Send(Message);
 }
 
-bool FDS100Processor::SendOSCBundle(const FRshipOSCBundle& Bundle)
+bool FDS100Processor::SendOSCBundle(const FSpatialOSCBundle& Bundle)
 {
 	if (!OSCClient || !OSCClient->IsInitialized())
 	{
@@ -385,7 +385,7 @@ bool FDS100Processor::SetSourceDelayMode(int32 SourceId, int32 DelayMode)
 		return false;
 	}
 
-	FRshipOSCMessage Msg;
+	FSpatialOSCMessage Msg;
 	Msg.Address = BuildDelayModeAddress(SourceId);
 	Msg.AddInt(SourceId);
 	Msg.AddInt(FMath::Clamp(DelayMode, 0, 2));
@@ -405,7 +405,7 @@ bool FDS100Processor::SetSourceEnSpaceSend(int32 SourceId, float SendLevel)
 		? -120.0f
 		: FMath::Clamp(20.0f * FMath::Loge(SendLevel) / FMath::Loge(10.0f), -120.0f, 24.0f);
 
-	FRshipOSCMessage Msg;
+	FSpatialOSCMessage Msg;
 	Msg.Address = BuildReverbSendAddress(SourceId);
 	Msg.AddInt(SourceId);
 	Msg.AddFloat(GainDb);
@@ -420,7 +420,7 @@ bool FDS100Processor::SetMatrixInputGain(int32 InputChannel, float GainDb)
 		return false;
 	}
 
-	FRshipOSCMessage Msg;
+	FSpatialOSCMessage Msg;
 	Msg.Address = BuildMatrixInputGainAddress(InputChannel);
 	Msg.AddInt(InputChannel);
 	Msg.AddFloat(FMath::Clamp(GainDb, -120.0f, 24.0f));
@@ -435,7 +435,7 @@ bool FDS100Processor::SetMatrixInputMute(int32 InputChannel, bool bMute)
 		return false;
 	}
 
-	FRshipOSCMessage Msg;
+	FSpatialOSCMessage Msg;
 	Msg.Address = BuildMatrixInputMuteAddress(InputChannel);
 	Msg.AddInt(InputChannel);
 	Msg.AddInt(bMute ? 1 : 0);
@@ -445,7 +445,7 @@ bool FDS100Processor::SetMatrixInputMute(int32 InputChannel, bool bMute)
 
 bool FDS100Processor::SetMatrixOutputGain(int32 OutputChannel, float GainDb)
 {
-	FRshipOSCMessage Msg;
+	FSpatialOSCMessage Msg;
 	Msg.Address = BuildMatrixOutputGainAddress(OutputChannel);
 	Msg.AddInt(OutputChannel);
 	Msg.AddFloat(FMath::Clamp(GainDb, -120.0f, 24.0f));
@@ -461,7 +461,7 @@ bool FDS100Processor::RequestSourcePosition(int32 SourceId, int32 MappingArea)
 	}
 
 	// DS100 uses empty argument list to request current value
-	FRshipOSCMessage Msg;
+	FSpatialOSCMessage Msg;
 	if (DS100Config.bUseXYOnly)
 	{
 		Msg.Address = BuildPositionXYAddress(MappingArea, SourceId);
@@ -483,7 +483,7 @@ bool FDS100Processor::SetEnSpaceRoom(int32 RoomId)
 		return false;
 	}
 
-	FRshipOSCMessage Msg;
+	FSpatialOSCMessage Msg;
 	Msg.Address = DS100Config.OSCPrefix + DS100Addresses::EnSpaceRoom;
 	Msg.AddInt(RoomId);
 
@@ -534,7 +534,7 @@ EDS100MappingArea FDS100Processor::GetObjectMappingArea(const FGuid& ObjectId) c
 	return DS100Config.DefaultMappingArea;
 }
 
-bool FDS100Processor::SendQueuedMessages(const TArray<FRshipOSCMessage>& Messages)
+bool FDS100Processor::SendQueuedMessages(const TArray<FSpatialOSCMessage>& Messages)
 {
 	if (!OSCClient || !OSCClient->IsInitialized())
 	{
@@ -558,12 +558,12 @@ bool FDS100Processor::SendQueuedMessages(const TArray<FRshipOSCMessage>& Message
 void FDS100Processor::SendHeartbeat()
 {
 	// Request device status as heartbeat
-	FRshipOSCMessage Msg;
+	FSpatialOSCMessage Msg;
 	Msg.Address = DS100Config.OSCPrefix + DS100Addresses::DeviceStatus;
 	QueueMessage(Msg);
 }
 
-void FDS100Processor::HandleReceivedOSCMessage(const FRshipOSCMessage& Message)
+void FDS100Processor::HandleReceivedOSCMessage(const FSpatialOSCMessage& Message)
 {
 	// Update stats
 	{
@@ -588,7 +588,7 @@ void FDS100Processor::HandleReceivedOSCMessage(const FRshipOSCMessage& Message)
 	}
 }
 
-void FDS100Processor::HandlePositionResponse(const FRshipOSCMessage& Message)
+void FDS100Processor::HandlePositionResponse(const FSpatialOSCMessage& Message)
 {
 	// Parse position response
 	// Format: /dbaudio1/coordinatemapping/source_position_xy <mapping> <source> <x> <y>

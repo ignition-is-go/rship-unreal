@@ -132,7 +132,7 @@ bool FOSCClient::SetRemoteAddress(const FString& Host, int32 Port)
 	return true;
 }
 
-bool FOSCClient::Send(const FRshipOSCMessage& Message)
+bool FOSCClient::Send(const FSpatialOSCMessage& Message)
 {
 	if (!bInitialized || !SendSocket)
 	{
@@ -143,7 +143,7 @@ bool FOSCClient::Send(const FRshipOSCMessage& Message)
 	return SendRaw(Data);
 }
 
-bool FOSCClient::Send(const FRshipOSCBundle& Bundle)
+bool FOSCClient::Send(const FSpatialOSCBundle& Bundle)
 {
 	if (!bInitialized || !SendSocket)
 	{
@@ -194,7 +194,7 @@ bool FOSCClient::SendRaw(const TArray<uint8>& Data)
 	return bSuccess;
 }
 
-bool FOSCClient::SendBundle(const TArray<FRshipOSCMessage>& Messages)
+bool FOSCClient::SendBundle(const TArray<FSpatialOSCMessage>& Messages)
 {
 	if (Messages.Num() == 0)
 	{
@@ -206,7 +206,7 @@ bool FOSCClient::SendBundle(const TArray<FRshipOSCMessage>& Messages)
 		return Send(Messages[0]);
 	}
 
-	FRshipOSCBundle Bundle;
+	FSpatialOSCBundle Bundle;
 	Bundle.TimeTag = 1;  // Immediate
 	Bundle.Messages = Messages;
 
@@ -334,10 +334,10 @@ void FOSCClient::HandleDataReceived(const FArrayReaderPtr& Data, const FIPv4Endp
 	if (DataArray.Num() >= 8 && DataArray[0] == '#')
 	{
 		// OSC bundle
-		FRshipOSCBundle Bundle;
-		if (FRshipOSCBundle::Parse(DataArray, Bundle))
+		FSpatialOSCBundle Bundle;
+		if (FSpatialOSCBundle::Parse(DataArray, Bundle))
 		{
-			for (const FRshipOSCMessage& Message : Bundle.Messages)
+			for (const FSpatialOSCMessage& Message : Bundle.Messages)
 			{
 				MessagesReceived++;
 				if (OnMessageReceived.IsBound())
@@ -350,8 +350,8 @@ void FOSCClient::HandleDataReceived(const FArrayReaderPtr& Data, const FIPv4Endp
 	else
 	{
 		// OSC message
-		FRshipOSCMessage Message;
-		if (FRshipOSCMessage::Parse(DataArray, Message))
+		FSpatialOSCMessage Message;
+		if (FSpatialOSCMessage::Parse(DataArray, Message))
 		{
 			MessagesReceived++;
 			if (OnMessageReceived.IsBound())
@@ -414,53 +414,53 @@ void FOSCClient::UpdateConnectionState()
 }
 
 // ============================================================================
-// FRshipOSCMessageBuilder
+// FSpatialOSCMessageBuilder
 // ============================================================================
 
-FRshipOSCMessageBuilder::FRshipOSCMessageBuilder(const FString& Address)
+FSpatialOSCMessageBuilder::FSpatialOSCMessageBuilder(const FString& Address)
 {
 	Message.Address = Address;
 }
 
-FRshipOSCMessageBuilder& FRshipOSCMessageBuilder::Int(int32 Value)
+FSpatialOSCMessageBuilder& FSpatialOSCMessageBuilder::Int(int32 Value)
 {
 	Message.AddInt(Value);
 	return *this;
 }
 
-FRshipOSCMessageBuilder& FRshipOSCMessageBuilder::Float(float Value)
+FSpatialOSCMessageBuilder& FSpatialOSCMessageBuilder::Float(float Value)
 {
 	Message.AddFloat(Value);
 	return *this;
 }
 
-FRshipOSCMessageBuilder& FRshipOSCMessageBuilder::String(const FString& Value)
+FSpatialOSCMessageBuilder& FSpatialOSCMessageBuilder::String(const FString& Value)
 {
 	Message.AddString(Value);
 	return *this;
 }
 
-FRshipOSCMessageBuilder& FRshipOSCMessageBuilder::Blob(const TArray<uint8>& Value)
+FSpatialOSCMessageBuilder& FSpatialOSCMessageBuilder::Blob(const TArray<uint8>& Value)
 {
-	FRshipOSCArgument Arg;
-	Arg.Type = ERshipOSCArgumentType::Blob;
+	FSpatialOSCArgument Arg;
+	Arg.Type = ESpatialOSCArgumentType::Blob;
 	Arg.BlobValue = Value;
 	Message.Arguments.Add(Arg);
 	return *this;
 }
 
-FRshipOSCMessageBuilder& FRshipOSCMessageBuilder::True()
+FSpatialOSCMessageBuilder& FSpatialOSCMessageBuilder::True()
 {
-	FRshipOSCArgument Arg;
-	Arg.Type = ERshipOSCArgumentType::BoolTrue;
+	FSpatialOSCArgument Arg;
+	Arg.Type = ESpatialOSCArgumentType::BoolTrue;
 	Message.Arguments.Add(Arg);
 	return *this;
 }
 
-FRshipOSCMessageBuilder& FRshipOSCMessageBuilder::False()
+FSpatialOSCMessageBuilder& FSpatialOSCMessageBuilder::False()
 {
-	FRshipOSCArgument Arg;
-	Arg.Type = ERshipOSCArgumentType::BoolFalse;
+	FSpatialOSCArgument Arg;
+	Arg.Type = ESpatialOSCArgumentType::BoolFalse;
 	Message.Arguments.Add(Arg);
 	return *this;
 }

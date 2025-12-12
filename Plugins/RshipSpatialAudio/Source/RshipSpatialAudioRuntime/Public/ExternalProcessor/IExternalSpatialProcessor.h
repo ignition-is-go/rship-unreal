@@ -230,7 +230,7 @@ public:
 	 * @param Message The OSC message to send.
 	 * @return True if message was queued.
 	 */
-	virtual bool SendOSCMessage(const FRshipOSCMessage& Message) = 0;
+	virtual bool SendOSCMessage(const FSpatialOSCMessage& Message) = 0;
 
 	/**
 	 * Send a raw OSC bundle to the processor.
@@ -238,7 +238,7 @@ public:
 	 * @param Bundle The OSC bundle to send.
 	 * @return True if bundle was queued.
 	 */
-	virtual bool SendOSCBundle(const FRshipOSCBundle& Bundle) = 0;
+	virtual bool SendOSCBundle(const FSpatialOSCBundle& Bundle) = 0;
 
 	// ========================================================================
 	// METADATA
@@ -286,7 +286,7 @@ public:
 	// Derived classes should implement these as delegates:
 	// - OnConnectionStateChanged(EProcessorConnectionState NewState)
 	// - OnError(const FString& ErrorMessage)
-	// - OnOSCMessageReceived(const FRshipOSCMessage& Message)
+	// - OnOSCMessageReceived(const FSpatialOSCMessage& Message)
 };
 
 /**
@@ -353,7 +353,7 @@ protected:
 
 	// Batch state
 	bool bInBatch;
-	TArray<FRshipOSCMessage> BatchedMessages;
+	TArray<FSpatialOSCMessage> BatchedMessages;
 	FCriticalSection BatchLock;
 
 	// Statistics
@@ -379,8 +379,8 @@ protected:
 	bool ShouldSendPositionUpdate(const FGuid& ObjectId, const FVector& NewPosition) const;
 
 	/** Queue a message (or add to batch if batching) */
-	virtual bool QueueMessage(const FRshipOSCMessage& Message);
+	virtual bool QueueMessage(const FSpatialOSCMessage& Message);
 
 	/** Actually send queued messages - implemented by derived class */
-	virtual bool SendQueuedMessages(const TArray<FRshipOSCMessage>& Messages) = 0;
+	virtual bool SendQueuedMessages(const TArray<FSpatialOSCMessage>& Messages) = 0;
 };

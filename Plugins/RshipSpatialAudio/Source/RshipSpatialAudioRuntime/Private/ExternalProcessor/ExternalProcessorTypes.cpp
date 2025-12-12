@@ -3,50 +3,50 @@
 #include "ExternalProcessor/ExternalProcessorTypes.h"
 
 // ============================================================================
-// FRshipOSCArgument
+// FSpatialOSCArgument
 // ============================================================================
 
-FRshipOSCArgument FRshipOSCArgument::MakeInt(int32 Value)
+FSpatialOSCArgument FSpatialOSCArgument::MakeInt(int32 Value)
 {
-	FRshipOSCArgument Arg;
-	Arg.Type = ERshipOSCArgumentType::Int32;
+	FSpatialOSCArgument Arg;
+	Arg.Type = ESpatialOSCArgumentType::Int32;
 	Arg.IntValue = Value;
 	return Arg;
 }
 
-FRshipOSCArgument FRshipOSCArgument::MakeFloat(float Value)
+FSpatialOSCArgument FSpatialOSCArgument::MakeFloat(float Value)
 {
-	FRshipOSCArgument Arg;
-	Arg.Type = ERshipOSCArgumentType::Float;
+	FSpatialOSCArgument Arg;
+	Arg.Type = ESpatialOSCArgumentType::Float;
 	Arg.FloatValue = Value;
 	return Arg;
 }
 
-FRshipOSCArgument FRshipOSCArgument::MakeString(const FString& Value)
+FSpatialOSCArgument FSpatialOSCArgument::MakeString(const FString& Value)
 {
-	FRshipOSCArgument Arg;
-	Arg.Type = ERshipOSCArgumentType::String;
+	FSpatialOSCArgument Arg;
+	Arg.Type = ESpatialOSCArgumentType::String;
 	Arg.StringValue = Value;
 	return Arg;
 }
 
 // ============================================================================
-// FRshipOSCMessage
+// FSpatialOSCMessage
 // ============================================================================
 
-void FRshipOSCMessage::AddInt(int32 Value)
+void FSpatialOSCMessage::AddInt(int32 Value)
 {
-	Arguments.Add(FRshipOSCArgument::MakeInt(Value));
+	Arguments.Add(FSpatialOSCArgument::MakeInt(Value));
 }
 
-void FRshipOSCMessage::AddFloat(float Value)
+void FSpatialOSCMessage::AddFloat(float Value)
 {
-	Arguments.Add(FRshipOSCArgument::MakeFloat(Value));
+	Arguments.Add(FSpatialOSCArgument::MakeFloat(Value));
 }
 
-void FRshipOSCMessage::AddString(const FString& Value)
+void FSpatialOSCMessage::AddString(const FString& Value)
 {
-	Arguments.Add(FRshipOSCArgument::MakeString(Value));
+	Arguments.Add(FSpatialOSCArgument::MakeString(Value));
 }
 
 // Helper: Pad to 4-byte boundary
@@ -127,7 +127,7 @@ static FString ReadOSCString(const uint8* Data, int32 MaxLen, int32& OutBytesRea
 	return Result;
 }
 
-TArray<uint8> FRshipOSCMessage::Serialize() const
+TArray<uint8> FSpatialOSCMessage::Serialize() const
 {
 	TArray<uint8> Buffer;
 
@@ -136,35 +136,35 @@ TArray<uint8> FRshipOSCMessage::Serialize() const
 
 	// Build type tag string
 	FString TypeTag = TEXT(",");
-	for (const FRshipOSCArgument& Arg : Arguments)
+	for (const FSpatialOSCArgument& Arg : Arguments)
 	{
 		switch (Arg.Type)
 		{
-		case ERshipOSCArgumentType::Int32:
+		case ESpatialOSCArgumentType::Int32:
 			TypeTag.AppendChar('i');
 			break;
-		case ERshipOSCArgumentType::Float:
+		case ESpatialOSCArgumentType::Float:
 			TypeTag.AppendChar('f');
 			break;
-		case ERshipOSCArgumentType::String:
+		case ESpatialOSCArgumentType::String:
 			TypeTag.AppendChar('s');
 			break;
-		case ERshipOSCArgumentType::Blob:
+		case ESpatialOSCArgumentType::Blob:
 			TypeTag.AppendChar('b');
 			break;
-		case ERshipOSCArgumentType::BoolTrue:
+		case ESpatialOSCArgumentType::BoolTrue:
 			TypeTag.AppendChar('T');
 			break;
-		case ERshipOSCArgumentType::BoolFalse:
+		case ESpatialOSCArgumentType::BoolFalse:
 			TypeTag.AppendChar('F');
 			break;
-		case ERshipOSCArgumentType::Nil:
+		case ESpatialOSCArgumentType::Nil:
 			TypeTag.AppendChar('N');
 			break;
-		case ERshipOSCArgumentType::Int64:
+		case ESpatialOSCArgumentType::Int64:
 			TypeTag.AppendChar('h');
 			break;
-		case ERshipOSCArgumentType::Double:
+		case ESpatialOSCArgumentType::Double:
 			TypeTag.AppendChar('d');
 			break;
 		default:
@@ -174,35 +174,35 @@ TArray<uint8> FRshipOSCMessage::Serialize() const
 	WriteOSCString(Buffer, TypeTag);
 
 	// Write argument data
-	for (const FRshipOSCArgument& Arg : Arguments)
+	for (const FSpatialOSCArgument& Arg : Arguments)
 	{
 		switch (Arg.Type)
 		{
-		case ERshipOSCArgumentType::Int32:
+		case ESpatialOSCArgumentType::Int32:
 			WriteInt32BE(Buffer, Arg.IntValue);
 			break;
 
-		case ERshipOSCArgumentType::Float:
+		case ESpatialOSCArgumentType::Float:
 			WriteFloatBE(Buffer, Arg.FloatValue);
 			break;
 
-		case ERshipOSCArgumentType::String:
+		case ESpatialOSCArgumentType::String:
 			WriteOSCString(Buffer, Arg.StringValue);
 			break;
 
-		case ERshipOSCArgumentType::Blob:
+		case ESpatialOSCArgumentType::Blob:
 			WriteInt32BE(Buffer, Arg.BlobValue.Num());
 			Buffer.Append(Arg.BlobValue);
 			PadTo4Bytes(Buffer);
 			break;
 
-		case ERshipOSCArgumentType::Int64:
+		case ESpatialOSCArgumentType::Int64:
 			// 64-bit big-endian
 			WriteInt32BE(Buffer, static_cast<int32>(Arg.IntValue >> 32));
 			WriteInt32BE(Buffer, static_cast<int32>(Arg.IntValue & 0xFFFFFFFF));
 			break;
 
-		case ERshipOSCArgumentType::Double:
+		case ESpatialOSCArgumentType::Double:
 			{
 				union { double d; int64 i; } u;
 				u.d = static_cast<double>(Arg.FloatValue);
@@ -220,7 +220,7 @@ TArray<uint8> FRshipOSCMessage::Serialize() const
 	return Buffer;
 }
 
-bool FRshipOSCMessage::Parse(const TArray<uint8>& Data, FRshipOSCMessage& OutMessage)
+bool FSpatialOSCMessage::Parse(const TArray<uint8>& Data, FSpatialOSCMessage& OutMessage)
 {
 	if (Data.Num() < 4)
 	{
@@ -259,13 +259,13 @@ bool FRshipOSCMessage::Parse(const TArray<uint8>& Data, FRshipOSCMessage& OutMes
 	for (int32 i = 1; i < TypeTag.Len(); ++i)
 	{
 		TCHAR TypeChar = TypeTag[i];
-		FRshipOSCArgument Arg;
+		FSpatialOSCArgument Arg;
 
 		switch (TypeChar)
 		{
 		case 'i':
 			if (Remaining < 4) return false;
-			Arg.Type = ERshipOSCArgumentType::Int32;
+			Arg.Type = ESpatialOSCArgumentType::Int32;
 			Arg.IntValue = ReadInt32BE(Ptr);
 			Ptr += 4;
 			Remaining -= 4;
@@ -273,14 +273,14 @@ bool FRshipOSCMessage::Parse(const TArray<uint8>& Data, FRshipOSCMessage& OutMes
 
 		case 'f':
 			if (Remaining < 4) return false;
-			Arg.Type = ERshipOSCArgumentType::Float;
+			Arg.Type = ESpatialOSCArgumentType::Float;
 			Arg.FloatValue = ReadFloatBE(Ptr);
 			Ptr += 4;
 			Remaining -= 4;
 			break;
 
 		case 's':
-			Arg.Type = ERshipOSCArgumentType::String;
+			Arg.Type = ESpatialOSCArgumentType::String;
 			Arg.StringValue = ReadOSCString(Ptr, Remaining, BytesRead);
 			Ptr += BytesRead;
 			Remaining -= BytesRead;
@@ -293,7 +293,7 @@ bool FRshipOSCMessage::Parse(const TArray<uint8>& Data, FRshipOSCMessage& OutMes
 				Ptr += 4;
 				Remaining -= 4;
 				if (Remaining < BlobSize) return false;
-				Arg.Type = ERshipOSCArgumentType::Blob;
+				Arg.Type = ESpatialOSCArgumentType::Blob;
 				Arg.BlobValue.SetNum(BlobSize);
 				FMemory::Memcpy(Arg.BlobValue.GetData(), Ptr, BlobSize);
 				int32 PaddedSize = (BlobSize + 3) & ~3;
@@ -303,15 +303,15 @@ bool FRshipOSCMessage::Parse(const TArray<uint8>& Data, FRshipOSCMessage& OutMes
 			break;
 
 		case 'T':
-			Arg.Type = ERshipOSCArgumentType::BoolTrue;
+			Arg.Type = ESpatialOSCArgumentType::BoolTrue;
 			break;
 
 		case 'F':
-			Arg.Type = ERshipOSCArgumentType::BoolFalse;
+			Arg.Type = ESpatialOSCArgumentType::BoolFalse;
 			break;
 
 		case 'N':
-			Arg.Type = ERshipOSCArgumentType::Nil;
+			Arg.Type = ESpatialOSCArgumentType::Nil;
 			break;
 
 		default:
@@ -326,10 +326,10 @@ bool FRshipOSCMessage::Parse(const TArray<uint8>& Data, FRshipOSCMessage& OutMes
 }
 
 // ============================================================================
-// FRshipOSCBundle
+// FSpatialOSCBundle
 // ============================================================================
 
-TArray<uint8> FRshipOSCBundle::Serialize() const
+TArray<uint8> FSpatialOSCBundle::Serialize() const
 {
 	TArray<uint8> Buffer;
 
@@ -341,7 +341,7 @@ TArray<uint8> FRshipOSCBundle::Serialize() const
 	WriteInt32BE(Buffer, static_cast<int32>(TimeTag & 0xFFFFFFFF));
 
 	// Bundle elements
-	for (const FRshipOSCMessage& Message : Messages)
+	for (const FSpatialOSCMessage& Message : Messages)
 	{
 		TArray<uint8> MessageData = Message.Serialize();
 		WriteInt32BE(Buffer, MessageData.Num());
@@ -351,7 +351,7 @@ TArray<uint8> FRshipOSCBundle::Serialize() const
 	return Buffer;
 }
 
-bool FRshipOSCBundle::Parse(const TArray<uint8>& Data, FRshipOSCBundle& OutBundle)
+bool FSpatialOSCBundle::Parse(const TArray<uint8>& Data, FSpatialOSCBundle& OutBundle)
 {
 	if (Data.Num() < 16)  // "#bundle" + timetag
 	{
@@ -406,8 +406,8 @@ bool FRshipOSCBundle::Parse(const TArray<uint8>& Data, FRshipOSCBundle& OutBundl
 			ElementData.SetNum(ElementSize);
 			FMemory::Memcpy(ElementData.GetData(), Ptr, ElementSize);
 
-			FRshipOSCMessage Message;
-			if (FRshipOSCMessage::Parse(ElementData, Message))
+			FSpatialOSCMessage Message;
+			if (FSpatialOSCMessage::Parse(ElementData, Message))
 			{
 				OutBundle.Messages.Add(Message);
 			}

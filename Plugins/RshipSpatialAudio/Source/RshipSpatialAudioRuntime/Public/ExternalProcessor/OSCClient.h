@@ -15,7 +15,7 @@
 /**
  * Delegate for received OSC messages.
  */
-DECLARE_DELEGATE_OneParam(FOnOSCMessageReceivedNative, const FRshipOSCMessage&);
+DECLARE_DELEGATE_OneParam(FOnOSCMessageReceivedNative, const FSpatialOSCMessage&);
 
 /**
  * Delegate for connection state changes.
@@ -43,10 +43,10 @@ DECLARE_DELEGATE_OneParam(FOnOSCError, const FString& /* ErrorMessage */);
  *
  * Usage:
  *   FOSCClient Client;
- *   Client.OnMessageReceived.BindLambda([](const FRshipOSCMessage& Msg) { ... });
+ *   Client.OnMessageReceived.BindLambda([](const FSpatialOSCMessage& Msg) { ... });
  *   Client.Initialize(TEXT("192.168.1.100"), 50010, 50011);
  *
- *   FRshipOSCMessage Msg;
+ *   FSpatialOSCMessage Msg;
  *   Msg.Address = TEXT("/some/address");
  *   Msg.AddFloat(1.0f);
  *   Client.Send(Msg);
@@ -122,7 +122,7 @@ public:
 	 * @param Message The message to send.
 	 * @return True if message was sent/queued successfully.
 	 */
-	bool Send(const FRshipOSCMessage& Message);
+	bool Send(const FSpatialOSCMessage& Message);
 
 	/**
 	 * Send an OSC bundle.
@@ -130,7 +130,7 @@ public:
 	 * @param Bundle The bundle to send.
 	 * @return True if bundle was sent successfully.
 	 */
-	bool Send(const FRshipOSCBundle& Bundle);
+	bool Send(const FSpatialOSCBundle& Bundle);
 
 	/**
 	 * Send raw bytes (already-serialized OSC data).
@@ -146,7 +146,7 @@ public:
 	 * @param Messages The messages to bundle and send.
 	 * @return True if bundle was sent successfully.
 	 */
-	bool SendBundle(const TArray<FRshipOSCMessage>& Messages);
+	bool SendBundle(const TArray<FSpatialOSCMessage>& Messages);
 
 	/**
 	 * Flush any queued messages immediately.
@@ -253,31 +253,31 @@ private:
 /**
  * Helper class for building OSC messages with fluent API.
  */
-class RSHIPSPATIALAUDIORUNTIME_API FRshipOSCMessageBuilder
+class RSHIPSPATIALAUDIORUNTIME_API FSpatialOSCMessageBuilder
 {
 public:
-	explicit FRshipOSCMessageBuilder(const FString& Address);
+	explicit FSpatialOSCMessageBuilder(const FString& Address);
 
-	FRshipOSCMessageBuilder& Int(int32 Value);
-	FRshipOSCMessageBuilder& Float(float Value);
-	FRshipOSCMessageBuilder& String(const FString& Value);
-	FRshipOSCMessageBuilder& Blob(const TArray<uint8>& Value);
-	FRshipOSCMessageBuilder& True();
-	FRshipOSCMessageBuilder& False();
+	FSpatialOSCMessageBuilder& Int(int32 Value);
+	FSpatialOSCMessageBuilder& Float(float Value);
+	FSpatialOSCMessageBuilder& String(const FString& Value);
+	FSpatialOSCMessageBuilder& Blob(const TArray<uint8>& Value);
+	FSpatialOSCMessageBuilder& True();
+	FSpatialOSCMessageBuilder& False();
 
-	FRshipOSCMessage Build() const { return Message; }
+	FSpatialOSCMessage Build() const { return Message; }
 
 	// Implicit conversion
-	operator FRshipOSCMessage() const { return Message; }
+	operator FSpatialOSCMessage() const { return Message; }
 
 private:
-	FRshipOSCMessage Message;
+	FSpatialOSCMessage Message;
 };
 
 // Convenience function
-inline FRshipOSCMessageBuilder OSCMsg(const FString& Address)
+inline FSpatialOSCMessageBuilder OSCMsg(const FString& Address)
 {
-	return FRshipOSCMessageBuilder(Address);
+	return FSpatialOSCMessageBuilder(Address);
 }
 
 // ============================================================================

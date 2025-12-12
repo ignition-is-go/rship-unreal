@@ -184,7 +184,7 @@ void FExternalSpatialProcessorBase::BeginBatch()
 
 void FExternalSpatialProcessorBase::EndBatch()
 {
-	TArray<FRshipOSCMessage> MessagesToSend;
+	TArray<FSpatialOSCMessage> MessagesToSend;
 
 	{
 		FScopeLock Lock(&BatchLock);
@@ -357,7 +357,7 @@ bool FExternalSpatialProcessorBase::ShouldSendPositionUpdate(const FGuid& Object
 	return true;
 }
 
-bool FExternalSpatialProcessorBase::QueueMessage(const FRshipOSCMessage& Message)
+bool FExternalSpatialProcessorBase::QueueMessage(const FSpatialOSCMessage& Message)
 {
 	FScopeLock Lock(&BatchLock);
 
@@ -368,7 +368,7 @@ bool FExternalSpatialProcessorBase::QueueMessage(const FRshipOSCMessage& Message
 	}
 
 	// Not batching - send immediately
-	TArray<FRshipOSCMessage> SingleMessage;
+	TArray<FSpatialOSCMessage> SingleMessage;
 	SingleMessage.Add(Message);
 	return SendQueuedMessages(SingleMessage);
 }
