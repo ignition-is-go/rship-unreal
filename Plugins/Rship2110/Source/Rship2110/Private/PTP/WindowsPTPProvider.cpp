@@ -14,6 +14,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
+#include <sysinfoapi.h>  // For GetSystemTimePreciseAsFileTime
 #include <mmsystem.h>
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif

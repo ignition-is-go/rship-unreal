@@ -9,6 +9,12 @@
 #include "Engine/TextureRenderTarget2D.h"
 
 #if RSHIP_RIVERMAX_AVAILABLE
+#if PLATFORM_WINDOWS
+#include "Windows/AllowWindowsPlatformTypes.h"
+#include <winsock2.h>
+#include <ws2tcpip.h>  // For inet_pton
+#include "Windows/HideWindowsPlatformTypes.h"
+#endif
 #include "rivermax_api.h"
 #endif
 

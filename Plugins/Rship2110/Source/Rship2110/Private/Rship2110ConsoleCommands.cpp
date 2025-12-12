@@ -114,7 +114,7 @@ static FAutoConsoleCommand Rship2110RivermaxEnumerateCmd(
         }
     }));
 
-static FAutoConsoleCommandWithArgs Rship2110RivermaxSelectCmd(
+static FAutoConsoleCommand Rship2110RivermaxSelectCmd(
     TEXT("rship.rivermax.select"),
     TEXT("Select Rivermax device by index - Usage: rship.rivermax.select <index>"),
     FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
@@ -221,7 +221,7 @@ static FAutoConsoleCommand Rship2110StreamStartTestCmd(
         }
     }));
 
-static FAutoConsoleCommandWithArgs Rship2110StreamStopCmd(
+static FAutoConsoleCommand Rship2110StreamStopCmd(
     TEXT("rship.stream.stop"),
     TEXT("Stop a stream - Usage: rship.stream.stop <stream_id>"),
     FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
@@ -285,7 +285,7 @@ static FAutoConsoleCommand Rship2110IPMXStatusCmd(
         }
     }));
 
-static FAutoConsoleCommandWithArgs Rship2110IPMXConnectCmd(
+static FAutoConsoleCommand Rship2110IPMXConnectCmd(
     TEXT("rship.ipmx.connect"),
     TEXT("Connect to IPMX registry - Usage: rship.ipmx.connect [registry_url]"),
     FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)

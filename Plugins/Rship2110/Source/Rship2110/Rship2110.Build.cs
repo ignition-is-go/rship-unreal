@@ -186,7 +186,21 @@ public class Rship2110 : ModuleRules
         bool hasHeader = File.Exists(Path.Combine(includeDir, "rivermax_api.h")) ||
                          File.Exists(Path.Combine(includeDir, "rivermax.h"));
 
-        return hasInclude && hasLib && hasHeader;
+        if (!hasInclude || !hasLib || !hasHeader)
+            return false;
+
+        // Check SDK version compatibility by looking for deprecated header
+        // Newer SDKs (1.30+) have breaking API changes we don't yet support
+        string deprecatedHeader = Path.Combine(includeDir, "rivermax_deprecated.h");
+        if (File.Exists(deprecatedHeader))
+        {
+            System.Console.WriteLine("Rship2110: WARNING - Detected Rivermax SDK 1.30+ with breaking API changes");
+            System.Console.WriteLine("Rship2110: This plugin requires Rivermax SDK < 1.30 (legacy API)");
+            System.Console.WriteLine("Rship2110: Disabling Rivermax integration - using stub implementations");
+            return false;  // Incompatible SDK version
+        }
+
+        return true;
     }
 
     private void DetectLicenseFile()
