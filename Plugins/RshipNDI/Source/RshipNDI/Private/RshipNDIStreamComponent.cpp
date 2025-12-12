@@ -25,7 +25,7 @@ URshipNDIStreamComponent::URshipNDIStreamComponent()
 	Config.Width = 1920;  // 1080p (start with reasonable default, can scale up)
 	Config.Height = 1080;
 	Config.FrameRate = 60;
-	Config.bEnableAlpha = true;
+	Config.bEnableAlpha = false;  // Use RGBX - SCS_FinalColorLDR outputs alpha=0
 	Config.BufferCount = 3;
 	Config.bUseAsyncReadback = true;
 	Config.bAutoStartOnBeginPlay = false;
