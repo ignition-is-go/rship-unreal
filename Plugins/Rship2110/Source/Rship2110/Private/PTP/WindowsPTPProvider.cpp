@@ -14,9 +14,40 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
-#include <sysinfoapi.h>  // For GetSystemTimePreciseAsFileTime
 #include <mmsystem.h>
 #include "Windows/HideWindowsPlatformTypes.h"
+
+// Helper to get high-precision system time (works on all Windows SDK versions)
+namespace
+{
+    typedef void (WINAPI* GetSystemTimePreciseAsFileTimeFunc)(LPFILETIME);
+    static GetSystemTimePreciseAsFileTimeFunc GetPreciseTimeFunc = nullptr;
+    static bool bPreciseTimeFuncInitialized = false;
+
+    void GetHighPrecisionSystemTime(FILETIME* ft)
+    {
+        if (!bPreciseTimeFuncInitialized)
+        {
+            HMODULE hKernel32 = GetModuleHandleW(L"kernel32.dll");
+            if (hKernel32)
+            {
+                GetPreciseTimeFunc = (GetSystemTimePreciseAsFileTimeFunc)GetProcAddress(
+                    hKernel32, "GetSystemTimePreciseAsFileTime");
+            }
+            bPreciseTimeFuncInitialized = true;
+        }
+
+        if (GetPreciseTimeFunc)
+        {
+            GetPreciseTimeFunc(ft);
+        }
+        else
+        {
+            // Fallback to less precise version
+            GetSystemTimeAsFileTime(ft);
+        }
+    }
+}
 #endif
 
 // ============================================================================
@@ -242,7 +273,7 @@ public:
 
         // Use Windows system time with offset correction
         FILETIME ft;
-        GetSystemTimePreciseAsFileTime(&ft);
+        GetHighPrecisionSystemTime(&ft);
 
         // Convert FILETIME to Unix timestamp
         // FILETIME is 100-nanosecond intervals since 1601-01-01
