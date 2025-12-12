@@ -486,11 +486,13 @@ void URshipSubsystem::TickSubsystems()
         Recorder->Tick(DeltaTime);
     }
 
+#if RSHIP_HAS_PCG
     // Tick PCG manager for regeneration budget
     if (PCGManager)
     {
         PCGManager->Tick(DeltaTime);
     }
+#endif
 }
 
 void URshipSubsystem::QueueMessage(TSharedPtr<FJsonObject> Payload, ERshipMessagePriority Priority,
@@ -993,12 +995,14 @@ void URshipSubsystem::Deinitialize()
         ControlRigManager = nullptr;
     }
 
+#if RSHIP_HAS_PCG
     // Shutdown PCG manager
     if (PCGManager)
     {
         PCGManager->Shutdown();
         PCGManager = nullptr;
     }
+#endif
 
     // Clear rate limiter
     if (RateLimiter)
@@ -1870,6 +1874,7 @@ URshipControlRigManager* URshipSubsystem::GetControlRigManager()
 
 URshipPCGManager* URshipSubsystem::GetPCGManager()
 {
+#if RSHIP_HAS_PCG
     // Lazy initialization
     if (!PCGManager)
     {
@@ -1879,6 +1884,10 @@ URshipPCGManager* URshipSubsystem::GetPCGManager()
         UE_LOG(LogRshipExec, Log, TEXT("PCGManager initialized"));
     }
     return PCGManager;
+#else
+    UE_LOG(LogRshipExec, Warning, TEXT("GetPCGManager called but PCG plugin is not enabled. Enable PCG plugin and rebuild."));
+    return nullptr;
+#endif
 }
 
 URshipSpatialAudioManager* URshipSubsystem::GetSpatialAudioManager()

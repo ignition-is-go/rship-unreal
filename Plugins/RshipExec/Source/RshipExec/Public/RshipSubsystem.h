@@ -37,7 +37,12 @@
 #include "RshipAudioReactive.h"
 #include "RshipRecorder.h"
 #include "RshipControlRigBinding.h"
+#if RSHIP_HAS_PCG
 #include "RshipPCGBinding.h"
+#else
+// Forward declaration when PCG plugin is not available
+class URshipPCGManager;
+#endif
 #include "GameFramework/Actor.h"
 
 // Forward declaration for optional SpatialAudio plugin
@@ -201,6 +206,7 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     URshipControlRigManager* ControlRigManager;
 
     // PCG manager for binding pulse data to PCG graphs (lazy initialized)
+    // Note: Returns nullptr if PCG plugin is not enabled
     UPROPERTY()
     URshipPCGManager* PCGManager;
 

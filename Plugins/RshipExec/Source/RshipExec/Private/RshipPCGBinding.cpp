@@ -1,6 +1,9 @@
 // Rship PCG (Procedural Content Generation) Binding Implementation
 
 #include "RshipPCGBinding.h"
+
+#if RSHIP_HAS_PCG
+
 #include "RshipSubsystem.h"
 #include "RshipPulseReceiver.h"
 #include "PCGGraph.h"
@@ -861,3 +864,5 @@ void URshipPCGManager::SetGlobalMaxRegensPerSecond(float MaxRegen)
 {
     GlobalMaxRegensPerSecond = FMath::Clamp(MaxRegen, 0.1f, 120.0f);
 }
+
+#endif // RSHIP_HAS_PCG

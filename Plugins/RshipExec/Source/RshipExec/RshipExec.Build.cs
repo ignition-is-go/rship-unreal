@@ -80,9 +80,37 @@ public class RshipExec : ModuleRules
 				"Networking",  // For network utilities
 				"HTTP",        // For IES profile fetching
 				"RenderCore",  // For texture generation
-				"PCG",         // For PCG binding system
 			}
 		);
+
+		// PCG is optional - check if it exists
+		bool bHasPCG = false;
+		try
+		{
+			// Check if PCG module exists by looking for its header
+			string PCGModulePath = Path.Combine(Target.ProjectFile?.Directory?.FullName ?? "", "..", "Engine", "Plugins", "PCG");
+			if (Directory.Exists(PCGModulePath))
+			{
+				bHasPCG = true;
+			}
+		}
+		catch { }
+
+		// For now, disable PCG by default - users can enable by uncommenting below
+		bHasPCG = false;
+		// To enable PCG: set bHasPCG = true above and add "PCG" plugin to your .uproject
+
+		if (bHasPCG)
+		{
+			PublicDependencyModuleNames.Add("PCG");
+			PublicDefinitions.Add("RSHIP_HAS_PCG=1");
+			System.Console.WriteLine("RshipExec: PCG plugin found, enabling PCG bindings");
+		}
+		else
+		{
+			PublicDefinitions.Add("RSHIP_HAS_PCG=0");
+			System.Console.WriteLine("RshipExec: PCG plugin not enabled, PCG bindings disabled");
+		}
 
 		PrivateDependencyModuleNames.AddRange(
 			new string[]
