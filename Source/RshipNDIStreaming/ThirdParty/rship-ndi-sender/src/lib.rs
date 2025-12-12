@@ -125,13 +125,17 @@ impl NDILibrary {
         // Order: bundled with plugin -> system install -> standard paths
         #[cfg(target_os = "windows")]
         let lib_names = [
-            // Standard NDI Tools install location (most common)
+            // Standard NDI Tools install location (most common - added to PATH by installer)
             "Processing.NDI.Lib.x64.dll",
-            // Alternative name
-            "ndi.dll",
-            // Program Files location
+            // NDI 6 SDK/Runtime locations
+            "C:\\Program Files\\NDI\\NDI 6 SDK\\Bin\\x64\\Processing.NDI.Lib.x64.dll",
             "C:\\Program Files\\NDI\\NDI 6 Runtime\\v6\\Processing.NDI.Lib.x64.dll",
+            // NDI 5 SDK/Runtime locations
+            "C:\\Program Files\\NDI\\NDI 5 SDK\\Bin\\x64\\Processing.NDI.Lib.x64.dll",
             "C:\\Program Files\\NDI\\NDI 5 Runtime\\v5\\Processing.NDI.Lib.x64.dll",
+            // Legacy NewTek paths
+            "C:\\Program Files\\NewTek\\NDI SDK\\Bin\\x64\\Processing.NDI.Lib.x64.dll",
+            "C:\\Program Files\\NewTek\\NDI 5 SDK\\Bin\\x64\\Processing.NDI.Lib.x64.dll",
         ];
 
         #[cfg(target_os = "macos")]
