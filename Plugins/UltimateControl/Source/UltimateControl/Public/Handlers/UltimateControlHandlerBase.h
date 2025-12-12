@@ -4,7 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Dom/JsonObject.h"
-#include "UltimateControlSubsystem.h"
+#include "UltimateControlTypes.h"
 
 /**
  * Base class for JSON-RPC method handlers
