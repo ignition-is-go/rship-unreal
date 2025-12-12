@@ -12,40 +12,62 @@
 #include "NiagaraFunctionLibrary.h"
 #include "NiagaraDataInterfaceArrayFunctionLibrary.h"
 
-void FUltimateControlNiagaraHandler::RegisterMethods(TMap<FString, FJsonRpcMethodHandler>& Methods)
+FUltimateControlNiagaraHandler::FUltimateControlNiagaraHandler(UUltimateControlSubsystem* InSubsystem)
+	: FUltimateControlHandlerBase(InSubsystem)
 {
 	// System listing and info
-	Methods.Add(TEXT("niagara.listSystems"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleListNiagaraSystems));
-	Methods.Add(TEXT("niagara.getSystem"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleGetNiagaraSystem));
-	Methods.Add(TEXT("niagara.listEmitters"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleListEmitters));
+	RegisterMethod(TEXT("niagara.listSystems"), TEXT("List all Niagara systems"), TEXT("Niagara"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleListNiagaraSystems));
+	RegisterMethod(TEXT("niagara.getSystem"), TEXT("Get Niagara system info"), TEXT("Niagara"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleGetNiagaraSystem));
+	RegisterMethod(TEXT("niagara.listEmitters"), TEXT("List emitters in a system"), TEXT("Niagara"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleListEmitters));
 
 	// Spawning and management
-	Methods.Add(TEXT("niagara.spawn"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleSpawnNiagaraSystem));
-	Methods.Add(TEXT("niagara.spawnAttached"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleSpawnNiagaraSystemAttached));
-	Methods.Add(TEXT("niagara.destroy"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleDestroyNiagaraComponent));
+	RegisterMethod(TEXT("niagara.spawn"), TEXT("Spawn Niagara system at location"), TEXT("Niagara"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleSpawnNiagaraSystem));
+	RegisterMethod(TEXT("niagara.spawnAttached"), TEXT("Spawn Niagara system attached to actor"), TEXT("Niagara"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleSpawnNiagaraSystemAttached));
+	RegisterMethod(TEXT("niagara.destroy"), TEXT("Destroy Niagara component"), TEXT("Niagara"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleDestroyNiagaraComponent));
 
 	// Component control
-	Methods.Add(TEXT("niagara.getComponents"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleGetNiagaraComponents));
-	Methods.Add(TEXT("niagara.activate"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleActivateNiagaraComponent));
-	Methods.Add(TEXT("niagara.deactivate"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleDeactivateNiagaraComponent));
-	Methods.Add(TEXT("niagara.reset"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleResetNiagaraComponent));
-	Methods.Add(TEXT("niagara.reinitialize"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleReinitializeNiagaraComponent));
+	RegisterMethod(TEXT("niagara.getComponents"), TEXT("Get Niagara components"), TEXT("Niagara"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleGetNiagaraComponents));
+	RegisterMethod(TEXT("niagara.activate"), TEXT("Activate Niagara component"), TEXT("Niagara"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleActivateNiagaraComponent));
+	RegisterMethod(TEXT("niagara.deactivate"), TEXT("Deactivate Niagara component"), TEXT("Niagara"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleDeactivateNiagaraComponent));
+	RegisterMethod(TEXT("niagara.reset"), TEXT("Reset Niagara component"), TEXT("Niagara"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleResetNiagaraComponent));
+	RegisterMethod(TEXT("niagara.reinitialize"), TEXT("Reinitialize Niagara component"), TEXT("Niagara"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleReinitializeNiagaraComponent));
 
 	// Parameters
-	Methods.Add(TEXT("niagara.getParameters"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleGetNiagaraParameters));
-	Methods.Add(TEXT("niagara.setFloat"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleSetNiagaraFloatParameter));
-	Methods.Add(TEXT("niagara.setVector"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleSetNiagaraVectorParameter));
-	Methods.Add(TEXT("niagara.setColor"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleSetNiagaraColorParameter));
-	Methods.Add(TEXT("niagara.setBool"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleSetNiagaraBoolParameter));
-	Methods.Add(TEXT("niagara.setInt"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleSetNiagaraIntParameter));
+	RegisterMethod(TEXT("niagara.getParameters"), TEXT("Get Niagara parameters"), TEXT("Niagara"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleGetNiagaraParameters));
+	RegisterMethod(TEXT("niagara.setFloat"), TEXT("Set Niagara float parameter"), TEXT("Niagara"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleSetNiagaraFloatParameter));
+	RegisterMethod(TEXT("niagara.setVector"), TEXT("Set Niagara vector parameter"), TEXT("Niagara"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleSetNiagaraVectorParameter));
+	RegisterMethod(TEXT("niagara.setColor"), TEXT("Set Niagara color parameter"), TEXT("Niagara"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleSetNiagaraColorParameter));
+	RegisterMethod(TEXT("niagara.setBool"), TEXT("Set Niagara bool parameter"), TEXT("Niagara"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleSetNiagaraBoolParameter));
+	RegisterMethod(TEXT("niagara.setInt"), TEXT("Set Niagara int parameter"), TEXT("Niagara"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleSetNiagaraIntParameter));
 
 	// Emitter control
-	Methods.Add(TEXT("niagara.setEmitterEnabled"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleSetEmitterEnabled));
-	Methods.Add(TEXT("niagara.getEmitterEnabled"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleGetEmitterEnabled));
+	RegisterMethod(TEXT("niagara.setEmitterEnabled"), TEXT("Set emitter enabled state"), TEXT("Niagara"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleSetEmitterEnabled));
+	RegisterMethod(TEXT("niagara.getEmitterEnabled"), TEXT("Get emitter enabled state"), TEXT("Niagara"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleGetEmitterEnabled));
 
 	// Debug
-	Methods.Add(TEXT("niagara.getStats"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleGetNiagaraStats));
-	Methods.Add(TEXT("niagara.setDebugHUD"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleSetNiagaraDebugHUD));
+	RegisterMethod(TEXT("niagara.getStats"), TEXT("Get Niagara statistics"), TEXT("Niagara"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleGetNiagaraStats));
+	RegisterMethod(TEXT("niagara.setDebugHUD"), TEXT("Set Niagara debug HUD visibility"), TEXT("Niagara"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlNiagaraHandler::HandleSetNiagaraDebugHUD));
 }
 
 TSharedPtr<FJsonObject> FUltimateControlNiagaraHandler::NiagaraSystemToJson(UNiagaraSystem* System)
@@ -174,14 +196,14 @@ bool FUltimateControlNiagaraHandler::HandleGetNiagaraSystem(const TSharedPtr<FJs
 	FString Path = Params->GetStringField(TEXT("path"));
 	if (Path.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("path parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("path parameter required"));
 		return true;
 	}
 
 	UNiagaraSystem* System = LoadObject<UNiagaraSystem>(nullptr, *Path);
 	if (!System)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Niagara system not found: %s"), *Path));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Niagara system not found: %s"), *Path));
 		return true;
 	}
 
@@ -194,14 +216,14 @@ bool FUltimateControlNiagaraHandler::HandleListEmitters(const TSharedPtr<FJsonOb
 	FString SystemPath = Params->GetStringField(TEXT("systemPath"));
 	if (SystemPath.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("systemPath parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("systemPath parameter required"));
 		return true;
 	}
 
 	UNiagaraSystem* System = LoadObject<UNiagaraSystem>(nullptr, *SystemPath);
 	if (!System)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Niagara system not found: %s"), *SystemPath));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Niagara system not found: %s"), *SystemPath));
 		return true;
 	}
 
@@ -231,21 +253,21 @@ bool FUltimateControlNiagaraHandler::HandleSpawnNiagaraSystem(const TSharedPtr<F
 
 	if (SystemPath.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("systemPath parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("systemPath parameter required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
 	UNiagaraSystem* System = LoadObject<UNiagaraSystem>(nullptr, *SystemPath);
 	if (!System)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Niagara system not found: %s"), *SystemPath));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Niagara system not found: %s"), *SystemPath));
 		return true;
 	}
 
@@ -257,7 +279,7 @@ bool FUltimateControlNiagaraHandler::HandleSpawnNiagaraSystem(const TSharedPtr<F
 
 	if (!Component)
 	{
-		Error = CreateError(-32603, TEXT("Failed to spawn Niagara system"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Failed to spawn Niagara system"));
 		return true;
 	}
 
@@ -273,14 +295,14 @@ bool FUltimateControlNiagaraHandler::HandleSpawnNiagaraSystemAttached(const TSha
 
 	if (SystemPath.IsEmpty() || ActorName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("systemPath and actorName parameters required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("systemPath and actorName parameters required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -297,21 +319,21 @@ bool FUltimateControlNiagaraHandler::HandleSpawnNiagaraSystemAttached(const TSha
 
 	if (!TargetActor)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
 		return true;
 	}
 
 	UNiagaraSystem* System = LoadObject<UNiagaraSystem>(nullptr, *SystemPath);
 	if (!System)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Niagara system not found: %s"), *SystemPath));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Niagara system not found: %s"), *SystemPath));
 		return true;
 	}
 
 	USceneComponent* AttachComponent = TargetActor->GetRootComponent();
 	if (!AttachComponent)
 	{
-		Error = CreateError(-32603, TEXT("Target actor has no root component"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Target actor has no root component"));
 		return true;
 	}
 
@@ -321,7 +343,7 @@ bool FUltimateControlNiagaraHandler::HandleSpawnNiagaraSystemAttached(const TSha
 
 	if (!Component)
 	{
-		Error = CreateError(-32603, TEXT("Failed to spawn attached Niagara system"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Failed to spawn attached Niagara system"));
 		return true;
 	}
 
@@ -334,14 +356,14 @@ bool FUltimateControlNiagaraHandler::HandleDestroyNiagaraComponent(const TShared
 	FString ComponentName = Params->GetStringField(TEXT("componentName"));
 	if (ComponentName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("componentName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("componentName parameter required"));
 		return true;
 	}
 
 	UNiagaraComponent* Component = FindNiagaraComponent(ComponentName);
 	if (!Component)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Niagara component not found: %s"), *ComponentName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Niagara component not found: %s"), *ComponentName));
 		return true;
 	}
 
@@ -360,7 +382,7 @@ bool FUltimateControlNiagaraHandler::HandleGetNiagaraComponents(const TSharedPtr
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -397,14 +419,14 @@ bool FUltimateControlNiagaraHandler::HandleActivateNiagaraComponent(const TShare
 	FString ComponentName = Params->GetStringField(TEXT("componentName"));
 	if (ComponentName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("componentName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("componentName parameter required"));
 		return true;
 	}
 
 	UNiagaraComponent* Component = FindNiagaraComponent(ComponentName);
 	if (!Component)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Niagara component not found: %s"), *ComponentName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Niagara component not found: %s"), *ComponentName));
 		return true;
 	}
 
@@ -422,14 +444,14 @@ bool FUltimateControlNiagaraHandler::HandleDeactivateNiagaraComponent(const TSha
 	FString ComponentName = Params->GetStringField(TEXT("componentName"));
 	if (ComponentName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("componentName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("componentName parameter required"));
 		return true;
 	}
 
 	UNiagaraComponent* Component = FindNiagaraComponent(ComponentName);
 	if (!Component)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Niagara component not found: %s"), *ComponentName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Niagara component not found: %s"), *ComponentName));
 		return true;
 	}
 
@@ -447,14 +469,14 @@ bool FUltimateControlNiagaraHandler::HandleResetNiagaraComponent(const TSharedPt
 	FString ComponentName = Params->GetStringField(TEXT("componentName"));
 	if (ComponentName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("componentName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("componentName parameter required"));
 		return true;
 	}
 
 	UNiagaraComponent* Component = FindNiagaraComponent(ComponentName);
 	if (!Component)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Niagara component not found: %s"), *ComponentName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Niagara component not found: %s"), *ComponentName));
 		return true;
 	}
 
@@ -471,14 +493,14 @@ bool FUltimateControlNiagaraHandler::HandleReinitializeNiagaraComponent(const TS
 	FString ComponentName = Params->GetStringField(TEXT("componentName"));
 	if (ComponentName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("componentName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("componentName parameter required"));
 		return true;
 	}
 
 	UNiagaraComponent* Component = FindNiagaraComponent(ComponentName);
 	if (!Component)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Niagara component not found: %s"), *ComponentName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Niagara component not found: %s"), *ComponentName));
 		return true;
 	}
 
@@ -495,14 +517,14 @@ bool FUltimateControlNiagaraHandler::HandleGetNiagaraParameters(const TSharedPtr
 	FString ComponentName = Params->GetStringField(TEXT("componentName"));
 	if (ComponentName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("componentName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("componentName parameter required"));
 		return true;
 	}
 
 	UNiagaraComponent* Component = FindNiagaraComponent(ComponentName);
 	if (!Component)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Niagara component not found: %s"), *ComponentName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Niagara component not found: %s"), *ComponentName));
 		return true;
 	}
 
@@ -530,14 +552,14 @@ bool FUltimateControlNiagaraHandler::HandleSetNiagaraFloatParameter(const TShare
 
 	if (ComponentName.IsEmpty() || ParameterName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("componentName and parameterName parameters required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("componentName and parameterName parameters required"));
 		return true;
 	}
 
 	UNiagaraComponent* Component = FindNiagaraComponent(ComponentName);
 	if (!Component)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Niagara component not found: %s"), *ComponentName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Niagara component not found: %s"), *ComponentName));
 		return true;
 	}
 
@@ -559,14 +581,14 @@ bool FUltimateControlNiagaraHandler::HandleSetNiagaraVectorParameter(const TShar
 
 	if (ComponentName.IsEmpty() || ParameterName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("componentName and parameterName parameters required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("componentName and parameterName parameters required"));
 		return true;
 	}
 
 	UNiagaraComponent* Component = FindNiagaraComponent(ComponentName);
 	if (!Component)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Niagara component not found: %s"), *ComponentName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Niagara component not found: %s"), *ComponentName));
 		return true;
 	}
 
@@ -589,14 +611,14 @@ bool FUltimateControlNiagaraHandler::HandleSetNiagaraColorParameter(const TShare
 
 	if (ComponentName.IsEmpty() || ParameterName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("componentName and parameterName parameters required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("componentName and parameterName parameters required"));
 		return true;
 	}
 
 	UNiagaraComponent* Component = FindNiagaraComponent(ComponentName);
 	if (!Component)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Niagara component not found: %s"), *ComponentName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Niagara component not found: %s"), *ComponentName));
 		return true;
 	}
 
@@ -616,14 +638,14 @@ bool FUltimateControlNiagaraHandler::HandleSetNiagaraBoolParameter(const TShared
 
 	if (ComponentName.IsEmpty() || ParameterName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("componentName and parameterName parameters required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("componentName and parameterName parameters required"));
 		return true;
 	}
 
 	UNiagaraComponent* Component = FindNiagaraComponent(ComponentName);
 	if (!Component)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Niagara component not found: %s"), *ComponentName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Niagara component not found: %s"), *ComponentName));
 		return true;
 	}
 
@@ -643,14 +665,14 @@ bool FUltimateControlNiagaraHandler::HandleSetNiagaraIntParameter(const TSharedP
 
 	if (ComponentName.IsEmpty() || ParameterName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("componentName and parameterName parameters required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("componentName and parameterName parameters required"));
 		return true;
 	}
 
 	UNiagaraComponent* Component = FindNiagaraComponent(ComponentName);
 	if (!Component)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Niagara component not found: %s"), *ComponentName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Niagara component not found: %s"), *ComponentName));
 		return true;
 	}
 
@@ -670,14 +692,14 @@ bool FUltimateControlNiagaraHandler::HandleSetEmitterEnabled(const TSharedPtr<FJ
 
 	if (ComponentName.IsEmpty() || EmitterName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("componentName and emitterName parameters required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("componentName and emitterName parameters required"));
 		return true;
 	}
 
 	UNiagaraComponent* Component = FindNiagaraComponent(ComponentName);
 	if (!Component)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Niagara component not found: %s"), *ComponentName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Niagara component not found: %s"), *ComponentName));
 		return true;
 	}
 
@@ -696,14 +718,14 @@ bool FUltimateControlNiagaraHandler::HandleGetEmitterEnabled(const TSharedPtr<FJ
 
 	if (ComponentName.IsEmpty() || EmitterName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("componentName and emitterName parameters required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("componentName and emitterName parameters required"));
 		return true;
 	}
 
 	UNiagaraComponent* Component = FindNiagaraComponent(ComponentName);
 	if (!Component)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Niagara component not found: %s"), *ComponentName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Niagara component not found: %s"), *ComponentName));
 		return true;
 	}
 
@@ -724,7 +746,7 @@ bool FUltimateControlNiagaraHandler::HandleGetNiagaraStats(const TSharedPtr<FJso
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 

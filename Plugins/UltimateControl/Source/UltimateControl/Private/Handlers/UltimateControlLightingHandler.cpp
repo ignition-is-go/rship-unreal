@@ -18,43 +18,79 @@
 #include "Materials/MaterialInterface.h"
 // LightmassCharacterIndirectDetailVolume removed in UE 5.6+ - feature deprecated
 
-void FUltimateControlLightingHandler::RegisterMethods(TMap<FString, FJsonRpcMethodHandler>& Methods)
+FUltimateControlLightingHandler::FUltimateControlLightingHandler(UUltimateControlSubsystem* InSubsystem)
+	: FUltimateControlHandlerBase(InSubsystem)
 {
-	Methods.Add(TEXT("light.list"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleListLights));
-	Methods.Add(TEXT("light.get"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleGetLight));
-	Methods.Add(TEXT("light.getIntensity"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleGetLightIntensity));
-	Methods.Add(TEXT("light.setIntensity"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleSetLightIntensity));
-	Methods.Add(TEXT("light.getColor"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleGetLightColor));
-	Methods.Add(TEXT("light.setColor"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleSetLightColor));
-	Methods.Add(TEXT("light.getTemperature"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleGetLightTemperature));
-	Methods.Add(TEXT("light.setTemperature"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleSetLightTemperature));
-	Methods.Add(TEXT("light.getVisibility"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleGetLightVisibility));
-	Methods.Add(TEXT("light.setVisibility"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleSetLightVisibility));
-	Methods.Add(TEXT("light.getEnabled"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleGetLightEnabled));
-	Methods.Add(TEXT("light.setEnabled"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleSetLightEnabled));
-	Methods.Add(TEXT("light.getRadius"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleGetLightRadius));
-	Methods.Add(TEXT("light.setRadius"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleSetLightRadius));
-	Methods.Add(TEXT("light.getSpotAngles"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleGetSpotlightAngles));
-	Methods.Add(TEXT("light.setSpotAngles"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleSetSpotlightAngles));
-	Methods.Add(TEXT("light.getShadowSettings"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleGetShadowSettings));
-	Methods.Add(TEXT("light.setShadowSettings"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleSetShadowSettings));
-	Methods.Add(TEXT("light.getCastShadows"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleGetCastShadows));
-	Methods.Add(TEXT("light.setCastShadows"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleSetCastShadows));
-	Methods.Add(TEXT("light.getSkyLight"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleGetSkyLight));
-	Methods.Add(TEXT("light.setSkyLightIntensity"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleSetSkyLightIntensity));
-	Methods.Add(TEXT("light.recaptureSkyLight"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleRecaptureSkyLight));
-	Methods.Add(TEXT("light.getDirectionalLight"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleGetDirectionalLight));
-	Methods.Add(TEXT("light.setSunRotation"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleSetSunRotation));
-	Methods.Add(TEXT("light.getMobility"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleGetLightMobility));
-	Methods.Add(TEXT("light.setMobility"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleSetLightMobility));
-	Methods.Add(TEXT("light.buildLighting"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleBuildLighting));
-	Methods.Add(TEXT("light.getBuildStatus"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleGetLightBuildStatus));
-	Methods.Add(TEXT("light.cancelBuild"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleCancelLightBuild));
-	Methods.Add(TEXT("light.getIESProfile"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleGetIESProfile));
-	Methods.Add(TEXT("light.setIESProfile"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleSetIESProfile));
-	Methods.Add(TEXT("light.listIESProfiles"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleListIESProfiles));
-	Methods.Add(TEXT("light.getLightFunction"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleGetLightFunction));
-	Methods.Add(TEXT("light.setLightFunction"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleSetLightFunction));
+	RegisterMethod(TEXT("light.list"), TEXT("List lights"), TEXT("Light"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleListLights));
+	RegisterMethod(TEXT("light.get"), TEXT("Get light"), TEXT("Light"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleGetLight));
+	RegisterMethod(TEXT("light.getIntensity"), TEXT("Get light intensity"), TEXT("Light"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleGetLightIntensity));
+	RegisterMethod(TEXT("light.setIntensity"), TEXT("Set light intensity"), TEXT("Light"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleSetLightIntensity));
+	RegisterMethod(TEXT("light.getColor"), TEXT("Get light color"), TEXT("Light"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleGetLightColor));
+	RegisterMethod(TEXT("light.setColor"), TEXT("Set light color"), TEXT("Light"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleSetLightColor));
+	RegisterMethod(TEXT("light.getTemperature"), TEXT("Get light temperature"), TEXT("Light"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleGetLightTemperature));
+	RegisterMethod(TEXT("light.setTemperature"), TEXT("Set light temperature"), TEXT("Light"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleSetLightTemperature));
+	RegisterMethod(TEXT("light.getVisibility"), TEXT("Get light visibility"), TEXT("Light"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleGetLightVisibility));
+	RegisterMethod(TEXT("light.setVisibility"), TEXT("Set light visibility"), TEXT("Light"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleSetLightVisibility));
+	RegisterMethod(TEXT("light.getEnabled"), TEXT("Get light enabled"), TEXT("Light"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleGetLightEnabled));
+	RegisterMethod(TEXT("light.setEnabled"), TEXT("Set light enabled"), TEXT("Light"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleSetLightEnabled));
+	RegisterMethod(TEXT("light.getRadius"), TEXT("Get light radius"), TEXT("Light"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleGetLightRadius));
+	RegisterMethod(TEXT("light.setRadius"), TEXT("Set light radius"), TEXT("Light"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleSetLightRadius));
+	RegisterMethod(TEXT("light.getSpotAngles"), TEXT("Get spotlight angles"), TEXT("Light"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleGetSpotlightAngles));
+	RegisterMethod(TEXT("light.setSpotAngles"), TEXT("Set spotlight angles"), TEXT("Light"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleSetSpotlightAngles));
+	RegisterMethod(TEXT("light.getShadowSettings"), TEXT("Get shadow settings"), TEXT("Light"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleGetShadowSettings));
+	RegisterMethod(TEXT("light.setShadowSettings"), TEXT("Set shadow settings"), TEXT("Light"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleSetShadowSettings));
+	RegisterMethod(TEXT("light.getCastShadows"), TEXT("Get cast shadows"), TEXT("Light"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleGetCastShadows));
+	RegisterMethod(TEXT("light.setCastShadows"), TEXT("Set cast shadows"), TEXT("Light"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleSetCastShadows));
+	RegisterMethod(TEXT("light.getSkyLight"), TEXT("Get sky light"), TEXT("Light"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleGetSkyLight));
+	RegisterMethod(TEXT("light.setSkyLightIntensity"), TEXT("Set sky light intensity"), TEXT("Light"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleSetSkyLightIntensity));
+	RegisterMethod(TEXT("light.recaptureSkyLight"), TEXT("Recapture sky light"), TEXT("Light"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleRecaptureSkyLight));
+	RegisterMethod(TEXT("light.getDirectionalLight"), TEXT("Get directional light"), TEXT("Light"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleGetDirectionalLight));
+	RegisterMethod(TEXT("light.setSunRotation"), TEXT("Set sun rotation"), TEXT("Light"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleSetSunRotation));
+	RegisterMethod(TEXT("light.getMobility"), TEXT("Get light mobility"), TEXT("Light"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleGetLightMobility));
+	RegisterMethod(TEXT("light.setMobility"), TEXT("Set light mobility"), TEXT("Light"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleSetLightMobility));
+	RegisterMethod(TEXT("light.buildLighting"), TEXT("Build lighting"), TEXT("Light"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleBuildLighting));
+	RegisterMethod(TEXT("light.getBuildStatus"), TEXT("Get light build status"), TEXT("Light"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleGetLightBuildStatus));
+	RegisterMethod(TEXT("light.cancelBuild"), TEXT("Cancel light build"), TEXT("Light"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleCancelLightBuild));
+	RegisterMethod(TEXT("light.getIESProfile"), TEXT("Get IES profile"), TEXT("Light"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleGetIESProfile));
+	RegisterMethod(TEXT("light.setIESProfile"), TEXT("Set IES profile"), TEXT("Light"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleSetIESProfile));
+	RegisterMethod(TEXT("light.listIESProfiles"), TEXT("List IES profiles"), TEXT("Light"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleListIESProfiles));
+	RegisterMethod(TEXT("light.getLightFunction"), TEXT("Get light function"), TEXT("Light"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleGetLightFunction));
+	RegisterMethod(TEXT("light.setLightFunction"), TEXT("Set light function"), TEXT("Light"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLightingHandler::HandleSetLightFunction));
 }
 
 ULightComponent* FUltimateControlLightingHandler::GetLightComponent(const FString& ActorName)
@@ -131,7 +167,7 @@ bool FUltimateControlLightingHandler::HandleListLights(const TSharedPtr<FJsonObj
 	UWorld* World = GEditor->GetEditorWorldContext().World();
 	if (!World)
 	{
-		Error = CreateError(-32002, TEXT("No world loaded"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No world loaded"));
 		return false;
 	}
 
@@ -191,7 +227,7 @@ bool FUltimateControlLightingHandler::HandleGetLight(const TSharedPtr<FJsonObjec
 	UWorld* World = GEditor->GetEditorWorldContext().World();
 	if (!World)
 	{
-		Error = CreateError(-32002, TEXT("No world loaded"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No world loaded"));
 		return false;
 	}
 
@@ -204,7 +240,7 @@ bool FUltimateControlLightingHandler::HandleGetLight(const TSharedPtr<FJsonObjec
 		return true;
 	}
 
-	Error = CreateError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
+	Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
 	return false;
 }
 
@@ -219,7 +255,7 @@ bool FUltimateControlLightingHandler::HandleGetLightIntensity(const TSharedPtr<F
 	ULightComponent* LightComp = GetLightComponent(LightName);
 	if (!LightComp)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
 		return false;
 	}
 
@@ -239,7 +275,7 @@ bool FUltimateControlLightingHandler::HandleSetLightIntensity(const TSharedPtr<F
 
 	if (!Params->HasField(TEXT("intensity")))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: intensity"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: intensity"));
 		return false;
 	}
 	float Intensity = Params->GetNumberField(TEXT("intensity"));
@@ -247,7 +283,7 @@ bool FUltimateControlLightingHandler::HandleSetLightIntensity(const TSharedPtr<F
 	ULightComponent* LightComp = GetLightComponent(LightName);
 	if (!LightComp)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
 		return false;
 	}
 
@@ -270,7 +306,7 @@ bool FUltimateControlLightingHandler::HandleGetLightColor(const TSharedPtr<FJson
 	ULightComponent* LightComp = GetLightComponent(LightName);
 	if (!LightComp)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
 		return false;
 	}
 
@@ -290,7 +326,7 @@ bool FUltimateControlLightingHandler::HandleSetLightColor(const TSharedPtr<FJson
 
 	if (!Params->HasField(TEXT("color")))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: color"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: color"));
 		return false;
 	}
 	FLinearColor Color = JsonToColor(Params->GetObjectField(TEXT("color")));
@@ -298,7 +334,7 @@ bool FUltimateControlLightingHandler::HandleSetLightColor(const TSharedPtr<FJson
 	ULightComponent* LightComp = GetLightComponent(LightName);
 	if (!LightComp)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
 		return false;
 	}
 
@@ -321,7 +357,7 @@ bool FUltimateControlLightingHandler::HandleGetLightTemperature(const TSharedPtr
 	ULightComponent* LightComp = GetLightComponent(LightName);
 	if (!LightComp)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
 		return false;
 	}
 
@@ -342,7 +378,7 @@ bool FUltimateControlLightingHandler::HandleSetLightTemperature(const TSharedPtr
 
 	if (!Params->HasField(TEXT("temperature")))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: temperature"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: temperature"));
 		return false;
 	}
 	float Temperature = Params->GetNumberField(TEXT("temperature"));
@@ -350,7 +386,7 @@ bool FUltimateControlLightingHandler::HandleSetLightTemperature(const TSharedPtr
 	ULightComponent* LightComp = GetLightComponent(LightName);
 	if (!LightComp)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
 		return false;
 	}
 
@@ -380,7 +416,7 @@ bool FUltimateControlLightingHandler::HandleGetLightVisibility(const TSharedPtr<
 	ULightComponent* LightComp = GetLightComponent(LightName);
 	if (!LightComp)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
 		return false;
 	}
 
@@ -407,7 +443,7 @@ bool FUltimateControlLightingHandler::HandleSetLightVisibility(const TSharedPtr<
 	ULightComponent* LightComp = GetLightComponent(LightName);
 	if (!LightComp)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
 		return false;
 	}
 
@@ -430,7 +466,7 @@ bool FUltimateControlLightingHandler::HandleGetLightEnabled(const TSharedPtr<FJs
 	ULightComponent* LightComp = GetLightComponent(LightName);
 	if (!LightComp)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
 		return false;
 	}
 
@@ -457,7 +493,7 @@ bool FUltimateControlLightingHandler::HandleSetLightEnabled(const TSharedPtr<FJs
 	ULightComponent* LightComp = GetLightComponent(LightName);
 	if (!LightComp)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
 		return false;
 	}
 
@@ -480,14 +516,14 @@ bool FUltimateControlLightingHandler::HandleGetLightRadius(const TSharedPtr<FJso
 	ULightComponent* LightComp = GetLightComponent(LightName);
 	if (!LightComp)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
 		return false;
 	}
 
 	UPointLightComponent* PointLight = Cast<UPointLightComponent>(LightComp);
 	if (!PointLight)
 	{
-		Error = CreateError(-32002, TEXT("Light is not a point/spot light"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("Light is not a point/spot light"));
 		return false;
 	}
 
@@ -509,14 +545,14 @@ bool FUltimateControlLightingHandler::HandleSetLightRadius(const TSharedPtr<FJso
 	ULightComponent* LightComp = GetLightComponent(LightName);
 	if (!LightComp)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
 		return false;
 	}
 
 	UPointLightComponent* PointLight = Cast<UPointLightComponent>(LightComp);
 	if (!PointLight)
 	{
-		Error = CreateError(-32002, TEXT("Light is not a point/spot light"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("Light is not a point/spot light"));
 		return false;
 	}
 
@@ -547,14 +583,14 @@ bool FUltimateControlLightingHandler::HandleGetSpotlightAngles(const TSharedPtr<
 	ULightComponent* LightComp = GetLightComponent(LightName);
 	if (!LightComp)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
 		return false;
 	}
 
 	USpotLightComponent* SpotLight = Cast<USpotLightComponent>(LightComp);
 	if (!SpotLight)
 	{
-		Error = CreateError(-32002, TEXT("Light is not a spotlight"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("Light is not a spotlight"));
 		return false;
 	}
 
@@ -576,14 +612,14 @@ bool FUltimateControlLightingHandler::HandleSetSpotlightAngles(const TSharedPtr<
 	ULightComponent* LightComp = GetLightComponent(LightName);
 	if (!LightComp)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
 		return false;
 	}
 
 	USpotLightComponent* SpotLight = Cast<USpotLightComponent>(LightComp);
 	if (!SpotLight)
 	{
-		Error = CreateError(-32002, TEXT("Light is not a spotlight"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("Light is not a spotlight"));
 		return false;
 	}
 
@@ -614,7 +650,7 @@ bool FUltimateControlLightingHandler::HandleGetShadowSettings(const TSharedPtr<F
 	ULightComponent* LightComp = GetLightComponent(LightName);
 	if (!LightComp)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
 		return false;
 	}
 
@@ -637,7 +673,7 @@ bool FUltimateControlLightingHandler::HandleSetShadowSettings(const TSharedPtr<F
 	ULightComponent* LightComp = GetLightComponent(LightName);
 	if (!LightComp)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
 		return false;
 	}
 
@@ -674,7 +710,7 @@ bool FUltimateControlLightingHandler::HandleSetCastShadows(const TSharedPtr<FJso
 	ULightComponent* LightComp = GetLightComponent(LightName);
 	if (!LightComp)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
 		return false;
 	}
 
@@ -691,7 +727,7 @@ bool FUltimateControlLightingHandler::HandleGetSkyLight(const TSharedPtr<FJsonOb
 	UWorld* World = GEditor->GetEditorWorldContext().World();
 	if (!World)
 	{
-		Error = CreateError(-32002, TEXT("No world loaded"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No world loaded"));
 		return false;
 	}
 
@@ -711,7 +747,7 @@ bool FUltimateControlLightingHandler::HandleGetSkyLight(const TSharedPtr<FJsonOb
 		return true;
 	}
 
-	Error = CreateError(-32003, TEXT("No sky light found in the level"));
+	Error = UUltimateControlSubsystem::MakeError(-32003, TEXT("No sky light found in the level"));
 	return false;
 }
 
@@ -719,7 +755,7 @@ bool FUltimateControlLightingHandler::HandleSetSkyLightIntensity(const TSharedPt
 {
 	if (!Params->HasField(TEXT("intensity")))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: intensity"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: intensity"));
 		return false;
 	}
 	float Intensity = Params->GetNumberField(TEXT("intensity"));
@@ -727,7 +763,7 @@ bool FUltimateControlLightingHandler::HandleSetSkyLightIntensity(const TSharedPt
 	UWorld* World = GEditor->GetEditorWorldContext().World();
 	if (!World)
 	{
-		Error = CreateError(-32002, TEXT("No world loaded"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No world loaded"));
 		return false;
 	}
 
@@ -746,7 +782,7 @@ bool FUltimateControlLightingHandler::HandleSetSkyLightIntensity(const TSharedPt
 		return true;
 	}
 
-	Error = CreateError(-32003, TEXT("No sky light found in the level"));
+	Error = UUltimateControlSubsystem::MakeError(-32003, TEXT("No sky light found in the level"));
 	return false;
 }
 
@@ -755,7 +791,7 @@ bool FUltimateControlLightingHandler::HandleRecaptureSkyLight(const TSharedPtr<F
 	UWorld* World = GEditor->GetEditorWorldContext().World();
 	if (!World)
 	{
-		Error = CreateError(-32002, TEXT("No world loaded"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No world loaded"));
 		return false;
 	}
 
@@ -774,7 +810,7 @@ bool FUltimateControlLightingHandler::HandleRecaptureSkyLight(const TSharedPtr<F
 		return true;
 	}
 
-	Error = CreateError(-32003, TEXT("No sky light found in the level"));
+	Error = UUltimateControlSubsystem::MakeError(-32003, TEXT("No sky light found in the level"));
 	return false;
 }
 
@@ -783,7 +819,7 @@ bool FUltimateControlLightingHandler::HandleGetDirectionalLight(const TSharedPtr
 	UWorld* World = GEditor->GetEditorWorldContext().World();
 	if (!World)
 	{
-		Error = CreateError(-32002, TEXT("No world loaded"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No world loaded"));
 		return false;
 	}
 
@@ -805,7 +841,7 @@ bool FUltimateControlLightingHandler::HandleGetDirectionalLight(const TSharedPtr
 		return true;
 	}
 
-	Error = CreateError(-32003, TEXT("No directional light found in the level"));
+	Error = UUltimateControlSubsystem::MakeError(-32003, TEXT("No directional light found in the level"));
 	return false;
 }
 
@@ -813,7 +849,7 @@ bool FUltimateControlLightingHandler::HandleSetSunRotation(const TSharedPtr<FJso
 {
 	if (!Params->HasField(TEXT("rotation")))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: rotation"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: rotation"));
 		return false;
 	}
 	FRotator Rotation = JsonToRotator(Params->GetObjectField(TEXT("rotation")));
@@ -821,7 +857,7 @@ bool FUltimateControlLightingHandler::HandleSetSunRotation(const TSharedPtr<FJso
 	UWorld* World = GEditor->GetEditorWorldContext().World();
 	if (!World)
 	{
-		Error = CreateError(-32002, TEXT("No world loaded"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No world loaded"));
 		return false;
 	}
 
@@ -836,7 +872,7 @@ bool FUltimateControlLightingHandler::HandleSetSunRotation(const TSharedPtr<FJso
 		return true;
 	}
 
-	Error = CreateError(-32003, TEXT("No directional light found in the level"));
+	Error = UUltimateControlSubsystem::MakeError(-32003, TEXT("No directional light found in the level"));
 	return false;
 }
 
@@ -851,7 +887,7 @@ bool FUltimateControlLightingHandler::HandleGetLightMobility(const TSharedPtr<FJ
 	ULightComponent* LightComp = GetLightComponent(LightName);
 	if (!LightComp)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
 		return false;
 	}
 
@@ -886,7 +922,7 @@ bool FUltimateControlLightingHandler::HandleSetLightMobility(const TSharedPtr<FJ
 	ULightComponent* LightComp = GetLightComponent(LightName);
 	if (!LightComp)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
 		return false;
 	}
 
@@ -945,7 +981,7 @@ bool FUltimateControlLightingHandler::HandleGetIESProfile(const TSharedPtr<FJson
 	ULightComponent* LightComp = GetLightComponent(LightName);
 	if (!LightComp)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
 		return false;
 	}
 
@@ -976,7 +1012,7 @@ bool FUltimateControlLightingHandler::HandleSetIESProfile(const TSharedPtr<FJson
 	ULightComponent* LightComp = GetLightComponent(LightName);
 	if (!LightComp)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
 		return false;
 	}
 
@@ -1045,7 +1081,7 @@ bool FUltimateControlLightingHandler::HandleGetLightFunction(const TSharedPtr<FJ
 	ULightComponent* LightComp = GetLightComponent(LightName);
 	if (!LightComp)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
 		return false;
 	}
 
@@ -1070,7 +1106,7 @@ bool FUltimateControlLightingHandler::HandleSetLightFunction(const TSharedPtr<FJ
 	ULightComponent* LightComp = GetLightComponent(LightName);
 	if (!LightComp)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Light not found: %s"), *LightName));
 		return false;
 	}
 

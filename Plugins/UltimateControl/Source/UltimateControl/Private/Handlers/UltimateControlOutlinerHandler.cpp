@@ -12,65 +12,106 @@
 #include "ActorFolder.h"
 #include "LevelInstance/LevelInstanceSubsystem.h"
 
-void FUltimateControlOutlinerHandler::RegisterMethods(TMap<FString, FJsonRpcMethodHandler>& Methods)
+FUltimateControlOutlinerHandler::FUltimateControlOutlinerHandler(UUltimateControlSubsystem* InSubsystem)
+	: FUltimateControlHandlerBase(InSubsystem)
 {
 	// Hierarchy
-	Methods.Add(TEXT("outliner.getHierarchy"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleGetHierarchy));
-	Methods.Add(TEXT("outliner.getActorHierarchy"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleGetActorHierarchy));
-	Methods.Add(TEXT("outliner.getParent"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleGetParent));
-	Methods.Add(TEXT("outliner.setParent"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleSetParent));
-	Methods.Add(TEXT("outliner.detachFromParent"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleDetachFromParent));
-	Methods.Add(TEXT("outliner.getChildren"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleGetChildren));
-	Methods.Add(TEXT("outliner.getAllDescendants"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleGetAllDescendants));
+	RegisterMethod(TEXT("outliner.getHierarchy"), TEXT("Get full actor hierarchy"), TEXT("Outliner"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleGetHierarchy));
+	RegisterMethod(TEXT("outliner.getActorHierarchy"), TEXT("Get actor's child hierarchy"), TEXT("Outliner"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleGetActorHierarchy));
+	RegisterMethod(TEXT("outliner.getParent"), TEXT("Get actor's parent"), TEXT("Outliner"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleGetParent));
+	RegisterMethod(TEXT("outliner.setParent"), TEXT("Set actor's parent"), TEXT("Outliner"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleSetParent));
+	RegisterMethod(TEXT("outliner.detachFromParent"), TEXT("Detach actor from parent"), TEXT("Outliner"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleDetachFromParent));
+	RegisterMethod(TEXT("outliner.getChildren"), TEXT("Get actor's children"), TEXT("Outliner"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleGetChildren));
+	RegisterMethod(TEXT("outliner.getAllDescendants"), TEXT("Get all descendants of actor"), TEXT("Outliner"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleGetAllDescendants));
 
 	// Folders
-	Methods.Add(TEXT("outliner.listFolders"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleListFolders));
-	Methods.Add(TEXT("outliner.createFolder"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleCreateFolder));
-	Methods.Add(TEXT("outliner.deleteFolder"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleDeleteFolder));
-	Methods.Add(TEXT("outliner.renameFolder"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleRenameFolder));
-	Methods.Add(TEXT("outliner.getActorFolder"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleGetActorFolder));
-	Methods.Add(TEXT("outliner.setActorFolder"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleSetActorFolder));
-	Methods.Add(TEXT("outliner.getActorsInFolder"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleGetActorsInFolder));
+	RegisterMethod(TEXT("outliner.listFolders"), TEXT("List outliner folders"), TEXT("Outliner"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleListFolders));
+	RegisterMethod(TEXT("outliner.createFolder"), TEXT("Create outliner folder"), TEXT("Outliner"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleCreateFolder));
+	RegisterMethod(TEXT("outliner.deleteFolder"), TEXT("Delete outliner folder"), TEXT("Outliner"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleDeleteFolder));
+	RegisterMethod(TEXT("outliner.renameFolder"), TEXT("Rename outliner folder"), TEXT("Outliner"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleRenameFolder));
+	RegisterMethod(TEXT("outliner.getActorFolder"), TEXT("Get actor's folder"), TEXT("Outliner"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleGetActorFolder));
+	RegisterMethod(TEXT("outliner.setActorFolder"), TEXT("Set actor's folder"), TEXT("Outliner"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleSetActorFolder));
+	RegisterMethod(TEXT("outliner.getActorsInFolder"), TEXT("Get actors in folder"), TEXT("Outliner"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleGetActorsInFolder));
 
 	// Labels and naming
-	Methods.Add(TEXT("outliner.getActorLabel"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleGetActorLabel));
-	Methods.Add(TEXT("outliner.setActorLabel"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleSetActorLabel));
+	RegisterMethod(TEXT("outliner.getActorLabel"), TEXT("Get actor's display label"), TEXT("Outliner"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleGetActorLabel));
+	RegisterMethod(TEXT("outliner.setActorLabel"), TEXT("Set actor's display label"), TEXT("Outliner"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleSetActorLabel));
 
 	// Visibility
-	Methods.Add(TEXT("outliner.getActorHiddenInEditor"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleGetActorHiddenInEditor));
-	Methods.Add(TEXT("outliner.setActorHiddenInEditor"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleSetActorHiddenInEditor));
-	Methods.Add(TEXT("outliner.getActorHiddenInGame"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleGetActorHiddenInGame));
-	Methods.Add(TEXT("outliner.setActorHiddenInGame"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleSetActorHiddenInGame));
+	RegisterMethod(TEXT("outliner.getActorHiddenInEditor"), TEXT("Get actor hidden in editor state"), TEXT("Outliner"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleGetActorHiddenInEditor));
+	RegisterMethod(TEXT("outliner.setActorHiddenInEditor"), TEXT("Set actor hidden in editor state"), TEXT("Outliner"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleSetActorHiddenInEditor));
+	RegisterMethod(TEXT("outliner.getActorHiddenInGame"), TEXT("Get actor hidden in game state"), TEXT("Outliner"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleGetActorHiddenInGame));
+	RegisterMethod(TEXT("outliner.setActorHiddenInGame"), TEXT("Set actor hidden in game state"), TEXT("Outliner"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleSetActorHiddenInGame));
 
 	// Locking
-	Methods.Add(TEXT("outliner.getActorLocked"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleGetActorLocked));
-	Methods.Add(TEXT("outliner.setActorLocked"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleSetActorLocked));
+	RegisterMethod(TEXT("outliner.getActorLocked"), TEXT("Get actor locked state"), TEXT("Outliner"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleGetActorLocked));
+	RegisterMethod(TEXT("outliner.setActorLocked"), TEXT("Set actor locked state"), TEXT("Outliner"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleSetActorLocked));
 
 	// Tags
-	Methods.Add(TEXT("outliner.getActorTags"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleGetActorTags));
-	Methods.Add(TEXT("outliner.addActorTag"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleAddActorTag));
-	Methods.Add(TEXT("outliner.removeActorTag"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleRemoveActorTag));
-	Methods.Add(TEXT("outliner.findActorsByTag"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleFindActorsByTag));
+	RegisterMethod(TEXT("outliner.getActorTags"), TEXT("Get actor's tags"), TEXT("Outliner"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleGetActorTags));
+	RegisterMethod(TEXT("outliner.addActorTag"), TEXT("Add tag to actor"), TEXT("Outliner"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleAddActorTag));
+	RegisterMethod(TEXT("outliner.removeActorTag"), TEXT("Remove tag from actor"), TEXT("Outliner"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleRemoveActorTag));
+	RegisterMethod(TEXT("outliner.findActorsByTag"), TEXT("Find actors with tag"), TEXT("Outliner"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleFindActorsByTag));
 
 	// Layers
-	Methods.Add(TEXT("layer.list"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleListLayers));
-	Methods.Add(TEXT("layer.create"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleCreateLayer));
-	Methods.Add(TEXT("layer.delete"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleDeleteLayer));
-	Methods.Add(TEXT("layer.getActorLayers"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleGetActorLayers));
-	Methods.Add(TEXT("layer.addActor"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleAddActorToLayer));
-	Methods.Add(TEXT("layer.removeActor"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleRemoveActorFromLayer));
-	Methods.Add(TEXT("layer.setVisibility"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleSetLayerVisibility));
+	RegisterMethod(TEXT("layer.list"), TEXT("List editor layers"), TEXT("Layer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleListLayers));
+	RegisterMethod(TEXT("layer.create"), TEXT("Create editor layer"), TEXT("Layer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleCreateLayer));
+	RegisterMethod(TEXT("layer.delete"), TEXT("Delete editor layer"), TEXT("Layer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleDeleteLayer));
+	RegisterMethod(TEXT("layer.getActorLayers"), TEXT("Get actor's layers"), TEXT("Layer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleGetActorLayers));
+	RegisterMethod(TEXT("layer.addActor"), TEXT("Add actor to layer"), TEXT("Layer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleAddActorToLayer));
+	RegisterMethod(TEXT("layer.removeActor"), TEXT("Remove actor from layer"), TEXT("Layer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleRemoveActorFromLayer));
+	RegisterMethod(TEXT("layer.setVisibility"), TEXT("Set layer visibility"), TEXT("Layer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleSetLayerVisibility));
 
 	// Grouping
-	Methods.Add(TEXT("group.groupActors"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleGroupActors));
-	Methods.Add(TEXT("group.ungroupActors"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleUngroupActors));
-	Methods.Add(TEXT("group.getMembers"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleGetGroupMembers));
-	Methods.Add(TEXT("group.lock"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleLockGroup));
-	Methods.Add(TEXT("group.unlock"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleUnlockGroup));
+	RegisterMethod(TEXT("group.groupActors"), TEXT("Group actors together"), TEXT("Group"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleGroupActors));
+	RegisterMethod(TEXT("group.ungroupActors"), TEXT("Ungroup actors"), TEXT("Group"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleUngroupActors));
+	RegisterMethod(TEXT("group.getMembers"), TEXT("Get group members"), TEXT("Group"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleGetGroupMembers));
+	RegisterMethod(TEXT("group.lock"), TEXT("Lock actor group"), TEXT("Group"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleLockGroup));
+	RegisterMethod(TEXT("group.unlock"), TEXT("Unlock actor group"), TEXT("Group"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleUnlockGroup));
 
 	// Filtering/Search
-	Methods.Add(TEXT("outliner.search"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleSearchActors));
-	Methods.Add(TEXT("outliner.filterByClass"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleFilterActorsByClass));
+	RegisterMethod(TEXT("outliner.search"), TEXT("Search actors by name/class"), TEXT("Outliner"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleSearchActors));
+	RegisterMethod(TEXT("outliner.filterByClass"), TEXT("Filter actors by class"), TEXT("Outliner"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlOutlinerHandler::HandleFilterActorsByClass));
 }
 
 TSharedPtr<FJsonObject> FUltimateControlOutlinerHandler::ActorHierarchyToJson(AActor* Actor, bool bRecursive)

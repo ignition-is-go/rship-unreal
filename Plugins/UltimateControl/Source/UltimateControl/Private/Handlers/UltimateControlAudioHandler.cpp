@@ -13,34 +13,61 @@
 #include "Engine/World.h"
 #include "EngineUtils.h"
 
-void FUltimateControlAudioHandler::RegisterMethods(TMap<FString, FJsonRpcMethodHandler>& Methods)
+FUltimateControlAudioHandler::FUltimateControlAudioHandler(UUltimateControlSubsystem* InSubsystem)
+	: FUltimateControlHandlerBase(InSubsystem)
 {
-	Methods.Add(TEXT("audio.listSounds"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleListSounds));
-	Methods.Add(TEXT("audio.getSound"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleGetSound));
-	Methods.Add(TEXT("audio.listCues"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleListSoundCues));
-	Methods.Add(TEXT("audio.listMixes"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleListSoundMixes));
-	Methods.Add(TEXT("audio.listClasses"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleListSoundClasses));
-	Methods.Add(TEXT("audio.play2D"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandlePlaySound2D));
-	Methods.Add(TEXT("audio.playAtLocation"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandlePlaySoundAtLocation));
-	Methods.Add(TEXT("audio.playAttached"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandlePlaySoundAttached));
-	Methods.Add(TEXT("audio.stop"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleStopSound));
-	Methods.Add(TEXT("audio.stopAll"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleStopAllSounds));
-	Methods.Add(TEXT("audio.getComponents"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleGetAudioComponents));
-	Methods.Add(TEXT("audio.setVolume"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleSetAudioComponentVolume));
-	Methods.Add(TEXT("audio.setPitch"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleSetAudioComponentPitch));
-	Methods.Add(TEXT("audio.fade"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleFadeAudioComponent));
-	Methods.Add(TEXT("audio.getMasterVolume"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleGetMasterVolume));
-	Methods.Add(TEXT("audio.setMasterVolume"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleSetMasterVolume));
-	Methods.Add(TEXT("audio.muteAll"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleMuteAll));
-	Methods.Add(TEXT("audio.unmuteAll"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleUnmuteAll));
-	Methods.Add(TEXT("audio.pushMix"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandlePushSoundMix));
-	Methods.Add(TEXT("audio.popMix"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandlePopSoundMix));
-	Methods.Add(TEXT("audio.clearMixes"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleClearSoundMixes));
-	Methods.Add(TEXT("audio.setClassOverride"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleSetSoundMixClassOverride));
-	Methods.Add(TEXT("audio.getClassVolume"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleGetSoundClassVolume));
-	Methods.Add(TEXT("audio.setClassVolume"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleSetSoundClassVolume));
-	Methods.Add(TEXT("audio.getDevices"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleGetActiveAudioDevices));
-	Methods.Add(TEXT("audio.getStats"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleGetAudioStats));
+	RegisterMethod(TEXT("audio.listSounds"), TEXT("List sounds"), TEXT("Audio"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleListSounds));
+	RegisterMethod(TEXT("audio.getSound"), TEXT("Get sound"), TEXT("Audio"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleGetSound));
+	RegisterMethod(TEXT("audio.listCues"), TEXT("List sound cues"), TEXT("Audio"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleListSoundCues));
+	RegisterMethod(TEXT("audio.listMixes"), TEXT("List sound mixes"), TEXT("Audio"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleListSoundMixes));
+	RegisterMethod(TEXT("audio.listClasses"), TEXT("List sound classes"), TEXT("Audio"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleListSoundClasses));
+	RegisterMethod(TEXT("audio.play2D"), TEXT("Play sound 2D"), TEXT("Audio"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandlePlaySound2D));
+	RegisterMethod(TEXT("audio.playAtLocation"), TEXT("Play sound at location"), TEXT("Audio"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandlePlaySoundAtLocation));
+	RegisterMethod(TEXT("audio.playAttached"), TEXT("Play sound attached"), TEXT("Audio"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandlePlaySoundAttached));
+	RegisterMethod(TEXT("audio.stop"), TEXT("Stop sound"), TEXT("Audio"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleStopSound));
+	RegisterMethod(TEXT("audio.stopAll"), TEXT("Stop all sounds"), TEXT("Audio"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleStopAllSounds));
+	RegisterMethod(TEXT("audio.getComponents"), TEXT("Get audio components"), TEXT("Audio"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleGetAudioComponents));
+	RegisterMethod(TEXT("audio.setVolume"), TEXT("Set volume"), TEXT("Audio"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleSetAudioComponentVolume));
+	RegisterMethod(TEXT("audio.setPitch"), TEXT("Set pitch"), TEXT("Audio"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleSetAudioComponentPitch));
+	RegisterMethod(TEXT("audio.fade"), TEXT("Fade audio"), TEXT("Audio"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleFadeAudioComponent));
+	RegisterMethod(TEXT("audio.getMasterVolume"), TEXT("Get master volume"), TEXT("Audio"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleGetMasterVolume));
+	RegisterMethod(TEXT("audio.setMasterVolume"), TEXT("Set master volume"), TEXT("Audio"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleSetMasterVolume));
+	RegisterMethod(TEXT("audio.muteAll"), TEXT("Mute all"), TEXT("Audio"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleMuteAll));
+	RegisterMethod(TEXT("audio.unmuteAll"), TEXT("Unmute all"), TEXT("Audio"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleUnmuteAll));
+	RegisterMethod(TEXT("audio.pushMix"), TEXT("Push sound mix"), TEXT("Audio"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandlePushSoundMix));
+	RegisterMethod(TEXT("audio.popMix"), TEXT("Pop sound mix"), TEXT("Audio"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandlePopSoundMix));
+	RegisterMethod(TEXT("audio.clearMixes"), TEXT("Clear sound mixes"), TEXT("Audio"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleClearSoundMixes));
+	RegisterMethod(TEXT("audio.setClassOverride"), TEXT("Set sound class override"), TEXT("Audio"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleSetSoundMixClassOverride));
+	RegisterMethod(TEXT("audio.getClassVolume"), TEXT("Get sound class volume"), TEXT("Audio"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleGetSoundClassVolume));
+	RegisterMethod(TEXT("audio.setClassVolume"), TEXT("Set sound class volume"), TEXT("Audio"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleSetSoundClassVolume));
+	RegisterMethod(TEXT("audio.getDevices"), TEXT("Get active audio devices"), TEXT("Audio"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleGetActiveAudioDevices));
+	RegisterMethod(TEXT("audio.getStats"), TEXT("Get audio stats"), TEXT("Audio"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAudioHandler::HandleGetAudioStats));
 }
 
 TSharedPtr<FJsonObject> FUltimateControlAudioHandler::SoundToJson(USoundBase* Sound)

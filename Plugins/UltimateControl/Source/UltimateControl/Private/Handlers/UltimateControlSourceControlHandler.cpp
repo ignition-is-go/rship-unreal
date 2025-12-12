@@ -6,51 +6,80 @@
 #include "SourceControlOperations.h"
 #include "SourceControlHelpers.h"
 
-void FUltimateControlSourceControlHandler::RegisterMethods(TMap<FString, FJsonRpcMethodHandler>& Methods)
+FUltimateControlSourceControlHandler::FUltimateControlSourceControlHandler(UUltimateControlSubsystem* InSubsystem)
+	: FUltimateControlHandlerBase(InSubsystem)
 {
 	// Provider status
-	Methods.Add(TEXT("sourceControl.getProviderStatus"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleGetProviderStatus));
-	Methods.Add(TEXT("sourceControl.getProviderName"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleGetProviderName));
-	Methods.Add(TEXT("sourceControl.isEnabled"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleIsEnabled));
-	Methods.Add(TEXT("sourceControl.connect"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleConnect));
+	RegisterMethod(TEXT("sourceControl.getProviderStatus"), TEXT("Get provider status"), TEXT("SourceControl"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleGetProviderStatus));
+	RegisterMethod(TEXT("sourceControl.getProviderName"), TEXT("Get provider name"), TEXT("SourceControl"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleGetProviderName));
+	RegisterMethod(TEXT("sourceControl.isEnabled"), TEXT("Is enabled"), TEXT("SourceControl"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleIsEnabled));
+	RegisterMethod(TEXT("sourceControl.connect"), TEXT("Connect"), TEXT("SourceControl"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleConnect));
 
 	// File status
-	Methods.Add(TEXT("sourceControl.getFileStatus"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleGetFileStatus));
-	Methods.Add(TEXT("sourceControl.getFilesStatus"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleGetFilesStatus));
-	Methods.Add(TEXT("sourceControl.refreshStatus"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleRefreshStatus));
+	RegisterMethod(TEXT("sourceControl.getFileStatus"), TEXT("Get file status"), TEXT("SourceControl"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleGetFileStatus));
+	RegisterMethod(TEXT("sourceControl.getFilesStatus"), TEXT("Get files status"), TEXT("SourceControl"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleGetFilesStatus));
+	RegisterMethod(TEXT("sourceControl.refreshStatus"), TEXT("Refresh status"), TEXT("SourceControl"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleRefreshStatus));
 
 	// Basic operations
-	Methods.Add(TEXT("sourceControl.checkOut"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleCheckOut));
-	Methods.Add(TEXT("sourceControl.checkIn"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleCheckIn));
-	Methods.Add(TEXT("sourceControl.revert"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleRevert));
-	Methods.Add(TEXT("sourceControl.sync"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleSync));
+	RegisterMethod(TEXT("sourceControl.checkOut"), TEXT("Check out"), TEXT("SourceControl"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleCheckOut));
+	RegisterMethod(TEXT("sourceControl.checkIn"), TEXT("Check in"), TEXT("SourceControl"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleCheckIn));
+	RegisterMethod(TEXT("sourceControl.revert"), TEXT("Revert"), TEXT("SourceControl"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleRevert));
+	RegisterMethod(TEXT("sourceControl.sync"), TEXT("Sync"), TEXT("SourceControl"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleSync));
 
 	// Add/Delete
-	Methods.Add(TEXT("sourceControl.markForAdd"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleMarkForAdd));
-	Methods.Add(TEXT("sourceControl.markForDelete"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleMarkForDelete));
-	Methods.Add(TEXT("sourceControl.move"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleMove));
+	RegisterMethod(TEXT("sourceControl.markForAdd"), TEXT("Mark for add"), TEXT("SourceControl"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleMarkForAdd));
+	RegisterMethod(TEXT("sourceControl.markForDelete"), TEXT("Mark for delete"), TEXT("SourceControl"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleMarkForDelete));
+	RegisterMethod(TEXT("sourceControl.move"), TEXT("Move"), TEXT("SourceControl"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleMove));
 
 	// History
-	Methods.Add(TEXT("sourceControl.getHistory"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleGetHistory));
-	Methods.Add(TEXT("sourceControl.diff"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleDiff));
-	Methods.Add(TEXT("sourceControl.annotate"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleAnnotate));
+	RegisterMethod(TEXT("sourceControl.getHistory"), TEXT("Get history"), TEXT("SourceControl"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleGetHistory));
+	RegisterMethod(TEXT("sourceControl.diff"), TEXT("Diff"), TEXT("SourceControl"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleDiff));
+	RegisterMethod(TEXT("sourceControl.annotate"), TEXT("Annotate"), TEXT("SourceControl"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleAnnotate));
 
 	// Changelists
-	Methods.Add(TEXT("sourceControl.listChangelists"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleListChangelists));
-	Methods.Add(TEXT("sourceControl.getChangelist"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleGetChangelist));
-	Methods.Add(TEXT("sourceControl.createChangelist"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleCreateChangelist));
-	Methods.Add(TEXT("sourceControl.deleteChangelist"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleDeleteChangelist));
-	Methods.Add(TEXT("sourceControl.moveToChangelist"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleMoveToChangelist));
-	Methods.Add(TEXT("sourceControl.submitChangelist"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleSubmitChangelist));
+	RegisterMethod(TEXT("sourceControl.listChangelists"), TEXT("List changelists"), TEXT("SourceControl"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleListChangelists));
+	RegisterMethod(TEXT("sourceControl.getChangelist"), TEXT("Get changelist"), TEXT("SourceControl"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleGetChangelist));
+	RegisterMethod(TEXT("sourceControl.createChangelist"), TEXT("Create changelist"), TEXT("SourceControl"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleCreateChangelist));
+	RegisterMethod(TEXT("sourceControl.deleteChangelist"), TEXT("Delete changelist"), TEXT("SourceControl"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleDeleteChangelist));
+	RegisterMethod(TEXT("sourceControl.moveToChangelist"), TEXT("Move to changelist"), TEXT("SourceControl"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleMoveToChangelist));
+	RegisterMethod(TEXT("sourceControl.submitChangelist"), TEXT("Submit changelist"), TEXT("SourceControl"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleSubmitChangelist));
 
 	// Shelving
-	Methods.Add(TEXT("sourceControl.shelve"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleShelve));
-	Methods.Add(TEXT("sourceControl.unshelve"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleUnshelve));
-	Methods.Add(TEXT("sourceControl.deleteShelved"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleDeleteShelved));
+	RegisterMethod(TEXT("sourceControl.shelve"), TEXT("Shelve"), TEXT("SourceControl"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleShelve));
+	RegisterMethod(TEXT("sourceControl.unshelve"), TEXT("Unshelve"), TEXT("SourceControl"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleUnshelve));
+	RegisterMethod(TEXT("sourceControl.deleteShelved"), TEXT("Delete shelved"), TEXT("SourceControl"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleDeleteShelved));
 
 	// Branches
-	Methods.Add(TEXT("sourceControl.listBranches"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleListBranches));
-	Methods.Add(TEXT("sourceControl.getCurrentBranch"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleGetCurrentBranch));
+	RegisterMethod(TEXT("sourceControl.listBranches"), TEXT("List branches"), TEXT("SourceControl"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleListBranches));
+	RegisterMethod(TEXT("sourceControl.getCurrentBranch"), TEXT("Get current branch"), TEXT("SourceControl"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSourceControlHandler::HandleGetCurrentBranch));
 }
 
 ISourceControlProvider* FUltimateControlSourceControlHandler::GetProvider()

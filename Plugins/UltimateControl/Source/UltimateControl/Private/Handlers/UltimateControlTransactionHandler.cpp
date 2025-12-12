@@ -7,19 +7,31 @@
 
 #define LOCTEXT_NAMESPACE "UltimateControlTransactionHandler"
 
-void FUltimateControlTransactionHandler::RegisterMethods(TMap<FString, FJsonRpcMethodHandler>& Methods)
+FUltimateControlTransactionHandler::FUltimateControlTransactionHandler(UUltimateControlSubsystem* InSubsystem)
+	: FUltimateControlHandlerBase(InSubsystem)
 {
-	Methods.Add(TEXT("transaction.undo"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlTransactionHandler::HandleUndo));
-	Methods.Add(TEXT("transaction.redo"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlTransactionHandler::HandleRedo));
-	Methods.Add(TEXT("transaction.getUndoHistory"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlTransactionHandler::HandleGetUndoHistory));
-	Methods.Add(TEXT("transaction.getRedoHistory"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlTransactionHandler::HandleGetRedoHistory));
-	Methods.Add(TEXT("transaction.clearHistory"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlTransactionHandler::HandleClearHistory));
-	Methods.Add(TEXT("transaction.canUndo"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlTransactionHandler::HandleCanUndo));
-	Methods.Add(TEXT("transaction.canRedo"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlTransactionHandler::HandleCanRedo));
-	Methods.Add(TEXT("transaction.begin"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlTransactionHandler::HandleBeginTransaction));
-	Methods.Add(TEXT("transaction.end"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlTransactionHandler::HandleEndTransaction));
-	Methods.Add(TEXT("transaction.cancel"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlTransactionHandler::HandleCancelTransaction));
-	Methods.Add(TEXT("transaction.isInTransaction"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlTransactionHandler::HandleIsInTransaction));
+	RegisterMethod(TEXT("transaction.undo"), TEXT("Undo"), TEXT("Transaction"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlTransactionHandler::HandleUndo));
+	RegisterMethod(TEXT("transaction.redo"), TEXT("Redo"), TEXT("Transaction"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlTransactionHandler::HandleRedo));
+	RegisterMethod(TEXT("transaction.getUndoHistory"), TEXT("Get undo history"), TEXT("Transaction"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlTransactionHandler::HandleGetUndoHistory));
+	RegisterMethod(TEXT("transaction.getRedoHistory"), TEXT("Get redo history"), TEXT("Transaction"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlTransactionHandler::HandleGetRedoHistory));
+	RegisterMethod(TEXT("transaction.clearHistory"), TEXT("Clear history"), TEXT("Transaction"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlTransactionHandler::HandleClearHistory));
+	RegisterMethod(TEXT("transaction.canUndo"), TEXT("Can undo"), TEXT("Transaction"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlTransactionHandler::HandleCanUndo));
+	RegisterMethod(TEXT("transaction.canRedo"), TEXT("Can redo"), TEXT("Transaction"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlTransactionHandler::HandleCanRedo));
+	RegisterMethod(TEXT("transaction.begin"), TEXT("Begin transaction"), TEXT("Transaction"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlTransactionHandler::HandleBeginTransaction));
+	RegisterMethod(TEXT("transaction.end"), TEXT("End transaction"), TEXT("Transaction"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlTransactionHandler::HandleEndTransaction));
+	RegisterMethod(TEXT("transaction.cancel"), TEXT("Cancel transaction"), TEXT("Transaction"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlTransactionHandler::HandleCancelTransaction));
+	RegisterMethod(TEXT("transaction.isInTransaction"), TEXT("Is in transaction"), TEXT("Transaction"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlTransactionHandler::HandleIsInTransaction));
 }
 
 bool FUltimateControlTransactionHandler::HandleUndo(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)

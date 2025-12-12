@@ -11,29 +11,51 @@
 #include "GameFramework/Character.h"
 #include "EngineUtils.h"
 
-void FUltimateControlAnimationHandler::RegisterMethods(TMap<FString, FJsonRpcMethodHandler>& Methods)
+FUltimateControlAnimationHandler::FUltimateControlAnimationHandler(UUltimateControlSubsystem* InSubsystem)
+	: FUltimateControlHandlerBase(InSubsystem)
 {
-	Methods.Add(TEXT("animation.list"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandleListAnimations));
-	Methods.Add(TEXT("animation.get"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandleGetAnimation));
-	Methods.Add(TEXT("animation.listMontages"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandleListAnimMontages));
-	Methods.Add(TEXT("animation.listBlueprints"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandleListAnimBlueprints));
-	Methods.Add(TEXT("animation.play"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandlePlayAnimation));
-	Methods.Add(TEXT("animation.stop"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandleStopAnimation));
-	Methods.Add(TEXT("animation.pause"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandlePauseAnimation));
-	Methods.Add(TEXT("animation.resume"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandleResumeAnimation));
-	Methods.Add(TEXT("animation.getPosition"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandleGetPlaybackPosition));
-	Methods.Add(TEXT("animation.setPosition"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandleSetPlaybackPosition));
-	Methods.Add(TEXT("animation.getRate"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandleGetPlaybackRate));
-	Methods.Add(TEXT("animation.setRate"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandleSetPlaybackRate));
-	Methods.Add(TEXT("animation.playMontage"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandlePlayMontage));
-	Methods.Add(TEXT("animation.stopMontage"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandleStopMontage));
-	Methods.Add(TEXT("animation.jumpToSection"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandleJumpToMontageSection));
-	Methods.Add(TEXT("animation.getMontagePosition"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandleGetMontagePosition));
-	Methods.Add(TEXT("animation.getAnimBlueprintVariables"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandleGetAnimBlueprintVariables));
-	Methods.Add(TEXT("animation.setAnimBlueprintVariable"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandleSetAnimBlueprintVariable));
-	Methods.Add(TEXT("animation.getSkeleton"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandleGetSkeleton));
-	Methods.Add(TEXT("animation.getBoneTransform"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandleGetBoneTransform));
-	Methods.Add(TEXT("animation.setBoneTransform"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandleSetBoneTransform));
+	RegisterMethod(TEXT("animation.list"), TEXT("List animation sequences"), TEXT("Animation"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandleListAnimations));
+	RegisterMethod(TEXT("animation.get"), TEXT("Get animation details"), TEXT("Animation"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandleGetAnimation));
+	RegisterMethod(TEXT("animation.listMontages"), TEXT("List animation montages"), TEXT("Animation"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandleListAnimMontages));
+	RegisterMethod(TEXT("animation.listBlueprints"), TEXT("List animation blueprints"), TEXT("Animation"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandleListAnimBlueprints));
+	RegisterMethod(TEXT("animation.play"), TEXT("Play animation on actor"), TEXT("Animation"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandlePlayAnimation));
+	RegisterMethod(TEXT("animation.stop"), TEXT("Stop animation playback"), TEXT("Animation"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandleStopAnimation));
+	RegisterMethod(TEXT("animation.pause"), TEXT("Pause animation playback"), TEXT("Animation"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandlePauseAnimation));
+	RegisterMethod(TEXT("animation.resume"), TEXT("Resume animation playback"), TEXT("Animation"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandleResumeAnimation));
+	RegisterMethod(TEXT("animation.getPosition"), TEXT("Get playback position"), TEXT("Animation"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandleGetPlaybackPosition));
+	RegisterMethod(TEXT("animation.setPosition"), TEXT("Set playback position"), TEXT("Animation"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandleSetPlaybackPosition));
+	RegisterMethod(TEXT("animation.getRate"), TEXT("Get playback rate"), TEXT("Animation"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandleGetPlaybackRate));
+	RegisterMethod(TEXT("animation.setRate"), TEXT("Set playback rate"), TEXT("Animation"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandleSetPlaybackRate));
+	RegisterMethod(TEXT("animation.playMontage"), TEXT("Play animation montage"), TEXT("Animation"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandlePlayMontage));
+	RegisterMethod(TEXT("animation.stopMontage"), TEXT("Stop animation montage"), TEXT("Animation"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandleStopMontage));
+	RegisterMethod(TEXT("animation.jumpToSection"), TEXT("Jump to montage section"), TEXT("Animation"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandleJumpToMontageSection));
+	RegisterMethod(TEXT("animation.getMontagePosition"), TEXT("Get montage playback position"), TEXT("Animation"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandleGetMontagePosition));
+	RegisterMethod(TEXT("animation.getAnimBlueprintVariables"), TEXT("Get anim blueprint variables"), TEXT("Animation"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandleGetAnimBlueprintVariables));
+	RegisterMethod(TEXT("animation.setAnimBlueprintVariable"), TEXT("Set anim blueprint variable"), TEXT("Animation"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandleSetAnimBlueprintVariable));
+	RegisterMethod(TEXT("animation.getSkeleton"), TEXT("Get skeleton bone hierarchy"), TEXT("Animation"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandleGetSkeleton));
+	RegisterMethod(TEXT("animation.getBoneTransform"), TEXT("Get bone transform"), TEXT("Animation"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandleGetBoneTransform));
+	RegisterMethod(TEXT("animation.setBoneTransform"), TEXT("Set bone transform"), TEXT("Animation"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAnimationHandler::HandleSetBoneTransform));
 }
 
 USkeletalMeshComponent* FUltimateControlAnimationHandler::GetSkeletalMeshComponent(const FString& ActorName)

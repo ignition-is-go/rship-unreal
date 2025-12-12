@@ -13,62 +13,100 @@
 #include "Components/ExponentialHeightFogComponent.h"
 #include "Engine/ExponentialHeightFog.h"
 
-void FUltimateControlRenderHandler::RegisterMethods(TMap<FString, FJsonRpcMethodHandler>& Methods)
+FUltimateControlRenderHandler::FUltimateControlRenderHandler(UUltimateControlSubsystem* InSubsystem)
+	: FUltimateControlHandlerBase(InSubsystem)
 {
 	// Quality settings
-	Methods.Add(TEXT("render.getQualitySettings"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleGetQualitySettings));
-	Methods.Add(TEXT("render.setQualitySettings"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetQualitySettings));
-	Methods.Add(TEXT("render.getScalabilityGroups"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleGetScalabilityGroups));
-	Methods.Add(TEXT("render.setScalabilityGroup"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetScalabilityGroup));
+	RegisterMethod(TEXT("render.getQualitySettings"), TEXT("Get quality settings"), TEXT("Render"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleGetQualitySettings));
+	RegisterMethod(TEXT("render.setQualitySettings"), TEXT("Set quality settings"), TEXT("Render"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetQualitySettings));
+	RegisterMethod(TEXT("render.getScalabilityGroups"), TEXT("Get scalability groups"), TEXT("Render"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleGetScalabilityGroups));
+	RegisterMethod(TEXT("render.setScalabilityGroup"), TEXT("Set scalability group"), TEXT("Render"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetScalabilityGroup));
 
 	// Resolution
-	Methods.Add(TEXT("render.getResolution"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleGetResolution));
-	Methods.Add(TEXT("render.setResolution"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetResolution));
-	Methods.Add(TEXT("render.getResolutionScale"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleGetResolutionScale));
-	Methods.Add(TEXT("render.setResolutionScale"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetResolutionScale));
+	RegisterMethod(TEXT("render.getResolution"), TEXT("Get resolution"), TEXT("Render"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleGetResolution));
+	RegisterMethod(TEXT("render.setResolution"), TEXT("Set resolution"), TEXT("Render"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetResolution));
+	RegisterMethod(TEXT("render.getResolutionScale"), TEXT("Get resolution scale"), TEXT("Render"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleGetResolutionScale));
+	RegisterMethod(TEXT("render.setResolutionScale"), TEXT("Set resolution scale"), TEXT("Render"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetResolutionScale));
 
 	// Frame rate
-	Methods.Add(TEXT("render.getFrameRate"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleGetFrameRate));
-	Methods.Add(TEXT("render.setTargetFrameRate"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetTargetFrameRate));
-	Methods.Add(TEXT("render.getVSyncEnabled"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleGetVSyncEnabled));
-	Methods.Add(TEXT("render.setVSyncEnabled"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetVSyncEnabled));
+	RegisterMethod(TEXT("render.getFrameRate"), TEXT("Get frame rate"), TEXT("Render"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleGetFrameRate));
+	RegisterMethod(TEXT("render.setTargetFrameRate"), TEXT("Set target frame rate"), TEXT("Render"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetTargetFrameRate));
+	RegisterMethod(TEXT("render.getVSyncEnabled"), TEXT("Get VSync enabled"), TEXT("Render"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleGetVSyncEnabled));
+	RegisterMethod(TEXT("render.setVSyncEnabled"), TEXT("Set VSync enabled"), TEXT("Render"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetVSyncEnabled));
 
 	// Rendering features
-	Methods.Add(TEXT("render.getRaytracingEnabled"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleGetRaytracingEnabled));
-	Methods.Add(TEXT("render.setRaytracingEnabled"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetRaytracingEnabled));
-	Methods.Add(TEXT("render.getNaniteEnabled"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleGetNaniteEnabled));
-	Methods.Add(TEXT("render.getLumenEnabled"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleGetLumenEnabled));
-	Methods.Add(TEXT("render.setLumenEnabled"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetLumenEnabled));
-	Methods.Add(TEXT("render.getVirtualShadowMapsEnabled"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleGetVirtualShadowMapsEnabled));
+	RegisterMethod(TEXT("render.getRaytracingEnabled"), TEXT("Get raytracing enabled"), TEXT("Render"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleGetRaytracingEnabled));
+	RegisterMethod(TEXT("render.setRaytracingEnabled"), TEXT("Set raytracing enabled"), TEXT("Render"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetRaytracingEnabled));
+	RegisterMethod(TEXT("render.getNaniteEnabled"), TEXT("Get Nanite enabled"), TEXT("Render"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleGetNaniteEnabled));
+	RegisterMethod(TEXT("render.getLumenEnabled"), TEXT("Get Lumen enabled"), TEXT("Render"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleGetLumenEnabled));
+	RegisterMethod(TEXT("render.setLumenEnabled"), TEXT("Set Lumen enabled"), TEXT("Render"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetLumenEnabled));
+	RegisterMethod(TEXT("render.getVirtualShadowMapsEnabled"), TEXT("Get virtual shadow maps enabled"), TEXT("Render"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleGetVirtualShadowMapsEnabled));
 
 	// Post-process volumes
-	Methods.Add(TEXT("postProcess.listVolumes"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleListPostProcessVolumes));
-	Methods.Add(TEXT("postProcess.getVolume"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleGetPostProcessVolume));
-	Methods.Add(TEXT("postProcess.createVolume"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleCreatePostProcessVolume));
+	RegisterMethod(TEXT("postProcess.listVolumes"), TEXT("List post-process volumes"), TEXT("PostProcess"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleListPostProcessVolumes));
+	RegisterMethod(TEXT("postProcess.getVolume"), TEXT("Get post-process volume"), TEXT("PostProcess"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleGetPostProcessVolume));
+	RegisterMethod(TEXT("postProcess.createVolume"), TEXT("Create post-process volume"), TEXT("PostProcess"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleCreatePostProcessVolume));
 
 	// Post-process settings
-	Methods.Add(TEXT("postProcess.getSettings"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleGetPostProcessSettings));
-	Methods.Add(TEXT("postProcess.setSetting"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetPostProcessSetting));
+	RegisterMethod(TEXT("postProcess.getSettings"), TEXT("Get post-process settings"), TEXT("PostProcess"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleGetPostProcessSettings));
+	RegisterMethod(TEXT("postProcess.setSetting"), TEXT("Set post-process setting"), TEXT("PostProcess"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetPostProcessSetting));
 
 	// Common PP settings shortcuts
-	Methods.Add(TEXT("postProcess.setBloomIntensity"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetBloomIntensity));
-	Methods.Add(TEXT("postProcess.setExposure"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetExposure));
-	Methods.Add(TEXT("postProcess.setMotionBlur"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetMotionBlurAmount));
-	Methods.Add(TEXT("postProcess.setVignette"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetVignetteIntensity));
-	Methods.Add(TEXT("postProcess.setDepthOfField"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetDepthOfField));
-	Methods.Add(TEXT("postProcess.setColorGrading"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetColorGrading));
-	Methods.Add(TEXT("postProcess.setAmbientOcclusion"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetAmbientOcclusion));
-	Methods.Add(TEXT("postProcess.setFilmGrain"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetFilmGrain));
-	Methods.Add(TEXT("postProcess.setChromaticAberration"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetChromaticAberration));
+	RegisterMethod(TEXT("postProcess.setBloomIntensity"), TEXT("Set bloom intensity"), TEXT("PostProcess"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetBloomIntensity));
+	RegisterMethod(TEXT("postProcess.setExposure"), TEXT("Set exposure"), TEXT("PostProcess"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetExposure));
+	RegisterMethod(TEXT("postProcess.setMotionBlur"), TEXT("Set motion blur amount"), TEXT("PostProcess"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetMotionBlurAmount));
+	RegisterMethod(TEXT("postProcess.setVignette"), TEXT("Set vignette intensity"), TEXT("PostProcess"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetVignetteIntensity));
+	RegisterMethod(TEXT("postProcess.setDepthOfField"), TEXT("Set depth of field"), TEXT("PostProcess"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetDepthOfField));
+	RegisterMethod(TEXT("postProcess.setColorGrading"), TEXT("Set color grading"), TEXT("PostProcess"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetColorGrading));
+	RegisterMethod(TEXT("postProcess.setAmbientOcclusion"), TEXT("Set ambient occlusion"), TEXT("PostProcess"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetAmbientOcclusion));
+	RegisterMethod(TEXT("postProcess.setFilmGrain"), TEXT("Set film grain"), TEXT("PostProcess"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetFilmGrain));
+	RegisterMethod(TEXT("postProcess.setChromaticAberration"), TEXT("Set chromatic aberration"), TEXT("PostProcess"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetChromaticAberration));
 
 	// Show flags
-	Methods.Add(TEXT("render.getShowFlags"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleGetShowFlags));
-	Methods.Add(TEXT("render.setShowFlag"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetShowFlag));
-	Methods.Add(TEXT("render.listShowFlags"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleListShowFlags));
+	RegisterMethod(TEXT("render.getShowFlags"), TEXT("Get show flags"), TEXT("Render"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleGetShowFlags));
+	RegisterMethod(TEXT("render.setShowFlag"), TEXT("Set show flag"), TEXT("Render"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetShowFlag));
+	RegisterMethod(TEXT("render.listShowFlags"), TEXT("List show flags"), TEXT("Render"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleListShowFlags));
 
 	// Fog
-	Methods.Add(TEXT("render.getFogSettings"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleGetFogSettings));
-	Methods.Add(TEXT("render.setFogSettings"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetFogSettings));
+	RegisterMethod(TEXT("render.getFogSettings"), TEXT("Get fog settings"), TEXT("Render"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleGetFogSettings));
+	RegisterMethod(TEXT("render.setFogSettings"), TEXT("Set fog settings"), TEXT("Render"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetFogSettings));
 }
 
 TSharedPtr<FJsonObject> FUltimateControlRenderHandler::PostProcessVolumeToJson(APostProcessVolume* Volume)

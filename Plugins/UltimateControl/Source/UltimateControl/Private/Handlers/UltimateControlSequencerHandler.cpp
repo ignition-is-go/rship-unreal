@@ -17,34 +17,61 @@
 #include "Factories/LevelSequenceFactoryNew.h"
 #include "AssetToolsModule.h"
 
-void FUltimateControlSequencerHandler::RegisterMethods(TMap<FString, FJsonRpcMethodHandler>& Methods)
+FUltimateControlSequencerHandler::FUltimateControlSequencerHandler(UUltimateControlSubsystem* InSubsystem)
+	: FUltimateControlHandlerBase(InSubsystem)
 {
-	Methods.Add(TEXT("sequencer.list"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleListSequences));
-	Methods.Add(TEXT("sequencer.get"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleGetSequence));
-	Methods.Add(TEXT("sequencer.create"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleCreateSequence));
-	Methods.Add(TEXT("sequencer.play"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandlePlaySequence));
-	Methods.Add(TEXT("sequencer.stop"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleStopSequence));
-	Methods.Add(TEXT("sequencer.pause"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandlePauseSequence));
-	Methods.Add(TEXT("sequencer.scrub"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleScrubSequence));
-	Methods.Add(TEXT("sequencer.getPlaybackState"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleGetPlaybackState));
-	Methods.Add(TEXT("sequencer.getCurrentTime"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleGetCurrentTime));
-	Methods.Add(TEXT("sequencer.setCurrentTime"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleSetCurrentTime));
-	Methods.Add(TEXT("sequencer.getPlaybackRate"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleGetPlaybackRate));
-	Methods.Add(TEXT("sequencer.setPlaybackRate"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleSetPlaybackRate));
-	Methods.Add(TEXT("sequencer.getLength"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleGetSequenceLength));
-	Methods.Add(TEXT("sequencer.getFrameRate"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleGetFrameRate));
-	Methods.Add(TEXT("sequencer.setFrameRate"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleSetFrameRate));
-	Methods.Add(TEXT("sequencer.getPlaybackRange"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleGetPlaybackRange));
-	Methods.Add(TEXT("sequencer.setPlaybackRange"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleSetPlaybackRange));
-	Methods.Add(TEXT("sequencer.getTracks"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleGetTracks));
-	Methods.Add(TEXT("sequencer.addTrack"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleAddTrack));
-	Methods.Add(TEXT("sequencer.removeTrack"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleRemoveTrack));
-	Methods.Add(TEXT("sequencer.getBindings"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleGetBindings));
-	Methods.Add(TEXT("sequencer.addBinding"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleAddBinding));
-	Methods.Add(TEXT("sequencer.removeBinding"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleRemoveBinding));
-	Methods.Add(TEXT("sequencer.open"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleOpenSequence));
-	Methods.Add(TEXT("sequencer.close"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleCloseSequence));
-	Methods.Add(TEXT("sequencer.getOpen"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleGetOpenSequence));
+	RegisterMethod(TEXT("sequencer.list"), TEXT("List sequences"), TEXT("Sequencer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleListSequences));
+	RegisterMethod(TEXT("sequencer.get"), TEXT("Get sequence"), TEXT("Sequencer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleGetSequence));
+	RegisterMethod(TEXT("sequencer.create"), TEXT("Create sequence"), TEXT("Sequencer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleCreateSequence));
+	RegisterMethod(TEXT("sequencer.play"), TEXT("Play sequence"), TEXT("Sequencer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandlePlaySequence));
+	RegisterMethod(TEXT("sequencer.stop"), TEXT("Stop sequence"), TEXT("Sequencer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleStopSequence));
+	RegisterMethod(TEXT("sequencer.pause"), TEXT("Pause sequence"), TEXT("Sequencer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandlePauseSequence));
+	RegisterMethod(TEXT("sequencer.scrub"), TEXT("Scrub sequence"), TEXT("Sequencer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleScrubSequence));
+	RegisterMethod(TEXT("sequencer.getPlaybackState"), TEXT("Get playback state"), TEXT("Sequencer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleGetPlaybackState));
+	RegisterMethod(TEXT("sequencer.getCurrentTime"), TEXT("Get current time"), TEXT("Sequencer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleGetCurrentTime));
+	RegisterMethod(TEXT("sequencer.setCurrentTime"), TEXT("Set current time"), TEXT("Sequencer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleSetCurrentTime));
+	RegisterMethod(TEXT("sequencer.getPlaybackRate"), TEXT("Get playback rate"), TEXT("Sequencer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleGetPlaybackRate));
+	RegisterMethod(TEXT("sequencer.setPlaybackRate"), TEXT("Set playback rate"), TEXT("Sequencer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleSetPlaybackRate));
+	RegisterMethod(TEXT("sequencer.getLength"), TEXT("Get sequence length"), TEXT("Sequencer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleGetSequenceLength));
+	RegisterMethod(TEXT("sequencer.getFrameRate"), TEXT("Get frame rate"), TEXT("Sequencer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleGetFrameRate));
+	RegisterMethod(TEXT("sequencer.setFrameRate"), TEXT("Set frame rate"), TEXT("Sequencer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleSetFrameRate));
+	RegisterMethod(TEXT("sequencer.getPlaybackRange"), TEXT("Get playback range"), TEXT("Sequencer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleGetPlaybackRange));
+	RegisterMethod(TEXT("sequencer.setPlaybackRange"), TEXT("Set playback range"), TEXT("Sequencer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleSetPlaybackRange));
+	RegisterMethod(TEXT("sequencer.getTracks"), TEXT("Get tracks"), TEXT("Sequencer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleGetTracks));
+	RegisterMethod(TEXT("sequencer.addTrack"), TEXT("Add track"), TEXT("Sequencer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleAddTrack));
+	RegisterMethod(TEXT("sequencer.removeTrack"), TEXT("Remove track"), TEXT("Sequencer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleRemoveTrack));
+	RegisterMethod(TEXT("sequencer.getBindings"), TEXT("Get bindings"), TEXT("Sequencer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleGetBindings));
+	RegisterMethod(TEXT("sequencer.addBinding"), TEXT("Add binding"), TEXT("Sequencer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleAddBinding));
+	RegisterMethod(TEXT("sequencer.removeBinding"), TEXT("Remove binding"), TEXT("Sequencer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleRemoveBinding));
+	RegisterMethod(TEXT("sequencer.open"), TEXT("Open sequence"), TEXT("Sequencer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleOpenSequence));
+	RegisterMethod(TEXT("sequencer.close"), TEXT("Close sequence"), TEXT("Sequencer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleCloseSequence));
+	RegisterMethod(TEXT("sequencer.getOpen"), TEXT("Get open sequence"), TEXT("Sequencer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSequencerHandler::HandleGetOpenSequence));
 }
 
 TSharedPtr<FJsonObject> FUltimateControlSequencerHandler::SequenceToJson(ULevelSequence* Sequence)
@@ -154,7 +181,7 @@ bool FUltimateControlSequencerHandler::HandleGetSequence(const TSharedPtr<FJsonO
 	ULevelSequence* Sequence = LoadObject<ULevelSequence>(nullptr, *Path);
 	if (!Sequence)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Sequence not found: %s"), *Path));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Sequence not found: %s"), *Path));
 		return false;
 	}
 
@@ -180,7 +207,7 @@ bool FUltimateControlSequencerHandler::HandleCreateSequence(const TSharedPtr<FJs
 
 	if (!NewAsset)
 	{
-		Error = CreateError(-32002, FString::Printf(TEXT("Failed to create sequence at: %s"), *Path));
+		Error = UUltimateControlSubsystem::MakeError(-32002, FString::Printf(TEXT("Failed to create sequence at: %s"), *Path));
 		return false;
 	}
 
@@ -200,14 +227,14 @@ bool FUltimateControlSequencerHandler::HandlePlaySequence(const TSharedPtr<FJson
 	ULevelSequence* Sequence = LoadObject<ULevelSequence>(nullptr, *Path);
 	if (!Sequence)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Sequence not found: %s"), *Path));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Sequence not found: %s"), *Path));
 		return false;
 	}
 
 	UWorld* World = GEditor->GetEditorWorldContext().World();
 	if (!World)
 	{
-		Error = CreateError(-32002, TEXT("No world loaded"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No world loaded"));
 		return false;
 	}
 
@@ -225,7 +252,7 @@ bool FUltimateControlSequencerHandler::HandlePlaySequence(const TSharedPtr<FJson
 	ULevelSequencePlayer* Player = SequenceActor->GetSequencePlayer();
 	if (!Player)
 	{
-		Error = CreateError(-32002, TEXT("Failed to get sequence player"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("Failed to get sequence player"));
 		return false;
 	}
 
@@ -255,7 +282,7 @@ bool FUltimateControlSequencerHandler::HandleStopSequence(const TSharedPtr<FJson
 	ULevelSequence* Sequence = LoadObject<ULevelSequence>(nullptr, *Path);
 	if (!Sequence)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Sequence not found: %s"), *Path));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Sequence not found: %s"), *Path));
 		return false;
 	}
 
@@ -286,7 +313,7 @@ bool FUltimateControlSequencerHandler::HandlePauseSequence(const TSharedPtr<FJso
 	ULevelSequence* Sequence = LoadObject<ULevelSequence>(nullptr, *Path);
 	if (!Sequence)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Sequence not found: %s"), *Path));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Sequence not found: %s"), *Path));
 		return false;
 	}
 
@@ -316,7 +343,7 @@ bool FUltimateControlSequencerHandler::HandleScrubSequence(const TSharedPtr<FJso
 
 	if (!Params->HasField(TEXT("time")))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: time"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: time"));
 		return false;
 	}
 	float Time = Params->GetNumberField(TEXT("time"));
@@ -324,7 +351,7 @@ bool FUltimateControlSequencerHandler::HandleScrubSequence(const TSharedPtr<FJso
 	ULevelSequence* Sequence = LoadObject<ULevelSequence>(nullptr, *Path);
 	if (!Sequence)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Sequence not found: %s"), *Path));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Sequence not found: %s"), *Path));
 		return false;
 	}
 
@@ -355,7 +382,7 @@ bool FUltimateControlSequencerHandler::HandleGetPlaybackState(const TSharedPtr<F
 	ULevelSequence* Sequence = LoadObject<ULevelSequence>(nullptr, *Path);
 	if (!Sequence)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Sequence not found: %s"), *Path));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Sequence not found: %s"), *Path));
 		return false;
 	}
 
@@ -400,7 +427,7 @@ bool FUltimateControlSequencerHandler::HandleGetCurrentTime(const TSharedPtr<FJs
 	ULevelSequence* Sequence = LoadObject<ULevelSequence>(nullptr, *Path);
 	if (!Sequence)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Sequence not found: %s"), *Path));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Sequence not found: %s"), *Path));
 		return false;
 	}
 
@@ -439,7 +466,7 @@ bool FUltimateControlSequencerHandler::HandleGetPlaybackRate(const TSharedPtr<FJ
 	ULevelSequence* Sequence = LoadObject<ULevelSequence>(nullptr, *Path);
 	if (!Sequence)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Sequence not found: %s"), *Path));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Sequence not found: %s"), *Path));
 		return false;
 	}
 
@@ -472,7 +499,7 @@ bool FUltimateControlSequencerHandler::HandleSetPlaybackRate(const TSharedPtr<FJ
 
 	if (!Params->HasField(TEXT("rate")))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: rate"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: rate"));
 		return false;
 	}
 	float Rate = Params->GetNumberField(TEXT("rate"));
@@ -480,7 +507,7 @@ bool FUltimateControlSequencerHandler::HandleSetPlaybackRate(const TSharedPtr<FJ
 	ULevelSequence* Sequence = LoadObject<ULevelSequence>(nullptr, *Path);
 	if (!Sequence)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Sequence not found: %s"), *Path));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Sequence not found: %s"), *Path));
 		return false;
 	}
 
@@ -511,14 +538,14 @@ bool FUltimateControlSequencerHandler::HandleGetSequenceLength(const TSharedPtr<
 	ULevelSequence* Sequence = LoadObject<ULevelSequence>(nullptr, *Path);
 	if (!Sequence)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Sequence not found: %s"), *Path));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Sequence not found: %s"), *Path));
 		return false;
 	}
 
 	UMovieScene* MovieScene = Sequence->GetMovieScene();
 	if (!MovieScene)
 	{
-		Error = CreateError(-32002, TEXT("No movie scene"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No movie scene"));
 		return false;
 	}
 
@@ -541,14 +568,14 @@ bool FUltimateControlSequencerHandler::HandleGetFrameRate(const TSharedPtr<FJson
 	ULevelSequence* Sequence = LoadObject<ULevelSequence>(nullptr, *Path);
 	if (!Sequence)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Sequence not found: %s"), *Path));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Sequence not found: %s"), *Path));
 		return false;
 	}
 
 	UMovieScene* MovieScene = Sequence->GetMovieScene();
 	if (!MovieScene)
 	{
-		Error = CreateError(-32002, TEXT("No movie scene"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No movie scene"));
 		return false;
 	}
 
@@ -569,7 +596,7 @@ bool FUltimateControlSequencerHandler::HandleSetFrameRate(const TSharedPtr<FJson
 
 	if (!Params->HasField(TEXT("frameRate")))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: frameRate"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: frameRate"));
 		return false;
 	}
 	float FrameRate = Params->GetNumberField(TEXT("frameRate"));
@@ -577,14 +604,14 @@ bool FUltimateControlSequencerHandler::HandleSetFrameRate(const TSharedPtr<FJson
 	ULevelSequence* Sequence = LoadObject<ULevelSequence>(nullptr, *Path);
 	if (!Sequence)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Sequence not found: %s"), *Path));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Sequence not found: %s"), *Path));
 		return false;
 	}
 
 	UMovieScene* MovieScene = Sequence->GetMovieScene();
 	if (!MovieScene)
 	{
-		Error = CreateError(-32002, TEXT("No movie scene"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No movie scene"));
 		return false;
 	}
 
@@ -608,14 +635,14 @@ bool FUltimateControlSequencerHandler::HandleGetPlaybackRange(const TSharedPtr<F
 	ULevelSequence* Sequence = LoadObject<ULevelSequence>(nullptr, *Path);
 	if (!Sequence)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Sequence not found: %s"), *Path));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Sequence not found: %s"), *Path));
 		return false;
 	}
 
 	UMovieScene* MovieScene = Sequence->GetMovieScene();
 	if (!MovieScene)
 	{
-		Error = CreateError(-32002, TEXT("No movie scene"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No movie scene"));
 		return false;
 	}
 
@@ -639,7 +666,7 @@ bool FUltimateControlSequencerHandler::HandleSetPlaybackRange(const TSharedPtr<F
 
 	if (!Params->HasField(TEXT("start")) || !Params->HasField(TEXT("end")))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameters: start and end"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameters: start and end"));
 		return false;
 	}
 
@@ -649,14 +676,14 @@ bool FUltimateControlSequencerHandler::HandleSetPlaybackRange(const TSharedPtr<F
 	ULevelSequence* Sequence = LoadObject<ULevelSequence>(nullptr, *Path);
 	if (!Sequence)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Sequence not found: %s"), *Path));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Sequence not found: %s"), *Path));
 		return false;
 	}
 
 	UMovieScene* MovieScene = Sequence->GetMovieScene();
 	if (!MovieScene)
 	{
-		Error = CreateError(-32002, TEXT("No movie scene"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No movie scene"));
 		return false;
 	}
 
@@ -684,14 +711,14 @@ bool FUltimateControlSequencerHandler::HandleGetTracks(const TSharedPtr<FJsonObj
 	ULevelSequence* Sequence = LoadObject<ULevelSequence>(nullptr, *Path);
 	if (!Sequence)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Sequence not found: %s"), *Path));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Sequence not found: %s"), *Path));
 		return false;
 	}
 
 	UMovieScene* MovieScene = Sequence->GetMovieScene();
 	if (!MovieScene)
 	{
-		Error = CreateError(-32002, TEXT("No movie scene"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No movie scene"));
 		return false;
 	}
 
@@ -711,13 +738,13 @@ bool FUltimateControlSequencerHandler::HandleGetTracks(const TSharedPtr<FJsonObj
 bool FUltimateControlSequencerHandler::HandleAddTrack(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
 {
 	// Adding tracks requires knowing the track type and potentially the binding
-	Error = CreateError(-32002, TEXT("Adding tracks via API requires specific track type. Use the Sequencer editor."));
+	Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("Adding tracks via API requires specific track type. Use the Sequencer editor."));
 	return false;
 }
 
 bool FUltimateControlSequencerHandler::HandleRemoveTrack(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
 {
-	Error = CreateError(-32002, TEXT("Removing tracks via API not fully implemented. Use the Sequencer editor."));
+	Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("Removing tracks via API not fully implemented. Use the Sequencer editor."));
 	return false;
 }
 
@@ -732,14 +759,14 @@ bool FUltimateControlSequencerHandler::HandleGetBindings(const TSharedPtr<FJsonO
 	ULevelSequence* Sequence = LoadObject<ULevelSequence>(nullptr, *Path);
 	if (!Sequence)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Sequence not found: %s"), *Path));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Sequence not found: %s"), *Path));
 		return false;
 	}
 
 	UMovieScene* MovieScene = Sequence->GetMovieScene();
 	if (!MovieScene)
 	{
-		Error = CreateError(-32002, TEXT("No movie scene"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No movie scene"));
 		return false;
 	}
 
@@ -774,13 +801,13 @@ bool FUltimateControlSequencerHandler::HandleGetBindings(const TSharedPtr<FJsonO
 
 bool FUltimateControlSequencerHandler::HandleAddBinding(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
 {
-	Error = CreateError(-32002, TEXT("Adding bindings via API not fully implemented. Use the Sequencer editor."));
+	Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("Adding bindings via API not fully implemented. Use the Sequencer editor."));
 	return false;
 }
 
 bool FUltimateControlSequencerHandler::HandleRemoveBinding(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
 {
-	Error = CreateError(-32002, TEXT("Removing bindings via API not fully implemented. Use the Sequencer editor."));
+	Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("Removing bindings via API not fully implemented. Use the Sequencer editor."));
 	return false;
 }
 
@@ -795,7 +822,7 @@ bool FUltimateControlSequencerHandler::HandleOpenSequence(const TSharedPtr<FJson
 	ULevelSequence* Sequence = LoadObject<ULevelSequence>(nullptr, *Path);
 	if (!Sequence)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Sequence not found: %s"), *Path));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Sequence not found: %s"), *Path));
 		return false;
 	}
 
@@ -818,7 +845,7 @@ bool FUltimateControlSequencerHandler::HandleCloseSequence(const TSharedPtr<FJso
 	ULevelSequence* Sequence = LoadObject<ULevelSequence>(nullptr, *Path);
 	if (!Sequence)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Sequence not found: %s"), *Path));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Sequence not found: %s"), *Path));
 		return false;
 	}
 

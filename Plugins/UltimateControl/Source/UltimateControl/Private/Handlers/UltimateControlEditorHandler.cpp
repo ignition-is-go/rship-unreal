@@ -27,70 +27,110 @@
 #include "ISettingsSection.h"
 #include "ISettingsContainer.h"
 
-void FUltimateControlEditorHandler::RegisterMethods(TMap<FString, FJsonRpcMethodHandler>& Methods)
+FUltimateControlEditorHandler::FUltimateControlEditorHandler(UUltimateControlSubsystem* InSubsystem)
+	: FUltimateControlHandlerBase(InSubsystem)
 {
 	// Window management
-	Methods.Add(TEXT("editor.listWindows"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleListWindows));
-	Methods.Add(TEXT("editor.getActiveWindow"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleGetActiveWindow));
-	Methods.Add(TEXT("editor.focusWindow"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleFocusWindow));
-	Methods.Add(TEXT("editor.closeWindow"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleCloseWindow));
+	RegisterMethod(TEXT("editor.listWindows"), TEXT("List windows"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleListWindows));
+	RegisterMethod(TEXT("editor.getActiveWindow"), TEXT("Get active window"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleGetActiveWindow));
+	RegisterMethod(TEXT("editor.focusWindow"), TEXT("Focus window"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleFocusWindow));
+	RegisterMethod(TEXT("editor.closeWindow"), TEXT("Close window"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleCloseWindow));
 
 	// Tab/Panel management
-	Methods.Add(TEXT("editor.listTabs"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleListTabs));
-	Methods.Add(TEXT("editor.openTab"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleOpenTab));
-	Methods.Add(TEXT("editor.closeTab"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleCloseTab));
-	Methods.Add(TEXT("editor.focusTab"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleFocusTab));
+	RegisterMethod(TEXT("editor.listTabs"), TEXT("List tabs"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleListTabs));
+	RegisterMethod(TEXT("editor.openTab"), TEXT("Open tab"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleOpenTab));
+	RegisterMethod(TEXT("editor.closeTab"), TEXT("Close tab"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleCloseTab));
+	RegisterMethod(TEXT("editor.focusTab"), TEXT("Focus tab"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleFocusTab));
 
 	// Layout
-	Methods.Add(TEXT("editor.getLayout"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleGetLayout));
-	Methods.Add(TEXT("editor.saveLayout"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleSaveLayout));
-	Methods.Add(TEXT("editor.loadLayout"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleLoadLayout));
-	Methods.Add(TEXT("editor.listLayouts"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleListLayouts));
-	Methods.Add(TEXT("editor.resetLayout"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleResetLayout));
+	RegisterMethod(TEXT("editor.getLayout"), TEXT("Get layout"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleGetLayout));
+	RegisterMethod(TEXT("editor.saveLayout"), TEXT("Save layout"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleSaveLayout));
+	RegisterMethod(TEXT("editor.loadLayout"), TEXT("Load layout"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleLoadLayout));
+	RegisterMethod(TEXT("editor.listLayouts"), TEXT("List layouts"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleListLayouts));
+	RegisterMethod(TEXT("editor.resetLayout"), TEXT("Reset layout"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleResetLayout));
 
 	// Editor tools/modes
-	Methods.Add(TEXT("editor.getCurrentMode"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleGetCurrentMode));
-	Methods.Add(TEXT("editor.setMode"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleSetMode));
-	Methods.Add(TEXT("editor.listModes"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleListModes));
+	RegisterMethod(TEXT("editor.getCurrentMode"), TEXT("Get current mode"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleGetCurrentMode));
+	RegisterMethod(TEXT("editor.setMode"), TEXT("Set mode"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleSetMode));
+	RegisterMethod(TEXT("editor.listModes"), TEXT("List modes"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleListModes));
 
 	// Tool selection
-	Methods.Add(TEXT("editor.getCurrentTool"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleGetCurrentTool));
-	Methods.Add(TEXT("editor.setTool"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleSetTool));
-	Methods.Add(TEXT("editor.listTools"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleListTools));
+	RegisterMethod(TEXT("editor.getCurrentTool"), TEXT("Get current tool"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleGetCurrentTool));
+	RegisterMethod(TEXT("editor.setTool"), TEXT("Set tool"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleSetTool));
+	RegisterMethod(TEXT("editor.listTools"), TEXT("List tools"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleListTools));
 
 	// Gizmo/Transform mode
-	Methods.Add(TEXT("editor.getTransformMode"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleGetTransformMode));
-	Methods.Add(TEXT("editor.setTransformMode"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleSetTransformMode));
-	Methods.Add(TEXT("editor.getCoordinateSystem"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleGetCoordinateSystem));
-	Methods.Add(TEXT("editor.setCoordinateSystem"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleSetCoordinateSystem));
+	RegisterMethod(TEXT("editor.getTransformMode"), TEXT("Get transform mode"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleGetTransformMode));
+	RegisterMethod(TEXT("editor.setTransformMode"), TEXT("Set transform mode"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleSetTransformMode));
+	RegisterMethod(TEXT("editor.getCoordinateSystem"), TEXT("Get coordinate system"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleGetCoordinateSystem));
+	RegisterMethod(TEXT("editor.setCoordinateSystem"), TEXT("Set coordinate system"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleSetCoordinateSystem));
 
 	// Snapping
-	Methods.Add(TEXT("editor.getSnapSettings"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleGetSnapSettings));
-	Methods.Add(TEXT("editor.setSnapSettings"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleSetSnapSettings));
-	Methods.Add(TEXT("editor.toggleSnap"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleToggleSnap));
+	RegisterMethod(TEXT("editor.getSnapSettings"), TEXT("Get snap settings"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleGetSnapSettings));
+	RegisterMethod(TEXT("editor.setSnapSettings"), TEXT("Set snap settings"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleSetSnapSettings));
+	RegisterMethod(TEXT("editor.toggleSnap"), TEXT("Toggle snap"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleToggleSnap));
 
 	// Grid
-	Methods.Add(TEXT("editor.getGridSettings"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleGetGridSettings));
-	Methods.Add(TEXT("editor.setGridSettings"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleSetGridSettings));
-	Methods.Add(TEXT("editor.toggleGrid"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleToggleGrid));
+	RegisterMethod(TEXT("editor.getGridSettings"), TEXT("Get grid settings"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleGetGridSettings));
+	RegisterMethod(TEXT("editor.setGridSettings"), TEXT("Set grid settings"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleSetGridSettings));
+	RegisterMethod(TEXT("editor.toggleGrid"), TEXT("Toggle grid"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleToggleGrid));
 
 	// Notifications
-	Methods.Add(TEXT("editor.showNotification"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleShowNotification));
-	Methods.Add(TEXT("editor.showDialog"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleShowDialog));
+	RegisterMethod(TEXT("editor.showNotification"), TEXT("Show notification"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleShowNotification));
+	RegisterMethod(TEXT("editor.showDialog"), TEXT("Show dialog"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleShowDialog));
 
 	// Editor preferences
-	Methods.Add(TEXT("editor.getPreference"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleGetEditorPreference));
-	Methods.Add(TEXT("editor.setPreference"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleSetEditorPreference));
-	Methods.Add(TEXT("editor.listPreferences"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleListEditorPreferences));
+	RegisterMethod(TEXT("editor.getPreference"), TEXT("Get preference"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleGetEditorPreference));
+	RegisterMethod(TEXT("editor.setPreference"), TEXT("Set preference"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleSetEditorPreference));
+	RegisterMethod(TEXT("editor.listPreferences"), TEXT("List preferences"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleListEditorPreferences));
 
 	// Project settings
-	Methods.Add(TEXT("editor.getProjectSetting"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleGetProjectSetting));
-	Methods.Add(TEXT("editor.setProjectSetting"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleSetProjectSetting));
-	Methods.Add(TEXT("editor.openProjectSettings"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleOpenProjectSettings));
+	RegisterMethod(TEXT("editor.getProjectSetting"), TEXT("Get project setting"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleGetProjectSetting));
+	RegisterMethod(TEXT("editor.setProjectSetting"), TEXT("Set project setting"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleSetProjectSetting));
+	RegisterMethod(TEXT("editor.openProjectSettings"), TEXT("Open project settings"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleOpenProjectSettings));
 
 	// Menus and commands
-	Methods.Add(TEXT("editor.executeCommand"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleExecuteCommand));
-	Methods.Add(TEXT("editor.listCommands"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleListCommands));
+	RegisterMethod(TEXT("editor.executeCommand"), TEXT("Execute command"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleExecuteCommand));
+	RegisterMethod(TEXT("editor.listCommands"), TEXT("List commands"), TEXT("Editor"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlEditorHandler::HandleListCommands));
 }
 
 // ============================================================================
@@ -143,7 +183,7 @@ bool FUltimateControlEditorHandler::HandleFocusWindow(const TSharedPtr<FJsonObje
 	FString Title;
 	if (!Params->TryGetStringField(TEXT("title"), Title))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: title"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: title"));
 		return false;
 	}
 
@@ -168,7 +208,7 @@ bool FUltimateControlEditorHandler::HandleFocusWindow(const TSharedPtr<FJsonObje
 		}
 	}
 
-	Error = CreateError(-32602, FString::Printf(TEXT("Window not found: %s"), *Title));
+	Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Window not found: %s"), *Title));
 	return false;
 }
 
@@ -177,7 +217,7 @@ bool FUltimateControlEditorHandler::HandleCloseWindow(const TSharedPtr<FJsonObje
 	FString Title;
 	if (!Params->TryGetStringField(TEXT("title"), Title))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: title"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: title"));
 		return false;
 	}
 
@@ -200,7 +240,7 @@ bool FUltimateControlEditorHandler::HandleCloseWindow(const TSharedPtr<FJsonObje
 		}
 	}
 
-	Error = CreateError(-32602, FString::Printf(TEXT("Window not found: %s"), *Title));
+	Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Window not found: %s"), *Title));
 	return false;
 }
 
@@ -247,7 +287,7 @@ bool FUltimateControlEditorHandler::HandleOpenTab(const TSharedPtr<FJsonObject>&
 	FString TabId;
 	if (!Params->TryGetStringField(TEXT("tabId"), TabId))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: tabId"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: tabId"));
 		return false;
 	}
 
@@ -267,7 +307,7 @@ bool FUltimateControlEditorHandler::HandleOpenTab(const TSharedPtr<FJsonObject>&
 		}
 	}
 
-	Error = CreateError(-32602, FString::Printf(TEXT("Failed to open tab: %s"), *TabId));
+	Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Failed to open tab: %s"), *TabId));
 	return false;
 }
 
@@ -276,7 +316,7 @@ bool FUltimateControlEditorHandler::HandleCloseTab(const TSharedPtr<FJsonObject>
 	FString TabId;
 	if (!Params->TryGetStringField(TEXT("tabId"), TabId))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: tabId"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: tabId"));
 		return false;
 	}
 
@@ -297,7 +337,7 @@ bool FUltimateControlEditorHandler::HandleCloseTab(const TSharedPtr<FJsonObject>
 		}
 	}
 
-	Error = CreateError(-32602, FString::Printf(TEXT("Tab not found: %s"), *TabId));
+	Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Tab not found: %s"), *TabId));
 	return false;
 }
 
@@ -306,7 +346,7 @@ bool FUltimateControlEditorHandler::HandleFocusTab(const TSharedPtr<FJsonObject>
 	FString TabId;
 	if (!Params->TryGetStringField(TEXT("tabId"), TabId))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: tabId"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: tabId"));
 		return false;
 	}
 
@@ -328,7 +368,7 @@ bool FUltimateControlEditorHandler::HandleFocusTab(const TSharedPtr<FJsonObject>
 		}
 	}
 
-	Error = CreateError(-32602, FString::Printf(TEXT("Tab not found: %s"), *TabId));
+	Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Tab not found: %s"), *TabId));
 	return false;
 }
 
@@ -371,7 +411,7 @@ bool FUltimateControlEditorHandler::HandleSaveLayout(const TSharedPtr<FJsonObjec
 	FString LayoutName;
 	if (!Params->TryGetStringField(TEXT("name"), LayoutName))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: name"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: name"));
 		return false;
 	}
 
@@ -391,7 +431,7 @@ bool FUltimateControlEditorHandler::HandleSaveLayout(const TSharedPtr<FJsonObjec
 		return true;
 	}
 
-	Error = CreateError(-32602, TEXT("Failed to save layout"));
+	Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Failed to save layout"));
 	return false;
 }
 
@@ -400,7 +440,7 @@ bool FUltimateControlEditorHandler::HandleLoadLayout(const TSharedPtr<FJsonObjec
 	FString LayoutName;
 	if (!Params->TryGetStringField(TEXT("name"), LayoutName))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: name"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: name"));
 		return false;
 	}
 
@@ -460,7 +500,7 @@ bool FUltimateControlEditorHandler::HandleResetLayout(const TSharedPtr<FJsonObje
 		return true;
 	}
 
-	Error = CreateError(-32602, TEXT("Failed to reset layout"));
+	Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Failed to reset layout"));
 	return false;
 }
 
@@ -472,7 +512,7 @@ bool FUltimateControlEditorHandler::HandleGetCurrentMode(const TSharedPtr<FJsonO
 {
 	if (!GEditor)
 	{
-		Error = CreateError(-32602, TEXT("Editor not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Editor not available"));
 		return false;
 	}
 
@@ -498,13 +538,13 @@ bool FUltimateControlEditorHandler::HandleSetMode(const TSharedPtr<FJsonObject>&
 	FString ModeId;
 	if (!Params->TryGetStringField(TEXT("modeId"), ModeId))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: modeId"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: modeId"));
 		return false;
 	}
 
 	if (!GEditor)
 	{
-		Error = CreateError(-32602, TEXT("Editor not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Editor not available"));
 		return false;
 	}
 
@@ -569,7 +609,7 @@ bool FUltimateControlEditorHandler::HandleGetCurrentTool(const TSharedPtr<FJsonO
 {
 	if (!GEditor)
 	{
-		Error = CreateError(-32602, TEXT("Editor not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Editor not available"));
 		return false;
 	}
 
@@ -587,7 +627,7 @@ bool FUltimateControlEditorHandler::HandleSetTool(const TSharedPtr<FJsonObject>&
 	FString ToolName;
 	if (!Params->TryGetStringField(TEXT("tool"), ToolName))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: tool"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: tool"));
 		return false;
 	}
 
@@ -632,7 +672,7 @@ bool FUltimateControlEditorHandler::HandleGetTransformMode(const TSharedPtr<FJso
 {
 	if (!GEditor)
 	{
-		Error = CreateError(-32602, TEXT("Editor not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Editor not available"));
 		return false;
 	}
 
@@ -661,13 +701,13 @@ bool FUltimateControlEditorHandler::HandleSetTransformMode(const TSharedPtr<FJso
 	FString Mode;
 	if (!Params->TryGetStringField(TEXT("mode"), Mode))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: mode"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: mode"));
 		return false;
 	}
 
 	if (!GEditor)
 	{
-		Error = CreateError(-32602, TEXT("Editor not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Editor not available"));
 		return false;
 	}
 
@@ -700,7 +740,7 @@ bool FUltimateControlEditorHandler::HandleGetCoordinateSystem(const TSharedPtr<F
 {
 	if (!GEditor)
 	{
-		Error = CreateError(-32602, TEXT("Editor not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Editor not available"));
 		return false;
 	}
 
@@ -719,13 +759,13 @@ bool FUltimateControlEditorHandler::HandleSetCoordinateSystem(const TSharedPtr<F
 	FString System;
 	if (!Params->TryGetStringField(TEXT("system"), System))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: system"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: system"));
 		return false;
 	}
 
 	if (!GEditor)
 	{
-		Error = CreateError(-32602, TEXT("Editor not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Editor not available"));
 		return false;
 	}
 
@@ -749,7 +789,7 @@ bool FUltimateControlEditorHandler::HandleGetSnapSettings(const TSharedPtr<FJson
 {
 	if (!GEditor)
 	{
-		Error = CreateError(-32602, TEXT("Editor not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Editor not available"));
 		return false;
 	}
 
@@ -775,14 +815,14 @@ bool FUltimateControlEditorHandler::HandleSetSnapSettings(const TSharedPtr<FJson
 {
 	if (!GEditor)
 	{
-		Error = CreateError(-32602, TEXT("Editor not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Editor not available"));
 		return false;
 	}
 
 	ULevelEditorViewportSettings* ViewportSettings = GetMutableDefault<ULevelEditorViewportSettings>();
 	if (!ViewportSettings)
 	{
-		Error = CreateError(-32602, TEXT("Viewport settings not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Viewport settings not available"));
 		return false;
 	}
 
@@ -827,7 +867,7 @@ bool FUltimateControlEditorHandler::HandleToggleSnap(const TSharedPtr<FJsonObjec
 	ULevelEditorViewportSettings* ViewportSettings = GetMutableDefault<ULevelEditorViewportSettings>();
 	if (!ViewportSettings)
 	{
-		Error = CreateError(-32602, TEXT("Viewport settings not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Viewport settings not available"));
 		return false;
 	}
 
@@ -864,7 +904,7 @@ bool FUltimateControlEditorHandler::HandleGetGridSettings(const TSharedPtr<FJson
 {
 	if (!GEditor)
 	{
-		Error = CreateError(-32602, TEXT("Editor not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Editor not available"));
 		return false;
 	}
 
@@ -893,7 +933,7 @@ bool FUltimateControlEditorHandler::HandleSetGridSettings(const TSharedPtr<FJson
 {
 	if (!GEditor)
 	{
-		Error = CreateError(-32602, TEXT("Editor not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Editor not available"));
 		return false;
 	}
 
@@ -924,7 +964,7 @@ bool FUltimateControlEditorHandler::HandleToggleGrid(const TSharedPtr<FJsonObjec
 	ULevelEditorViewportSettings* ViewportSettings = GetMutableDefault<ULevelEditorViewportSettings>();
 	if (!ViewportSettings)
 	{
-		Error = CreateError(-32602, TEXT("Viewport settings not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Viewport settings not available"));
 		return false;
 	}
 
@@ -946,7 +986,7 @@ bool FUltimateControlEditorHandler::HandleShowNotification(const TSharedPtr<FJso
 	FString Message;
 	if (!Params->TryGetStringField(TEXT("message"), Message))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: message"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: message"));
 		return false;
 	}
 
@@ -987,14 +1027,14 @@ bool FUltimateControlEditorHandler::HandleShowDialog(const TSharedPtr<FJsonObjec
 	FString Title;
 	if (!Params->TryGetStringField(TEXT("title"), Title))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: title"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: title"));
 		return false;
 	}
 
 	FString Message;
 	if (!Params->TryGetStringField(TEXT("message"), Message))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: message"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: message"));
 		return false;
 	}
 
@@ -1030,14 +1070,14 @@ bool FUltimateControlEditorHandler::HandleGetEditorPreference(const TSharedPtr<F
 		!Params->TryGetStringField(TEXT("section"), Section) ||
 		!Params->TryGetStringField(TEXT("property"), Property))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameters: category, section, property"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameters: category, section, property"));
 		return false;
 	}
 
 	ISettingsModule* SettingsModule = FModuleManager::GetModulePtr<ISettingsModule>("Settings");
 	if (!SettingsModule)
 	{
-		Error = CreateError(-32602, TEXT("Settings module not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Settings module not available"));
 		return false;
 	}
 
@@ -1060,7 +1100,7 @@ bool FUltimateControlEditorHandler::HandleSetEditorPreference(const TSharedPtr<F
 		!Params->TryGetStringField(TEXT("section"), Section) ||
 		!Params->TryGetStringField(TEXT("property"), Property))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameters: category, section, property"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameters: category, section, property"));
 		return false;
 	}
 
@@ -1068,7 +1108,7 @@ bool FUltimateControlEditorHandler::HandleSetEditorPreference(const TSharedPtr<F
 	const TSharedPtr<FJsonValue>* Value = nullptr;
 	if (!Params->TryGetField(TEXT("value"), Value))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: value"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: value"));
 		return false;
 	}
 
@@ -1133,7 +1173,7 @@ bool FUltimateControlEditorHandler::HandleGetProjectSetting(const TSharedPtr<FJs
 		!Params->TryGetStringField(TEXT("section"), Section) ||
 		!Params->TryGetStringField(TEXT("property"), Property))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameters: category, section, property"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameters: category, section, property"));
 		return false;
 	}
 
@@ -1156,14 +1196,14 @@ bool FUltimateControlEditorHandler::HandleSetProjectSetting(const TSharedPtr<FJs
 		!Params->TryGetStringField(TEXT("section"), Section) ||
 		!Params->TryGetStringField(TEXT("property"), Property))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameters: category, section, property"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameters: category, section, property"));
 		return false;
 	}
 
 	const TSharedPtr<FJsonValue>* Value = nullptr;
 	if (!Params->TryGetField(TEXT("value"), Value))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: value"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: value"));
 		return false;
 	}
 
@@ -1199,7 +1239,7 @@ bool FUltimateControlEditorHandler::HandleOpenProjectSettings(const TSharedPtr<F
 		return true;
 	}
 
-	Error = CreateError(-32602, TEXT("Settings module not available"));
+	Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Settings module not available"));
 	return false;
 }
 
@@ -1212,7 +1252,7 @@ bool FUltimateControlEditorHandler::HandleExecuteCommand(const TSharedPtr<FJsonO
 	FString Command;
 	if (!Params->TryGetStringField(TEXT("command"), Command))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: command"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: command"));
 		return false;
 	}
 
@@ -1227,7 +1267,7 @@ bool FUltimateControlEditorHandler::HandleExecuteCommand(const TSharedPtr<FJsonO
 		return true;
 	}
 
-	Error = CreateError(-32602, TEXT("Editor not available"));
+	Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Editor not available"));
 	return false;
 }
 

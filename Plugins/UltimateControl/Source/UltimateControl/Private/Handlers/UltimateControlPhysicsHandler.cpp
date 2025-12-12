@@ -11,41 +11,75 @@
 #include "WorldCollision.h"
 #include "EngineUtils.h"
 
-void FUltimateControlPhysicsHandler::RegisterMethods(TMap<FString, FJsonRpcMethodHandler>& Methods)
+FUltimateControlPhysicsHandler::FUltimateControlPhysicsHandler(UUltimateControlSubsystem* InSubsystem)
+	: FUltimateControlHandlerBase(InSubsystem)
 {
-	Methods.Add(TEXT("physics.getGravity"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleGetGravity));
-	Methods.Add(TEXT("physics.setGravity"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleSetGravity));
-	Methods.Add(TEXT("physics.getSettings"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleGetPhysicsSettings));
-	Methods.Add(TEXT("physics.getSimulationSpeed"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleGetSimulationSpeed));
-	Methods.Add(TEXT("physics.setSimulationSpeed"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleSetSimulationSpeed));
-	Methods.Add(TEXT("physics.pause"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandlePausePhysics));
-	Methods.Add(TEXT("physics.resume"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleResumePhysics));
-	Methods.Add(TEXT("physics.step"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleStepPhysics));
-	Methods.Add(TEXT("physics.getEnabled"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleGetPhysicsEnabled));
-	Methods.Add(TEXT("physics.setEnabled"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleSetPhysicsEnabled));
-	Methods.Add(TEXT("physics.getMass"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleGetMass));
-	Methods.Add(TEXT("physics.setMass"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleSetMass));
-	Methods.Add(TEXT("physics.getVelocity"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleGetVelocity));
-	Methods.Add(TEXT("physics.setVelocity"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleSetVelocity));
-	Methods.Add(TEXT("physics.getAngularVelocity"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleGetAngularVelocity));
-	Methods.Add(TEXT("physics.setAngularVelocity"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleSetAngularVelocity));
-	Methods.Add(TEXT("physics.applyForce"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleApplyForce));
-	Methods.Add(TEXT("physics.applyImpulse"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleApplyImpulse));
-	Methods.Add(TEXT("physics.applyTorque"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleApplyTorque));
-	Methods.Add(TEXT("physics.applyRadialForce"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleApplyRadialForce));
-	Methods.Add(TEXT("physics.getCollisionEnabled"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleGetCollisionEnabled));
-	Methods.Add(TEXT("physics.setCollisionEnabled"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleSetCollisionEnabled));
-	Methods.Add(TEXT("physics.getCollisionProfile"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleGetCollisionProfile));
-	Methods.Add(TEXT("physics.setCollisionProfile"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleSetCollisionProfile));
-	Methods.Add(TEXT("physics.listCollisionProfiles"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleListCollisionProfiles));
-	Methods.Add(TEXT("physics.lineTrace"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleLineTrace));
-	Methods.Add(TEXT("physics.sphereTrace"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleSphereTrace));
-	Methods.Add(TEXT("physics.boxTrace"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleBoxTrace));
-	Methods.Add(TEXT("physics.overlapSphere"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleOverlapSphere));
-	Methods.Add(TEXT("physics.overlapBox"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleOverlapBox));
-	Methods.Add(TEXT("physics.wake"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleWakeRigidBody));
-	Methods.Add(TEXT("physics.sleep"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandlePutRigidBodyToSleep));
-	Methods.Add(TEXT("physics.isSleeping"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleIsSleeping));
+	RegisterMethod(TEXT("physics.getGravity"), TEXT("Get world gravity"), TEXT("Physics"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleGetGravity));
+	RegisterMethod(TEXT("physics.setGravity"), TEXT("Set world gravity"), TEXT("Physics"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleSetGravity));
+	RegisterMethod(TEXT("physics.getSettings"), TEXT("Get physics settings"), TEXT("Physics"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleGetPhysicsSettings));
+	RegisterMethod(TEXT("physics.getSimulationSpeed"), TEXT("Get physics simulation speed"), TEXT("Physics"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleGetSimulationSpeed));
+	RegisterMethod(TEXT("physics.setSimulationSpeed"), TEXT("Set physics simulation speed"), TEXT("Physics"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleSetSimulationSpeed));
+	RegisterMethod(TEXT("physics.pause"), TEXT("Pause physics simulation"), TEXT("Physics"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandlePausePhysics));
+	RegisterMethod(TEXT("physics.resume"), TEXT("Resume physics simulation"), TEXT("Physics"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleResumePhysics));
+	RegisterMethod(TEXT("physics.step"), TEXT("Step physics simulation"), TEXT("Physics"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleStepPhysics));
+	RegisterMethod(TEXT("physics.getEnabled"), TEXT("Get actor physics enabled state"), TEXT("Physics"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleGetPhysicsEnabled));
+	RegisterMethod(TEXT("physics.setEnabled"), TEXT("Set actor physics enabled state"), TEXT("Physics"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleSetPhysicsEnabled));
+	RegisterMethod(TEXT("physics.getMass"), TEXT("Get actor mass"), TEXT("Physics"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleGetMass));
+	RegisterMethod(TEXT("physics.setMass"), TEXT("Set actor mass"), TEXT("Physics"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleSetMass));
+	RegisterMethod(TEXT("physics.getVelocity"), TEXT("Get actor linear velocity"), TEXT("Physics"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleGetVelocity));
+	RegisterMethod(TEXT("physics.setVelocity"), TEXT("Set actor linear velocity"), TEXT("Physics"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleSetVelocity));
+	RegisterMethod(TEXT("physics.getAngularVelocity"), TEXT("Get actor angular velocity"), TEXT("Physics"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleGetAngularVelocity));
+	RegisterMethod(TEXT("physics.setAngularVelocity"), TEXT("Set actor angular velocity"), TEXT("Physics"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleSetAngularVelocity));
+	RegisterMethod(TEXT("physics.applyForce"), TEXT("Apply force to actor"), TEXT("Physics"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleApplyForce));
+	RegisterMethod(TEXT("physics.applyImpulse"), TEXT("Apply impulse to actor"), TEXT("Physics"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleApplyImpulse));
+	RegisterMethod(TEXT("physics.applyTorque"), TEXT("Apply torque to actor"), TEXT("Physics"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleApplyTorque));
+	RegisterMethod(TEXT("physics.applyRadialForce"), TEXT("Apply radial force at location"), TEXT("Physics"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleApplyRadialForce));
+	RegisterMethod(TEXT("physics.getCollisionEnabled"), TEXT("Get actor collision enabled state"), TEXT("Physics"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleGetCollisionEnabled));
+	RegisterMethod(TEXT("physics.setCollisionEnabled"), TEXT("Set actor collision enabled state"), TEXT("Physics"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleSetCollisionEnabled));
+	RegisterMethod(TEXT("physics.getCollisionProfile"), TEXT("Get actor collision profile"), TEXT("Physics"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleGetCollisionProfile));
+	RegisterMethod(TEXT("physics.setCollisionProfile"), TEXT("Set actor collision profile"), TEXT("Physics"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleSetCollisionProfile));
+	RegisterMethod(TEXT("physics.listCollisionProfiles"), TEXT("List available collision profiles"), TEXT("Physics"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleListCollisionProfiles));
+	RegisterMethod(TEXT("physics.lineTrace"), TEXT("Perform line trace"), TEXT("Physics"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleLineTrace));
+	RegisterMethod(TEXT("physics.sphereTrace"), TEXT("Perform sphere trace"), TEXT("Physics"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleSphereTrace));
+	RegisterMethod(TEXT("physics.boxTrace"), TEXT("Perform box trace"), TEXT("Physics"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleBoxTrace));
+	RegisterMethod(TEXT("physics.overlapSphere"), TEXT("Perform sphere overlap check"), TEXT("Physics"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleOverlapSphere));
+	RegisterMethod(TEXT("physics.overlapBox"), TEXT("Perform box overlap check"), TEXT("Physics"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleOverlapBox));
+	RegisterMethod(TEXT("physics.wake"), TEXT("Wake rigid body"), TEXT("Physics"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleWakeRigidBody));
+	RegisterMethod(TEXT("physics.sleep"), TEXT("Put rigid body to sleep"), TEXT("Physics"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandlePutRigidBodyToSleep));
+	RegisterMethod(TEXT("physics.isSleeping"), TEXT("Check if rigid body is sleeping"), TEXT("Physics"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlPhysicsHandler::HandleIsSleeping));
 }
 
 UPrimitiveComponent* FUltimateControlPhysicsHandler::GetPrimitiveComponent(const FString& ActorName, const FString& ComponentName)

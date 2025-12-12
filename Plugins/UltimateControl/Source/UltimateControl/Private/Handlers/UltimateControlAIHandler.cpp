@@ -18,56 +18,90 @@
 #include "GameFramework/Pawn.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 
-void FUltimateControlAIHandler::RegisterMethods(TMap<FString, FJsonRpcMethodHandler>& Methods)
+FUltimateControlAIHandler::FUltimateControlAIHandler(UUltimateControlSubsystem* InSubsystem)
+	: FUltimateControlHandlerBase(InSubsystem)
 {
 	// Navigation mesh
-	Methods.Add(TEXT("navigation.build"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleBuildNavigation));
-	Methods.Add(TEXT("navigation.rebuild"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleRebuildNavigation));
-	Methods.Add(TEXT("navigation.getStatus"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleGetNavigationStatus));
-	Methods.Add(TEXT("navigation.clear"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleClearNavigation));
+	RegisterMethod(TEXT("navigation.build"), TEXT("Build navigation"), TEXT("Navigation"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleBuildNavigation));
+	RegisterMethod(TEXT("navigation.rebuild"), TEXT("Rebuild navigation"), TEXT("Navigation"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleRebuildNavigation));
+	RegisterMethod(TEXT("navigation.getStatus"), TEXT("Get navigation status"), TEXT("Navigation"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleGetNavigationStatus));
+	RegisterMethod(TEXT("navigation.clear"), TEXT("Clear navigation"), TEXT("Navigation"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleClearNavigation));
 
 	// Path finding
-	Methods.Add(TEXT("navigation.findPath"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleFindPath));
-	Methods.Add(TEXT("navigation.testPath"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleTestPath));
-	Methods.Add(TEXT("navigation.getRandomReachablePoint"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleGetRandomReachablePoint));
-	Methods.Add(TEXT("navigation.projectToNavigation"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleProjectToNavigation));
-	Methods.Add(TEXT("navigation.isNavigable"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleIsNavigable));
+	RegisterMethod(TEXT("navigation.findPath"), TEXT("Find path"), TEXT("Navigation"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleFindPath));
+	RegisterMethod(TEXT("navigation.testPath"), TEXT("Test path"), TEXT("Navigation"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleTestPath));
+	RegisterMethod(TEXT("navigation.getRandomReachablePoint"), TEXT("Get random reachable point"), TEXT("Navigation"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleGetRandomReachablePoint));
+	RegisterMethod(TEXT("navigation.projectToNavigation"), TEXT("Project to navigation"), TEXT("Navigation"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleProjectToNavigation));
+	RegisterMethod(TEXT("navigation.isNavigable"), TEXT("Is navigable"), TEXT("Navigation"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleIsNavigable));
 
 	// AI Controllers
-	Methods.Add(TEXT("ai.listControllers"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleListAIControllers));
-	Methods.Add(TEXT("ai.getController"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleGetAIController));
-	Methods.Add(TEXT("ai.spawnController"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleSpawnAIController));
+	RegisterMethod(TEXT("ai.listControllers"), TEXT("List AI controllers"), TEXT("AI"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleListAIControllers));
+	RegisterMethod(TEXT("ai.getController"), TEXT("Get AI controller"), TEXT("AI"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleGetAIController));
+	RegisterMethod(TEXT("ai.spawnController"), TEXT("Spawn AI controller"), TEXT("AI"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleSpawnAIController));
 
 	// Movement control
-	Methods.Add(TEXT("ai.moveToLocation"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleMoveToLocation));
-	Methods.Add(TEXT("ai.moveToActor"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleMoveToActor));
-	Methods.Add(TEXT("ai.stopMovement"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleStopMovement));
-	Methods.Add(TEXT("ai.getMovementStatus"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleGetMovementStatus));
-	Methods.Add(TEXT("ai.pauseMovement"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandlePauseMovement));
-	Methods.Add(TEXT("ai.resumeMovement"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleResumeMovement));
+	RegisterMethod(TEXT("ai.moveToLocation"), TEXT("Move to location"), TEXT("AI"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleMoveToLocation));
+	RegisterMethod(TEXT("ai.moveToActor"), TEXT("Move to actor"), TEXT("AI"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleMoveToActor));
+	RegisterMethod(TEXT("ai.stopMovement"), TEXT("Stop movement"), TEXT("AI"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleStopMovement));
+	RegisterMethod(TEXT("ai.getMovementStatus"), TEXT("Get movement status"), TEXT("AI"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleGetMovementStatus));
+	RegisterMethod(TEXT("ai.pauseMovement"), TEXT("Pause movement"), TEXT("AI"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandlePauseMovement));
+	RegisterMethod(TEXT("ai.resumeMovement"), TEXT("Resume movement"), TEXT("AI"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleResumeMovement));
 
 	// Behavior Trees
-	Methods.Add(TEXT("behaviorTree.list"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleListBehaviorTrees));
-	Methods.Add(TEXT("behaviorTree.get"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleGetBehaviorTree));
-	Methods.Add(TEXT("behaviorTree.run"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleRunBehaviorTree));
-	Methods.Add(TEXT("behaviorTree.stop"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleStopBehaviorTree));
-	Methods.Add(TEXT("behaviorTree.pause"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandlePauseBehaviorTree));
-	Methods.Add(TEXT("behaviorTree.resume"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleResumeBehaviorTree));
+	RegisterMethod(TEXT("behaviorTree.list"), TEXT("List behavior trees"), TEXT("BehaviorTree"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleListBehaviorTrees));
+	RegisterMethod(TEXT("behaviorTree.get"), TEXT("Get behavior tree"), TEXT("BehaviorTree"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleGetBehaviorTree));
+	RegisterMethod(TEXT("behaviorTree.run"), TEXT("Run behavior tree"), TEXT("BehaviorTree"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleRunBehaviorTree));
+	RegisterMethod(TEXT("behaviorTree.stop"), TEXT("Stop behavior tree"), TEXT("BehaviorTree"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleStopBehaviorTree));
+	RegisterMethod(TEXT("behaviorTree.pause"), TEXT("Pause behavior tree"), TEXT("BehaviorTree"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandlePauseBehaviorTree));
+	RegisterMethod(TEXT("behaviorTree.resume"), TEXT("Resume behavior tree"), TEXT("BehaviorTree"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleResumeBehaviorTree));
 
 	// Blackboard
-	Methods.Add(TEXT("blackboard.getValue"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleGetBlackboardValue));
-	Methods.Add(TEXT("blackboard.setValue"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleSetBlackboardValue));
-	Methods.Add(TEXT("blackboard.listKeys"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleListBlackboardKeys));
-	Methods.Add(TEXT("blackboard.clear"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleClearBlackboard));
+	RegisterMethod(TEXT("blackboard.getValue"), TEXT("Get blackboard value"), TEXT("Blackboard"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleGetBlackboardValue));
+	RegisterMethod(TEXT("blackboard.setValue"), TEXT("Set blackboard value"), TEXT("Blackboard"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleSetBlackboardValue));
+	RegisterMethod(TEXT("blackboard.listKeys"), TEXT("List blackboard keys"), TEXT("Blackboard"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleListBlackboardKeys));
+	RegisterMethod(TEXT("blackboard.clear"), TEXT("Clear blackboard"), TEXT("Blackboard"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleClearBlackboard));
 
 	// Perception
-	Methods.Add(TEXT("ai.getPerceivedActors"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleGetPerceivedActors));
-	Methods.Add(TEXT("ai.getPerceptionInfo"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleGetPerceptionInfo));
+	RegisterMethod(TEXT("ai.getPerceivedActors"), TEXT("Get perceived actors"), TEXT("AI"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleGetPerceivedActors));
+	RegisterMethod(TEXT("ai.getPerceptionInfo"), TEXT("Get perception info"), TEXT("AI"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleGetPerceptionInfo));
 
 	// Focus
-	Methods.Add(TEXT("ai.setFocus"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleSetFocus));
-	Methods.Add(TEXT("ai.clearFocus"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleClearFocus));
-	Methods.Add(TEXT("ai.getFocus"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleGetFocus));
+	RegisterMethod(TEXT("ai.setFocus"), TEXT("Set focus"), TEXT("AI"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleSetFocus));
+	RegisterMethod(TEXT("ai.clearFocus"), TEXT("Clear focus"), TEXT("AI"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleClearFocus));
+	RegisterMethod(TEXT("ai.getFocus"), TEXT("Get focus"), TEXT("AI"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlAIHandler::HandleGetFocus));
 }
 
 AAIController* FUltimateControlAIHandler::FindAIController(const FString& ControllerName)
@@ -200,14 +234,14 @@ bool FUltimateControlAIHandler::HandleBuildNavigation(const TSharedPtr<FJsonObje
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
 	UNavigationSystemV1* NavSys = FNavigationSystem::GetCurrent<UNavigationSystemV1>(World);
 	if (!NavSys)
 	{
-		Error = CreateError(-32603, TEXT("Navigation system not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Navigation system not available"));
 		return true;
 	}
 
@@ -231,7 +265,7 @@ bool FUltimateControlAIHandler::HandleGetNavigationStatus(const TSharedPtr<FJson
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -263,14 +297,14 @@ bool FUltimateControlAIHandler::HandleClearNavigation(const TSharedPtr<FJsonObje
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
 	UNavigationSystemV1* NavSys = FNavigationSystem::GetCurrent<UNavigationSystemV1>(World);
 	if (!NavSys)
 	{
-		Error = CreateError(-32603, TEXT("Navigation system not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Navigation system not available"));
 		return true;
 	}
 
@@ -303,14 +337,14 @@ bool FUltimateControlAIHandler::HandleFindPath(const TSharedPtr<FJsonObject>& Pa
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
 	UNavigationSystemV1* NavSys = FNavigationSystem::GetCurrent<UNavigationSystemV1>(World);
 	if (!NavSys)
 	{
-		Error = CreateError(-32603, TEXT("Navigation system not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Navigation system not available"));
 		return true;
 	}
 
@@ -349,14 +383,14 @@ bool FUltimateControlAIHandler::HandleTestPath(const TSharedPtr<FJsonObject>& Pa
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
 	UNavigationSystemV1* NavSys = FNavigationSystem::GetCurrent<UNavigationSystemV1>(World);
 	if (!NavSys)
 	{
-		Error = CreateError(-32603, TEXT("Navigation system not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Navigation system not available"));
 		return true;
 	}
 
@@ -383,14 +417,14 @@ bool FUltimateControlAIHandler::HandleGetRandomReachablePoint(const TSharedPtr<F
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
 	UNavigationSystemV1* NavSys = FNavigationSystem::GetCurrent<UNavigationSystemV1>(World);
 	if (!NavSys)
 	{
-		Error = CreateError(-32603, TEXT("Navigation system not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Navigation system not available"));
 		return true;
 	}
 
@@ -425,14 +459,14 @@ bool FUltimateControlAIHandler::HandleProjectToNavigation(const TSharedPtr<FJson
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
 	UNavigationSystemV1* NavSys = FNavigationSystem::GetCurrent<UNavigationSystemV1>(World);
 	if (!NavSys)
 	{
-		Error = CreateError(-32603, TEXT("Navigation system not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Navigation system not available"));
 		return true;
 	}
 
@@ -466,14 +500,14 @@ bool FUltimateControlAIHandler::HandleIsNavigable(const TSharedPtr<FJsonObject>&
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
 	UNavigationSystemV1* NavSys = FNavigationSystem::GetCurrent<UNavigationSystemV1>(World);
 	if (!NavSys)
 	{
-		Error = CreateError(-32603, TEXT("Navigation system not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Navigation system not available"));
 		return true;
 	}
 
@@ -494,7 +528,7 @@ bool FUltimateControlAIHandler::HandleListAIControllers(const TSharedPtr<FJsonOb
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -518,14 +552,14 @@ bool FUltimateControlAIHandler::HandleGetAIController(const TSharedPtr<FJsonObje
 	FString ControllerName = Params->GetStringField(TEXT("name"));
 	if (ControllerName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("name parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("name parameter required"));
 		return true;
 	}
 
 	AAIController* Controller = FindAIController(ControllerName);
 	if (!Controller)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
 		return true;
 	}
 
@@ -540,14 +574,14 @@ bool FUltimateControlAIHandler::HandleSpawnAIController(const TSharedPtr<FJsonOb
 
 	if (PawnName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("pawnName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("pawnName parameter required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -564,7 +598,7 @@ bool FUltimateControlAIHandler::HandleSpawnAIController(const TSharedPtr<FJsonOb
 
 	if (!TargetPawn)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Pawn not found: %s"), *PawnName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Pawn not found: %s"), *PawnName));
 		return true;
 	}
 
@@ -581,7 +615,7 @@ bool FUltimateControlAIHandler::HandleSpawnAIController(const TSharedPtr<FJsonOb
 	}
 	else
 	{
-		Error = CreateError(-32603, TEXT("Failed to spawn AI controller"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Failed to spawn AI controller"));
 	}
 
 	return true;
@@ -596,14 +630,14 @@ bool FUltimateControlAIHandler::HandleMoveToLocation(const TSharedPtr<FJsonObjec
 
 	if (ControllerName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("controllerName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("controllerName parameter required"));
 		return true;
 	}
 
 	AAIController* Controller = FindAIController(ControllerName);
 	if (!Controller)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
 		return true;
 	}
 
@@ -624,14 +658,14 @@ bool FUltimateControlAIHandler::HandleMoveToActor(const TSharedPtr<FJsonObject>&
 
 	if (ControllerName.IsEmpty() || TargetActorName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("controllerName and targetActorName parameters required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("controllerName and targetActorName parameters required"));
 		return true;
 	}
 
 	AAIController* Controller = FindAIController(ControllerName);
 	if (!Controller)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
 		return true;
 	}
 
@@ -648,7 +682,7 @@ bool FUltimateControlAIHandler::HandleMoveToActor(const TSharedPtr<FJsonObject>&
 
 	if (!TargetActor)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Target actor not found: %s"), *TargetActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Target actor not found: %s"), *TargetActorName));
 		return true;
 	}
 
@@ -667,14 +701,14 @@ bool FUltimateControlAIHandler::HandleStopMovement(const TSharedPtr<FJsonObject>
 
 	if (ControllerName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("controllerName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("controllerName parameter required"));
 		return true;
 	}
 
 	AAIController* Controller = FindAIController(ControllerName);
 	if (!Controller)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
 		return true;
 	}
 
@@ -693,14 +727,14 @@ bool FUltimateControlAIHandler::HandleGetMovementStatus(const TSharedPtr<FJsonOb
 
 	if (ControllerName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("controllerName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("controllerName parameter required"));
 		return true;
 	}
 
 	AAIController* Controller = FindAIController(ControllerName);
 	if (!Controller)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
 		return true;
 	}
 
@@ -731,14 +765,14 @@ bool FUltimateControlAIHandler::HandlePauseMovement(const TSharedPtr<FJsonObject
 
 	if (ControllerName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("controllerName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("controllerName parameter required"));
 		return true;
 	}
 
 	AAIController* Controller = FindAIController(ControllerName);
 	if (!Controller)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
 		return true;
 	}
 
@@ -760,14 +794,14 @@ bool FUltimateControlAIHandler::HandleResumeMovement(const TSharedPtr<FJsonObjec
 
 	if (ControllerName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("controllerName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("controllerName parameter required"));
 		return true;
 	}
 
 	AAIController* Controller = FindAIController(ControllerName);
 	if (!Controller)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
 		return true;
 	}
 
@@ -810,14 +844,14 @@ bool FUltimateControlAIHandler::HandleGetBehaviorTree(const TSharedPtr<FJsonObje
 	FString Path = Params->GetStringField(TEXT("path"));
 	if (Path.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("path parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("path parameter required"));
 		return true;
 	}
 
 	UBehaviorTree* BT = LoadObject<UBehaviorTree>(nullptr, *Path);
 	if (!BT)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Behavior tree not found: %s"), *Path));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Behavior tree not found: %s"), *Path));
 		return true;
 	}
 
@@ -832,21 +866,21 @@ bool FUltimateControlAIHandler::HandleRunBehaviorTree(const TSharedPtr<FJsonObje
 
 	if (ControllerName.IsEmpty() || TreePath.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("controllerName and treePath parameters required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("controllerName and treePath parameters required"));
 		return true;
 	}
 
 	AAIController* Controller = FindAIController(ControllerName);
 	if (!Controller)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
 		return true;
 	}
 
 	UBehaviorTree* BT = LoadObject<UBehaviorTree>(nullptr, *TreePath);
 	if (!BT)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Behavior tree not found: %s"), *TreePath));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Behavior tree not found: %s"), *TreePath));
 		return true;
 	}
 
@@ -865,14 +899,14 @@ bool FUltimateControlAIHandler::HandleStopBehaviorTree(const TSharedPtr<FJsonObj
 
 	if (ControllerName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("controllerName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("controllerName parameter required"));
 		return true;
 	}
 
 	AAIController* Controller = FindAIController(ControllerName);
 	if (!Controller)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
 		return true;
 	}
 
@@ -894,14 +928,14 @@ bool FUltimateControlAIHandler::HandlePauseBehaviorTree(const TSharedPtr<FJsonOb
 
 	if (ControllerName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("controllerName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("controllerName parameter required"));
 		return true;
 	}
 
 	AAIController* Controller = FindAIController(ControllerName);
 	if (!Controller)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
 		return true;
 	}
 
@@ -923,14 +957,14 @@ bool FUltimateControlAIHandler::HandleResumeBehaviorTree(const TSharedPtr<FJsonO
 
 	if (ControllerName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("controllerName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("controllerName parameter required"));
 		return true;
 	}
 
 	AAIController* Controller = FindAIController(ControllerName);
 	if (!Controller)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
 		return true;
 	}
 
@@ -953,21 +987,21 @@ bool FUltimateControlAIHandler::HandleGetBlackboardValue(const TSharedPtr<FJsonO
 
 	if (ControllerName.IsEmpty() || KeyName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("controllerName and keyName parameters required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("controllerName and keyName parameters required"));
 		return true;
 	}
 
 	AAIController* Controller = FindAIController(ControllerName);
 	if (!Controller)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
 		return true;
 	}
 
 	UBlackboardComponent* BB = GetBlackboard(Controller);
 	if (!BB)
 	{
-		Error = CreateError(-32603, TEXT("No blackboard component found"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No blackboard component found"));
 		return true;
 	}
 
@@ -997,21 +1031,21 @@ bool FUltimateControlAIHandler::HandleSetBlackboardValue(const TSharedPtr<FJsonO
 
 	if (ControllerName.IsEmpty() || KeyName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("controllerName and keyName parameters required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("controllerName and keyName parameters required"));
 		return true;
 	}
 
 	AAIController* Controller = FindAIController(ControllerName);
 	if (!Controller)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
 		return true;
 	}
 
 	UBlackboardComponent* BB = GetBlackboard(Controller);
 	if (!BB)
 	{
-		Error = CreateError(-32603, TEXT("No blackboard component found"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No blackboard component found"));
 		return true;
 	}
 
@@ -1046,21 +1080,21 @@ bool FUltimateControlAIHandler::HandleListBlackboardKeys(const TSharedPtr<FJsonO
 
 	if (ControllerName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("controllerName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("controllerName parameter required"));
 		return true;
 	}
 
 	AAIController* Controller = FindAIController(ControllerName);
 	if (!Controller)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
 		return true;
 	}
 
 	UBlackboardComponent* BB = GetBlackboard(Controller);
 	if (!BB)
 	{
-		Error = CreateError(-32603, TEXT("No blackboard component found"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No blackboard component found"));
 		return true;
 	}
 
@@ -1090,21 +1124,21 @@ bool FUltimateControlAIHandler::HandleClearBlackboard(const TSharedPtr<FJsonObje
 
 	if (ControllerName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("controllerName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("controllerName parameter required"));
 		return true;
 	}
 
 	AAIController* Controller = FindAIController(ControllerName);
 	if (!Controller)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
 		return true;
 	}
 
 	UBlackboardComponent* BB = GetBlackboard(Controller);
 	if (!BB)
 	{
-		Error = CreateError(-32603, TEXT("No blackboard component found"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No blackboard component found"));
 		return true;
 	}
 
@@ -1123,21 +1157,21 @@ bool FUltimateControlAIHandler::HandleGetPerceivedActors(const TSharedPtr<FJsonO
 
 	if (ControllerName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("controllerName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("controllerName parameter required"));
 		return true;
 	}
 
 	AAIController* Controller = FindAIController(ControllerName);
 	if (!Controller)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
 		return true;
 	}
 
 	UAIPerceptionComponent* PerceptionComp = Controller->GetAIPerceptionComponent();
 	if (!PerceptionComp)
 	{
-		Error = CreateError(-32603, TEXT("No perception component found"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No perception component found"));
 		return true;
 	}
 
@@ -1167,14 +1201,14 @@ bool FUltimateControlAIHandler::HandleGetPerceptionInfo(const TSharedPtr<FJsonOb
 
 	if (ControllerName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("controllerName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("controllerName parameter required"));
 		return true;
 	}
 
 	AAIController* Controller = FindAIController(ControllerName);
 	if (!Controller)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
 		return true;
 	}
 
@@ -1201,14 +1235,14 @@ bool FUltimateControlAIHandler::HandleSetFocus(const TSharedPtr<FJsonObject>& Pa
 
 	if (ControllerName.IsEmpty() || TargetActorName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("controllerName and targetActorName parameters required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("controllerName and targetActorName parameters required"));
 		return true;
 	}
 
 	AAIController* Controller = FindAIController(ControllerName);
 	if (!Controller)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
 		return true;
 	}
 
@@ -1225,7 +1259,7 @@ bool FUltimateControlAIHandler::HandleSetFocus(const TSharedPtr<FJsonObject>& Pa
 
 	if (!TargetActor)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Target actor not found: %s"), *TargetActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Target actor not found: %s"), *TargetActorName));
 		return true;
 	}
 
@@ -1244,14 +1278,14 @@ bool FUltimateControlAIHandler::HandleClearFocus(const TSharedPtr<FJsonObject>& 
 
 	if (ControllerName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("controllerName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("controllerName parameter required"));
 		return true;
 	}
 
 	AAIController* Controller = FindAIController(ControllerName);
 	if (!Controller)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
 		return true;
 	}
 
@@ -1270,14 +1304,14 @@ bool FUltimateControlAIHandler::HandleGetFocus(const TSharedPtr<FJsonObject>& Pa
 
 	if (ControllerName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("controllerName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("controllerName parameter required"));
 		return true;
 	}
 
 	AAIController* Controller = FindAIController(ControllerName);
 	if (!Controller)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("AI Controller not found: %s"), *ControllerName));
 		return true;
 	}
 

@@ -16,29 +16,51 @@
 #include "MaterialEditor/MaterialEditorUtilities.h"
 #include "MaterialGraph/MaterialGraph.h"
 
-void FUltimateControlMaterialHandler::RegisterMethods(TMap<FString, FJsonRpcMethodHandler>& Methods)
+FUltimateControlMaterialHandler::FUltimateControlMaterialHandler(UUltimateControlSubsystem* InSubsystem)
+	: FUltimateControlHandlerBase(InSubsystem)
 {
-	Methods.Add(TEXT("material.list"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleListMaterials));
-	Methods.Add(TEXT("material.get"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleGetMaterial));
-	Methods.Add(TEXT("material.create"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleCreateMaterial));
-	Methods.Add(TEXT("material.getParameters"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleGetMaterialParameters));
-	Methods.Add(TEXT("material.setParameter"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleSetMaterialParameter));
-	Methods.Add(TEXT("material.getParameter"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleGetMaterialParameter));
-	Methods.Add(TEXT("material.getNodes"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleGetMaterialNodes));
-	Methods.Add(TEXT("material.addNode"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleAddMaterialNode));
-	Methods.Add(TEXT("material.deleteNode"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleDeleteMaterialNode));
-	Methods.Add(TEXT("material.connectNodes"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleConnectMaterialNodes));
-	Methods.Add(TEXT("material.disconnectNode"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleDisconnectMaterialNode));
-	Methods.Add(TEXT("material.compile"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleCompileMaterial));
-	Methods.Add(TEXT("material.getCompileErrors"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleGetCompileErrors));
-	Methods.Add(TEXT("material.listInstances"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleListMaterialInstances));
-	Methods.Add(TEXT("material.createInstance"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleCreateMaterialInstance));
-	Methods.Add(TEXT("material.getInstanceParent"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleGetMaterialInstanceParent));
-	Methods.Add(TEXT("material.setInstanceParent"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleSetMaterialInstanceParent));
-	Methods.Add(TEXT("materialInstance.setScalar"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleSetInstanceScalarParameter));
-	Methods.Add(TEXT("materialInstance.setVector"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleSetInstanceVectorParameter));
-	Methods.Add(TEXT("materialInstance.setTexture"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleSetInstanceTextureParameter));
-	Methods.Add(TEXT("materialInstance.getParameters"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleGetInstanceParameters));
+	RegisterMethod(TEXT("material.list"), TEXT("List materials"), TEXT("Material"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleListMaterials));
+	RegisterMethod(TEXT("material.get"), TEXT("Get material"), TEXT("Material"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleGetMaterial));
+	RegisterMethod(TEXT("material.create"), TEXT("Create material"), TEXT("Material"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleCreateMaterial));
+	RegisterMethod(TEXT("material.getParameters"), TEXT("Get material parameters"), TEXT("Material"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleGetMaterialParameters));
+	RegisterMethod(TEXT("material.setParameter"), TEXT("Set material parameter"), TEXT("Material"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleSetMaterialParameter));
+	RegisterMethod(TEXT("material.getParameter"), TEXT("Get material parameter"), TEXT("Material"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleGetMaterialParameter));
+	RegisterMethod(TEXT("material.getNodes"), TEXT("Get material nodes"), TEXT("Material"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleGetMaterialNodes));
+	RegisterMethod(TEXT("material.addNode"), TEXT("Add material node"), TEXT("Material"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleAddMaterialNode));
+	RegisterMethod(TEXT("material.deleteNode"), TEXT("Delete material node"), TEXT("Material"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleDeleteMaterialNode));
+	RegisterMethod(TEXT("material.connectNodes"), TEXT("Connect material nodes"), TEXT("Material"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleConnectMaterialNodes));
+	RegisterMethod(TEXT("material.disconnectNode"), TEXT("Disconnect material node"), TEXT("Material"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleDisconnectMaterialNode));
+	RegisterMethod(TEXT("material.compile"), TEXT("Compile material"), TEXT("Material"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleCompileMaterial));
+	RegisterMethod(TEXT("material.getCompileErrors"), TEXT("Get compile errors"), TEXT("Material"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleGetCompileErrors));
+	RegisterMethod(TEXT("material.listInstances"), TEXT("List material instances"), TEXT("Material"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleListMaterialInstances));
+	RegisterMethod(TEXT("material.createInstance"), TEXT("Create material instance"), TEXT("Material"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleCreateMaterialInstance));
+	RegisterMethod(TEXT("material.getInstanceParent"), TEXT("Get instance parent"), TEXT("Material"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleGetMaterialInstanceParent));
+	RegisterMethod(TEXT("material.setInstanceParent"), TEXT("Set instance parent"), TEXT("Material"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleSetMaterialInstanceParent));
+	RegisterMethod(TEXT("materialInstance.setScalar"), TEXT("Set scalar parameter"), TEXT("Material"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleSetInstanceScalarParameter));
+	RegisterMethod(TEXT("materialInstance.setVector"), TEXT("Set vector parameter"), TEXT("Material"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleSetInstanceVectorParameter));
+	RegisterMethod(TEXT("materialInstance.setTexture"), TEXT("Set texture parameter"), TEXT("Material"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleSetInstanceTextureParameter));
+	RegisterMethod(TEXT("materialInstance.getParameters"), TEXT("Get instance parameters"), TEXT("Material"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlMaterialHandler::HandleGetInstanceParameters));
 }
 
 TSharedPtr<FJsonObject> FUltimateControlMaterialHandler::MaterialToJson(UMaterial* Material)
@@ -164,7 +186,7 @@ bool FUltimateControlMaterialHandler::HandleGetMaterial(const TSharedPtr<FJsonOb
 	UMaterial* Material = LoadObject<UMaterial>(nullptr, *Path);
 	if (!Material)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Material not found: %s"), *Path));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Material not found: %s"), *Path));
 		return false;
 	}
 
@@ -190,7 +212,7 @@ bool FUltimateControlMaterialHandler::HandleCreateMaterial(const TSharedPtr<FJso
 
 	if (!NewAsset)
 	{
-		Error = CreateError(-32002, FString::Printf(TEXT("Failed to create material at: %s"), *Path));
+		Error = UUltimateControlSubsystem::MakeError(-32002, FString::Printf(TEXT("Failed to create material at: %s"), *Path));
 		return false;
 	}
 
@@ -230,7 +252,7 @@ bool FUltimateControlMaterialHandler::HandleGetMaterialParameters(const TSharedP
 	UMaterialInterface* MaterialInterface = LoadObject<UMaterialInterface>(nullptr, *Path);
 	if (!MaterialInterface)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Material not found: %s"), *Path));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Material not found: %s"), *Path));
 		return false;
 	}
 
@@ -302,7 +324,7 @@ bool FUltimateControlMaterialHandler::HandleSetMaterialParameter(const TSharedPt
 {
 	// This requires editing the material graph for base materials
 	// For now, return an error directing to use material instances
-	Error = CreateError(-32002, TEXT("Cannot set parameters on base materials directly. Use materialInstance.setScalar/setVector/setTexture for material instances."));
+	Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("Cannot set parameters on base materials directly. Use materialInstance.setScalar/setVector/setTexture for material instances."));
 	return false;
 }
 
@@ -323,7 +345,7 @@ bool FUltimateControlMaterialHandler::HandleGetMaterialParameter(const TSharedPt
 	UMaterialInterface* MaterialInterface = LoadObject<UMaterialInterface>(nullptr, *Path);
 	if (!MaterialInterface)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Material not found: %s"), *Path));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Material not found: %s"), *Path));
 		return false;
 	}
 
@@ -362,7 +384,7 @@ bool FUltimateControlMaterialHandler::HandleGetMaterialParameter(const TSharedPt
 		return true;
 	}
 
-	Error = CreateError(-32003, FString::Printf(TEXT("Parameter not found: %s"), *ParameterName));
+	Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Parameter not found: %s"), *ParameterName));
 	return false;
 }
 
@@ -377,7 +399,7 @@ bool FUltimateControlMaterialHandler::HandleGetMaterialNodes(const TSharedPtr<FJ
 	UMaterial* Material = LoadObject<UMaterial>(nullptr, *Path);
 	if (!Material)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Material not found: %s"), *Path));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Material not found: %s"), *Path));
 		return false;
 	}
 
@@ -414,7 +436,7 @@ bool FUltimateControlMaterialHandler::HandleAddMaterialNode(const TSharedPtr<FJs
 	UMaterial* Material = LoadObject<UMaterial>(nullptr, *Path);
 	if (!Material)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Material not found: %s"), *Path));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Material not found: %s"), *Path));
 		return false;
 	}
 
@@ -428,7 +450,7 @@ bool FUltimateControlMaterialHandler::HandleAddMaterialNode(const TSharedPtr<FJs
 
 	if (!ExpressionClass || !ExpressionClass->IsChildOf(UMaterialExpression::StaticClass()))
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Material expression class not found: %s"), *NodeClass));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Material expression class not found: %s"), *NodeClass));
 		return false;
 	}
 
@@ -436,7 +458,7 @@ bool FUltimateControlMaterialHandler::HandleAddMaterialNode(const TSharedPtr<FJs
 	UMaterialExpression* NewExpression = NewObject<UMaterialExpression>(Material, ExpressionClass, NAME_None, RF_Transactional);
 	if (!NewExpression)
 	{
-		Error = CreateError(-32002, TEXT("Failed to create material expression"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("Failed to create material expression"));
 		return false;
 	}
 
@@ -476,7 +498,7 @@ bool FUltimateControlMaterialHandler::HandleDeleteMaterialNode(const TSharedPtr<
 	UMaterial* Material = LoadObject<UMaterial>(nullptr, *Path);
 	if (!Material)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Material not found: %s"), *Path));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Material not found: %s"), *Path));
 		return false;
 	}
 
@@ -493,7 +515,7 @@ bool FUltimateControlMaterialHandler::HandleDeleteMaterialNode(const TSharedPtr<
 
 	if (!FoundExpression)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Node not found: %s"), *NodeName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Node not found: %s"), *NodeName));
 		return false;
 	}
 
@@ -512,13 +534,13 @@ bool FUltimateControlMaterialHandler::HandleConnectMaterialNodes(const TSharedPt
 {
 	// Material node connections are complex and require graph manipulation
 	// This is a simplified stub
-	Error = CreateError(-32002, TEXT("Material node connections via API not fully implemented. Use the material editor."));
+	Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("Material node connections via API not fully implemented. Use the material editor."));
 	return false;
 }
 
 bool FUltimateControlMaterialHandler::HandleDisconnectMaterialNode(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
 {
-	Error = CreateError(-32002, TEXT("Material node disconnections via API not fully implemented. Use the material editor."));
+	Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("Material node disconnections via API not fully implemented. Use the material editor."));
 	return false;
 }
 
@@ -533,7 +555,7 @@ bool FUltimateControlMaterialHandler::HandleCompileMaterial(const TSharedPtr<FJs
 	UMaterial* Material = LoadObject<UMaterial>(nullptr, *Path);
 	if (!Material)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Material not found: %s"), *Path));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Material not found: %s"), *Path));
 		return false;
 	}
 
@@ -557,7 +579,7 @@ bool FUltimateControlMaterialHandler::HandleGetCompileErrors(const TSharedPtr<FJ
 	UMaterial* Material = LoadObject<UMaterial>(nullptr, *Path);
 	if (!Material)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Material not found: %s"), *Path));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Material not found: %s"), *Path));
 		return false;
 	}
 
@@ -631,7 +653,7 @@ bool FUltimateControlMaterialHandler::HandleCreateMaterialInstance(const TShared
 	UMaterialInterface* ParentMaterial = LoadObject<UMaterialInterface>(nullptr, *ParentPath);
 	if (!ParentMaterial)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Parent material not found: %s"), *ParentPath));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Parent material not found: %s"), *ParentPath));
 		return false;
 	}
 
@@ -647,7 +669,7 @@ bool FUltimateControlMaterialHandler::HandleCreateMaterialInstance(const TShared
 
 	if (!NewAsset)
 	{
-		Error = CreateError(-32002, FString::Printf(TEXT("Failed to create material instance at: %s"), *Path));
+		Error = UUltimateControlSubsystem::MakeError(-32002, FString::Printf(TEXT("Failed to create material instance at: %s"), *Path));
 		return false;
 	}
 
@@ -667,7 +689,7 @@ bool FUltimateControlMaterialHandler::HandleGetMaterialInstanceParent(const TSha
 	UMaterialInstance* MI = LoadObject<UMaterialInstance>(nullptr, *Path);
 	if (!MI)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Material instance not found: %s"), *Path));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Material instance not found: %s"), *Path));
 		return false;
 	}
 
@@ -698,14 +720,14 @@ bool FUltimateControlMaterialHandler::HandleSetMaterialInstanceParent(const TSha
 	UMaterialInstanceConstant* MIC = LoadObject<UMaterialInstanceConstant>(nullptr, *Path);
 	if (!MIC)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Material instance not found: %s"), *Path));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Material instance not found: %s"), *Path));
 		return false;
 	}
 
 	UMaterialInterface* NewParent = LoadObject<UMaterialInterface>(nullptr, *ParentPath);
 	if (!NewParent)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Parent material not found: %s"), *ParentPath));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Parent material not found: %s"), *ParentPath));
 		return false;
 	}
 
@@ -735,7 +757,7 @@ bool FUltimateControlMaterialHandler::HandleSetInstanceScalarParameter(const TSh
 
 	if (!Params->HasField(TEXT("value")))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: value"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: value"));
 		return false;
 	}
 	float Value = Params->GetNumberField(TEXT("value"));
@@ -743,7 +765,7 @@ bool FUltimateControlMaterialHandler::HandleSetInstanceScalarParameter(const TSh
 	UMaterialInstanceConstant* MIC = LoadObject<UMaterialInstanceConstant>(nullptr, *Path);
 	if (!MIC)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Material instance not found: %s"), *Path));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Material instance not found: %s"), *Path));
 		return false;
 	}
 
@@ -773,7 +795,7 @@ bool FUltimateControlMaterialHandler::HandleSetInstanceVectorParameter(const TSh
 
 	if (!Params->HasField(TEXT("value")))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: value"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: value"));
 		return false;
 	}
 	FLinearColor Value = JsonToColor(Params->GetObjectField(TEXT("value")));
@@ -781,7 +803,7 @@ bool FUltimateControlMaterialHandler::HandleSetInstanceVectorParameter(const TSh
 	UMaterialInstanceConstant* MIC = LoadObject<UMaterialInstanceConstant>(nullptr, *Path);
 	if (!MIC)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Material instance not found: %s"), *Path));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Material instance not found: %s"), *Path));
 		return false;
 	}
 
@@ -818,14 +840,14 @@ bool FUltimateControlMaterialHandler::HandleSetInstanceTextureParameter(const TS
 	UMaterialInstanceConstant* MIC = LoadObject<UMaterialInstanceConstant>(nullptr, *Path);
 	if (!MIC)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Material instance not found: %s"), *Path));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Material instance not found: %s"), *Path));
 		return false;
 	}
 
 	UTexture* Texture = LoadObject<UTexture>(nullptr, *TexturePath);
 	if (!Texture && !TexturePath.IsEmpty())
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Texture not found: %s"), *TexturePath));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Texture not found: %s"), *TexturePath));
 		return false;
 	}
 
@@ -850,7 +872,7 @@ bool FUltimateControlMaterialHandler::HandleGetInstanceParameters(const TSharedP
 	UMaterialInstanceConstant* MIC = LoadObject<UMaterialInstanceConstant>(nullptr, *Path);
 	if (!MIC)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Material instance not found: %s"), *Path));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Material instance not found: %s"), *Path));
 		return false;
 	}
 

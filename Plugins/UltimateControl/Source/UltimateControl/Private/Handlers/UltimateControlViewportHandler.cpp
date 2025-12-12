@@ -13,22 +13,37 @@
 #include "HighResScreenshot.h"
 #include "Slate/SceneViewport.h"
 
-void FUltimateControlViewportHandler::RegisterMethods(TMap<FString, FJsonRpcMethodHandler>& Methods)
+FUltimateControlViewportHandler::FUltimateControlViewportHandler(UUltimateControlSubsystem* InSubsystem)
+	: FUltimateControlHandlerBase(InSubsystem)
 {
-	Methods.Add(TEXT("viewport.list"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlViewportHandler::HandleListViewports));
-	Methods.Add(TEXT("viewport.get"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlViewportHandler::HandleGetViewport));
-	Methods.Add(TEXT("viewport.getCamera"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlViewportHandler::HandleGetCamera));
-	Methods.Add(TEXT("viewport.setCamera"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlViewportHandler::HandleSetCamera));
-	Methods.Add(TEXT("viewport.focusOnActor"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlViewportHandler::HandleFocusOnActor));
-	Methods.Add(TEXT("viewport.focusOnLocation"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlViewportHandler::HandleFocusOnLocation));
-	Methods.Add(TEXT("viewport.getSettings"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlViewportHandler::HandleGetViewportSettings));
-	Methods.Add(TEXT("viewport.setSettings"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlViewportHandler::HandleSetViewportSettings));
-	Methods.Add(TEXT("viewport.setViewMode"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlViewportHandler::HandleSetViewMode));
-	Methods.Add(TEXT("viewport.setRealtime"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlViewportHandler::HandleSetRealtime));
-	Methods.Add(TEXT("viewport.takeScreenshot"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlViewportHandler::HandleTakeScreenshot));
-	Methods.Add(TEXT("viewport.getSize"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlViewportHandler::HandleGetViewportSize));
-	Methods.Add(TEXT("viewport.maximize"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlViewportHandler::HandleMaximizeViewport));
-	Methods.Add(TEXT("viewport.restore"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlViewportHandler::HandleRestoreViewports));
+	RegisterMethod(TEXT("viewport.list"), TEXT("List editor viewports"), TEXT("Viewport"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlViewportHandler::HandleListViewports));
+	RegisterMethod(TEXT("viewport.get"), TEXT("Get viewport info"), TEXT("Viewport"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlViewportHandler::HandleGetViewport));
+	RegisterMethod(TEXT("viewport.getCamera"), TEXT("Get viewport camera"), TEXT("Viewport"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlViewportHandler::HandleGetCamera));
+	RegisterMethod(TEXT("viewport.setCamera"), TEXT("Set viewport camera"), TEXT("Viewport"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlViewportHandler::HandleSetCamera));
+	RegisterMethod(TEXT("viewport.focusOnActor"), TEXT("Focus viewport on actor"), TEXT("Viewport"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlViewportHandler::HandleFocusOnActor));
+	RegisterMethod(TEXT("viewport.focusOnLocation"), TEXT("Focus viewport on location"), TEXT("Viewport"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlViewportHandler::HandleFocusOnLocation));
+	RegisterMethod(TEXT("viewport.getSettings"), TEXT("Get viewport settings"), TEXT("Viewport"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlViewportHandler::HandleGetViewportSettings));
+	RegisterMethod(TEXT("viewport.setSettings"), TEXT("Set viewport settings"), TEXT("Viewport"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlViewportHandler::HandleSetViewportSettings));
+	RegisterMethod(TEXT("viewport.setViewMode"), TEXT("Set viewport view mode"), TEXT("Viewport"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlViewportHandler::HandleSetViewMode));
+	RegisterMethod(TEXT("viewport.setRealtime"), TEXT("Set viewport realtime rendering"), TEXT("Viewport"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlViewportHandler::HandleSetRealtime));
+	RegisterMethod(TEXT("viewport.takeScreenshot"), TEXT("Capture viewport screenshot"), TEXT("Viewport"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlViewportHandler::HandleTakeScreenshot));
+	RegisterMethod(TEXT("viewport.getSize"), TEXT("Get viewport dimensions"), TEXT("Viewport"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlViewportHandler::HandleGetViewportSize));
+	RegisterMethod(TEXT("viewport.maximize"), TEXT("Maximize viewport"), TEXT("Viewport"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlViewportHandler::HandleMaximizeViewport));
+	RegisterMethod(TEXT("viewport.restore"), TEXT("Restore viewports"), TEXT("Viewport"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlViewportHandler::HandleRestoreViewports));
 }
 
 FLevelEditorViewportClient* FUltimateControlViewportHandler::GetViewportClient(int32 ViewportIndex)
@@ -176,7 +191,7 @@ bool FUltimateControlViewportHandler::HandleGetViewport(const TSharedPtr<FJsonOb
 	FLevelEditorViewportClient* ViewportClient = GetViewportClient(Index);
 	if (!ViewportClient)
 	{
-		Error = CreateError(-32003, TEXT("Viewport not found"));
+		Error = UUltimateControlSubsystem::MakeError(-32003, TEXT("Viewport not found"));
 		return false;
 	}
 
@@ -195,7 +210,7 @@ bool FUltimateControlViewportHandler::HandleGetCamera(const TSharedPtr<FJsonObje
 	FLevelEditorViewportClient* ViewportClient = GetViewportClient(Index);
 	if (!ViewportClient)
 	{
-		Error = CreateError(-32003, TEXT("Viewport not found"));
+		Error = UUltimateControlSubsystem::MakeError(-32003, TEXT("Viewport not found"));
 		return false;
 	}
 
@@ -221,7 +236,7 @@ bool FUltimateControlViewportHandler::HandleSetCamera(const TSharedPtr<FJsonObje
 	FLevelEditorViewportClient* ViewportClient = GetViewportClient(Index);
 	if (!ViewportClient)
 	{
-		Error = CreateError(-32003, TEXT("Viewport not found"));
+		Error = UUltimateControlSubsystem::MakeError(-32003, TEXT("Viewport not found"));
 		return false;
 	}
 
@@ -266,14 +281,14 @@ bool FUltimateControlViewportHandler::HandleFocusOnActor(const TSharedPtr<FJsonO
 	UWorld* World = GEditor->GetEditorWorldContext().World();
 	if (!World)
 	{
-		Error = CreateError(-32002, TEXT("No world loaded"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No world loaded"));
 		return false;
 	}
 
 	AActor* Actor = FindActorByName(World, ActorName);
 	if (!Actor)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
 		return false;
 	}
 
@@ -290,7 +305,7 @@ bool FUltimateControlViewportHandler::HandleFocusOnLocation(const TSharedPtr<FJs
 {
 	if (!Params->HasField(TEXT("location")))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: location"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: location"));
 		return false;
 	}
 
@@ -311,7 +326,7 @@ bool FUltimateControlViewportHandler::HandleFocusOnLocation(const TSharedPtr<FJs
 	FLevelEditorViewportClient* ViewportClient = GetViewportClient(Index);
 	if (!ViewportClient)
 	{
-		Error = CreateError(-32003, TEXT("Viewport not found"));
+		Error = UUltimateControlSubsystem::MakeError(-32003, TEXT("Viewport not found"));
 		return false;
 	}
 
@@ -337,7 +352,7 @@ bool FUltimateControlViewportHandler::HandleGetViewportSettings(const TSharedPtr
 	FLevelEditorViewportClient* ViewportClient = GetViewportClient(Index);
 	if (!ViewportClient)
 	{
-		Error = CreateError(-32003, TEXT("Viewport not found"));
+		Error = UUltimateControlSubsystem::MakeError(-32003, TEXT("Viewport not found"));
 		return false;
 	}
 
@@ -365,7 +380,7 @@ bool FUltimateControlViewportHandler::HandleSetViewportSettings(const TSharedPtr
 	FLevelEditorViewportClient* ViewportClient = GetViewportClient(Index);
 	if (!ViewportClient)
 	{
-		Error = CreateError(-32003, TEXT("Viewport not found"));
+		Error = UUltimateControlSubsystem::MakeError(-32003, TEXT("Viewport not found"));
 		return false;
 	}
 
@@ -424,7 +439,7 @@ bool FUltimateControlViewportHandler::HandleSetViewMode(const TSharedPtr<FJsonOb
 	FLevelEditorViewportClient* ViewportClient = GetViewportClient(Index);
 	if (!ViewportClient)
 	{
-		Error = CreateError(-32003, TEXT("Viewport not found"));
+		Error = UUltimateControlSubsystem::MakeError(-32003, TEXT("Viewport not found"));
 		return false;
 	}
 
@@ -454,7 +469,7 @@ bool FUltimateControlViewportHandler::HandleSetRealtime(const TSharedPtr<FJsonOb
 	FLevelEditorViewportClient* ViewportClient = GetViewportClient(Index);
 	if (!ViewportClient)
 	{
-		Error = CreateError(-32003, TEXT("Viewport not found"));
+		Error = UUltimateControlSubsystem::MakeError(-32003, TEXT("Viewport not found"));
 		return false;
 	}
 
@@ -485,14 +500,14 @@ bool FUltimateControlViewportHandler::HandleTakeScreenshot(const TSharedPtr<FJso
 
 	if (!LevelEditor.IsValid())
 	{
-		Error = CreateError(-32002, TEXT("Level editor not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("Level editor not available"));
 		return false;
 	}
 
 	TArray<TSharedPtr<SLevelViewport>> Viewports = LevelEditor->GetViewports();
 	if (Index < 0 || Index >= Viewports.Num() || !Viewports[Index].IsValid())
 	{
-		Error = CreateError(-32003, TEXT("Viewport not found"));
+		Error = UUltimateControlSubsystem::MakeError(-32003, TEXT("Viewport not found"));
 		return false;
 	}
 
@@ -501,7 +516,7 @@ bool FUltimateControlViewportHandler::HandleTakeScreenshot(const TSharedPtr<FJso
 
 	if (!SceneViewport.IsValid())
 	{
-		Error = CreateError(-32002, TEXT("Scene viewport not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("Scene viewport not available"));
 		return false;
 	}
 
@@ -512,7 +527,7 @@ bool FUltimateControlViewportHandler::HandleTakeScreenshot(const TSharedPtr<FJso
 	TArray<FColor> Bitmap;
 	if (!SceneViewport->ReadPixels(Bitmap))
 	{
-		Error = CreateError(-32002, TEXT("Failed to read viewport pixels"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("Failed to read viewport pixels"));
 		return false;
 	}
 
@@ -522,7 +537,7 @@ bool FUltimateControlViewportHandler::HandleTakeScreenshot(const TSharedPtr<FJso
 
 	if (!FFileHelper::SaveArrayToFile(CompressedBitmap, *OutputPath))
 	{
-		Error = CreateError(-32002, FString::Printf(TEXT("Failed to save screenshot to: %s"), *OutputPath));
+		Error = UUltimateControlSubsystem::MakeError(-32002, FString::Printf(TEXT("Failed to save screenshot to: %s"), *OutputPath));
 		return false;
 	}
 
@@ -548,14 +563,14 @@ bool FUltimateControlViewportHandler::HandleGetViewportSize(const TSharedPtr<FJs
 
 	if (!LevelEditor.IsValid())
 	{
-		Error = CreateError(-32002, TEXT("Level editor not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("Level editor not available"));
 		return false;
 	}
 
 	TArray<TSharedPtr<SLevelViewport>> Viewports = LevelEditor->GetViewports();
 	if (Index < 0 || Index >= Viewports.Num() || !Viewports[Index].IsValid())
 	{
-		Error = CreateError(-32003, TEXT("Viewport not found"));
+		Error = UUltimateControlSubsystem::MakeError(-32003, TEXT("Viewport not found"));
 		return false;
 	}
 
@@ -584,14 +599,14 @@ bool FUltimateControlViewportHandler::HandleMaximizeViewport(const TSharedPtr<FJ
 
 	if (!LevelEditor.IsValid())
 	{
-		Error = CreateError(-32002, TEXT("Level editor not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("Level editor not available"));
 		return false;
 	}
 
 	TArray<TSharedPtr<SLevelViewport>> Viewports = LevelEditor->GetViewports();
 	if (Index < 0 || Index >= Viewports.Num() || !Viewports[Index].IsValid())
 	{
-		Error = CreateError(-32003, TEXT("Viewport not found"));
+		Error = UUltimateControlSubsystem::MakeError(-32003, TEXT("Viewport not found"));
 		return false;
 	}
 
