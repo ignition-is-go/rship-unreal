@@ -10,14 +10,14 @@
 class URshipSubsystem;
 
 // ============================================================================
-// DELEGATES
+// DELEGATES (non-dynamic to support AddLambda in C++)
 // ============================================================================
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnFixturesUpdated);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnFixtureAdded, const FRshipFixtureInfo&, Fixture);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnFixtureRemoved, const FString&, FixtureId);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnFixtureTypeAdded, const FRshipFixtureTypeInfo&, FixtureType);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnCalibrationUpdated, const FRshipFixtureCalibration&, Calibration);
+DECLARE_MULTICAST_DELEGATE(FOnFixturesUpdated);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnFixtureAdded, const FRshipFixtureInfo&);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnFixtureRemoved, const FString&);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnFixtureTypeAdded, const FRshipFixtureTypeInfo&);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnCalibrationUpdated, const FRshipFixtureCalibration&);
 
 /**
  * Manages fixture entities, fixture types, and calibration profiles.
@@ -171,24 +171,19 @@ public:
     // EVENTS
     // ========================================================================
 
-    /** Fired when fixture list changes (any add/remove/update) */
-    UPROPERTY(BlueprintAssignable, Category = "Rship|Fixtures")
+    /** Fired when fixture list changes (C++ only, use AddLambda) */
     FOnFixturesUpdated OnFixturesUpdated;
 
-    /** Fired when a specific fixture is added */
-    UPROPERTY(BlueprintAssignable, Category = "Rship|Fixtures")
+    /** Fired when a specific fixture is added (C++ only, use AddLambda) */
     FOnFixtureAdded OnFixtureAdded;
 
-    /** Fired when a specific fixture is removed */
-    UPROPERTY(BlueprintAssignable, Category = "Rship|Fixtures")
+    /** Fired when a specific fixture is removed (C++ only, use AddLambda) */
     FOnFixtureRemoved OnFixtureRemoved;
 
-    /** Fired when a fixture type is added */
-    UPROPERTY(BlueprintAssignable, Category = "Rship|Fixtures")
+    /** Fired when a fixture type is added (C++ only, use AddLambda) */
     FOnFixtureTypeAdded OnFixtureTypeAdded;
 
-    /** Fired when calibration data is updated */
-    UPROPERTY(BlueprintAssignable, Category = "Rship|Calibration")
+    /** Fired when calibration data is updated (C++ only, use AddLambda) */
     FOnCalibrationUpdated OnCalibrationUpdated;
 
     // ========================================================================

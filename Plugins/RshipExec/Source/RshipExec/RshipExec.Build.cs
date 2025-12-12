@@ -50,7 +50,7 @@ public class RshipExec : ModuleRules
 			// By leaving them undefined, zlib and TLS are disabled.
 
 			// Disable shadowing warnings for third-party code (IXWebSocket has variable shadowing)
-			ShadowVariableWarningLevel = WarningLevel.Off;
+			CppCompileWarningSettings.ShadowVariableWarningLevel = WarningLevel.Off;
 
 			// Platform-specific defines
 			if (Target.Platform == UnrealTargetPlatform.Win64)

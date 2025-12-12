@@ -51,11 +51,6 @@ struct RSHIPEXEC_API FRshipTargetConfig
 };
 
 /**
- * Delegate for selection changes
- */
-DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnRshipSelectionChanged);
-
-/**
  * Static function library for bulk operations on rship targets.
  * All functions are BlueprintCallable for use in Editor Utility Widgets.
  */

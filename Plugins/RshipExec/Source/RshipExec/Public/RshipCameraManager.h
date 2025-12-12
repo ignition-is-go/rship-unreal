@@ -10,14 +10,14 @@
 class URshipSubsystem;
 
 // ============================================================================
-// DELEGATES
+// DELEGATES (non-dynamic to support AddLambda in C++)
 // ============================================================================
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnCamerasUpdated);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnCameraAdded, const FRshipCameraInfo&, Camera);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnCameraRemoved, const FString&, CameraId);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnColorProfileAdded, const FRshipColorProfile&, ColorProfile);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnColorProfileUpdated, const FRshipColorProfile&, ColorProfile);
+DECLARE_MULTICAST_DELEGATE(FOnCamerasUpdated);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnCameraAdded, const FRshipCameraInfo&);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnCameraRemoved, const FString&);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnColorProfileAdded, const FRshipColorProfile&);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnColorProfileUpdated, const FRshipColorProfile&);
 
 /**
  * Manages camera entities and color profiles for camera calibration.
@@ -149,24 +149,19 @@ public:
     // EVENTS
     // ========================================================================
 
-    /** Fired when camera list changes */
-    UPROPERTY(BlueprintAssignable, Category = "Rship|Cameras")
+    /** Fired when camera list changes (C++ only, use AddLambda) */
     FOnCamerasUpdated OnCamerasUpdated;
 
-    /** Fired when a camera is added */
-    UPROPERTY(BlueprintAssignable, Category = "Rship|Cameras")
+    /** Fired when a camera is added (C++ only, use AddLambda) */
     FOnCameraAdded OnCameraAdded;
 
-    /** Fired when a camera is removed */
-    UPROPERTY(BlueprintAssignable, Category = "Rship|Cameras")
+    /** Fired when a camera is removed (C++ only, use AddLambda) */
     FOnCameraRemoved OnCameraRemoved;
 
-    /** Fired when a color profile is added */
-    UPROPERTY(BlueprintAssignable, Category = "Rship|Calibration")
+    /** Fired when a color profile is added (C++ only, use AddLambda) */
     FOnColorProfileAdded OnColorProfileAdded;
 
-    /** Fired when a color profile is updated */
-    UPROPERTY(BlueprintAssignable, Category = "Rship|Calibration")
+    /** Fired when a color profile is updated (C++ only, use AddLambda) */
     FOnColorProfileUpdated OnColorProfileUpdated;
 
     // ========================================================================

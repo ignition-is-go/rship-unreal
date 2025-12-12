@@ -136,7 +136,7 @@ bool URshipBlueprintLibrary::GetFixtureById(const FString& FixtureId, FRshipFixt
     {
         if (URshipFixtureManager* FM = Subsystem->GetFixtureManager())
         {
-            return FM->GetFixture(FixtureId, OutFixture);
+            return FM->GetFixtureById(FixtureId, OutFixture);
         }
     }
     return false;
@@ -144,36 +144,20 @@ bool URshipBlueprintLibrary::GetFixtureById(const FString& FixtureId, FRshipFixt
 
 void URshipBlueprintLibrary::SetFixtureIntensity(const FString& FixtureId, float Intensity)
 {
-    if (URshipSubsystem* Subsystem = GetSubsystem())
-    {
-        if (URshipFixtureManager* FM = Subsystem->GetFixtureManager())
-        {
-            FM->SetFixtureIntensity(FixtureId, Intensity);
-        }
-    }
+    // TODO: Implement fixture intensity control via pulse system
+    UE_LOG(LogTemp, Warning, TEXT("SetFixtureIntensity not yet implemented"));
 }
 
 void URshipBlueprintLibrary::SetFixtureColor(const FString& FixtureId, FLinearColor Color)
 {
-    if (URshipSubsystem* Subsystem = GetSubsystem())
-    {
-        if (URshipFixtureManager* FM = Subsystem->GetFixtureManager())
-        {
-            FM->SetFixtureColor(FixtureId, Color);
-        }
-    }
+    // TODO: Implement fixture color control via pulse system
+    UE_LOG(LogTemp, Warning, TEXT("SetFixtureColor not yet implemented"));
 }
 
 void URshipBlueprintLibrary::SetFixtureState(const FString& FixtureId, float Intensity, FLinearColor Color)
 {
-    if (URshipSubsystem* Subsystem = GetSubsystem())
-    {
-        if (URshipFixtureManager* FM = Subsystem->GetFixtureManager())
-        {
-            FM->SetFixtureIntensity(FixtureId, Intensity);
-            FM->SetFixtureColor(FixtureId, Color);
-        }
-    }
+    // TODO: Implement fixture state control via pulse system
+    UE_LOG(LogTemp, Warning, TEXT("SetFixtureState not yet implemented"));
 }
 
 // ============================================================================

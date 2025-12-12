@@ -76,6 +76,10 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
 {
     GENERATED_BODY()
 
+    // Friend classes that need access to SetItem
+    friend class URshipCameraManager;
+    friend class URshipFixtureManager;
+
     AEmitterHandler *EmitterHandler;
 
     // WebSocket connections (use one or the other based on settings)
