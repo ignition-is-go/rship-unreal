@@ -149,7 +149,7 @@ void URshipNiagaraBinding::OnPulseReceivedInternal(const FString& InEmitterId, f
     bIsReceivingPulses = true;
 
     // Auto-activate
-    if (bAutoActivate && !NiagaraComponent->IsActive() && Intensity > DeactivateThreshold)
+    if (bAutoActivateOnPulse && !NiagaraComponent->IsActive() && Intensity > DeactivateThreshold)
     {
         NiagaraComponent->Activate(true);
     }

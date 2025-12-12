@@ -171,7 +171,7 @@ public:
 
     /** Whether to auto-activate Niagara on first pulse */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Binding")
-    bool bAutoActivate = true;
+    bool bAutoActivateOnPulse = true;
 
     /** Whether to deactivate Niagara when intensity drops below threshold */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Binding")
