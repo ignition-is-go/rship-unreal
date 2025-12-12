@@ -2,6 +2,7 @@
 
 #include "Handlers/UltimateControlProjectHandler.h"
 #include "UltimateControl.h"
+#include "UltimateControlVersion.h"
 
 #include "Misc/Paths.h"
 #include "Misc/App.h"
@@ -115,12 +116,19 @@ bool FUltimateControlProjectHandler::HandleGetInfo(const TSharedPtr<FJsonObject>
 		InfoObj->SetStringField(TEXT("category"), ProjectDesc.Category);
 		InfoObj->SetBoolField(TEXT("isEnterprise"), ProjectDesc.bIsEnterpriseProject);
 
-		// Target platforms - UE 5.6: TargetPlatforms is now TArray<FName>
+		// Target platforms - UE 5.6+: TargetPlatforms is TArray<FName>; earlier versions use TArray<FString>
 		TArray<TSharedPtr<FJsonValue>> PlatformsArray;
+#if ULTIMATE_CONTROL_UE_5_6_OR_LATER
 		for (const FName& Platform : ProjectDesc.TargetPlatforms)
 		{
 			PlatformsArray.Add(MakeShared<FJsonValueString>(Platform.ToString()));
 		}
+#else
+		for (const FString& Platform : ProjectDesc.TargetPlatforms)
+		{
+			PlatformsArray.Add(MakeShared<FJsonValueString>(Platform));
+		}
+#endif
 		InfoObj->SetArrayField(TEXT("targetPlatforms"), PlatformsArray);
 	}
 

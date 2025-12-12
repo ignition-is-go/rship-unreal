@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Handlers/UltimateControlAnimationHandler.h"
+#include "UltimateControlVersion.h"
 #include "Animation/AnimSequence.h"
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimBlueprint.h"
@@ -109,8 +110,12 @@ TSharedPtr<FJsonObject> FUltimateControlAnimationHandler::AnimSequenceToJson(UAn
 	TSharedPtr<FJsonObject> Result = AnimationToJson(AnimSequence);
 
 	Result->SetNumberField(TEXT("duration"), AnimSequence->GetPlayLength());
-	// UE 5.6: GetFrameRate() was replaced with GetSamplingFrameRate()
+	// UE 5.6+: GetFrameRate() was renamed to GetSamplingFrameRate()
+#if ULTIMATE_CONTROL_UE_5_6_OR_LATER
 	Result->SetNumberField(TEXT("frameRate"), AnimSequence->GetSamplingFrameRate().AsDecimal());
+#else
+	Result->SetNumberField(TEXT("frameRate"), AnimSequence->GetFrameRate().AsDecimal());
+#endif
 	Result->SetNumberField(TEXT("numFrames"), AnimSequence->GetNumberOfSampledKeys());
 	Result->SetBoolField(TEXT("isLooping"), AnimSequence->bLoop);
 

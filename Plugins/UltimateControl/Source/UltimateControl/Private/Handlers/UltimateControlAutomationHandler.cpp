@@ -2,6 +2,7 @@
 
 #include "Handlers/UltimateControlAutomationHandler.h"
 #include "UltimateControl.h"
+#include "UltimateControlVersion.h"
 
 #include "Misc/AutomationTest.h"
 #include "IAutomationControllerModule.h"
@@ -206,10 +207,13 @@ bool FUltimateControlAutomationHandler::HandleGetTestResults(const TSharedPtr<FJ
 			TSharedPtr<FJsonObject> ReportObj = MakeShared<FJsonObject>();
 			ReportObj->SetStringField(TEXT("name"), Report->GetDisplayName());
 
-			// UE 5.6: GetState() now requires cluster index and pass index parameters
-			// Use index 0 for the default cluster and pass
+			// UE 5.6+: GetState() requires (ClusterIndex, PassIndex); earlier versions only take ClusterIndex
 			FString StateStr = TEXT("Unknown");
+#if ULTIMATE_CONTROL_UE_5_6_OR_LATER
 			EAutomationState State = Report->GetState(0, 0);
+#else
+			EAutomationState State = Report->GetState(0);
+#endif
 			switch (State)
 			{
 			case EAutomationState::NotRun: StateStr = TEXT("NotRun"); break;

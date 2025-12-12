@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Handlers/UltimateControlRenderHandler.h"
+#include "UltimateControlVersion.h"
 #include "Editor.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
@@ -939,8 +940,12 @@ bool FUltimateControlRenderHandler::HandleGetShowFlags(const TSharedPtr<FJsonObj
 		return true;
 	}
 
-	// UE 5.6: GetEngineShowFlags() returns a pointer, dereference it
+	// UE 5.6+: GetEngineShowFlags() returns a pointer; earlier versions return a reference
+#if ULTIMATE_CONTROL_UE_5_6_OR_LATER
 	const FEngineShowFlags& ShowFlags = *GEditor->GetActiveViewport()->GetClient()->GetEngineShowFlags();
+#else
+	const FEngineShowFlags& ShowFlags = GEditor->GetActiveViewport()->GetClient()->GetEngineShowFlags();
+#endif
 
 	TSharedPtr<FJsonObject> FlagsJson = MakeShared<FJsonObject>();
 	FlagsJson->SetBoolField(TEXT("staticMeshes"), ShowFlags.StaticMeshes != 0);

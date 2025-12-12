@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Handlers/UltimateControlMaterialHandler.h"
+#include "UltimateControlVersion.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "Materials/MaterialInstanceConstant.h"
@@ -349,8 +350,12 @@ bool FUltimateControlMaterialHandler::HandleGetMaterialParameter(const TSharedPt
 		return false;
 	}
 
-	// UE 5.6: Use FHashedMaterialParameterInfo instead of FMaterialParameterInfo
+	// UE 5.6+: Use FHashedMaterialParameterInfo; earlier versions use FMaterialParameterInfo
+#if ULTIMATE_CONTROL_UE_5_6_OR_LATER
 	FHashedMaterialParameterInfo ParamInfo(FName(*ParameterName));
+#else
+	FMaterialParameterInfo ParamInfo(FName(*ParameterName));
+#endif
 
 	TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
 	ResultObj->SetStringField(TEXT("name"), ParameterName);
