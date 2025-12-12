@@ -212,7 +212,9 @@ private:
     void OnCalibrationUpdatedInternal(const FRshipFixtureCalibration& Calibration);
 
     void LoadIESProfile();
-    void OnIESProfileLoadedInternal(const FRshipIESProfile& Profile, bool bSuccess);
+
+    UFUNCTION()
+    void OnIESProfileLoadedInternal(bool bSuccess, const FRshipIESProfile& Profile);
 
     // URL of the currently loaded or loading IES profile
     FString LoadedIESProfileUrl;

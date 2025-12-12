@@ -354,21 +354,14 @@ void ARshipFixtureActor::LoadIESProfile()
 
     UE_LOG(LogRshipExec, Log, TEXT("ARshipFixtureActor: Loading IES profile from %s"), *LoadedIESProfileUrl);
 
-    // Create delegate for callback
+    // Create delegate for callback (dynamic delegate requires BindDynamic)
     FOnIESProfileLoaded Callback;
-    Callback.BindLambda([this](bool bSuccess, const FRshipIESProfile& Profile)
-    {
-        // Ensure we're still valid
-        if (IsValid(this))
-        {
-            OnIESProfileLoadedInternal(Profile, bSuccess);
-        }
-    });
+    Callback.BindDynamic(this, &ARshipFixtureActor::OnIESProfileLoadedInternal);
 
     IESService->LoadProfile(LoadedIESProfileUrl, Callback);
 }
 
-void ARshipFixtureActor::OnIESProfileLoadedInternal(const FRshipIESProfile& Profile, bool bSuccess)
+void ARshipFixtureActor::OnIESProfileLoadedInternal(bool bSuccess, const FRshipIESProfile& Profile)
 {
     if (!bSuccess)
     {
