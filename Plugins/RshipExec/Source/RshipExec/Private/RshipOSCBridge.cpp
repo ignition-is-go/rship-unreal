@@ -490,10 +490,10 @@ void URshipOSCBridge::ProcessIncomingMessage(const FRshipOSCMessage& Message)
                     case ERshipOSCArgumentType::Int32:
                         Value = (float)Arg.IntValue;
                         break;
-                    case ERshipOSCArgumentType::True:
+                    case ERshipOSCArgumentType::BoolTrue:
                         Value = 1.0f;
                         break;
-                    case ERshipOSCArgumentType::False:
+                    case ERshipOSCArgumentType::BoolFalse:
                     case ERshipOSCArgumentType::Nil:
                         Value = 0.0f;
                         break;
@@ -758,11 +758,11 @@ bool URshipOSCBridge::ParseOSCMessage(const TArray<uint8>& Data, FRshipOSCMessag
                 break;
 
             case 'T':
-                Arg.Type = ERshipOSCArgumentType::True;
+                Arg.Type = ERshipOSCArgumentType::BoolTrue;
                 break;
 
             case 'F':
-                Arg.Type = ERshipOSCArgumentType::False;
+                Arg.Type = ERshipOSCArgumentType::BoolFalse;
                 break;
 
             case 'N':
@@ -849,8 +849,8 @@ TArray<uint8> URshipOSCBridge::SerializeOSCMessage(const FRshipOSCMessage& Messa
             case ERshipOSCArgumentType::Float: TypeTags.AppendChar('f'); break;
             case ERshipOSCArgumentType::String: TypeTags.AppendChar('s'); break;
             case ERshipOSCArgumentType::Color: TypeTags.AppendChar('r'); break;
-            case ERshipOSCArgumentType::True: TypeTags.AppendChar('T'); break;
-            case ERshipOSCArgumentType::False: TypeTags.AppendChar('F'); break;
+            case ERshipOSCArgumentType::BoolTrue: TypeTags.AppendChar('T'); break;
+            case ERshipOSCArgumentType::BoolFalse: TypeTags.AppendChar('F'); break;
             case ERshipOSCArgumentType::Nil: TypeTags.AppendChar('N'); break;
             default: break;
         }

@@ -80,6 +80,13 @@ public class RshipExec : ModuleRules
 				"Networking",  // For network utilities
 				"HTTP",        // For IES profile fetching
 				"RenderCore",  // For texture generation
+				"Niagara",     // For RshipNiagaraBinding
+				"NiagaraCore", // For Niagara types
+				"ControlRig",  // For RshipControlRigBinding
+				"RigVM",       // For ControlRig
+				"LiveLinkInterface", // For RshipLiveLinkSource
+				"LevelSequence",     // For RshipSequencerSync
+				"MovieScene",        // For sequencer playback
 			}
 		);
 
@@ -104,11 +111,17 @@ public class RshipExec : ModuleRules
 		{
 			PublicDependencyModuleNames.Add("PCG");
 			PublicDefinitions.Add("RSHIP_HAS_PCG=1");
-			System.Console.WriteLine("RshipExec: PCG plugin found, enabling PCG bindings");
+
+			// Add PCG source directories
+			PublicIncludePaths.Add(Path.Combine(ModuleDirectory, "Public", "PCG"));
+			PrivateIncludePaths.Add(Path.Combine(ModuleDirectory, "Private", "PCG"));
+
+			System.Console.WriteLine("RshipExec: PCG plugin enabled, PCG bindings available");
 		}
 		else
 		{
 			PublicDefinitions.Add("RSHIP_HAS_PCG=0");
+			// PCG files are in Public/PCG and Private/PCG - not included when PCG disabled
 			System.Console.WriteLine("RshipExec: PCG plugin not enabled, PCG bindings disabled");
 		}
 

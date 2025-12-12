@@ -1,9 +1,9 @@
 // Rship PCG (Procedural Content Generation) Binding Implementation
+//
+// NOTE: This file is excluded from compilation when PCG plugin is not enabled.
+// See RshipExec.Build.cs for conditional compilation logic.
 
 #include "RshipPCGBinding.h"
-
-#if RSHIP_HAS_PCG
-
 #include "RshipSubsystem.h"
 #include "RshipPulseReceiver.h"
 #include "PCGGraph.h"
@@ -864,5 +864,3 @@ void URshipPCGManager::SetGlobalMaxRegensPerSecond(float MaxRegen)
 {
     GlobalMaxRegensPerSecond = FMath::Clamp(MaxRegen, 0.1f, 120.0f);
 }
-
-#endif // RSHIP_HAS_PCG

@@ -38,7 +38,7 @@
 #include "RshipRecorder.h"
 #include "RshipControlRigBinding.h"
 #if RSHIP_HAS_PCG
-#include "RshipPCGBinding.h"
+#include "PCG/RshipPCGBinding.h"
 #else
 // Forward declaration when PCG plugin is not available
 class URshipPCGManager;

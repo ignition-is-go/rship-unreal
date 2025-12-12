@@ -1,13 +1,12 @@
 // Rship PCG (Procedural Content Generation) Binding
 // Drive PCG graph parameters from rship pulse data for reactive procedural content
+//
+// NOTE: This file is excluded from compilation when PCG plugin is not enabled.
+// See RshipExec.Build.cs for conditional compilation logic.
 
 #pragma once
 
 #include "CoreMinimal.h"
-
-// PCG bindings are only available when RSHIP_HAS_PCG=1 (PCG plugin enabled)
-#if RSHIP_HAS_PCG
-
 #include "Components/ActorComponent.h"
 #include "PCGComponent.h"
 #include "PCGGraph.h"
@@ -614,5 +613,3 @@ private:
     int32 RegensThisFrame = 0;
     int32 TotalRegenCount = 0;
 };
-
-#endif // RSHIP_HAS_PCG
