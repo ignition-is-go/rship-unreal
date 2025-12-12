@@ -8,21 +8,10 @@
 #include "RHIGPUReadback.h"
 #include "Engine/TextureRenderTarget2D.h"
 
-// Forward declare Rust FFI types (defined in rship_ndi_sender.h when available)
+// Forward declare opaque Rust handle type
+// The full struct definitions are in rship_ndi_sender.h, included only in the .cpp
 #if RSHIP_HAS_NDI_SENDER
-extern "C"
-{
-	struct RshipNDISender;
-	struct RshipNDIFrame;
-	struct RshipNDIConfig;
-	struct RshipNDIStats;
-
-	RshipNDISender* rship_ndi_create(const RshipNDIConfig* config);
-	void rship_ndi_destroy(RshipNDISender* sender);
-	bool rship_ndi_submit_frame(RshipNDISender* sender, const RshipNDIFrame* frame);
-	void rship_ndi_get_stats(const RshipNDISender* sender, RshipNDIStats* stats);
-	bool rship_ndi_is_available();
-}
+struct RshipNDISender;
 #endif
 
 /**
