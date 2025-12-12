@@ -370,6 +370,22 @@ void URshipNDIStreamComponent::SyncCameraSettingsToCapture()
 	SceneCapture->PostProcessSettings = CineCamera->PostProcessSettings;
 	SceneCapture->PostProcessBlendWeight = 1.0f;
 
+	// CRITICAL: Override auto-exposure to use manual settings
+	// SceneCapture has its own eye adaptation state that accumulates independently
+	// from the viewport, causing exposure differences. Force manual exposure for consistency.
+	SceneCapture->PostProcessSettings.bOverride_AutoExposureMethod = true;
+	SceneCapture->PostProcessSettings.AutoExposureMethod = EAutoExposureMethod::AEM_Manual;
+
+	// Use the camera's current exposure settings if available, otherwise use sensible defaults
+	if (!SceneCapture->PostProcessSettings.bOverride_AutoExposureBias)
+	{
+		SceneCapture->PostProcessSettings.bOverride_AutoExposureBias = true;
+		SceneCapture->PostProcessSettings.AutoExposureBias = 0.0f;
+	}
+
+	// Ensure consistent gamma/color handling
+	SceneCapture->bEnableClipPlane = false;
+
 	// Use camera's view state (matches what the viewport sees)
 	SceneCapture->bUseCustomProjectionMatrix = false;
 
@@ -380,12 +396,15 @@ void URshipNDIStreamComponent::SyncCameraSettingsToCapture()
 	float TargetAspect = static_cast<float>(Config.Width) / static_cast<float>(Config.Height);
 	SceneCapture->bOverride_CustomNearClippingPlane = false;
 
+	// Match LOD rendering to viewport (prevents LOD pop differences)
+	SceneCapture->LODDistanceFactor = 1.0f;
+
 	// Show flags - match viewport rendering exactly
-	// Copy all from engine default first, then enable all visual features
+	// Enable all visual features for full fidelity capture
 	SceneCapture->ShowFlags.SetAntiAliasing(true);
 	SceneCapture->ShowFlags.SetMotionBlur(true);
 	SceneCapture->ShowFlags.SetBloom(true);
-	SceneCapture->ShowFlags.SetEyeAdaptation(true);
+	SceneCapture->ShowFlags.SetEyeAdaptation(true);  // Keep enabled but use manual exposure
 	SceneCapture->ShowFlags.SetToneCurve(true);
 	SceneCapture->ShowFlags.SetColorGrading(true);
 	SceneCapture->ShowFlags.SetTonemapper(true);
@@ -419,7 +438,7 @@ void URshipNDIStreamComponent::SyncCameraSettingsToCapture()
 	static bool bLoggedSync = false;
 	if (!bLoggedSync)
 	{
-		UE_LOG(LogRshipNDI, Log, TEXT("SyncCameraSettingsToCapture - FOV: %.1f, PostProcess weight: %.1f, AspectRatio: %.3f"),
+		UE_LOG(LogRshipNDI, Log, TEXT("SyncCameraSettingsToCapture - FOV: %.1f, PostProcess weight: %.1f, AspectRatio: %.3f, ManualExposure: ON"),
 			SceneCapture->FOVAngle, SceneCapture->PostProcessBlendWeight, TargetAspect);
 		bLoggedSync = true;
 	}
