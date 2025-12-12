@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright Rocketship. All Rights Reserved.
 
 #pragma once
 
@@ -15,7 +15,7 @@ class UDataLayerAsset;
 class ULTIMATECONTROL_API FUltimateControlWorldPartitionHandler : public FUltimateControlHandlerBase
 {
 public:
-	virtual void RegisterMethods(TMap<FString, FJsonRpcMethodHandler>& Methods) override;
+	FUltimateControlWorldPartitionHandler(UUltimateControlSubsystem* InSubsystem);
 
 private:
 	// World Partition status

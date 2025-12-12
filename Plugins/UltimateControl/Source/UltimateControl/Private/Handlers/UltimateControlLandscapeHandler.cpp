@@ -1,6 +1,7 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright Rocketship. All Rights Reserved.
 
 #include "Handlers/UltimateControlLandscapeHandler.h"
+#include "UltimateControlSubsystem.h"
 #include "Editor.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
@@ -11,52 +12,174 @@
 #include "LandscapeLayerInfoObject.h"
 #include "LandscapeHeightfieldCollisionComponent.h"
 #include "LandscapeEdit.h"
-#include "LandscapeEditorUtils.h"
 #include "Materials/MaterialInterface.h"
 
-void FUltimateControlLandscapeHandler::RegisterMethods(TMap<FString, FJsonRpcMethodHandler>& Methods)
+FUltimateControlLandscapeHandler::FUltimateControlLandscapeHandler(UUltimateControlSubsystem* InSubsystem)
+	: FUltimateControlHandlerBase(InSubsystem)
 {
 	// Landscape listing and info
-	Methods.Add(TEXT("landscape.list"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleListLandscapes));
-	Methods.Add(TEXT("landscape.get"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleGetLandscape));
-	Methods.Add(TEXT("landscape.getBounds"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleGetLandscapeBounds));
-	Methods.Add(TEXT("landscape.getResolution"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleGetLandscapeResolution));
+	RegisterMethod(
+		TEXT("landscape.list"),
+		TEXT("List all landscapes in the world"),
+		TEXT("Landscape"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleListLandscapes));
+
+	RegisterMethod(
+		TEXT("landscape.get"),
+		TEXT("Get information about a specific landscape"),
+		TEXT("Landscape"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleGetLandscape));
+
+	RegisterMethod(
+		TEXT("landscape.getBounds"),
+		TEXT("Get the bounding box of a landscape"),
+		TEXT("Landscape"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleGetLandscapeBounds));
+
+	RegisterMethod(
+		TEXT("landscape.getResolution"),
+		TEXT("Get the resolution settings of a landscape"),
+		TEXT("Landscape"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleGetLandscapeResolution));
 
 	// Height data
-	Methods.Add(TEXT("landscape.getHeightAtLocation"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleGetHeightAtLocation));
-	Methods.Add(TEXT("landscape.getHeightRange"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleGetHeightRange));
-	Methods.Add(TEXT("landscape.exportHeightmap"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleExportHeightmap));
-	Methods.Add(TEXT("landscape.importHeightmap"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleImportHeightmap));
+	RegisterMethod(
+		TEXT("landscape.getHeightAtLocation"),
+		TEXT("Get the terrain height at a specific XY location"),
+		TEXT("Landscape"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleGetHeightAtLocation));
+
+	RegisterMethod(
+		TEXT("landscape.getHeightRange"),
+		TEXT("Get the min/max height range of a landscape"),
+		TEXT("Landscape"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleGetHeightRange));
+
+	RegisterMethod(
+		TEXT("landscape.exportHeightmap"),
+		TEXT("Export heightmap to a file"),
+		TEXT("Landscape"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleExportHeightmap));
+
+	RegisterMethod(
+		TEXT("landscape.importHeightmap"),
+		TEXT("Import heightmap from a file"),
+		TEXT("Landscape"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleImportHeightmap));
 
 	// Height editing
-	Methods.Add(TEXT("landscape.setHeightAtLocation"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleSetHeightAtLocation));
-	Methods.Add(TEXT("landscape.smoothHeight"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleSmoothHeight));
-	Methods.Add(TEXT("landscape.flattenHeight"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleFlattenHeight));
-	Methods.Add(TEXT("landscape.rampHeight"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleRampHeight));
+	RegisterMethod(
+		TEXT("landscape.setHeightAtLocation"),
+		TEXT("Set the terrain height at a location"),
+		TEXT("Landscape"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleSetHeightAtLocation));
+
+	RegisterMethod(
+		TEXT("landscape.smoothHeight"),
+		TEXT("Smooth terrain height in an area"),
+		TEXT("Landscape"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleSmoothHeight));
+
+	RegisterMethod(
+		TEXT("landscape.flattenHeight"),
+		TEXT("Flatten terrain to a specified height"),
+		TEXT("Landscape"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleFlattenHeight));
+
+	RegisterMethod(
+		TEXT("landscape.rampHeight"),
+		TEXT("Create a height ramp between two points"),
+		TEXT("Landscape"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleRampHeight));
 
 	// Layers
-	Methods.Add(TEXT("landscape.listLayers"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleListLandscapeLayers));
-	Methods.Add(TEXT("landscape.getLayerInfo"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleGetLayerInfo));
-	Methods.Add(TEXT("landscape.addLayer"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleAddLandscapeLayer));
-	Methods.Add(TEXT("landscape.removeLayer"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleRemoveLandscapeLayer));
+	RegisterMethod(
+		TEXT("landscape.listLayers"),
+		TEXT("List all paint layers on a landscape"),
+		TEXT("Landscape"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleListLandscapeLayers));
+
+	RegisterMethod(
+		TEXT("landscape.getLayerInfo"),
+		TEXT("Get information about a specific landscape layer"),
+		TEXT("Landscape"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleGetLayerInfo));
+
+	RegisterMethod(
+		TEXT("landscape.addLayer"),
+		TEXT("Add a new paint layer to a landscape"),
+		TEXT("Landscape"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleAddLandscapeLayer));
+
+	RegisterMethod(
+		TEXT("landscape.removeLayer"),
+		TEXT("Remove a paint layer from a landscape"),
+		TEXT("Landscape"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleRemoveLandscapeLayer));
 
 	// Layer painting
-	Methods.Add(TEXT("landscape.getLayerWeightAtLocation"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleGetLayerWeightAtLocation));
-	Methods.Add(TEXT("landscape.paintLayer"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandlePaintLayer));
-	Methods.Add(TEXT("landscape.exportWeightmap"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleExportWeightmap));
-	Methods.Add(TEXT("landscape.importWeightmap"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleImportWeightmap));
+	RegisterMethod(
+		TEXT("landscape.getLayerWeightAtLocation"),
+		TEXT("Get layer weights at a specific location"),
+		TEXT("Landscape"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleGetLayerWeightAtLocation));
+
+	RegisterMethod(
+		TEXT("landscape.paintLayer"),
+		TEXT("Paint a layer at a location"),
+		TEXT("Landscape"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandlePaintLayer));
+
+	RegisterMethod(
+		TEXT("landscape.exportWeightmap"),
+		TEXT("Export layer weightmap to a file"),
+		TEXT("Landscape"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleExportWeightmap));
+
+	RegisterMethod(
+		TEXT("landscape.importWeightmap"),
+		TEXT("Import layer weightmap from a file"),
+		TEXT("Landscape"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleImportWeightmap));
 
 	// Landscape material
-	Methods.Add(TEXT("landscape.getMaterial"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleGetLandscapeMaterial));
-	Methods.Add(TEXT("landscape.setMaterial"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleSetLandscapeMaterial));
+	RegisterMethod(
+		TEXT("landscape.getMaterial"),
+		TEXT("Get the material assigned to a landscape"),
+		TEXT("Landscape"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleGetLandscapeMaterial));
+
+	RegisterMethod(
+		TEXT("landscape.setMaterial"),
+		TEXT("Set the material on a landscape"),
+		TEXT("Landscape"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleSetLandscapeMaterial));
 
 	// Landscape components
-	Methods.Add(TEXT("landscape.listComponents"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleListLandscapeComponents));
-	Methods.Add(TEXT("landscape.getComponentInfo"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleGetLandscapeComponentInfo));
+	RegisterMethod(
+		TEXT("landscape.listComponents"),
+		TEXT("List all landscape components"),
+		TEXT("Landscape"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleListLandscapeComponents));
+
+	RegisterMethod(
+		TEXT("landscape.getComponentInfo"),
+		TEXT("Get information about a specific landscape component"),
+		TEXT("Landscape"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleGetLandscapeComponentInfo));
 
 	// LOD and optimization
-	Methods.Add(TEXT("landscape.getLODSettings"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleGetLandscapeLODSettings));
-	Methods.Add(TEXT("landscape.setLODSettings"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleSetLandscapeLODSettings));
+	RegisterMethod(
+		TEXT("landscape.getLODSettings"),
+		TEXT("Get landscape LOD settings"),
+		TEXT("Landscape"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleGetLandscapeLODSettings));
+
+	RegisterMethod(
+		TEXT("landscape.setLODSettings"),
+		TEXT("Set landscape LOD settings"),
+		TEXT("Landscape"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLandscapeHandler::HandleSetLandscapeLODSettings));
 }
 
 TSharedPtr<FJsonObject> FUltimateControlLandscapeHandler::LandscapeToJson(ALandscapeProxy* Landscape)
@@ -139,7 +262,7 @@ bool FUltimateControlLandscapeHandler::HandleListLandscapes(const TSharedPtr<FJs
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -163,14 +286,14 @@ bool FUltimateControlLandscapeHandler::HandleGetLandscape(const TSharedPtr<FJson
 	FString Name = Params->GetStringField(TEXT("name"));
 	if (Name.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("name parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("name parameter required"));
 		return true;
 	}
 
 	ALandscapeProxy* Landscape = FindLandscape(Name);
 	if (!Landscape)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Landscape not found: %s"), *Name));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Landscape not found: %s"), *Name));
 		return true;
 	}
 
@@ -183,14 +306,14 @@ bool FUltimateControlLandscapeHandler::HandleGetLandscapeBounds(const TSharedPtr
 	FString Name = Params->GetStringField(TEXT("name"));
 	if (Name.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("name parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("name parameter required"));
 		return true;
 	}
 
 	ALandscapeProxy* Landscape = FindLandscape(Name);
 	if (!Landscape)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Landscape not found: %s"), *Name));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Landscape not found: %s"), *Name));
 		return true;
 	}
 
@@ -226,14 +349,14 @@ bool FUltimateControlLandscapeHandler::HandleGetLandscapeResolution(const TShare
 	FString Name = Params->GetStringField(TEXT("name"));
 	if (Name.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("name parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("name parameter required"));
 		return true;
 	}
 
 	ALandscapeProxy* Landscape = FindLandscape(Name);
 	if (!Landscape)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Landscape not found: %s"), *Name));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Landscape not found: %s"), *Name));
 		return true;
 	}
 
@@ -261,14 +384,14 @@ bool FUltimateControlLandscapeHandler::HandleGetHeightAtLocation(const TSharedPt
 
 	if (Name.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("name parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("name parameter required"));
 		return true;
 	}
 
 	ALandscapeProxy* Landscape = FindLandscape(Name);
 	if (!Landscape)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Landscape not found: %s"), *Name));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Landscape not found: %s"), *Name));
 		return true;
 	}
 
@@ -279,7 +402,7 @@ bool FUltimateControlLandscapeHandler::HandleGetHeightAtLocation(const TSharedPt
 	ULandscapeInfo* LandscapeInfo = Landscape->GetLandscapeInfo();
 	if (!LandscapeInfo)
 	{
-		Error = CreateError(-32603, TEXT("Could not get landscape info"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Could not get landscape info"));
 		return true;
 	}
 
@@ -316,14 +439,14 @@ bool FUltimateControlLandscapeHandler::HandleGetHeightRange(const TSharedPtr<FJs
 	FString Name = Params->GetStringField(TEXT("name"));
 	if (Name.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("name parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("name parameter required"));
 		return true;
 	}
 
 	ALandscapeProxy* Landscape = FindLandscape(Name);
 	if (!Landscape)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Landscape not found: %s"), *Name));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Landscape not found: %s"), *Name));
 		return true;
 	}
 
@@ -345,14 +468,14 @@ bool FUltimateControlLandscapeHandler::HandleExportHeightmap(const TSharedPtr<FJ
 
 	if (Name.IsEmpty() || FilePath.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("name and filePath parameters required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("name and filePath parameters required"));
 		return true;
 	}
 
 	ALandscapeProxy* Landscape = FindLandscape(Name);
 	if (!Landscape)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Landscape not found: %s"), *Name));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Landscape not found: %s"), *Name));
 		return true;
 	}
 
@@ -372,7 +495,7 @@ bool FUltimateControlLandscapeHandler::HandleImportHeightmap(const TSharedPtr<FJ
 
 	if (Name.IsEmpty() || FilePath.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("name and filePath parameters required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("name and filePath parameters required"));
 		return true;
 	}
 
@@ -390,7 +513,7 @@ bool FUltimateControlLandscapeHandler::HandleSetHeightAtLocation(const TSharedPt
 
 	if (Name.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("name parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("name parameter required"));
 		return true;
 	}
 
@@ -437,14 +560,14 @@ bool FUltimateControlLandscapeHandler::HandleListLandscapeLayers(const TSharedPt
 	FString Name = Params->GetStringField(TEXT("name"));
 	if (Name.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("name parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("name parameter required"));
 		return true;
 	}
 
 	ALandscapeProxy* Landscape = FindLandscape(Name);
 	if (!Landscape)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Landscape not found: %s"), *Name));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Landscape not found: %s"), *Name));
 		return true;
 	}
 
@@ -477,21 +600,21 @@ bool FUltimateControlLandscapeHandler::HandleGetLayerInfo(const TSharedPtr<FJson
 
 	if (Name.IsEmpty() || LayerName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("name and layerName parameters required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("name and layerName parameters required"));
 		return true;
 	}
 
 	ALandscapeProxy* Landscape = FindLandscape(Name);
 	if (!Landscape)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Landscape not found: %s"), *Name));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Landscape not found: %s"), *Name));
 		return true;
 	}
 
 	ULandscapeInfo* LandscapeInfo = Landscape->GetLandscapeInfo();
 	if (!LandscapeInfo)
 	{
-		Error = CreateError(-32603, TEXT("Could not get landscape info"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Could not get landscape info"));
 		return true;
 	}
 
@@ -511,7 +634,7 @@ bool FUltimateControlLandscapeHandler::HandleGetLayerInfo(const TSharedPtr<FJson
 		}
 	}
 
-	Error = CreateError(-32602, FString::Printf(TEXT("Layer not found: %s"), *LayerName));
+	Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Layer not found: %s"), *LayerName));
 	return true;
 }
 
@@ -543,14 +666,14 @@ bool FUltimateControlLandscapeHandler::HandleGetLayerWeightAtLocation(const TSha
 
 	if (Name.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("name parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("name parameter required"));
 		return true;
 	}
 
 	ALandscapeProxy* Landscape = FindLandscape(Name);
 	if (!Landscape)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Landscape not found: %s"), *Name));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Landscape not found: %s"), *Name));
 		return true;
 	}
 
@@ -601,14 +724,14 @@ bool FUltimateControlLandscapeHandler::HandleGetLandscapeMaterial(const TSharedP
 	FString Name = Params->GetStringField(TEXT("name"));
 	if (Name.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("name parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("name parameter required"));
 		return true;
 	}
 
 	ALandscapeProxy* Landscape = FindLandscape(Name);
 	if (!Landscape)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Landscape not found: %s"), *Name));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Landscape not found: %s"), *Name));
 		return true;
 	}
 
@@ -636,21 +759,21 @@ bool FUltimateControlLandscapeHandler::HandleSetLandscapeMaterial(const TSharedP
 
 	if (Name.IsEmpty() || MaterialPath.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("name and materialPath parameters required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("name and materialPath parameters required"));
 		return true;
 	}
 
 	ALandscapeProxy* Landscape = FindLandscape(Name);
 	if (!Landscape)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Landscape not found: %s"), *Name));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Landscape not found: %s"), *Name));
 		return true;
 	}
 
 	UMaterialInterface* Material = LoadObject<UMaterialInterface>(nullptr, *MaterialPath);
 	if (!Material)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Material not found: %s"), *MaterialPath));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Material not found: %s"), *MaterialPath));
 		return true;
 	}
 
@@ -668,14 +791,14 @@ bool FUltimateControlLandscapeHandler::HandleListLandscapeComponents(const TShar
 	FString Name = Params->GetStringField(TEXT("name"));
 	if (Name.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("name parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("name parameter required"));
 		return true;
 	}
 
 	ALandscapeProxy* Landscape = FindLandscape(Name);
 	if (!Landscape)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Landscape not found: %s"), *Name));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Landscape not found: %s"), *Name));
 		return true;
 	}
 
@@ -715,14 +838,14 @@ bool FUltimateControlLandscapeHandler::HandleGetLandscapeComponentInfo(const TSh
 
 	if (Name.IsEmpty() || ComponentName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("name and componentName parameters required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("name and componentName parameters required"));
 		return true;
 	}
 
 	ALandscapeProxy* Landscape = FindLandscape(Name);
 	if (!Landscape)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Landscape not found: %s"), *Name));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Landscape not found: %s"), *Name));
 		return true;
 	}
 
@@ -767,7 +890,7 @@ bool FUltimateControlLandscapeHandler::HandleGetLandscapeComponentInfo(const TSh
 		}
 	}
 
-	Error = CreateError(-32602, FString::Printf(TEXT("Component not found: %s"), *ComponentName));
+	Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Component not found: %s"), *ComponentName));
 	return true;
 }
 
@@ -776,14 +899,14 @@ bool FUltimateControlLandscapeHandler::HandleGetLandscapeLODSettings(const TShar
 	FString Name = Params->GetStringField(TEXT("name"));
 	if (Name.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("name parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("name parameter required"));
 		return true;
 	}
 
 	ALandscapeProxy* Landscape = FindLandscape(Name);
 	if (!Landscape)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Landscape not found: %s"), *Name));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Landscape not found: %s"), *Name));
 		return true;
 	}
 
@@ -801,14 +924,14 @@ bool FUltimateControlLandscapeHandler::HandleSetLandscapeLODSettings(const TShar
 	FString Name = Params->GetStringField(TEXT("name"));
 	if (Name.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("name parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("name parameter required"));
 		return true;
 	}
 
 	ALandscapeProxy* Landscape = FindLandscape(Name);
 	if (!Landscape)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Landscape not found: %s"), *Name));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Landscape not found: %s"), *Name));
 		return true;
 	}
 

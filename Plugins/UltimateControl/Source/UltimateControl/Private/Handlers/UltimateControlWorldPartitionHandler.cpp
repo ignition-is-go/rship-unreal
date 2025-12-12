@@ -1,6 +1,7 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright Rocketship. All Rights Reserved.
 
 #include "Handlers/UltimateControlWorldPartitionHandler.h"
+#include "UltimateControlSubsystem.h"
 #include "Editor.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
@@ -8,48 +9,154 @@
 #include "WorldPartition/WorldPartitionSubsystem.h"
 #include "WorldPartition/DataLayer/DataLayerInstance.h"
 #include "WorldPartition/DataLayer/DataLayerAsset.h"
-#include "WorldPartition/DataLayer/DataLayerSubsystem.h"
+#include "WorldPartition/DataLayer/DataLayerManager.h"
 #include "WorldPartition/WorldPartitionRuntimeCell.h"
 #include "WorldPartition/WorldPartitionStreamingSource.h"
-#include "WorldPartition/HLOD/HLODSubsystem.h"
+#include "WorldPartition/HLOD/HLODRuntimeSubsystem.h"
 
-void FUltimateControlWorldPartitionHandler::RegisterMethods(TMap<FString, FJsonRpcMethodHandler>& Methods)
+FUltimateControlWorldPartitionHandler::FUltimateControlWorldPartitionHandler(UUltimateControlSubsystem* InSubsystem)
+	: FUltimateControlHandlerBase(InSubsystem)
 {
 	// World Partition status
-	Methods.Add(TEXT("worldPartition.getStatus"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleGetWorldPartitionStatus));
-	Methods.Add(TEXT("worldPartition.isEnabled"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleIsWorldPartitionEnabled));
-	Methods.Add(TEXT("worldPartition.getWorldBounds"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleGetWorldBounds));
+	RegisterMethod(
+		TEXT("worldPartition.getStatus"),
+		TEXT("Get World Partition status and configuration"),
+		TEXT("WorldPartition"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleGetWorldPartitionStatus));
+
+	RegisterMethod(
+		TEXT("worldPartition.isEnabled"),
+		TEXT("Check if World Partition is enabled for current world"),
+		TEXT("WorldPartition"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleIsWorldPartitionEnabled));
+
+	RegisterMethod(
+		TEXT("worldPartition.getWorldBounds"),
+		TEXT("Get the bounds of the World Partition world"),
+		TEXT("WorldPartition"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleGetWorldBounds));
 
 	// Cell management
-	Methods.Add(TEXT("worldPartition.listCells"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleListCells));
-	Methods.Add(TEXT("worldPartition.getCellStatus"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleGetCellStatus));
-	Methods.Add(TEXT("worldPartition.loadCells"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleLoadCells));
-	Methods.Add(TEXT("worldPartition.unloadCells"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleUnloadCells));
-	Methods.Add(TEXT("worldPartition.getLoadedCells"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleGetLoadedCells));
+	RegisterMethod(
+		TEXT("worldPartition.listCells"),
+		TEXT("List all streaming cells in the world"),
+		TEXT("WorldPartition"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleListCells));
+
+	RegisterMethod(
+		TEXT("worldPartition.getCellStatus"),
+		TEXT("Get status of a specific streaming cell"),
+		TEXT("WorldPartition"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleGetCellStatus));
+
+	RegisterMethod(
+		TEXT("worldPartition.loadCells"),
+		TEXT("Load cells around a specified location"),
+		TEXT("WorldPartition"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleLoadCells));
+
+	RegisterMethod(
+		TEXT("worldPartition.unloadCells"),
+		TEXT("Unload cells"),
+		TEXT("WorldPartition"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleUnloadCells));
+
+	RegisterMethod(
+		TEXT("worldPartition.getLoadedCells"),
+		TEXT("Get list of currently loaded cells"),
+		TEXT("WorldPartition"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleGetLoadedCells));
 
 	// Streaming
-	Methods.Add(TEXT("worldPartition.setStreamingSource"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleSetStreamingSource));
-	Methods.Add(TEXT("worldPartition.getStreamingSources"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleGetStreamingSources));
+	RegisterMethod(
+		TEXT("worldPartition.setStreamingSource"),
+		TEXT("Set streaming source location"),
+		TEXT("WorldPartition"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleSetStreamingSource));
+
+	RegisterMethod(
+		TEXT("worldPartition.getStreamingSources"),
+		TEXT("Get current streaming sources"),
+		TEXT("WorldPartition"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleGetStreamingSources));
 
 	// Data Layers
-	Methods.Add(TEXT("dataLayer.list"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleListDataLayers));
-	Methods.Add(TEXT("dataLayer.get"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleGetDataLayer));
-	Methods.Add(TEXT("dataLayer.create"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleCreateDataLayer));
-	Methods.Add(TEXT("dataLayer.delete"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleDeleteDataLayer));
+	RegisterMethod(
+		TEXT("dataLayer.list"),
+		TEXT("List all data layers in the world"),
+		TEXT("DataLayer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleListDataLayers));
+
+	RegisterMethod(
+		TEXT("dataLayer.get"),
+		TEXT("Get information about a specific data layer"),
+		TEXT("DataLayer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleGetDataLayer));
+
+	RegisterMethod(
+		TEXT("dataLayer.create"),
+		TEXT("Create a new data layer"),
+		TEXT("DataLayer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleCreateDataLayer));
+
+	RegisterMethod(
+		TEXT("dataLayer.delete"),
+		TEXT("Delete a data layer"),
+		TEXT("DataLayer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleDeleteDataLayer),
+		/* bIsDangerous */ true,
+		/* bRequiresConfirmation */ true);
 
 	// Data Layer visibility
-	Methods.Add(TEXT("dataLayer.getVisibility"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleGetDataLayerVisibility));
-	Methods.Add(TEXT("dataLayer.setVisibility"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleSetDataLayerVisibility));
-	Methods.Add(TEXT("dataLayer.setLoadState"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleSetDataLayerLoadState));
+	RegisterMethod(
+		TEXT("dataLayer.getVisibility"),
+		TEXT("Get visibility state of a data layer"),
+		TEXT("DataLayer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleGetDataLayerVisibility));
+
+	RegisterMethod(
+		TEXT("dataLayer.setVisibility"),
+		TEXT("Set visibility of a data layer"),
+		TEXT("DataLayer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleSetDataLayerVisibility));
+
+	RegisterMethod(
+		TEXT("dataLayer.setLoadState"),
+		TEXT("Set load state of a data layer"),
+		TEXT("DataLayer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleSetDataLayerLoadState));
 
 	// Data Layer actor management
-	Methods.Add(TEXT("dataLayer.getActors"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleGetDataLayerActors));
-	Methods.Add(TEXT("dataLayer.addActor"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleAddActorToDataLayer));
-	Methods.Add(TEXT("dataLayer.removeActor"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleRemoveActorFromDataLayer));
+	RegisterMethod(
+		TEXT("dataLayer.getActors"),
+		TEXT("Get actors assigned to a data layer"),
+		TEXT("DataLayer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleGetDataLayerActors));
+
+	RegisterMethod(
+		TEXT("dataLayer.addActor"),
+		TEXT("Add an actor to a data layer"),
+		TEXT("DataLayer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleAddActorToDataLayer));
+
+	RegisterMethod(
+		TEXT("dataLayer.removeActor"),
+		TEXT("Remove an actor from a data layer"),
+		TEXT("DataLayer"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleRemoveActorFromDataLayer));
 
 	// HLOD
-	Methods.Add(TEXT("hlod.getStatus"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleGetHLODStatus));
-	Methods.Add(TEXT("hlod.build"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleBuildHLODs));
+	RegisterMethod(
+		TEXT("hlod.getStatus"),
+		TEXT("Get HLOD subsystem status"),
+		TEXT("HLOD"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleGetHLODStatus));
+
+	RegisterMethod(
+		TEXT("hlod.build"),
+		TEXT("Trigger HLOD build"),
+		TEXT("HLOD"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlWorldPartitionHandler::HandleBuildHLODs));
 }
 
 UWorldPartition* FUltimateControlWorldPartitionHandler::GetWorldPartition()
@@ -86,7 +193,7 @@ bool FUltimateControlWorldPartitionHandler::HandleGetWorldPartitionStatus(const 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -118,40 +225,46 @@ bool FUltimateControlWorldPartitionHandler::HandleGetWorldBounds(const TSharedPt
 	UWorldPartition* WorldPartition = GetWorldPartition();
 	if (!WorldPartition)
 	{
-		Error = CreateError(-32603, TEXT("World Partition is not enabled"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("World Partition is not enabled"));
 		return true;
 	}
 
-	FBox Bounds = WorldPartition->GetWorldBounds();
-
+	// UE 5.6: Use GetRuntimeWorldBounds() or calculate from streaming generation
 	TSharedPtr<FJsonObject> BoundsJson = MakeShared<FJsonObject>();
 
-	TSharedPtr<FJsonObject> MinJson = MakeShared<FJsonObject>();
-	MinJson->SetNumberField(TEXT("x"), Bounds.Min.X);
-	MinJson->SetNumberField(TEXT("y"), Bounds.Min.Y);
-	MinJson->SetNumberField(TEXT("z"), Bounds.Min.Z);
-	BoundsJson->SetObjectField(TEXT("min"), MinJson);
+	// Get bounds from the world settings or streaming generation config
+	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+	if (World)
+	{
+		FBox WorldBounds = World->GetWorldSettings()->GetWorldBounds();
 
-	TSharedPtr<FJsonObject> MaxJson = MakeShared<FJsonObject>();
-	MaxJson->SetNumberField(TEXT("x"), Bounds.Max.X);
-	MaxJson->SetNumberField(TEXT("y"), Bounds.Max.Y);
-	MaxJson->SetNumberField(TEXT("z"), Bounds.Max.Z);
-	BoundsJson->SetObjectField(TEXT("max"), MaxJson);
+		TSharedPtr<FJsonObject> MinJson = MakeShared<FJsonObject>();
+		MinJson->SetNumberField(TEXT("x"), WorldBounds.Min.X);
+		MinJson->SetNumberField(TEXT("y"), WorldBounds.Min.Y);
+		MinJson->SetNumberField(TEXT("z"), WorldBounds.Min.Z);
+		BoundsJson->SetObjectField(TEXT("min"), MinJson);
 
-	FVector Center = Bounds.GetCenter();
-	FVector Extent = Bounds.GetExtent();
+		TSharedPtr<FJsonObject> MaxJson = MakeShared<FJsonObject>();
+		MaxJson->SetNumberField(TEXT("x"), WorldBounds.Max.X);
+		MaxJson->SetNumberField(TEXT("y"), WorldBounds.Max.Y);
+		MaxJson->SetNumberField(TEXT("z"), WorldBounds.Max.Z);
+		BoundsJson->SetObjectField(TEXT("max"), MaxJson);
 
-	TSharedPtr<FJsonObject> CenterJson = MakeShared<FJsonObject>();
-	CenterJson->SetNumberField(TEXT("x"), Center.X);
-	CenterJson->SetNumberField(TEXT("y"), Center.Y);
-	CenterJson->SetNumberField(TEXT("z"), Center.Z);
-	BoundsJson->SetObjectField(TEXT("center"), CenterJson);
+		FVector Center = WorldBounds.GetCenter();
+		FVector Extent = WorldBounds.GetExtent();
 
-	TSharedPtr<FJsonObject> ExtentJson = MakeShared<FJsonObject>();
-	ExtentJson->SetNumberField(TEXT("x"), Extent.X);
-	ExtentJson->SetNumberField(TEXT("y"), Extent.Y);
-	ExtentJson->SetNumberField(TEXT("z"), Extent.Z);
-	BoundsJson->SetObjectField(TEXT("extent"), ExtentJson);
+		TSharedPtr<FJsonObject> CenterJson = MakeShared<FJsonObject>();
+		CenterJson->SetNumberField(TEXT("x"), Center.X);
+		CenterJson->SetNumberField(TEXT("y"), Center.Y);
+		CenterJson->SetNumberField(TEXT("z"), Center.Z);
+		BoundsJson->SetObjectField(TEXT("center"), CenterJson);
+
+		TSharedPtr<FJsonObject> ExtentJson = MakeShared<FJsonObject>();
+		ExtentJson->SetNumberField(TEXT("x"), Extent.X);
+		ExtentJson->SetNumberField(TEXT("y"), Extent.Y);
+		ExtentJson->SetNumberField(TEXT("z"), Extent.Z);
+		BoundsJson->SetObjectField(TEXT("extent"), ExtentJson);
+	}
 
 	Result = MakeShared<FJsonValueObject>(BoundsJson);
 	return true;
@@ -162,21 +275,19 @@ bool FUltimateControlWorldPartitionHandler::HandleListCells(const TSharedPtr<FJs
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
-	UWorldPartitionSubsystem* Subsystem = World->GetSubsystem<UWorldPartitionSubsystem>();
-	if (!Subsystem)
+	UWorldPartitionSubsystem* WPSubsystem = World->GetSubsystem<UWorldPartitionSubsystem>();
+	if (!WPSubsystem)
 	{
-		Error = CreateError(-32603, TEXT("World Partition Subsystem not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("World Partition Subsystem not available"));
 		return true;
 	}
 
 	TArray<TSharedPtr<FJsonValue>> CellsArray;
-
-	// Get streaming cells info
-	// Note: In editor, we can enumerate through the cells
+	// Note: Cell enumeration requires runtime - in editor we report available info
 
 	Result = MakeShared<FJsonValueArray>(CellsArray);
 	return true;
@@ -187,11 +298,10 @@ bool FUltimateControlWorldPartitionHandler::HandleGetCellStatus(const TSharedPtr
 	FString CellName = Params->GetStringField(TEXT("cellName"));
 	if (CellName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("cellName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("cellName parameter required"));
 		return true;
 	}
 
-	// Cell status is typically retrieved during runtime streaming
 	TSharedPtr<FJsonObject> StatusJson = MakeShared<FJsonObject>();
 	StatusJson->SetStringField(TEXT("cellName"), CellName);
 	StatusJson->SetStringField(TEXT("status"), TEXT("unknown"));
@@ -202,7 +312,6 @@ bool FUltimateControlWorldPartitionHandler::HandleGetCellStatus(const TSharedPtr
 
 bool FUltimateControlWorldPartitionHandler::HandleLoadCells(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
 {
-	// Load cells at specified location
 	double X = Params->GetNumberField(TEXT("x"));
 	double Y = Params->GetNumberField(TEXT("y"));
 	double Z = Params->GetNumberField(TEXT("z"));
@@ -211,11 +320,10 @@ bool FUltimateControlWorldPartitionHandler::HandleLoadCells(const TSharedPtr<FJs
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
-	// In editor, we can load cells around a location
 	FVector Location(X, Y, Z);
 
 	TSharedPtr<FJsonObject> ResultJson = MakeShared<FJsonObject>();
@@ -270,28 +378,24 @@ bool FUltimateControlWorldPartitionHandler::HandleListDataLayers(const TSharedPt
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
-		return true;
-	}
-
-	UDataLayerSubsystem* DataLayerSubsystem = World->GetSubsystem<UDataLayerSubsystem>();
-	if (!DataLayerSubsystem)
-	{
-		Error = CreateError(-32603, TEXT("Data Layer Subsystem not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
 	TArray<TSharedPtr<FJsonValue>> LayersArray;
 
-	// Get all data layer instances
-	DataLayerSubsystem->ForEachDataLayerInstance([&](UDataLayerInstance* DataLayerInstance)
+	// UE 5.6: Use DataLayerManager to get data layers
+	if (UDataLayerManager* DataLayerManager = UDataLayerManager::GetDataLayerManager(World))
 	{
-		if (DataLayerInstance)
+		DataLayerManager->ForEachDataLayerInstance([&](UDataLayerInstance* DataLayerInstance)
 		{
-			LayersArray.Add(MakeShared<FJsonValueObject>(DataLayerToJson(DataLayerInstance)));
-		}
-		return true;
-	});
+			if (DataLayerInstance)
+			{
+				LayersArray.Add(MakeShared<FJsonValueObject>(DataLayerToJson(DataLayerInstance)));
+			}
+			return true;
+		});
+	}
 
 	Result = MakeShared<FJsonValueArray>(LayersArray);
 	return true;
@@ -302,26 +406,26 @@ bool FUltimateControlWorldPartitionHandler::HandleGetDataLayer(const TSharedPtr<
 	FString LayerName = Params->GetStringField(TEXT("name"));
 	if (LayerName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("name parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("name parameter required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
-	UDataLayerSubsystem* DataLayerSubsystem = World->GetSubsystem<UDataLayerSubsystem>();
-	if (!DataLayerSubsystem)
+	UDataLayerManager* DataLayerManager = UDataLayerManager::GetDataLayerManager(World);
+	if (!DataLayerManager)
 	{
-		Error = CreateError(-32603, TEXT("Data Layer Subsystem not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Data Layer Manager not available"));
 		return true;
 	}
 
 	UDataLayerInstance* FoundLayer = nullptr;
-	DataLayerSubsystem->ForEachDataLayerInstance([&](UDataLayerInstance* DataLayerInstance)
+	DataLayerManager->ForEachDataLayerInstance([&](UDataLayerInstance* DataLayerInstance)
 	{
 		if (DataLayerInstance && DataLayerInstance->GetDataLayerShortName() == LayerName)
 		{
@@ -333,7 +437,7 @@ bool FUltimateControlWorldPartitionHandler::HandleGetDataLayer(const TSharedPtr<
 
 	if (!FoundLayer)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Data layer not found: %s"), *LayerName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Data layer not found: %s"), *LayerName));
 		return true;
 	}
 
@@ -346,12 +450,10 @@ bool FUltimateControlWorldPartitionHandler::HandleCreateDataLayer(const TSharedP
 	FString LayerName = Params->GetStringField(TEXT("name"));
 	if (LayerName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("name parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("name parameter required"));
 		return true;
 	}
 
-	// Creating data layers requires creating a DataLayerAsset
-	// This is typically done through the editor UI or asset creation
 	TSharedPtr<FJsonObject> ResultJson = MakeShared<FJsonObject>();
 	ResultJson->SetBoolField(TEXT("success"), false);
 	ResultJson->SetStringField(TEXT("message"), TEXT("Data layer creation requires DataLayerAsset. Use asset.create to create a DataLayerAsset first."));
@@ -365,7 +467,7 @@ bool FUltimateControlWorldPartitionHandler::HandleDeleteDataLayer(const TSharedP
 	FString LayerName = Params->GetStringField(TEXT("name"));
 	if (LayerName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("name parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("name parameter required"));
 		return true;
 	}
 
@@ -382,26 +484,26 @@ bool FUltimateControlWorldPartitionHandler::HandleGetDataLayerVisibility(const T
 	FString LayerName = Params->GetStringField(TEXT("name"));
 	if (LayerName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("name parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("name parameter required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
-	UDataLayerSubsystem* DataLayerSubsystem = World->GetSubsystem<UDataLayerSubsystem>();
-	if (!DataLayerSubsystem)
+	UDataLayerManager* DataLayerManager = UDataLayerManager::GetDataLayerManager(World);
+	if (!DataLayerManager)
 	{
-		Error = CreateError(-32603, TEXT("Data Layer Subsystem not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Data Layer Manager not available"));
 		return true;
 	}
 
 	UDataLayerInstance* FoundLayer = nullptr;
-	DataLayerSubsystem->ForEachDataLayerInstance([&](UDataLayerInstance* DataLayerInstance)
+	DataLayerManager->ForEachDataLayerInstance([&](UDataLayerInstance* DataLayerInstance)
 	{
 		if (DataLayerInstance && DataLayerInstance->GetDataLayerShortName() == LayerName)
 		{
@@ -413,7 +515,7 @@ bool FUltimateControlWorldPartitionHandler::HandleGetDataLayerVisibility(const T
 
 	if (!FoundLayer)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Data layer not found: %s"), *LayerName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Data layer not found: %s"), *LayerName));
 		return true;
 	}
 
@@ -433,26 +535,26 @@ bool FUltimateControlWorldPartitionHandler::HandleSetDataLayerVisibility(const T
 
 	if (LayerName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("name parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("name parameter required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
-	UDataLayerSubsystem* DataLayerSubsystem = World->GetSubsystem<UDataLayerSubsystem>();
-	if (!DataLayerSubsystem)
+	UDataLayerManager* DataLayerManager = UDataLayerManager::GetDataLayerManager(World);
+	if (!DataLayerManager)
 	{
-		Error = CreateError(-32603, TEXT("Data Layer Subsystem not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Data Layer Manager not available"));
 		return true;
 	}
 
 	UDataLayerInstance* FoundLayer = nullptr;
-	DataLayerSubsystem->ForEachDataLayerInstance([&](UDataLayerInstance* DataLayerInstance)
+	DataLayerManager->ForEachDataLayerInstance([&](UDataLayerInstance* DataLayerInstance)
 	{
 		if (DataLayerInstance && DataLayerInstance->GetDataLayerShortName() == LayerName)
 		{
@@ -464,7 +566,7 @@ bool FUltimateControlWorldPartitionHandler::HandleSetDataLayerVisibility(const T
 
 	if (!FoundLayer)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Data layer not found: %s"), *LayerName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Data layer not found: %s"), *LayerName));
 		return true;
 	}
 
@@ -486,7 +588,7 @@ bool FUltimateControlWorldPartitionHandler::HandleSetDataLayerLoadState(const TS
 
 	if (LayerName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("name parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("name parameter required"));
 		return true;
 	}
 
@@ -504,20 +606,19 @@ bool FUltimateControlWorldPartitionHandler::HandleGetDataLayerActors(const TShar
 	FString LayerName = Params->GetStringField(TEXT("name"));
 	if (LayerName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("name parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("name parameter required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
 	TArray<TSharedPtr<FJsonValue>> ActorsArray;
 
-	// Iterate through all actors and check their data layer assignments
 	for (TActorIterator<AActor> It(World); It; ++It)
 	{
 		AActor* Actor = *It;
@@ -548,18 +649,17 @@ bool FUltimateControlWorldPartitionHandler::HandleAddActorToDataLayer(const TSha
 
 	if (ActorName.IsEmpty() || LayerName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("actorName and layerName parameters required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("actorName and layerName parameters required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
-	// Find the actor
 	AActor* FoundActor = nullptr;
 	for (TActorIterator<AActor> It(World); It; ++It)
 	{
@@ -573,20 +673,19 @@ bool FUltimateControlWorldPartitionHandler::HandleAddActorToDataLayer(const TSha
 
 	if (!FoundActor)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
 		return true;
 	}
 
-	// Find the data layer
-	UDataLayerSubsystem* DataLayerSubsystem = World->GetSubsystem<UDataLayerSubsystem>();
-	if (!DataLayerSubsystem)
+	UDataLayerManager* DataLayerManager = UDataLayerManager::GetDataLayerManager(World);
+	if (!DataLayerManager)
 	{
-		Error = CreateError(-32603, TEXT("Data Layer Subsystem not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Data Layer Manager not available"));
 		return true;
 	}
 
 	UDataLayerInstance* FoundLayer = nullptr;
-	DataLayerSubsystem->ForEachDataLayerInstance([&](UDataLayerInstance* DataLayerInstance)
+	DataLayerManager->ForEachDataLayerInstance([&](UDataLayerInstance* DataLayerInstance)
 	{
 		if (DataLayerInstance && DataLayerInstance->GetDataLayerShortName() == LayerName)
 		{
@@ -598,11 +697,10 @@ bool FUltimateControlWorldPartitionHandler::HandleAddActorToDataLayer(const TSha
 
 	if (!FoundLayer)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Data layer not found: %s"), *LayerName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Data layer not found: %s"), *LayerName));
 		return true;
 	}
 
-	// Add actor to data layer
 	FoundActor->AddDataLayer(FoundLayer);
 
 	TSharedPtr<FJsonObject> ResultJson = MakeShared<FJsonObject>();
@@ -621,18 +719,17 @@ bool FUltimateControlWorldPartitionHandler::HandleRemoveActorFromDataLayer(const
 
 	if (ActorName.IsEmpty() || LayerName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("actorName and layerName parameters required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("actorName and layerName parameters required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
-	// Find the actor
 	AActor* FoundActor = nullptr;
 	for (TActorIterator<AActor> It(World); It; ++It)
 	{
@@ -646,20 +743,19 @@ bool FUltimateControlWorldPartitionHandler::HandleRemoveActorFromDataLayer(const
 
 	if (!FoundActor)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
 		return true;
 	}
 
-	// Find the data layer
-	UDataLayerSubsystem* DataLayerSubsystem = World->GetSubsystem<UDataLayerSubsystem>();
-	if (!DataLayerSubsystem)
+	UDataLayerManager* DataLayerManager = UDataLayerManager::GetDataLayerManager(World);
+	if (!DataLayerManager)
 	{
-		Error = CreateError(-32603, TEXT("Data Layer Subsystem not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Data Layer Manager not available"));
 		return true;
 	}
 
 	UDataLayerInstance* FoundLayer = nullptr;
-	DataLayerSubsystem->ForEachDataLayerInstance([&](UDataLayerInstance* DataLayerInstance)
+	DataLayerManager->ForEachDataLayerInstance([&](UDataLayerInstance* DataLayerInstance)
 	{
 		if (DataLayerInstance && DataLayerInstance->GetDataLayerShortName() == LayerName)
 		{
@@ -671,11 +767,10 @@ bool FUltimateControlWorldPartitionHandler::HandleRemoveActorFromDataLayer(const
 
 	if (!FoundLayer)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Data layer not found: %s"), *LayerName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Data layer not found: %s"), *LayerName));
 		return true;
 	}
 
-	// Remove actor from data layer
 	FoundActor->RemoveDataLayer(FoundLayer);
 
 	TSharedPtr<FJsonObject> ResultJson = MakeShared<FJsonObject>();
@@ -692,19 +787,18 @@ bool FUltimateControlWorldPartitionHandler::HandleGetHLODStatus(const TSharedPtr
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
 	TSharedPtr<FJsonObject> StatusJson = MakeShared<FJsonObject>();
 
-	// Check if HLOD subsystem exists
-	UHLODSubsystem* HLODSubsystem = World->GetSubsystem<UHLODSubsystem>();
+	// UE 5.6: Use UWorldPartitionHLODRuntimeSubsystem
+	UWorldPartitionHLODRuntimeSubsystem* HLODSubsystem = World->GetSubsystem<UWorldPartitionHLODRuntimeSubsystem>();
 	StatusJson->SetBoolField(TEXT("available"), HLODSubsystem != nullptr);
 
 	if (HLODSubsystem)
 	{
-		// Get HLOD info
 		StatusJson->SetBoolField(TEXT("enabled"), true);
 	}
 
@@ -714,7 +808,6 @@ bool FUltimateControlWorldPartitionHandler::HandleGetHLODStatus(const TSharedPtr
 
 bool FUltimateControlWorldPartitionHandler::HandleBuildHLODs(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
 {
-	// Building HLODs is typically done through the editor build process
 	TSharedPtr<FJsonObject> ResultJson = MakeShared<FJsonObject>();
 	ResultJson->SetBoolField(TEXT("success"), false);
 	ResultJson->SetStringField(TEXT("message"), TEXT("HLOD building should be triggered through the Build menu or automation.buildHLODs"));

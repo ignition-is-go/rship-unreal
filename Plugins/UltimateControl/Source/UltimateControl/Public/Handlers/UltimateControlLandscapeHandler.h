@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright Rocketship. All Rights Reserved.
 
 #pragma once
 
@@ -15,7 +15,7 @@ class ULandscapeLayerInfoObject;
 class ULTIMATECONTROL_API FUltimateControlLandscapeHandler : public FUltimateControlHandlerBase
 {
 public:
-	virtual void RegisterMethods(TMap<FString, FJsonRpcMethodHandler>& Methods) override;
+	FUltimateControlLandscapeHandler(UUltimateControlSubsystem* InSubsystem);
 
 private:
 	// Landscape listing and info
