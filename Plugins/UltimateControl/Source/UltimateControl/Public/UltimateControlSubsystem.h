@@ -8,37 +8,41 @@
 #include "IHttpRouter.h"
 #include "HttpRouteHandle.h"
 #include "Dom/JsonObject.h"
+
+// Include all handler headers to ensure complete types are available for TUniquePtr
+// This is required because UHT-generated code needs complete types for destructor
+#include "Handlers/UltimateControlHandlerBase.h"
+#include "Handlers/UltimateControlAssetHandler.h"
+#include "Handlers/UltimateControlBlueprintHandler.h"
+#include "Handlers/UltimateControlLevelHandler.h"
+#include "Handlers/UltimateControlPIEHandler.h"
+#include "Handlers/UltimateControlAutomationHandler.h"
+#include "Handlers/UltimateControlProfilingHandler.h"
+#include "Handlers/UltimateControlFileHandler.h"
+#include "Handlers/UltimateControlConsoleHandler.h"
+#include "Handlers/UltimateControlProjectHandler.h"
+#include "Handlers/UltimateControlViewportHandler.h"
+#include "Handlers/UltimateControlTransactionHandler.h"
+#include "Handlers/UltimateControlMaterialHandler.h"
+#include "Handlers/UltimateControlAnimationHandler.h"
+#include "Handlers/UltimateControlSequencerHandler.h"
+#include "Handlers/UltimateControlAudioHandler.h"
+#include "Handlers/UltimateControlPhysicsHandler.h"
+#include "Handlers/UltimateControlLightingHandler.h"
+#include "Handlers/UltimateControlWorldPartitionHandler.h"
+#include "Handlers/UltimateControlNiagaraHandler.h"
+#include "Handlers/UltimateControlLandscapeHandler.h"
+#include "Handlers/UltimateControlAIHandler.h"
+#include "Handlers/UltimateControlRenderHandler.h"
+#include "Handlers/UltimateControlOutlinerHandler.h"
+#include "Handlers/UltimateControlSourceControlHandler.h"
+#include "Handlers/UltimateControlLiveCodingHandler.h"
+#include "Handlers/UltimateControlSessionHandler.h"
+#include "Handlers/UltimateControlEditorHandler.h"
+
 #include "UltimateControlSubsystem.generated.h"
 
 DECLARE_LOG_CATEGORY_EXTERN(LogUltimateControlServer, Log, All);
-
-class FUltimateControlAssetHandler;
-class FUltimateControlBlueprintHandler;
-class FUltimateControlLevelHandler;
-class FUltimateControlPIEHandler;
-class FUltimateControlAutomationHandler;
-class FUltimateControlProfilingHandler;
-class FUltimateControlFileHandler;
-class FUltimateControlConsoleHandler;
-class FUltimateControlProjectHandler;
-class FUltimateControlViewportHandler;
-class FUltimateControlTransactionHandler;
-class FUltimateControlMaterialHandler;
-class FUltimateControlAnimationHandler;
-class FUltimateControlSequencerHandler;
-class FUltimateControlAudioHandler;
-class FUltimateControlPhysicsHandler;
-class FUltimateControlLightingHandler;
-class FUltimateControlWorldPartitionHandler;
-class FUltimateControlNiagaraHandler;
-class FUltimateControlLandscapeHandler;
-class FUltimateControlAIHandler;
-class FUltimateControlRenderHandler;
-class FUltimateControlOutlinerHandler;
-class FUltimateControlSourceControlHandler;
-class FUltimateControlLiveCodingHandler;
-class FUltimateControlSessionHandler;
-class FUltimateControlEditorHandler;
 
 /**
  * JSON-RPC 2.0 Error Codes

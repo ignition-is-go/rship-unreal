@@ -228,8 +228,9 @@ bool FUltimateControlMaterialHandler::HandleCreateMaterial(const TSharedPtr<FJso
 	if (Params->HasField(TEXT("blendMode")))
 	{
 		FString BlendModeStr = Params->GetStringField(TEXT("blendMode"));
-		int64 BlendModeValue;
-		if (StaticEnum<EBlendMode>()->GetValueByNameString(BlendModeStr, BlendModeValue))
+		// UE 5.6+: GetValueByNameString returns the value directly, not via output param
+		int64 BlendModeValue = StaticEnum<EBlendMode>()->GetValueByNameString(BlendModeStr);
+		if (BlendModeValue != INDEX_NONE)
 		{
 			NewMaterial->BlendMode = (EBlendMode)BlendModeValue;
 		}
@@ -351,10 +352,11 @@ bool FUltimateControlMaterialHandler::HandleGetMaterialParameter(const TSharedPt
 	}
 
 	// UE 5.6+: Use FHashedMaterialParameterInfo; earlier versions use FMaterialParameterInfo
+	// Use brace initialization to avoid "most vexing parse" ambiguity
 #if ULTIMATE_CONTROL_UE_5_6_OR_LATER
-	FHashedMaterialParameterInfo ParamInfo(FName(*ParameterName));
+	FHashedMaterialParameterInfo ParamInfo{FName{*ParameterName}};
 #else
-	FMaterialParameterInfo ParamInfo(FName(*ParameterName));
+	FMaterialParameterInfo ParamInfo{FName{*ParameterName}};
 #endif
 
 	TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
