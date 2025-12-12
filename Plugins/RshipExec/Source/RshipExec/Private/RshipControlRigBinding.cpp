@@ -579,7 +579,7 @@ float URshipControlRigBinding::ParsePrimary(const FString& Expr, int32& Pos) con
                 return FMath::Lerp(Arg1, Arg2, Arg3);
             }
             if (FuncName == TEXT("floor")) return FMath::Floor(Arg1);
-            if (FuncName == TEXT("ceil")) return FMath::Ceil(Arg1);
+            if (FuncName == TEXT("ceil")) return FMath::CeilToFloat(Arg1);
             if (FuncName == TEXT("round")) return FMath::RoundToFloat(Arg1);
             if (FuncName == TEXT("frac")) return FMath::Frac(Arg1);
         }
@@ -756,16 +756,19 @@ void URshipControlRigBinding::ApplyBindingToControlRig(int32 Index)
 
     case ERshipControlRigPropertyType::Rotator:
         {
-            FRigControlValue Value;
-            Value.Set<FRotator>(State.CurrentRotator);
+            // UE 5.6: Use MakeFromEulerTransform for rotator values
+            FEulerTransform EulerTransform;
+            EulerTransform.Rotation = State.CurrentRotator;
+            FRigControlValue Value = FRigControlValue::MakeFromEulerTransform(EulerTransform, ERigControlType::EulerTransform);
             Hierarchy->SetControlValue(Key, Value, ERigControlValueType::Current);
         }
         break;
 
     case ERshipControlRigPropertyType::Transform:
         {
-            FRigControlValue Value;
-            Value.Set<FTransform>(State.CurrentTransform);
+            // UE 5.6: Use MakeFromEulerTransform for transform values
+            FEulerTransform EulerTransform(State.CurrentTransform);
+            FRigControlValue Value = FRigControlValue::MakeFromEulerTransform(EulerTransform, ERigControlType::EulerTransform);
             Hierarchy->SetControlValue(Key, Value, ERigControlValueType::Current);
         }
         break;
