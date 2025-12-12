@@ -167,7 +167,7 @@ bool URshipSpatialAudioManager::UpdateSpeaker(const FGuid& SpeakerId, const FSpa
 	}
 
 	// Check if position changed (requires re-triangulation)
-	bool bPositionChanged = !ExistingSpeaker->Position.Equals(Speaker.Position, 0.1f);
+	bool bPositionChanged = !ExistingSpeaker->WorldPosition.Equals(Speaker.WorldPosition, 0.1f);
 
 	// Preserve the ID
 	*ExistingSpeaker = Speaker;
@@ -727,7 +727,7 @@ TArray<FSpatialSpeaker> URshipSpatialAudioManager::FindSpeakersNearPosition(FVec
 
 	for (const auto& Pair : Venue.Speakers)
 	{
-		float Distance = FVector::Dist(Position, Pair.Value.Position);
+		float Distance = FVector::Dist(Position, Pair.Value.WorldPosition);
 		if (Distance <= Radius)
 		{
 			SpeakersWithDistance.Add(TPair<float, FSpatialSpeaker>(Distance, Pair.Value));
@@ -760,7 +760,7 @@ bool URshipSpatialAudioManager::FindClosestSpeaker(FVector Position, FSpatialSpe
 
 	for (const auto& Pair : Venue.Speakers)
 	{
-		float Distance = FVector::Dist(Position, Pair.Value.Position);
+		float Distance = FVector::Dist(Position, Pair.Value.WorldPosition);
 		if (Distance < MinDistance)
 		{
 			MinDistance = Distance;
@@ -1369,11 +1369,11 @@ FString URshipSpatialAudioManager::ExportVenueToJson() const
 	VenueJson->SetNumberField(TEXT("version"), 1);
 	VenueJson->SetStringField(TEXT("exportTime"), FDateTime::Now().ToString());
 
-	// Reference point
+	// Reference point (venue origin)
 	TSharedPtr<FJsonObject> RefPoint = MakeShareable(new FJsonObject());
-	RefPoint->SetNumberField(TEXT("x"), Venue.ReferencePoint.X);
-	RefPoint->SetNumberField(TEXT("y"), Venue.ReferencePoint.Y);
-	RefPoint->SetNumberField(TEXT("z"), Venue.ReferencePoint.Z);
+	RefPoint->SetNumberField(TEXT("x"), Venue.VenueOrigin.X);
+	RefPoint->SetNumberField(TEXT("y"), Venue.VenueOrigin.Y);
+	RefPoint->SetNumberField(TEXT("z"), Venue.VenueOrigin.Z);
 	VenueJson->SetObjectField(TEXT("referencePoint"), RefPoint);
 
 	// Export speakers
@@ -1456,13 +1456,13 @@ bool URshipSpatialAudioManager::ImportVenueFromJson(const FString& JsonString)
 		Venue.Name = VenueJson->GetStringField(TEXT("name"));
 	}
 
-	// Import reference point
+	// Import reference point (venue origin)
 	if (VenueJson->HasField(TEXT("referencePoint")))
 	{
 		TSharedPtr<FJsonObject> RefPoint = VenueJson->GetObjectField(TEXT("referencePoint"));
-		Venue.ReferencePoint.X = RefPoint->GetNumberField(TEXT("x"));
-		Venue.ReferencePoint.Y = RefPoint->GetNumberField(TEXT("y"));
-		Venue.ReferencePoint.Z = RefPoint->GetNumberField(TEXT("z"));
+		Venue.VenueOrigin.X = RefPoint->GetNumberField(TEXT("x"));
+		Venue.VenueOrigin.Y = RefPoint->GetNumberField(TEXT("y"));
+		Venue.VenueOrigin.Z = RefPoint->GetNumberField(TEXT("z"));
 	}
 
 	// Import speakers
@@ -1813,8 +1813,8 @@ void URshipSpatialAudioManager::SendMeterPulses()
 			continue;
 		}
 
-		// Only send if there's meaningful activity
-		if (Speaker->LastMeterReading.PeakDb > -80.0f)
+		// Only send if there's meaningful activity (Peak > -80dB threshold)
+		if (Speaker->LastMeterReading.Peak > SpatialAudioConstants::MinGainThreshold)
 		{
 			TSharedPtr<FJsonObject> MeterJson = FSpatialAudioMykoSerializer::MeterToJson(SpeakerId, Speaker->LastMeterReading);
 			Subsystem->PulseEmitter(SpeakerId.ToString(), SpatialAudioMykoEmitters::SpeakerLevel, MeterJson);
@@ -1825,7 +1825,7 @@ void URshipSpatialAudioManager::SendMeterPulses()
 	for (const auto& Pair : AudioObjects)
 	{
 		const FSpatialAudioObject& Object = Pair.Value;
-		if (Object.LastMeterReading.PeakDb > -80.0f)
+		if (Object.LastMeterReading.Peak > SpatialAudioConstants::MinGainThreshold)
 		{
 			TSharedPtr<FJsonObject> MeterJson = FSpatialAudioMykoSerializer::MeterToJson(Object.Id, Object.LastMeterReading);
 			Subsystem->PulseEmitter(Object.Id.ToString(), SpatialAudioMykoEmitters::ObjectLevel, MeterJson);
@@ -2009,8 +2009,8 @@ void URshipSpatialAudioManager::ProcessZoneAction(const FGuid& ZoneId, const FSt
 		if (Data->HasField(SpatialAudioMykoSchema::PropRenderer))
 		{
 			FString RendererStr = Data->GetStringField(SpatialAudioMykoSchema::PropRenderer);
-			int64 EnumValue;
-			if (StaticEnum<ESpatialRendererType>()->FindEnumValueFromString(RendererStr, EnumValue))
+			int64 EnumValue = StaticEnum<ESpatialRendererType>()->GetValueByNameString(RendererStr);
+			if (EnumValue != INDEX_NONE)
 			{
 				SetZoneRenderer(ZoneId, static_cast<ESpatialRendererType>(EnumValue));
 			}
@@ -2268,7 +2268,7 @@ void URshipSpatialAudioManager::UpdateAudioEngine()
 				TArray<FSpatialSpeaker> AllSpeakers = GetAllSpeakers();
 				if (SpeakerIndex >= 0 && SpeakerIndex < AllSpeakers.Num())
 				{
-					FSpatialSpeaker* Speaker = Venue.FindSpeaker(AllSpeakers[SpeakerIndex].Id);
+					FSpatialSpeaker* Speaker = Venue.GetSpeaker(AllSpeakers[SpeakerIndex].Id);
 					if (Speaker)
 					{
 						// Store linear meter values
@@ -2297,7 +2297,7 @@ void URshipSpatialAudioManager::UpdateAudioEngine()
 				TArray<FSpatialSpeaker> AllSpeakers = GetAllSpeakers();
 				if (SpeakerIndex >= 0 && SpeakerIndex < AllSpeakers.Num())
 				{
-					FSpatialSpeaker* Speaker = Venue.FindSpeaker(AllSpeakers[SpeakerIndex].Id);
+					FSpatialSpeaker* Speaker = Venue.GetSpeaker(AllSpeakers[SpeakerIndex].Id);
 					if (Speaker)
 					{
 						Speaker->LastMeterReading.GainReductionDb = Feedback.LimiterGR.GainReductionDb;
@@ -2401,8 +2401,8 @@ void URshipSpatialAudioManager::SetRenderingEngine(FSpatialRenderingEngine* Engi
 		// Sync speaker configuration to rendering engine
 		SyncSpeakersToRenderingEngine();
 
-		// Set the reference point
-		RenderingEngine->SetReferencePoint(Venue.ReferencePoint);
+		// Set the reference point (venue origin)
+		RenderingEngine->SetReferencePoint(Venue.VenueOrigin);
 
 		// Rebuild speaker index mapping
 		RebuildSpeakerIndexMapping();
@@ -2491,7 +2491,7 @@ void URshipSpatialAudioManager::SetGlobalRendererType(ESpatialRendererType Rende
 
 void URshipSpatialAudioManager::SetListenerPosition(const FVector& Position)
 {
-	Venue.ReferencePoint = Position;
+	Venue.VenueOrigin = Position;
 
 	if (RenderingEngine)
 	{

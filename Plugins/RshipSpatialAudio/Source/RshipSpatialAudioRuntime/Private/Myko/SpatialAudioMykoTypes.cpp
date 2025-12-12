@@ -11,8 +11,8 @@ TSharedPtr<FJsonObject> FSpatialAudioMykoSerializer::VenueToJson(const FSpatialV
 	Json->SetStringField(SpatialAudioMykoSchema::PropId, Venue.Id.ToString());
 	Json->SetStringField(SpatialAudioMykoSchema::PropName, Venue.Name);
 
-	// Serialize reference point
-	Json->SetObjectField(TEXT("referencePoint"), VectorToJson(Venue.ReferencePoint));
+	// Serialize reference point (venue origin)
+	Json->SetObjectField(TEXT("referencePoint"), VectorToJson(Venue.VenueOrigin));
 
 	// Speaker/zone/array counts for overview
 	Json->SetNumberField(TEXT("speakerCount"), Venue.GetSpeakerCount());
@@ -32,13 +32,13 @@ TSharedPtr<FJsonObject> FSpatialAudioMykoSerializer::SpeakerToJson(const FSpatia
 	Json->SetStringField(SpatialAudioMykoSchema::PropName, Speaker.Name);
 
 	// Position
-	Json->SetObjectField(SpatialAudioMykoSchema::PropPosition, VectorToJson(Speaker.Position));
+	Json->SetObjectField(SpatialAudioMykoSchema::PropPosition, VectorToJson(Speaker.WorldPosition));
 
 	// Routing
 	Json->SetNumberField(SpatialAudioMykoSchema::PropChannel, Speaker.OutputChannel);
-	if (Speaker.ArrayId.IsValid())
+	if (Speaker.ParentArrayId.IsValid())
 	{
-		Json->SetStringField(SpatialAudioMykoSchema::PropArrayId, Speaker.ArrayId.ToString());
+		Json->SetStringField(SpatialAudioMykoSchema::PropArrayId, Speaker.ParentArrayId.ToString());
 	}
 
 	// Type
@@ -130,8 +130,11 @@ TSharedPtr<FJsonObject> FSpatialAudioMykoSerializer::MeterToJson(const FGuid& En
 	TSharedPtr<FJsonObject> Json = MakeShareable(new FJsonObject());
 
 	Json->SetStringField(SpatialAudioMykoSchema::PropId, EntityId.ToString());
-	Json->SetNumberField(SpatialAudioMykoSchema::PropPeak, Meter.PeakDb);
-	Json->SetNumberField(SpatialAudioMykoSchema::PropRMS, Meter.RMSDb);
+	// Convert linear values to dB for serialization (avoid log(0) by using minimum threshold)
+	float PeakDb = Meter.Peak > SpatialAudioConstants::MinGainThreshold ? 20.0f * FMath::LogX(10.0f, Meter.Peak) : -80.0f;
+	float RMSDb = Meter.RMS > SpatialAudioConstants::MinGainThreshold ? 20.0f * FMath::LogX(10.0f, Meter.RMS) : -80.0f;
+	Json->SetNumberField(SpatialAudioMykoSchema::PropPeak, PeakDb);
+	Json->SetNumberField(SpatialAudioMykoSchema::PropRMS, RMSDb);
 
 	return Json;
 }
@@ -206,7 +209,7 @@ bool FSpatialAudioMykoSerializer::ParseSpeakerUpdate(const TSharedPtr<FJsonObjec
 	// Parse position if present
 	if (Json->HasField(SpatialAudioMykoSchema::PropPosition))
 	{
-		ParseVector(Json->GetObjectField(SpatialAudioMykoSchema::PropPosition), OutSpeaker.Position);
+		ParseVector(Json->GetObjectField(SpatialAudioMykoSchema::PropPosition), OutSpeaker.WorldPosition);
 	}
 
 	// Parse channel if present
@@ -268,8 +271,8 @@ bool FSpatialAudioMykoSerializer::ParseZoneUpdate(const TSharedPtr<FJsonObject>&
 	if (Json->HasField(SpatialAudioMykoSchema::PropRenderer))
 	{
 		FString RendererStr = Json->GetStringField(SpatialAudioMykoSchema::PropRenderer);
-		int64 EnumValue;
-		if (StaticEnum<ESpatialRendererType>()->FindEnumValueFromString(RendererStr, EnumValue))
+		int64 EnumValue = StaticEnum<ESpatialRendererType>()->GetValueByNameString(RendererStr);
+		if (EnumValue != INDEX_NONE)
 		{
 			OutZone.RendererType = static_cast<ESpatialRendererType>(EnumValue);
 		}
@@ -378,8 +381,8 @@ bool FSpatialAudioMykoSerializer::ParseEQBands(const TSharedPtr<FJsonValue>& Jso
 		if (BandJson->HasField(SpatialAudioMykoSchema::PropBandType))
 		{
 			FString TypeStr = BandJson->GetStringField(SpatialAudioMykoSchema::PropBandType);
-			int64 EnumValue;
-			if (StaticEnum<ESpatialEQBandType>()->FindEnumValueFromString(TypeStr, EnumValue))
+			int64 EnumValue = StaticEnum<ESpatialEQBandType>()->GetValueByNameString(TypeStr);
+			if (EnumValue != INDEX_NONE)
 			{
 				Band.Type = static_cast<ESpatialEQBandType>(EnumValue);
 			}

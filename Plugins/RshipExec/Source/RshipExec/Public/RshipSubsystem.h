@@ -82,6 +82,7 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     friend class URshipLevelManager;
     friend class URshipMultiCameraManager;
     friend class URshipDataLayerManager;
+    friend class URshipSpatialAudioManager;
 
     AEmitterHandler *EmitterHandler;
 

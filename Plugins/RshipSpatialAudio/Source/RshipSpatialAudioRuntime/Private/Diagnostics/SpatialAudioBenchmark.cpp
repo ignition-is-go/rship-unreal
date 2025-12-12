@@ -25,7 +25,7 @@ namespace
 			FSpatialSpeaker Speaker;
 			Speaker.Id = FGuid::NewGuid();
 			Speaker.Name = FString::Printf(TEXT("Speaker_%d"), i);
-			Speaker.Position = FVector(
+			Speaker.WorldPosition = FVector(
 				FMath::Cos(Angle) * 500.0f,
 				FMath::Sin(Angle) * 500.0f,
 				Elevation * 300.0f

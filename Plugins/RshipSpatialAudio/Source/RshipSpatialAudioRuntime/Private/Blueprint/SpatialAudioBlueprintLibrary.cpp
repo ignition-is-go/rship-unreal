@@ -60,7 +60,7 @@ TArray<FGuid> USpatialAudioBlueprintLibrary::CreateStereoPair(
 	FSpatialSpeaker LeftSpeaker;
 	LeftSpeaker.Id = FGuid::NewGuid();
 	LeftSpeaker.Name = TEXT("Left");
-	LeftSpeaker.Position = FVector(-Distance, 0.0f, Height);
+	LeftSpeaker.WorldPosition = FVector(-Distance, 0.0f, Height);
 	LeftSpeaker.OutputChannel = 1;
 	LeftSpeaker.Type = ESpatialSpeakerType::PointSource;
 
@@ -68,7 +68,7 @@ TArray<FGuid> USpatialAudioBlueprintLibrary::CreateStereoPair(
 	FSpatialSpeaker RightSpeaker;
 	RightSpeaker.Id = FGuid::NewGuid();
 	RightSpeaker.Name = TEXT("Right");
-	RightSpeaker.Position = FVector(Distance, 0.0f, Height);
+	RightSpeaker.WorldPosition = FVector(Distance, 0.0f, Height);
 	RightSpeaker.OutputChannel = 2;
 	RightSpeaker.Type = ESpatialSpeakerType::PointSource;
 
@@ -118,7 +118,7 @@ TArray<FGuid> USpatialAudioBlueprintLibrary::Create51SurroundLayout(
 		FSpatialSpeaker Speaker;
 		Speaker.Id = FGuid::NewGuid();
 		Speaker.Name = Def.Name;
-		Speaker.Position = FVector(
+		Speaker.WorldPosition = FVector(
 			FMath::Cos(AngleRad) * Radius,
 			FMath::Sin(AngleRad) * Radius,
 			(Def.Channel == 4) ? 0.0f : Height  // LFE on floor
@@ -155,7 +155,7 @@ TArray<FGuid> USpatialAudioBlueprintLibrary::CreateSpeakerRing(
 		FSpatialSpeaker Speaker;
 		Speaker.Id = FGuid::NewGuid();
 		Speaker.Name = FString::Printf(TEXT("Speaker_%d"), i + 1);
-		Speaker.Position = FVector(
+		Speaker.WorldPosition = FVector(
 			FMath::Cos(Angle) * Radius,
 			FMath::Sin(Angle) * Radius,
 			Height
@@ -204,7 +204,7 @@ TArray<FGuid> USpatialAudioBlueprintLibrary::CreateSpeakerDome(
 			FSpatialSpeaker Speaker;
 			Speaker.Id = FGuid::NewGuid();
 			Speaker.Name = FString::Printf(TEXT("Dome_R%d_S%d"), Ring + 1, i + 1);
-			Speaker.Position = FVector(
+			Speaker.WorldPosition = FVector(
 				FMath::Cos(Azimuth) * RingRadius,
 				FMath::Sin(Azimuth) * RingRadius,
 				RingHeight
@@ -221,7 +221,7 @@ TArray<FGuid> USpatialAudioBlueprintLibrary::CreateSpeakerDome(
 	FSpatialSpeaker ZenithSpeaker;
 	ZenithSpeaker.Id = FGuid::NewGuid();
 	ZenithSpeaker.Name = TEXT("Dome_Zenith");
-	ZenithSpeaker.Position = FVector(0.0f, 0.0f, Radius);
+	ZenithSpeaker.WorldPosition = FVector(0.0f, 0.0f, Radius);
 	ZenithSpeaker.OutputChannel = ChannelIndex;
 	ZenithSpeaker.Type = ESpatialSpeakerType::PointSource;
 
@@ -293,7 +293,7 @@ TArray<FVector> USpatialAudioBlueprintLibrary::GetAllSpeakerPositions(UObject* W
 
 	for (const FSpatialSpeaker& Speaker : Speakers)
 	{
-		Positions.Add(Speaker.Position);
+		Positions.Add(Speaker.WorldPosition);
 	}
 
 	return Positions;
@@ -499,14 +499,14 @@ void USpatialAudioBlueprintLibrary::AutoAlignSpeakerDelays(
 	float MaxDistance = 0.0f;
 	for (const FSpatialSpeaker& Speaker : Speakers)
 	{
-		float Distance = FVector::Dist(Speaker.Position, ReferencePoint);
+		float Distance = FVector::Dist(Speaker.WorldPosition, ReferencePoint);
 		MaxDistance = FMath::Max(MaxDistance, Distance);
 	}
 
 	// Apply delays so all speakers are time-aligned to the furthest one
 	for (const FSpatialSpeaker& Speaker : Speakers)
 	{
-		float Distance = FVector::Dist(Speaker.Position, ReferencePoint);
+		float Distance = FVector::Dist(Speaker.WorldPosition, ReferencePoint);
 		float DeltaDistance = MaxDistance - Distance;
 		float DelayMs = DistanceToDelayMs(DeltaDistance, SpeedOfSound);
 
@@ -634,7 +634,7 @@ TArray<FGuid> USpatialAudioBlueprintLibrary::CreateLineArray(
 		FSpatialSpeaker Speaker;
 		Speaker.Id = FGuid::NewGuid();
 		Speaker.Name = FString::Printf(TEXT("%s_%d"), *ArrayName, i + 1);
-		Speaker.Position = StartPosition + Step * float(i);
+		Speaker.WorldPosition = StartPosition + Step * float(i);
 		Speaker.OutputChannel = i + 1;
 		Speaker.Type = ESpatialSpeakerType::LineArrayElement;
 
@@ -692,7 +692,7 @@ TArray<FGuid> USpatialAudioBlueprintLibrary::CreateSpeakersAtPositions(
 		FSpatialSpeaker Speaker;
 		Speaker.Id = FGuid::NewGuid();
 		Speaker.Name = FString::Printf(TEXT("%s_%d"), *NamePrefix, i + 1);
-		Speaker.Position = Positions[i];
+		Speaker.WorldPosition = Positions[i];
 		Speaker.OutputChannel = i + 1;
 		Speaker.Type = ESpatialSpeakerType::PointSource;
 
@@ -760,7 +760,7 @@ bool USpatialAudioBlueprintLibrary::GetClosestSpeaker(
 	if (Manager->FindClosestSpeaker(Position, ClosestSpeaker))
 	{
 		OutSpeakerId = ClosestSpeaker.Id;
-		OutDistance = FVector::Dist(Position, ClosestSpeaker.Position);
+		OutDistance = FVector::Dist(Position, ClosestSpeaker.WorldPosition);
 		return true;
 	}
 	return false;

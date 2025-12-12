@@ -30,7 +30,7 @@ void FSpatialRendererVBAP::Configure(const TArray<FSpatialSpeaker>& Speakers)
 	SpeakerCentroid = FVector::ZeroVector;
 	for (const FSpatialSpeaker& Speaker : Speakers)
 	{
-		SpeakerCentroid += Speaker.Position;
+		SpeakerCentroid += Speaker.WorldPosition;
 	}
 	SpeakerCentroid /= Speakers.Num();
 
@@ -238,7 +238,7 @@ TArray<FString> FSpatialRendererVBAP::Validate() const
 	// Check for speakers at reference point
 	for (const FSpatialSpeaker& Speaker : CachedSpeakers)
 	{
-		float Dist = FVector::Dist(Speaker.Position, ReferencePoint);
+		float Dist = FVector::Dist(Speaker.WorldPosition, ReferencePoint);
 		if (Dist < 10.0f) // Less than 10cm
 		{
 			Errors.Add(FString::Printf(
@@ -529,7 +529,7 @@ float FSpatialRendererVBAP::ComputeSpeakerDelay(
 	const FSpatialSpeaker& Speaker = CachedSpeakers[SpeakerIndex];
 
 	// Distance from source to speaker
-	float SourceToSpeaker = FVector::Dist(SourcePosition, Speaker.Position);
+	float SourceToSpeaker = FVector::Dist(SourcePosition, Speaker.WorldPosition);
 
 	// Distance from source to reference point
 	float SourceToRef = FVector::Dist(SourcePosition, ReferencePoint);

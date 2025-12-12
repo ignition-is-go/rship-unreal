@@ -312,5 +312,7 @@ FSpatialMeterReading USpatialSpeakerComponent::GetMeterReading() const
 
 float USpatialSpeakerComponent::GetPeakLevel() const
 {
-	return GetMeterReading().PeakDb;
+	// Convert linear Peak to dB
+	const FSpatialMeterReading& Meter = GetMeterReading();
+	return Meter.Peak > SpatialAudioConstants::MinGainThreshold ? 20.0f * FMath::LogX(10.0f, Meter.Peak) : -80.0f;
 }

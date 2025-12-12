@@ -57,7 +57,7 @@ FGuid USpatialZoneManager::AddZone(const FSpatialZone& Zone)
 		State.Bounds = FBox(ForceInit);
 		for (const FSpatialSpeaker& Speaker : State.Speakers)
 		{
-			State.Bounds += Speaker.Position;
+			State.Bounds += Speaker.WorldPosition;
 		}
 		// Expand bounds slightly
 		State.Bounds = State.Bounds.ExpandBy(100.0f);
@@ -96,7 +96,7 @@ bool USpatialZoneManager::UpdateZone(const FGuid& ZoneId, const FSpatialZone& Zo
 		State->Bounds = FBox(ForceInit);
 		for (const FSpatialSpeaker& Speaker : State->Speakers)
 		{
-			State->Bounds += Speaker.Position;
+			State->Bounds += Speaker.WorldPosition;
 		}
 		State->Bounds = State->Bounds.ExpandBy(100.0f);
 	}

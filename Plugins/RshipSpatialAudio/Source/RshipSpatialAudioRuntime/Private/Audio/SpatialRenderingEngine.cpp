@@ -266,10 +266,9 @@ void FSpatialRenderingEngine::ProcessMeterFeedback(TMap<int32, FSpatialMeterRead
 		if (Feedback.Type == ESpatialAudioFeedback::MeterUpdate)
 		{
 			FSpatialMeterReading& Reading = OutMeterReadings.FindOrAdd(Feedback.Meter.SpeakerIndex);
-			Reading.PeakLevel = Feedback.Meter.PeakLevel;
-			Reading.RMSLevel = Feedback.Meter.RMSLevel;
-			Reading.PeakDb = LinearToDb(Feedback.Meter.PeakLevel);
-			Reading.RMSDb = LinearToDb(Feedback.Meter.RMSLevel);
+			Reading.Peak = Feedback.Meter.PeakLevel;
+			Reading.RMS = Feedback.Meter.RMSLevel;
+			Reading.Timestamp = FPlatformTime::Seconds();
 		}
 	}
 }

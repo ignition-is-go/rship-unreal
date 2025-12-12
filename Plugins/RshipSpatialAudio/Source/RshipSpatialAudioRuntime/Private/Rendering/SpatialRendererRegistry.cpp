@@ -255,9 +255,9 @@ uint32 FSpatialRendererRegistry::ComputeSpeakerHash(const TArray<FSpatialSpeaker
 	for (const FSpatialSpeaker& Speaker : Speakers)
 	{
 		// Hash position (primary factor for spatial configuration)
-		Hash = HashCombine(Hash, GetTypeHash(Speaker.Position.X));
-		Hash = HashCombine(Hash, GetTypeHash(Speaker.Position.Y));
-		Hash = HashCombine(Hash, GetTypeHash(Speaker.Position.Z));
+		Hash = HashCombine(Hash, GetTypeHash(Speaker.WorldPosition.X));
+		Hash = HashCombine(Hash, GetTypeHash(Speaker.WorldPosition.Y));
+		Hash = HashCombine(Hash, GetTypeHash(Speaker.WorldPosition.Z));
 
 		// Hash ID to detect speaker identity changes
 		Hash = HashCombine(Hash, GetTypeHash(Speaker.Id));
