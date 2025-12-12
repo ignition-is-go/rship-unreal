@@ -1398,7 +1398,7 @@ FString URshipSpatialAudioManager::ExportVenueToJson() const
 	TArray<TSharedPtr<FJsonValue>> ArraysArray;
 	for (const auto& Pair : Venue.Arrays)
 	{
-		const FSpatialArray& Arr = Pair.Value;
+		const FSpatialSpeakerArray& Arr = Pair.Value;
 		TSharedPtr<FJsonObject> ArrayJson = MakeShareable(new FJsonObject());
 		ArrayJson->SetStringField(TEXT("id"), Arr.Id.ToString());
 		ArrayJson->SetStringField(TEXT("name"), Arr.Name);
@@ -1986,7 +1986,7 @@ void URshipSpatialAudioManager::ProcessSpeakerAction(const FGuid& SpeakerId, con
 			Position.X = PosJson->GetNumberField(SpatialAudioMykoSchema::PropX);
 			Position.Y = PosJson->GetNumberField(SpatialAudioMykoSchema::PropY);
 			Position.Z = PosJson->GetNumberField(SpatialAudioMykoSchema::PropZ);
-			Speaker->Position = Position;
+			Speaker->WorldPosition = Position;
 			SendSpeakerUpdate(SpeakerId);
 		}
 	}

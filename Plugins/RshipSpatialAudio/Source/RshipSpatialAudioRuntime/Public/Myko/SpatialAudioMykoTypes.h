@@ -6,6 +6,7 @@
 #include "Core/SpatialAudioTypes.h"
 #include "Core/SpatialSpeaker.h"
 #include "Core/SpatialZone.h"
+#include "Core/SpatialVenue.h"
 #include "Core/SpatialAudioObject.h"
 
 /**

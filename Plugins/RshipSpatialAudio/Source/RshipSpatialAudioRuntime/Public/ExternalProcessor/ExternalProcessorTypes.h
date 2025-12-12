@@ -314,90 +314,8 @@ struct RSHIPSPATIALAUDIORUNTIME_API FProcessorRateLimitConfig
 	float PositionChangeThreshold = 0.001f;
 };
 
-/**
- * Complete external processor configuration.
- */
-USTRUCT(BlueprintType)
-struct RSHIPSPATIALAUDIORUNTIME_API FExternalProcessorConfig
-{
-	GENERATED_BODY()
-
-	/** Processor type */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ExternalProcessor")
-	EExternalProcessorType ProcessorType = EExternalProcessorType::DS100;
-
-	/** Display name for this processor instance */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ExternalProcessor")
-	FString DisplayName = TEXT("External Processor");
-
-	/** Network configuration */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ExternalProcessor")
-	FProcessorNetworkConfig Network;
-
-	/** Coordinate mapping */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ExternalProcessor")
-	FProcessorCoordinateMapping CoordinateMapping;
-
-	/** Rate limiting */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ExternalProcessor")
-	FProcessorRateLimitConfig RateLimit;
-
-	/** Object mappings (internal to external) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ExternalProcessor")
-	TArray<FExternalObjectMapping> ObjectMappings;
-
-	/** Whether processor is enabled */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ExternalProcessor")
-	bool bEnabled = true;
-};
-
 // ============================================================================
-// PROCESSOR STATUS
-// ============================================================================
-
-/**
- * Runtime status of an external processor.
- */
-USTRUCT(BlueprintType)
-struct RSHIPSPATIALAUDIORUNTIME_API FExternalProcessorStatus
-{
-	GENERATED_BODY()
-
-	/** Current connection state */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "ExternalProcessor")
-	EProcessorConnectionState ConnectionState = EProcessorConnectionState::Disconnected;
-
-	/** Last error message (if any) */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "ExternalProcessor")
-	FString LastError;
-
-	/** Time of last successful communication */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "ExternalProcessor")
-	FDateTime LastCommunicationTime;
-
-	/** Messages sent this session */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "ExternalProcessor")
-	int64 MessagesSent = 0;
-
-	/** Messages received this session */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "ExternalProcessor")
-	int64 MessagesReceived = 0;
-
-	/** Current send rate (messages/sec) */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "ExternalProcessor")
-	float CurrentSendRate = 0.0f;
-
-	/** Average round-trip latency in ms */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "ExternalProcessor")
-	float AverageLatencyMs = 0.0f;
-
-	/** Number of active object mappings */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "ExternalProcessor")
-	int32 ActiveMappings = 0;
-};
-
-// ============================================================================
-// DS100 SPECIFIC TYPES
+// DS100 SPECIFIC TYPES (defined before FExternalProcessorConfig)
 // ============================================================================
 
 /**
@@ -487,6 +405,104 @@ struct RSHIPSPATIALAUDIORUNTIME_API FDS100Config
 	/** Per-source parameters */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DS100")
 	TMap<int32, FDS100ObjectParams> SourceParams;
+
+	/** Use 3D positioning (XYZ) vs 2D (XY only) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DS100")
+	bool bUse3DPositioning = false;
+
+	/** Send En-Space reverb levels */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DS100")
+	bool bSendEnSpace = true;
+};
+
+// ============================================================================
+// PROCESSOR CONFIG
+// ============================================================================
+
+/**
+ * Complete external processor configuration.
+ */
+USTRUCT(BlueprintType)
+struct RSHIPSPATIALAUDIORUNTIME_API FExternalProcessorConfig
+{
+	GENERATED_BODY()
+
+	/** Processor type */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ExternalProcessor")
+	EExternalProcessorType ProcessorType = EExternalProcessorType::DS100;
+
+	/** Display name for this processor instance */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ExternalProcessor")
+	FString DisplayName = TEXT("External Processor");
+
+	/** Network configuration */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ExternalProcessor")
+	FProcessorNetworkConfig Network;
+
+	/** Coordinate mapping */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ExternalProcessor")
+	FProcessorCoordinateMapping CoordinateMapping;
+
+	/** Rate limiting */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ExternalProcessor")
+	FProcessorRateLimitConfig RateLimit;
+
+	/** Object mappings (internal to external) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ExternalProcessor")
+	TArray<FExternalObjectMapping> ObjectMappings;
+
+	/** Whether processor is enabled */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ExternalProcessor")
+	bool bEnabled = true;
+
+	/** DS100-specific configuration (only used when ProcessorType is DS100 or P1) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ExternalProcessor|DS100")
+	FDS100Config DS100;
+};
+
+// ============================================================================
+// PROCESSOR STATUS
+// ============================================================================
+
+/**
+ * Runtime status of an external processor.
+ */
+USTRUCT(BlueprintType)
+struct RSHIPSPATIALAUDIORUNTIME_API FExternalProcessorStatus
+{
+	GENERATED_BODY()
+
+	/** Current connection state */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "ExternalProcessor")
+	EProcessorConnectionState ConnectionState = EProcessorConnectionState::Disconnected;
+
+	/** Last error message (if any) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "ExternalProcessor")
+	FString LastError;
+
+	/** Time of last successful communication */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "ExternalProcessor")
+	FDateTime LastCommunicationTime;
+
+	/** Messages sent this session */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "ExternalProcessor")
+	int64 MessagesSent = 0;
+
+	/** Messages received this session */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "ExternalProcessor")
+	int64 MessagesReceived = 0;
+
+	/** Current send rate (messages/sec) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "ExternalProcessor")
+	float CurrentSendRate = 0.0f;
+
+	/** Average round-trip latency in ms */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "ExternalProcessor")
+	float AverageLatencyMs = 0.0f;
+
+	/** Number of active object mappings */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "ExternalProcessor")
+	int32 ActiveMappings = 0;
 };
 
 // ============================================================================
