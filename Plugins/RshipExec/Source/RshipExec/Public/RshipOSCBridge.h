@@ -367,7 +367,7 @@ private:
     bool ParseOSCMessage(const TArray<uint8>& Data, FRshipOSCMessage& OutMessage);
     TArray<uint8> SerializeOSCMessage(const FRshipOSCMessage& Message);
     void ProcessIncomingMessage(const FRshipOSCMessage& Message);
-    void OnPulseReceived(const FString& EmitterId, TSharedPtr<FJsonObject> Data);
+    void OnPulseReceived(const FString& EmitterId, float Intensity, FLinearColor Color, TSharedPtr<FJsonObject> Data);
     float TransformValue(float Value, const FRshipOSCMapping& Mapping);
     float InverseTransformValue(float Value, const FRshipOSCMapping& Mapping);
     bool MatchesPattern(const FString& Address, const FString& Pattern);

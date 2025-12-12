@@ -281,7 +281,7 @@ int32 URshipDMXOutput::AutoMapRshipUniverse(int32 RshipUniverse, int32 DMXUniver
             FRshipDMXFixtureOutput Output;
             Output.FixtureId = Fixture.Id;
             Output.Universe = DMXUniverse;
-            Output.StartAddress = Fixture.StartAddress;
+            Output.StartAddress = Fixture.Address;  // Use Address field from entity
             Output.ProfileName = TEXT("Generic RGB");
             Output.bEnabled = true;
 
@@ -390,7 +390,7 @@ void URshipDMXOutput::UpdateFixtureToBuffer(const FRshipDMXFixtureOutput& Output
     if (!FixtureManager) return;
 
     FRshipFixtureInfo Fixture;
-    if (!FixtureManager->GetFixture(Output.FixtureId, Fixture))
+    if (!FixtureManager->GetFixtureById(Output.FixtureId, Fixture))
     {
         return;
     }
@@ -413,6 +413,18 @@ void URshipDMXOutput::UpdateFixtureToBuffer(const FRshipDMXFixtureOutput& Output
 
     FRshipDMXUniverseBuffer& Buffer = GetOrCreateBuffer(Output.Universe);
 
+    // NOTE: Runtime state (Intensity, Color, Pan, Tilt, etc.) must come from pulse data
+    // FRshipFixtureInfo only contains entity metadata, not live state
+    // TODO: Integrate with URshipPulseReceiver to get current fixture state
+
+    // For now, use default values - actual implementation needs pulse integration
+    float CurrentIntensity = 1.0f;
+    FLinearColor CurrentColor = FLinearColor::White;
+    float CurrentPan = 0.0f;
+    float CurrentTilt = 0.0f;
+    float CurrentZoom = 0.5f;
+    float CurrentFocus = 0.5f;
+
     // Map each channel
     for (const FRshipDMXChannel& Channel : Profile.Channels)
     {
@@ -424,41 +436,41 @@ void URshipDMXOutput::UpdateFixtureToBuffer(const FRshipDMXFixtureOutput& Output
         switch (Channel.Type)
         {
             case ERshipDMXChannelType::Dimmer:
-                NormalizedValue = Fixture.Intensity * GlobalMaster * Output.MasterDimmer;
+                NormalizedValue = CurrentIntensity * GlobalMaster * Output.MasterDimmer;
                 break;
 
             case ERshipDMXChannelType::Red:
-                NormalizedValue = Fixture.Color.R * Fixture.Intensity * GlobalMaster * Output.MasterDimmer;
+                NormalizedValue = CurrentColor.R * CurrentIntensity * GlobalMaster * Output.MasterDimmer;
                 break;
 
             case ERshipDMXChannelType::Green:
-                NormalizedValue = Fixture.Color.G * Fixture.Intensity * GlobalMaster * Output.MasterDimmer;
+                NormalizedValue = CurrentColor.G * CurrentIntensity * GlobalMaster * Output.MasterDimmer;
                 break;
 
             case ERshipDMXChannelType::Blue:
-                NormalizedValue = Fixture.Color.B * Fixture.Intensity * GlobalMaster * Output.MasterDimmer;
+                NormalizedValue = CurrentColor.B * CurrentIntensity * GlobalMaster * Output.MasterDimmer;
                 break;
 
             case ERshipDMXChannelType::White:
                 // Simple white calculation from RGB
-                NormalizedValue = FMath::Min3(Fixture.Color.R, Fixture.Color.G, Fixture.Color.B) *
-                                  Fixture.Intensity * GlobalMaster * Output.MasterDimmer;
+                NormalizedValue = FMath::Min3(CurrentColor.R, CurrentColor.G, CurrentColor.B) *
+                                  CurrentIntensity * GlobalMaster * Output.MasterDimmer;
                 break;
 
             case ERshipDMXChannelType::Pan:
-                NormalizedValue = (Fixture.Pan + 270.0f) / 540.0f;  // Assume ±270° range
+                NormalizedValue = (CurrentPan + 270.0f) / 540.0f;  // Assume ±270° range
                 break;
 
             case ERshipDMXChannelType::Tilt:
-                NormalizedValue = (Fixture.Tilt + 135.0f) / 270.0f;  // Assume ±135° range
+                NormalizedValue = (CurrentTilt + 135.0f) / 270.0f;  // Assume ±135° range
                 break;
 
             case ERshipDMXChannelType::Zoom:
-                NormalizedValue = Fixture.Zoom;
+                NormalizedValue = CurrentZoom;
                 break;
 
             case ERshipDMXChannelType::Focus:
-                NormalizedValue = Fixture.Focus;
+                NormalizedValue = CurrentFocus;
                 break;
 
             default:

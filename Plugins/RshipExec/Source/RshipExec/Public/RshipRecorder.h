@@ -321,7 +321,7 @@ private:
 
     void BindToRecording();
     void UnbindFromRecording();
-    void OnPulseReceived(const FString& EmitterId, TSharedPtr<FJsonObject> Data);
+    void OnPulseReceived(const FString& EmitterId, float Intensity, FLinearColor Color, TSharedPtr<FJsonObject> Data);
 
     bool MatchesFilter(const FString& EmitterId) const;
     bool MatchesPattern(const FString& EmitterId, const FString& Pattern) const;

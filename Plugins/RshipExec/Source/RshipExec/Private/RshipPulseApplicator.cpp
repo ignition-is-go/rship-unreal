@@ -220,14 +220,17 @@ float URshipPulseApplicator::ApplyDimmerCurve(float RawIntensity) const
     }
 
     // Interpolate through the dimmer curve
-    // DimmerCurve is an array of points where X = input (0-1), Y = output (0-1)
-    const TArray<FVector2D>& Curve = CachedCalibration.DimmerCurve;
+    // DimmerCurve is an array of FRshipDimmerCurvePoint where DmxValue = input (0-255), OutputPercent = output (0-1)
+    const TArray<FRshipDimmerCurvePoint>& Curve = CachedCalibration.DimmerCurve;
+
+    // Convert RawIntensity (0-1) to DMX scale (0-255) for lookup
+    float DmxInput = RawIntensity * 255.0f;
 
     // Find surrounding points
     int32 LowerIdx = 0;
     for (int32 i = 0; i < Curve.Num() - 1; i++)
     {
-        if (Curve[i + 1].X >= RawIntensity)
+        if (Curve[i + 1].DmxValue >= DmxInput)
         {
             LowerIdx = i;
             break;
@@ -240,14 +243,14 @@ float URshipPulseApplicator::ApplyDimmerCurve(float RawIntensity) const
     // Handle edge cases
     if (LowerIdx == UpperIdx)
     {
-        return Curve[LowerIdx].Y;
+        return Curve[LowerIdx].OutputPercent;
     }
 
     // Interpolate
-    float T = (RawIntensity - Curve[LowerIdx].X) / (Curve[UpperIdx].X - Curve[LowerIdx].X);
+    float T = (DmxInput - Curve[LowerIdx].DmxValue) / (float)(Curve[UpperIdx].DmxValue - Curve[LowerIdx].DmxValue);
     T = FMath::Clamp(T, 0.0f, 1.0f);
 
-    return FMath::Lerp(Curve[LowerIdx].Y, Curve[UpperIdx].Y, T);
+    return FMath::Lerp(Curve[LowerIdx].OutputPercent, Curve[UpperIdx].OutputPercent, T);
 }
 
 FLinearColor URshipPulseApplicator::ApplyColorTemperature(float Kelvin) const
@@ -322,8 +325,9 @@ void URshipPulseApplicator::ApplyToLight()
         if (bHasCalibration)
         {
             // Interpolate between beam and field angle based on zoom
-            float MinAngle = CachedCalibration.BeamAngle;
-            float MaxAngle = CachedCalibration.FieldAngle;
+            // Use multipliers applied to default angles (assuming 25/35 degree defaults)
+            float MinAngle = 25.0f * CachedCalibration.BeamAngleMultiplier;
+            float MaxAngle = 35.0f * CachedCalibration.FieldAngleMultiplier;
 
             float OuterAngle = FMath::Lerp(MinAngle, MaxAngle, CurrentZoom);
             float InnerAngle = OuterAngle * 0.7f;  // Inner cone is ~70% of outer

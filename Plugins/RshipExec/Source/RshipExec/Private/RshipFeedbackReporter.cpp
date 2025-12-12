@@ -61,39 +61,21 @@ void URshipFeedbackReporter::Shutdown()
 
 void URshipFeedbackReporter::BindLogCapture()
 {
-    // Use output device to capture logs
-    // We'll capture all LogRshipExec messages
-    LogDelegateHandle = FOutputDeviceRedirector::Get()->OnLogMessage().AddUObject(
-        this, &URshipFeedbackReporter::OnLogMessage);
+    // TODO: Log capture API changed in UE 5.6
+    // FOutputDeviceRedirector::OnLogMessage() is no longer available
+    // For now, log capture is disabled until we implement a custom output device
+    UE_LOG(LogRshipExec, Log, TEXT("FeedbackReporter: Log capture not implemented for this UE version"));
 }
 
 void URshipFeedbackReporter::UnbindLogCapture()
 {
-    if (LogDelegateHandle.IsValid())
-    {
-        FOutputDeviceRedirector::Get()->OnLogMessage().Remove(LogDelegateHandle);
-        LogDelegateHandle.Reset();
-    }
+    // No-op since log capture is stubbed
 }
 
 void URshipFeedbackReporter::OnLogMessage(const TCHAR* Message, ELogVerbosity::Type Verbosity, const FName& Category)
 {
-    // Only capture rship-related logs
-    if (Category == TEXT("LogRshipExec") || Category.ToString().Contains(TEXT("Rship")))
-    {
-        FString LogLine = FString::Printf(TEXT("[%s] %s: %s"),
-            *FDateTime::Now().ToString(),
-            *Category.ToString(),
-            Message);
-
-        LogBuffer.Add(LogLine);
-
-        // Trim buffer if too large
-        while (LogBuffer.Num() > MaxLogBufferSize)
-        {
-            LogBuffer.RemoveAt(0);
-        }
-    }
+    // Stubbed - log capture not currently active
+    // This would be called if we implement a custom FOutputDevice
 }
 
 // ============================================================================
@@ -368,8 +350,9 @@ TSharedPtr<FJsonObject> URshipFeedbackReporter::ReportToJson(const FRshipFeedbac
     Json->SetStringField(TEXT("type"), UEnum::GetValueAsString(Report.Type));
     Json->SetStringField(TEXT("severity"), UEnum::GetValueAsString(Report.Severity));
     Json->SetStringField(TEXT("category"), UEnum::GetValueAsString(Report.Category));
-    Json->SetStringField(TEXT("submittedAt"), Report.SubmittedAt.IsSet() ?
-        Report.SubmittedAt.GetValue().ToIso8601() : FDateTime::UtcNow().ToIso8601());
+    // Use current time if SubmittedAt hasn't been set (is default value)
+    FDateTime SubmitTime = (Report.SubmittedAt == FDateTime()) ? FDateTime::UtcNow() : Report.SubmittedAt;
+    Json->SetStringField(TEXT("submittedAt"), SubmitTime.ToIso8601());
 
     // User content
     Json->SetStringField(TEXT("title"), Report.Title);

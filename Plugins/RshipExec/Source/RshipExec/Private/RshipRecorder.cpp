@@ -137,7 +137,7 @@ void URshipRecorder::BindToRecording()
     URshipPulseReceiver* Receiver = Subsystem->GetPulseReceiver();
     if (!Receiver) return;
 
-    RecordingPulseHandle = Receiver->OnPulseReceived.AddUObject(this, &URshipRecorder::OnPulseReceived);
+    RecordingPulseHandle = Receiver->OnEmitterPulseReceived.AddUObject(this, &URshipRecorder::OnPulseReceived);
 }
 
 void URshipRecorder::UnbindFromRecording()
@@ -147,12 +147,12 @@ void URshipRecorder::UnbindFromRecording()
     URshipPulseReceiver* Receiver = Subsystem->GetPulseReceiver();
     if (Receiver && RecordingPulseHandle.IsValid())
     {
-        Receiver->OnPulseReceived.Remove(RecordingPulseHandle);
+        Receiver->OnEmitterPulseReceived.Remove(RecordingPulseHandle);
         RecordingPulseHandle.Reset();
     }
 }
 
-void URshipRecorder::OnPulseReceived(const FString& EmitterId, TSharedPtr<FJsonObject> Data)
+void URshipRecorder::OnPulseReceived(const FString& EmitterId, float Intensity, FLinearColor Color, TSharedPtr<FJsonObject> Data)
 {
     if (State != ERshipRecorderState::Recording) return;
 

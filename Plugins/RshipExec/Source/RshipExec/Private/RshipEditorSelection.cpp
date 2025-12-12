@@ -10,6 +10,7 @@
 #include "Engine/Selection.h"
 #include "LevelEditor.h"
 #include "ILevelEditor.h"
+#include "SLevelViewport.h"
 #include "LevelEditorViewport.h"
 #include "EditorViewportClient.h"
 #endif

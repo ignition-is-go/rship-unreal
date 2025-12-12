@@ -18,7 +18,7 @@ void URshipOSCBridge::Initialize(URshipSubsystem* InSubsystem)
         URshipPulseReceiver* Receiver = Subsystem->GetPulseReceiver();
         if (Receiver)
         {
-            PulseHandle = Receiver->OnPulseReceived.AddUObject(this, &URshipOSCBridge::OnPulseReceived);
+            PulseHandle = Receiver->OnEmitterPulseReceived.AddUObject(this, &URshipOSCBridge::OnPulseReceived);
         }
     }
 
@@ -35,7 +35,7 @@ void URshipOSCBridge::Shutdown()
         URshipPulseReceiver* Receiver = Subsystem->GetPulseReceiver();
         if (Receiver && PulseHandle.IsValid())
         {
-            Receiver->OnPulseReceived.Remove(PulseHandle);
+            Receiver->OnEmitterPulseReceived.Remove(PulseHandle);
             PulseHandle.Reset();
         }
     }
@@ -574,7 +574,7 @@ void URshipOSCBridge::ProcessIncomingMessage(const FRshipOSCMessage& Message)
     }
 }
 
-void URshipOSCBridge::OnPulseReceived(const FString& EmitterId, TSharedPtr<FJsonObject> Data)
+void URshipOSCBridge::OnPulseReceived(const FString& EmitterId, float Intensity, FLinearColor Color, TSharedPtr<FJsonObject> Data)
 {
     // Check for output mappings
     for (const FRshipOSCMapping& Mapping : Mappings)

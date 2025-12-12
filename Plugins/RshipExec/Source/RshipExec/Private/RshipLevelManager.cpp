@@ -531,8 +531,9 @@ void URshipLevelManager::UnregisterLevelTargets(ULevel* Level)
 				RemoveAutoLevelTag(Comp);
 			}
 
-			// Unregister from server
-			Comp->Unregister();
+			// TODO: Implement unregister from server
+			// URshipTargetComponent doesn't have an Unregister method yet
+			// Comp->Unregister();
 		}
 	}
 }
