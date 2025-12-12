@@ -25,7 +25,7 @@ enum class ERshipNDIStreamState : uint8
  * Configuration for NDI streaming.
  */
 USTRUCT(BlueprintType)
-struct RSHIPNDISTREAMING_API FRshipNDIStreamConfig
+struct RSHIPNDI_API FRshipNDIStreamConfig
 {
 	GENERATED_BODY()
 
@@ -82,7 +82,7 @@ struct RSHIPNDISTREAMING_API FRshipNDIStreamConfig
  * Runtime statistics for NDI streaming.
  */
 USTRUCT(BlueprintType)
-struct RSHIPNDISTREAMING_API FRshipNDIStreamStats
+struct RSHIPNDI_API FRshipNDIStreamStats
 {
 	GENERATED_BODY()
 

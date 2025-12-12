@@ -4,7 +4,7 @@ using UnrealBuildTool;
 using System.IO;
 using System.Diagnostics;
 
-public class RshipNDIStreaming : ModuleRules
+public class RshipNDI : ModuleRules
 {
 	// Auto-detected based on presence of built Rust library
 	private bool bHasRustNDISender = false;
@@ -12,7 +12,7 @@ public class RshipNDIStreaming : ModuleRules
 	// Set to true to automatically build Rust library if missing
 	private bool bAutoBuildRust = true;
 
-	public RshipNDIStreaming(ReadOnlyTargetRules Target) : base(Target)
+	public RshipNDI(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
 		PrecompileForTargets = PrecompileTargetsType.Any;
@@ -40,28 +40,28 @@ public class RshipNDIStreaming : ModuleRules
 		// Auto-build Rust library if missing and enabled
 		if (!File.Exists(RustLibFile) && bAutoBuildRust && Directory.Exists(RustLibPath))
 		{
-			System.Console.WriteLine("RshipNDIStreaming: Rust library not found, attempting auto-build...");
+			System.Console.WriteLine("RshipNDI: Rust library not found, attempting auto-build...");
 			TryBuildRustLibrary(RustLibPath);
 		}
 
 		if (File.Exists(RustLibFile))
 		{
 			bHasRustNDISender = true;
-			System.Console.WriteLine("RshipNDIStreaming: Rust NDI sender library found at " + RustLibFile);
+			System.Console.WriteLine("RshipNDI: Rust NDI sender library found at " + RustLibFile);
 		}
 		else
 		{
-			System.Console.WriteLine("RshipNDIStreaming: ==================================================");
-			System.Console.WriteLine("RshipNDIStreaming: Rust NDI sender library NOT found.");
-			System.Console.WriteLine("RshipNDIStreaming: NDI streaming will be DISABLED.");
-			System.Console.WriteLine("RshipNDIStreaming: ");
-			System.Console.WriteLine("RshipNDIStreaming: To enable NDI streaming, build the Rust library:");
-			System.Console.WriteLine("RshipNDIStreaming:   cd " + RustLibPath);
-			System.Console.WriteLine("RshipNDIStreaming:   cargo build --release");
-			System.Console.WriteLine("RshipNDIStreaming: ");
-			System.Console.WriteLine("RshipNDIStreaming: NOTE: At runtime, NDI Tools must be installed:");
-			System.Console.WriteLine("RshipNDIStreaming:   https://ndi.video/tools/");
-			System.Console.WriteLine("RshipNDIStreaming: ==================================================");
+			System.Console.WriteLine("RshipNDI: ==================================================");
+			System.Console.WriteLine("RshipNDI: Rust NDI sender library NOT found.");
+			System.Console.WriteLine("RshipNDI: NDI streaming will be DISABLED.");
+			System.Console.WriteLine("RshipNDI: ");
+			System.Console.WriteLine("RshipNDI: To enable NDI streaming, build the Rust library:");
+			System.Console.WriteLine("RshipNDI:   cd " + RustLibPath);
+			System.Console.WriteLine("RshipNDI:   cargo build --release");
+			System.Console.WriteLine("RshipNDI: ");
+			System.Console.WriteLine("RshipNDI: NOTE: At runtime, NDI Tools must be installed:");
+			System.Console.WriteLine("RshipNDI:   https://ndi.video/tools/");
+			System.Console.WriteLine("RshipNDI: ==================================================");
 		}
 
 		// Check for bundled NDI runtime (optional - for redistribution)
@@ -70,7 +70,7 @@ public class RshipNDIStreaming : ModuleRules
 		{
 			// Add runtime dependency path for deployment
 			RuntimeDependencies.Add(Path.Combine(NDIRuntimePath, "*"));
-			System.Console.WriteLine("RshipNDIStreaming: Bundled NDI runtime found at " + NDIRuntimePath);
+			System.Console.WriteLine("RshipNDI: Bundled NDI runtime found at " + NDIRuntimePath);
 		}
 
 		// Define whether Rust NDI sender is available
@@ -169,13 +169,13 @@ public class RshipNDIStreaming : ModuleRules
 			string cargoPath = FindCargoExecutable();
 			if (string.IsNullOrEmpty(cargoPath))
 			{
-				System.Console.WriteLine("RshipNDIStreaming: cargo not found, skipping auto-build");
-				System.Console.WriteLine("RshipNDIStreaming: Install Rust from https://rustup.rs or add cargo to PATH");
+				System.Console.WriteLine("RshipNDI: cargo not found, skipping auto-build");
+				System.Console.WriteLine("RshipNDI: Install Rust from https://rustup.rs or add cargo to PATH");
 				return;
 			}
 
-			System.Console.WriteLine("RshipNDIStreaming: Found cargo at: " + cargoPath);
-			System.Console.WriteLine("RshipNDIStreaming: Building Rust library (this may take a minute on first build)...");
+			System.Console.WriteLine("RshipNDI: Found cargo at: " + cargoPath);
+			System.Console.WriteLine("RshipNDI: Building Rust library (this may take a minute on first build)...");
 
 			ProcessStartInfo buildInfo = new ProcessStartInfo
 			{
@@ -193,11 +193,11 @@ public class RshipNDIStreaming : ModuleRules
 				// Stream output
 				buildProcess.OutputDataReceived += (sender, e) => {
 					if (!string.IsNullOrEmpty(e.Data))
-						System.Console.WriteLine("RshipNDIStreaming: [cargo] " + e.Data);
+						System.Console.WriteLine("RshipNDI: [cargo] " + e.Data);
 				};
 				buildProcess.ErrorDataReceived += (sender, e) => {
 					if (!string.IsNullOrEmpty(e.Data))
-						System.Console.WriteLine("RshipNDIStreaming: [cargo] " + e.Data);
+						System.Console.WriteLine("RshipNDI: [cargo] " + e.Data);
 				};
 
 				buildProcess.BeginOutputReadLine();
@@ -208,22 +208,22 @@ public class RshipNDIStreaming : ModuleRules
 
 				if (!finished)
 				{
-					System.Console.WriteLine("RshipNDIStreaming: Rust build timed out after 5 minutes");
+					System.Console.WriteLine("RshipNDI: Rust build timed out after 5 minutes");
 					buildProcess.Kill();
 				}
 				else if (buildProcess.ExitCode == 0)
 				{
-					System.Console.WriteLine("RshipNDIStreaming: Rust library built successfully!");
+					System.Console.WriteLine("RshipNDI: Rust library built successfully!");
 				}
 				else
 				{
-					System.Console.WriteLine("RshipNDIStreaming: Rust build failed with exit code " + buildProcess.ExitCode);
+					System.Console.WriteLine("RshipNDI: Rust build failed with exit code " + buildProcess.ExitCode);
 				}
 			}
 		}
 		catch (System.Exception ex)
 		{
-			System.Console.WriteLine("RshipNDIStreaming: Auto-build failed: " + ex.Message);
+			System.Console.WriteLine("RshipNDI: Auto-build failed: " + ex.Message);
 		}
 	}
 

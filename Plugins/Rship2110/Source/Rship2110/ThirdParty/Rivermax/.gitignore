@@ -1,0 +1,27 @@
+# Rivermax SDK files (proprietary - do not commit)
+# Only the directory structure and README should be committed
+
+# Headers
+include/*.h
+
+# Libraries
+lib/*.lib
+lib/*.so
+lib/*.a
+lib/x64/*.lib
+lib/x64/*.so
+lib/x64/*.a
+
+# Runtime binaries
+bin/*.dll
+bin/*.so
+bin/x64/*.dll
+bin/x64/*.so
+
+# License file (user-specific)
+*.lic
+
+# Keep the directory structure
+!.gitkeep
+!README.md
+!.gitignore

@@ -42,16 +42,20 @@ This module provides professional media-over-IP streaming for Unreal Engine 5.7,
 
 ## Installation
 
-### 1. Install Rivermax SDK (Optional but Recommended)
+### 1. Rivermax SDK Setup (Optional but Recommended)
 
-Download and install the NVIDIA Rivermax SDK from the NVIDIA website.
+The Rivermax SDK is bundled with the plugin. Users only need to provide a license file.
 
-Set the environment variable:
+**Quick Setup:**
+1. Obtain a Rivermax license from [NVIDIA Developer](https://developer.nvidia.com/networking/rivermax)
+2. Place `rivermax.lic` in `Source/Rship2110/ThirdParty/Rivermax/`
+
+See [ThirdParty/Rivermax/README.md](ThirdParty/Rivermax/README.md) for complete SDK bundling instructions.
+
+**Alternative:** Set the `RIVERMAX_SDK_PATH` environment variable to use a system-installed SDK:
 ```bash
 set RIVERMAX_SDK_PATH=C:\Program Files\Mellanox\Rivermax
 ```
-
-Or place the SDK in `Source/Rship2110/ThirdParty/Rivermax/`
 
 ### 2. Enable the Module
 

@@ -3,9 +3,9 @@
 	"Version": 1,
 	"VersionName": "1.0",
 	"EngineVersion": "5.6.0",
-	"FriendlyName": "RshipExec",
-	"Description": "Allows an Unreal Project to be a Rocketship Executor",
-	"Category": "Other",
+	"FriendlyName": "Rship Executor",
+	"Description": "Core Rocketship executor for Unreal Engine - WebSocket client, targets, emitters, actions, and bindings",
+	"Category": "Rocketship",
 	"CreatedBy": "Lucid",
 	"CreatedByURL": "",
 	"DocsURL": "",
@@ -20,22 +20,6 @@
 			"Name": "RshipExec",
 			"Type": "Runtime",
 			"LoadingPhase": "Default"
-		},
-		{
-			"Name": "Rship2110",
-			"Type": "Runtime",
-			"LoadingPhase": "Default"
-		},
-		{
-			"Name": "RshipNDIStreaming",
-			"Type": "Runtime",
-			"LoadingPhase": "Default"
-		}
-	],
-	"Plugins": [
-		{
-			"Name": "CineCameraSceneCapture",
-			"Enabled": true
 		}
 	]
 }

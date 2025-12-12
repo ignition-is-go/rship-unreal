@@ -7,7 +7,7 @@
 
 DECLARE_LOG_CATEGORY_EXTERN(LogRshipNDI, Log, All);
 
-class FRshipNDIStreamingModule : public IModuleInterface
+class FRshipNDIModule : public IModuleInterface
 {
 public:
 	/** IModuleInterface implementation */
@@ -23,7 +23,7 @@ public:
 	/**
 	 * Get the singleton instance of this module.
 	 */
-	static FRshipNDIStreamingModule& Get();
+	static FRshipNDIModule& Get();
 
 	/**
 	 * Check if this module is loaded and available.

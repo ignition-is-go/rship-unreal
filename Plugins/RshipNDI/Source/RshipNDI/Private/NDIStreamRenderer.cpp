@@ -1,7 +1,7 @@
 // Copyright Lucid. All Rights Reserved.
 
 #include "NDIStreamRenderer.h"
-#include "RshipNDIStreaming.h"
+#include "RshipNDI.h"
 #include "RenderingThread.h"
 #include "RHICommandList.h"
 #include "TextureResource.h"

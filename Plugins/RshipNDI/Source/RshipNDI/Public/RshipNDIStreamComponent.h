@@ -39,7 +39,7 @@ class FNDIStreamRenderer;
  * @endcode
  */
 UCLASS(ClassGroup = "Rship", meta = (BlueprintSpawnableComponent, DisplayName = "NDI Stream"))
-class RSHIPNDISTREAMING_API URshipNDIStreamComponent : public UActorComponent
+class RSHIPNDI_API URshipNDIStreamComponent : public UActorComponent
 {
 	GENERATED_BODY()
 

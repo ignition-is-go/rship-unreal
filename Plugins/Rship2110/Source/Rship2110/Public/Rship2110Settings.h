@@ -26,6 +26,30 @@ public:
     URship2110Settings();
 
     // ============================================================================
+    // RIVERMAX LICENSE
+    // ============================================================================
+
+    /** Current Rivermax license file path (read-only display) */
+    UPROPERTY(VisibleAnywhere, Category = "License",
+        meta = (DisplayName = "Current License Path"))
+    FString RivermaxLicensePath;
+
+    /** License status message */
+    UPROPERTY(VisibleAnywhere, Category = "License",
+        meta = (DisplayName = "License Status"))
+    FString LicenseStatus;
+
+    /** Import a Rivermax license file (copies to plugin directory) */
+    UFUNCTION(CallInEditor, Category = "License",
+        meta = (DisplayName = "Import License File..."))
+    void ImportLicenseFile();
+
+    /** Refresh license detection */
+    UFUNCTION(CallInEditor, Category = "License",
+        meta = (DisplayName = "Refresh License Status"))
+    void RefreshLicenseStatus();
+
+    // ============================================================================
     // PTP SETTINGS
     // ============================================================================
 

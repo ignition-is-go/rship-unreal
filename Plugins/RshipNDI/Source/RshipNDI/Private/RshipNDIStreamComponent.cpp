@@ -1,7 +1,7 @@
 // Copyright Lucid. All Rights Reserved.
 
 #include "RshipNDIStreamComponent.h"
-#include "RshipNDIStreaming.h"
+#include "RshipNDI.h"
 #include "NDIStreamRenderer.h"
 
 #include "CineCameraActor.h"
