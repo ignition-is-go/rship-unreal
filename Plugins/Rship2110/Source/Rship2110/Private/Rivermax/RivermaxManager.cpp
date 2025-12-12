@@ -256,11 +256,19 @@ bool URivermaxManager::IsAvailable() const
 FString URivermaxManager::GetSDKVersion() const
 {
 #if RSHIP_RIVERMAX_AVAILABLE
-    // SDK 1.8+ uses rmx_get_version_numbers() which returns a const rmx_version*
-    const rmx_version* version = rmx_get_version_numbers();
-    if (version)
+    // Only call SDK if DLLs are loaded
+    if (bSDKLoaded)
     {
-        return FString::Printf(TEXT("%d.%d.%d"), version->major, version->minor, version->patch);
+        // SDK 1.8+ uses rmx_get_version_numbers() which returns a const rmx_version*
+        const rmx_version* version = rmx_get_version_numbers();
+        if (version)
+        {
+            return FString::Printf(TEXT("%d.%d.%d"), version->major, version->minor, version->patch);
+        }
+    }
+    else if (!SDKVersion.IsEmpty())
+    {
+        return SDKVersion;  // Return cached version (e.g., "DLLs Not Found")
     }
 #endif
     return TEXT("Not Available");
@@ -425,18 +433,38 @@ bool URivermaxManager::InitializeSDK()
 {
 #if RSHIP_RIVERMAX_AVAILABLE
     // SDK 1.8+ uses rmx_init()
-    rmx_status status = rmx_init();
-    if (status != RMX_OK)
+    // Use SEH to catch delay-load failures (DLL not found)
+#if PLATFORM_WINDOWS
+    __try
     {
-        UE_LOG(LogRship2110, Error, TEXT("RivermaxManager: rmx_init failed: %d"), static_cast<int>(status));
-        LastError = FString::Printf(TEXT("Rivermax init failed: %d"), static_cast<int>(status));
-        return false;
-    }
+#endif
+        rmx_status status = rmx_init();
+        if (status != RMX_OK)
+        {
+            UE_LOG(LogRship2110, Error, TEXT("RivermaxManager: rmx_init failed: %d"), static_cast<int>(status));
+            LastError = FString::Printf(TEXT("Rivermax init failed: %d"), static_cast<int>(status));
+            return false;
+        }
 
-    bIsInitialized = true;
-    SDKVersion = GetSDKVersion();
-    UE_LOG(LogRship2110, Log, TEXT("RivermaxManager: SDK initialized, version %s"), *SDKVersion);
-    return true;
+        bIsInitialized = true;
+        bSDKLoaded = true;  // SDK DLLs successfully loaded
+        SDKVersion = GetSDKVersion();
+        UE_LOG(LogRship2110, Log, TEXT("RivermaxManager: SDK initialized, version %s"), *SDKVersion);
+        return true;
+#if PLATFORM_WINDOWS
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        // Delay-load failed - Rivermax DLLs not available
+        UE_LOG(LogRship2110, Warning, TEXT("RivermaxManager: Rivermax DLLs not found - running in stub mode"));
+        UE_LOG(LogRship2110, Warning, TEXT("RivermaxManager: Install Rivermax SDK and drivers for full 2110 support"));
+        LastError = TEXT("Rivermax DLLs not found");
+        bIsInitialized = true;  // Consider initialized but in stub mode
+        bSDKLoaded = false;     // DLLs not available
+        SDKVersion = TEXT("DLLs Not Found");
+        return true;  // Don't fail - continue in stub mode
+    }
+#endif
 #else
     // Stub mode - consider initialized
     bIsInitialized = true;
@@ -449,13 +477,15 @@ bool URivermaxManager::InitializeSDK()
 void URivermaxManager::ShutdownSDK()
 {
 #if RSHIP_RIVERMAX_AVAILABLE
-    if (bIsInitialized)
+    // Only call rmx_cleanup if DLLs were actually loaded
+    if (bIsInitialized && bSDKLoaded)
     {
         rmx_cleanup();
         UE_LOG(LogRship2110, Log, TEXT("RivermaxManager: SDK cleaned up"));
     }
 #endif
     bIsInitialized = false;
+    bSDKLoaded = false;
 }
 
 bool URivermaxManager::QueryDeviceCapabilities(int32 DeviceIndex, FRshipRivermaxDevice& OutDevice)

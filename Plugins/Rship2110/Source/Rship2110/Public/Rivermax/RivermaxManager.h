@@ -272,6 +272,7 @@ private:
 
     // SDK state
     bool bIsInitialized = false;
+    bool bSDKLoaded = false;  // True only if Rivermax DLLs actually loaded
     bool bGPUDirectAvailable = false;
     bool bGPUDirectEnabled = false;
     FString SDKVersion;

@@ -281,7 +281,8 @@ public class Rship2110 : ModuleRules
                 dllPath = Path.Combine(RivermaxSDKPath, "bin");
             }
 
-            // Copy DLLs to output
+            // Copy DLLs to output and enable delay-loading
+            // Delay-loading allows the module to load even without Rivermax installed
             string[] dllFiles = new string[] { "rivermax.dll", "dpcp.dll", "mlx5devx.dll" };
             foreach (string dllFile in dllFiles)
             {
@@ -290,6 +291,8 @@ public class Rship2110 : ModuleRules
                 {
                     RuntimeDependencies.Add("$(BinaryOutputDir)/" + dllFile, dllFullPath);
                 }
+                // Enable delay-loading so module can load without these DLLs present
+                PublicDelayLoadDLLs.Add(dllFile);
             }
 
             // Copy license file to output if found
