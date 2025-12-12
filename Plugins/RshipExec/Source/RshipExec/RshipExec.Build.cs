@@ -84,6 +84,8 @@ public class RshipExec : ModuleRules
 				"Networking",  // For network utilities
 				"HTTP",        // For IES profile fetching
 				"RenderCore",  // For texture generation
+				"RHI",         // For GRHIGlobals (feedback reporter)
+				"InputCore",   // For FKey, EKeys (editor widget, camera presets)
 				"Niagara",     // For RshipNiagaraBinding
 				"NiagaraCore", // For Niagara types
 				"ControlRig",  // For RshipControlRigBinding

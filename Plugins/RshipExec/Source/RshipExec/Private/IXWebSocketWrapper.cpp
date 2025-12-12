@@ -28,6 +28,7 @@ THIRD_PARTY_INCLUDES_START
 #include "../ThirdParty/IXWebSocket/ixwebsocket/IXDNSLookup.inl"
 #include "../ThirdParty/IXWebSocket/ixwebsocket/IXExponentialBackoff.inl"
 #include "../ThirdParty/IXWebSocket/ixwebsocket/IXGetFreePort.inl"
+#include "../ThirdParty/IXWebSocket/ixwebsocket/IXHttp.inl"
 #include "../ThirdParty/IXWebSocket/ixwebsocket/IXNetSystem.inl"
 #include "../ThirdParty/IXWebSocket/ixwebsocket/IXSelectInterrupt.inl"
 #include "../ThirdParty/IXWebSocket/ixwebsocket/IXSelectInterruptFactory.inl"
