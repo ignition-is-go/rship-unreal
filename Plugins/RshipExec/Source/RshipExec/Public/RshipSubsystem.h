@@ -266,7 +266,26 @@ public:
     virtual void Initialize(FSubsystemCollectionBase &Collection) override;
     virtual void Deinitialize() override;
 
+    // ========================================================================
+    // CONNECTION MANAGEMENT
+    // ========================================================================
+
+    /** Reconnect to the rship server using current settings */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Connection")
     void Reconnect();
+
+    /** Connect to a specific server (updates settings and reconnects) */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Connection")
+    void ConnectTo(const FString& Host, int32 Port);
+
+    /** Get the current server address from settings */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Connection")
+    FString GetServerAddress() const;
+
+    /** Get the current server port from settings */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Connection")
+    int32 GetServerPort() const;
+
     void PulseEmitter(FString TargetId, FString EmitterId, TSharedPtr<FJsonObject> data);
     void SendAll();
 

@@ -231,7 +231,7 @@ static FAutoConsoleCommand CmdRshipCameras(
 );
 
 // ============================================================================
-// CONNECTION STATUS
+// CONNECTION STATUS AND MANAGEMENT
 // ============================================================================
 
 static FAutoConsoleCommand CmdRshipStatus(
@@ -250,6 +250,7 @@ static FAutoConsoleCommand CmdRshipStatus(
         UE_LOG(LogRshipExec, Log, TEXT("========================================"));
         UE_LOG(LogRshipExec, Log, TEXT("RSHIP STATUS"));
         UE_LOG(LogRshipExec, Log, TEXT("========================================"));
+        UE_LOG(LogRshipExec, Log, TEXT("Server: %s:%d"), *Subsystem->GetServerAddress(), Subsystem->GetServerPort());
         UE_LOG(LogRshipExec, Log, TEXT("Connected: %s"), Subsystem->IsConnected() ? TEXT("Yes") : TEXT("No"));
         UE_LOG(LogRshipExec, Log, TEXT("Queue length: %d"), Subsystem->GetQueueLength());
         UE_LOG(LogRshipExec, Log, TEXT("Queue bytes: %d"), Subsystem->GetQueueBytes());
@@ -261,6 +262,58 @@ static FAutoConsoleCommand CmdRshipStatus(
             Subsystem->IsRateLimiterBackingOff() ? TEXT("Yes") : TEXT("No"),
             Subsystem->GetBackoffRemaining());
         UE_LOG(LogRshipExec, Log, TEXT("Current rate limit: %.1f msg/s"), Subsystem->GetCurrentRateLimit());
+    })
+);
+
+static FAutoConsoleCommand CmdRshipReconnect(
+    TEXT("rship.reconnect"),
+    TEXT("Reconnect to the rship server using current settings"),
+    FConsoleCommandDelegate::CreateLambda([]()
+    {
+        if (!GEngine) return;
+        URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+        if (!Subsystem)
+        {
+            UE_LOG(LogRshipExec, Warning, TEXT("RshipSubsystem not available"));
+            return;
+        }
+
+        UE_LOG(LogRshipExec, Log, TEXT("Reconnecting to %s:%d..."), *Subsystem->GetServerAddress(), Subsystem->GetServerPort());
+        Subsystem->Reconnect();
+    })
+);
+
+static FAutoConsoleCommand CmdRshipConnect(
+    TEXT("rship.connect"),
+    TEXT("Connect to a specific server: rship.connect <host> <port>"),
+    FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+    {
+        if (!GEngine) return;
+        URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+        if (!Subsystem)
+        {
+            UE_LOG(LogRshipExec, Warning, TEXT("RshipSubsystem not available"));
+            return;
+        }
+
+        if (Args.Num() < 1)
+        {
+            UE_LOG(LogRshipExec, Log, TEXT("Usage: rship.connect <host> [port]"));
+            UE_LOG(LogRshipExec, Log, TEXT("Current: %s:%d"), *Subsystem->GetServerAddress(), Subsystem->GetServerPort());
+            return;
+        }
+
+        FString Host = Args[0];
+        int32 Port = Args.Num() >= 2 ? FCString::Atoi(*Args[1]) : 5155;
+
+        if (Port <= 0 || Port > 65535)
+        {
+            UE_LOG(LogRshipExec, Warning, TEXT("Invalid port: %d. Using default 5155."), Port);
+            Port = 5155;
+        }
+
+        UE_LOG(LogRshipExec, Log, TEXT("Connecting to %s:%d..."), *Host, Port);
+        Subsystem->ConnectTo(Host, Port);
     })
 );
 
@@ -591,6 +644,8 @@ static FAutoConsoleCommand CmdRshipHelp(
         UE_LOG(LogRshipExec, Log, TEXT(""));
         UE_LOG(LogRshipExec, Log, TEXT("Connection:"));
         UE_LOG(LogRshipExec, Log, TEXT("  rship.status         - Show connection and queue status"));
+        UE_LOG(LogRshipExec, Log, TEXT("  rship.reconnect      - Reconnect using current settings"));
+        UE_LOG(LogRshipExec, Log, TEXT("  rship.connect <h> <p>- Connect to host:port"));
         UE_LOG(LogRshipExec, Log, TEXT(""));
         UE_LOG(LogRshipExec, Log, TEXT("Scene:"));
         UE_LOG(LogRshipExec, Log, TEXT("  rship.validate       - Validate scene for conversion"));

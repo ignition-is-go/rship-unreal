@@ -281,6 +281,37 @@ void URshipSubsystem::Reconnect()
     }
 }
 
+void URshipSubsystem::ConnectTo(const FString& Host, int32 Port)
+{
+    // Update settings with new values
+    URshipSettings* Settings = GetMutableDefault<URshipSettings>();
+    if (Settings)
+    {
+        Settings->rshipHostAddress = Host;
+        Settings->rshipServerPort = Port;
+        Settings->SaveConfig();
+
+        UE_LOG(LogRshipExec, Log, TEXT("Updated server to %s:%d, reconnecting..."), *Host, Port);
+    }
+
+    // Force reconnect with new settings
+    ReconnectAttempts = 0;
+    ConnectionState = ERshipConnectionState::Disconnected;
+    Reconnect();
+}
+
+FString URshipSubsystem::GetServerAddress() const
+{
+    const URshipSettings* Settings = GetDefault<URshipSettings>();
+    return Settings ? Settings->rshipHostAddress : TEXT("localhost");
+}
+
+int32 URshipSubsystem::GetServerPort() const
+{
+    const URshipSettings* Settings = GetDefault<URshipSettings>();
+    return Settings ? Settings->rshipServerPort : 5155;
+}
+
 void URshipSubsystem::OnWebSocketConnected()
 {
     UE_LOG(LogRshipExec, Log, TEXT("WebSocket connected"));
