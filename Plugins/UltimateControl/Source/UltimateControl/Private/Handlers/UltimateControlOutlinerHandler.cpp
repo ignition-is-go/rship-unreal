@@ -2,6 +2,7 @@
 
 #include "Handlers/UltimateControlOutlinerHandler.h"
 #include "UltimateControlSubsystem.h"
+#include "UltimateControlVersion.h"
 #include "Editor.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
@@ -1604,6 +1605,11 @@ bool FUltimateControlOutlinerHandler::HandleLockGroup(const TSharedPtr<FJsonObje
 		return true;
 	}
 
+#if ULTIMATE_CONTROL_UE_5_6_OR_LATER
+	// AGroupActor::Lock() was removed in UE 5.6
+	Error = UUltimateControlSubsystem::MakeError(-32001, TEXT("Group locking was removed in UE 5.6"));
+	return true;
+#else
 	GroupActor->Lock();
 
 	TSharedPtr<FJsonObject> ResultJson = MakeShared<FJsonObject>();
@@ -1611,6 +1617,7 @@ bool FUltimateControlOutlinerHandler::HandleLockGroup(const TSharedPtr<FJsonObje
 
 	Result = MakeShared<FJsonValueObject>(ResultJson);
 	return true;
+#endif
 }
 
 bool FUltimateControlOutlinerHandler::HandleUnlockGroup(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
@@ -1645,6 +1652,11 @@ bool FUltimateControlOutlinerHandler::HandleUnlockGroup(const TSharedPtr<FJsonOb
 		return true;
 	}
 
+#if ULTIMATE_CONTROL_UE_5_6_OR_LATER
+	// AGroupActor::Unlock() was removed in UE 5.6
+	Error = UUltimateControlSubsystem::MakeError(-32001, TEXT("Group locking was removed in UE 5.6"));
+	return true;
+#else
 	GroupActor->Unlock();
 
 	TSharedPtr<FJsonObject> ResultJson = MakeShared<FJsonObject>();
@@ -1652,6 +1664,7 @@ bool FUltimateControlOutlinerHandler::HandleUnlockGroup(const TSharedPtr<FJsonOb
 
 	Result = MakeShared<FJsonValueObject>(ResultJson);
 	return true;
+#endif
 }
 
 bool FUltimateControlOutlinerHandler::HandleSearchActors(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)

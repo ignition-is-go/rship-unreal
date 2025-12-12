@@ -85,6 +85,8 @@ public class UltimateControl : ModuleRules
 					"AutomationController",
 					"AIModule",
 					"NavigationSystem",
+					"RHI",
+					"RenderCore",
 					"Niagara",
 					"NiagaraCore",
 					"NiagaraEditor",

@@ -19,6 +19,48 @@
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Engine/Blueprint.h"
 
+// Helper functions to convert enum values to strings without using StaticEnum
+// (StaticEnum requires UENUM reflection which these enums may lack in UE 5.6)
+static FString HostTypeToString(EHostType::Type Type)
+{
+	switch (Type)
+	{
+		case EHostType::Runtime: return TEXT("Runtime");
+		case EHostType::RuntimeNoCommandlet: return TEXT("RuntimeNoCommandlet");
+		case EHostType::RuntimeAndProgram: return TEXT("RuntimeAndProgram");
+		case EHostType::CookedOnly: return TEXT("CookedOnly");
+		case EHostType::UncookedOnly: return TEXT("UncookedOnly");
+		case EHostType::Developer: return TEXT("Developer");
+		case EHostType::DeveloperTool: return TEXT("DeveloperTool");
+		case EHostType::Editor: return TEXT("Editor");
+		case EHostType::EditorNoCommandlet: return TEXT("EditorNoCommandlet");
+		case EHostType::EditorAndProgram: return TEXT("EditorAndProgram");
+		case EHostType::Program: return TEXT("Program");
+		case EHostType::ServerOnly: return TEXT("ServerOnly");
+		case EHostType::ClientOnly: return TEXT("ClientOnly");
+		case EHostType::ClientOnlyNoCommandlet: return TEXT("ClientOnlyNoCommandlet");
+		default: return TEXT("Unknown");
+	}
+}
+
+static FString LoadingPhaseToString(ELoadingPhase::Type Phase)
+{
+	switch (Phase)
+	{
+		case ELoadingPhase::EarliestPossible: return TEXT("EarliestPossible");
+		case ELoadingPhase::PostConfigInit: return TEXT("PostConfigInit");
+		case ELoadingPhase::PostSplashScreen: return TEXT("PostSplashScreen");
+		case ELoadingPhase::PreEarlyLoadingScreen: return TEXT("PreEarlyLoadingScreen");
+		case ELoadingPhase::PreLoadingScreen: return TEXT("PreLoadingScreen");
+		case ELoadingPhase::PreDefault: return TEXT("PreDefault");
+		case ELoadingPhase::Default: return TEXT("Default");
+		case ELoadingPhase::PostDefault: return TEXT("PostDefault");
+		case ELoadingPhase::PostEngineInit: return TEXT("PostEngineInit");
+		case ELoadingPhase::None: return TEXT("None");
+		default: return TEXT("Unknown");
+	}
+}
+
 FUltimateControlProjectHandler::FUltimateControlProjectHandler(UUltimateControlSubsystem* InSubsystem)
 	: FUltimateControlHandlerBase(InSubsystem)
 {
@@ -245,8 +287,8 @@ bool FUltimateControlProjectHandler::HandleListPlugins(const TSharedPtr<FJsonObj
 		{
 			TSharedPtr<FJsonObject> ModuleObj = MakeShared<FJsonObject>();
 			ModuleObj->SetStringField(TEXT("name"), Module.Name.ToString());
-			ModuleObj->SetStringField(TEXT("type"), StaticEnum<EHostType::Type>()->GetNameStringByValue(static_cast<int64>(Module.Type)));
-			ModuleObj->SetStringField(TEXT("loadingPhase"), StaticEnum<ELoadingPhase::Type>()->GetNameStringByValue(static_cast<int64>(Module.LoadingPhase)));
+			ModuleObj->SetStringField(TEXT("type"), HostTypeToString(Module.Type));
+			ModuleObj->SetStringField(TEXT("loadingPhase"), LoadingPhaseToString(Module.LoadingPhase));
 			ModulesArray.Add(MakeShared<FJsonValueObject>(ModuleObj));
 		}
 		PluginObj->SetArrayField(TEXT("modules"), ModulesArray);
