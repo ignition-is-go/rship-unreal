@@ -258,6 +258,8 @@ public class Rship2110 : ModuleRules
 
         if (bRivermaxAvailable)
         {
+            System.Console.WriteLine("Rship2110: Rivermax SDK path: " + RivermaxSDKPath);
+
             // Rivermax SDK includes
             PublicIncludePaths.Add(Path.Combine(RivermaxSDKPath, "include"));
 
@@ -280,19 +282,33 @@ public class Rship2110 : ModuleRules
             {
                 dllPath = Path.Combine(RivermaxSDKPath, "bin");
             }
+            System.Console.WriteLine("Rship2110: Looking for DLLs in: " + dllPath);
 
             // Copy DLLs to output and enable delay-loading
             // Delay-loading allows the module to load even without Rivermax installed
             string[] dllFiles = new string[] { "rivermax.dll", "dpcp.dll", "mlx5devx.dll" };
+            int dllsFound = 0;
             foreach (string dllFile in dllFiles)
             {
                 string dllFullPath = Path.Combine(dllPath, dllFile);
                 if (File.Exists(dllFullPath))
                 {
                     RuntimeDependencies.Add("$(BinaryOutputDir)/" + dllFile, dllFullPath);
+                    System.Console.WriteLine("Rship2110: Found and will copy: " + dllFile);
+                    dllsFound++;
+                }
+                else
+                {
+                    System.Console.WriteLine("Rship2110: WARNING - DLL not found: " + dllFullPath);
                 }
                 // Enable delay-loading so module can load without these DLLs present
                 PublicDelayLoadDLLs.Add(dllFile);
+            }
+
+            if (dllsFound == 0)
+            {
+                System.Console.WriteLine("Rship2110: ERROR - No Rivermax DLLs found! Module will fail to load at runtime.");
+                System.Console.WriteLine("Rship2110: Add Rivermax bin directory to system PATH, or copy DLLs to UE Editor binary folder.");
             }
 
             // Copy license file to output if found
