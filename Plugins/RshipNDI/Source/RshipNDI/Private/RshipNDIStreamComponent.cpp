@@ -233,14 +233,6 @@ bool URshipNDIStreamComponent::InitializeCineCapture()
 		return false;
 	}
 	UE_LOG(LogRshipNDI, Log, TEXT("URshipNDIStreamComponent::InitializeCineCapture - Using standard SceneCaptureComponent2D (CineCameraSceneCapture plugin not available)"));
-
-	// Sync FOV from CineCamera in fallback path
-	if (CineCameraComponent.IsValid())
-	{
-		float CameraFOV = CineCameraComponent->FieldOfView;
-		SceneCapture->FOVAngle = CameraFOV;
-		UE_LOG(LogRshipNDI, Log, TEXT("URshipNDIStreamComponent::InitializeCineCapture - Synced FOV: %.1f degrees"), CameraFOV);
-	}
 #endif
 
 	// Attach to the CineCameraComponent for correct position/rotation
@@ -259,8 +251,12 @@ bool URshipNDIStreamComponent::InitializeCineCapture()
 	SceneCapture->bCaptureOnMovement = false;
 	SceneCapture->bAlwaysPersistRenderingState = true;
 
-	// Set capture source to final color
-	SceneCapture->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
+	// Use FinalToneCurveHDR to get post-processing effects applied
+	// This captures after tone mapping but before UI/debug overlays
+	SceneCapture->CaptureSource = ESceneCaptureSource::SCS_FinalToneCurveHDR;
+
+	// Sync all camera settings for visual match (FOV, post-process, etc.)
+	SyncCameraSettingsToCapture();
 
 	return true;
 }
@@ -355,12 +351,70 @@ void URshipNDIStreamComponent::CleanupResources()
 	CurrentBufferIndex = 0;
 }
 
+void URshipNDIStreamComponent::SyncCameraSettingsToCapture()
+{
+	if (!SceneCapture || !CineCameraComponent.IsValid())
+	{
+		return;
+	}
+
+	UCineCameraComponent* CineCamera = CineCameraComponent.Get();
+
+	// Sync FOV - computed from focal length and filmback
+	SceneCapture->FOVAngle = CineCamera->FieldOfView;
+
+	// Copy post-process settings from CineCamera for visual match
+	// This includes bloom, exposure, color grading, vignette, etc.
+	SceneCapture->PostProcessSettings = CineCamera->PostProcessSettings;
+	SceneCapture->PostProcessBlendWeight = 1.0f;
+
+	// Use camera's view state (matches what the viewport sees)
+	SceneCapture->bUseCustomProjectionMatrix = false;
+
+	// Ensure we render the same primitives
+	SceneCapture->PrimitiveRenderMode = ESceneCapturePrimitiveRenderMode::PRM_RenderScenePrimitives;
+
+	// Show flags - try to match viewport rendering
+	SceneCapture->ShowFlags.SetAntiAliasing(true);
+	SceneCapture->ShowFlags.SetMotionBlur(true);
+	SceneCapture->ShowFlags.SetBloom(true);
+	SceneCapture->ShowFlags.SetEyeAdaptation(true);
+	SceneCapture->ShowFlags.SetToneCurve(true);
+	SceneCapture->ShowFlags.SetAtmosphere(true);
+	SceneCapture->ShowFlags.SetFog(true);
+	SceneCapture->ShowFlags.SetVolumetricFog(true);
+	SceneCapture->ShowFlags.SetAmbientOcclusion(true);
+	SceneCapture->ShowFlags.SetDynamicShadows(true);
+	SceneCapture->ShowFlags.SetPostProcessing(true);
+	SceneCapture->ShowFlags.SetDepthOfField(true);
+	SceneCapture->ShowFlags.SetLensFlares(true);
+	SceneCapture->ShowFlags.SetScreenSpaceReflections(true);
+	SceneCapture->ShowFlags.SetGlobalIllumination(true);
+	SceneCapture->ShowFlags.SetReflectionEnvironment(true);
+	SceneCapture->ShowFlags.SetInstancedStaticMeshes(true);
+	SceneCapture->ShowFlags.SetInstancedFoliage(true);
+	SceneCapture->ShowFlags.SetLighting(true);
+	SceneCapture->ShowFlags.SetGame(true);
+
+	// Log initial sync
+	static bool bLoggedSync = false;
+	if (!bLoggedSync)
+	{
+		UE_LOG(LogRshipNDI, Log, TEXT("SyncCameraSettingsToCapture - FOV: %.1f, PostProcess weight: %.1f"),
+			SceneCapture->FOVAngle, SceneCapture->PostProcessBlendWeight);
+		bLoggedSync = true;
+	}
+}
+
 void URshipNDIStreamComponent::CaptureFrame()
 {
 	if (!SceneCapture || RenderTargets.Num() == 0 || !Renderer)
 	{
 		return;
 	}
+
+	// Sync camera settings each frame (handles dynamic FOV/post-process changes)
+	SyncCameraSettingsToCapture();
 
 	// Get the current render target
 	UTextureRenderTarget2D* CurrentRT = RenderTargets[CurrentBufferIndex];

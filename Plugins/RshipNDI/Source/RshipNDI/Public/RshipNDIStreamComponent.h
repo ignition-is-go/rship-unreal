@@ -205,6 +205,9 @@ private:
 	/** Cleanup all resources */
 	void CleanupResources();
 
+	/** Sync camera settings (FOV, post-process, etc.) to the SceneCapture */
+	void SyncCameraSettingsToCapture();
+
 	/** Capture the current frame */
 	void CaptureFrame();
 
