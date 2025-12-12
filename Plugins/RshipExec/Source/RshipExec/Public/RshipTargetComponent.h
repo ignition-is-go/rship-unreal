@@ -37,6 +37,10 @@ public:
 	UPROPERTY(EditAnywhere, config, Category = "RshipTarget", meta = (DisplayName = "Target Id"))
 	FString targetName;
 
+	/** Category for organizing targets (e.g., "light", "camera", "actor") */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RshipTarget", meta = (DisplayName = "Category"))
+	FString Category;
+
 	// ========================================================================
 	// ORGANIZATION - Tags and Groups
 	// ========================================================================

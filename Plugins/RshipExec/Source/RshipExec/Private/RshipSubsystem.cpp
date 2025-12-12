@@ -1107,6 +1107,12 @@ void URshipSubsystem::SendTarget(Target *target)
 
     if (TargetComp)
     {
+        // Add category (myko protocol field for target organization)
+        if (!TargetComp->Category.IsEmpty())
+        {
+            Target->SetStringField(TEXT("category"), TargetComp->Category);
+        }
+
         // Add tags array
         TArray<TSharedPtr<FJsonValue>> TagsJson;
         for (const FString& Tag : TargetComp->Tags)
@@ -1124,6 +1130,9 @@ void URshipSubsystem::SendTarget(Target *target)
         Target->SetArrayField(TEXT("groupIds"), GroupIdsJson);
     }
 
+    // Hash for optimistic concurrency control (myko protocol requirement)
+    Target->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
+
     // Target registration - HIGH priority, coalesce by target ID
     SetItem("Target", Target, ERshipMessagePriority::High, target->GetId());
 
@@ -1133,6 +1142,8 @@ void URshipSubsystem::SendTarget(Target *target)
     TargetStatus->SetStringField(TEXT("instanceId"), InstanceId);
     TargetStatus->SetStringField(TEXT("status"), TEXT("online"));
     TargetStatus->SetStringField(TEXT("id"), InstanceId + ":" + target->GetId());
+    // Hash for optimistic concurrency control (myko protocol requirement)
+    TargetStatus->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
 
     SetItem("TargetStatus", TargetStatus, ERshipMessagePriority::High, target->GetId() + ":status");
 }
@@ -1150,6 +1161,8 @@ void URshipSubsystem::SendAction(Action *action, FString targetId)
     {
         Action->SetObjectField(TEXT("schema"), schema);
     }
+    // Hash for optimistic concurrency control (myko protocol requirement)
+    Action->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
 
     // Action registration - HIGH priority, coalesce by action ID
     SetItem("Action", Action, ERshipMessagePriority::High, action->GetId());
@@ -1168,6 +1181,8 @@ void URshipSubsystem::SendEmitter(EmitterContainer *emitter, FString targetId)
     {
         Emitter->SetObjectField(TEXT("schema"), schema);
     }
+    // Hash for optimistic concurrency control (myko protocol requirement)
+    Emitter->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
 
     // Emitter registration - HIGH priority, coalesce by emitter ID
     SetItem("Emitter", Emitter, ERshipMessagePriority::High, emitter->GetId());
@@ -1183,6 +1198,8 @@ void URshipSubsystem::SendTargetStatus(Target *target, bool online)
     TargetStatus->SetStringField(TEXT("instanceId"), InstanceId);
     TargetStatus->SetStringField(TEXT("status"), online ? TEXT("online") : TEXT("offline"));
     TargetStatus->SetStringField(TEXT("id"), InstanceId + TEXT(":") + target->GetId());
+    // Hash for optimistic concurrency control (myko protocol requirement)
+    TargetStatus->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
 
     SetItem("TargetStatus", TargetStatus, ERshipMessagePriority::High, target->GetId() + TEXT(":status"));
 
@@ -1195,6 +1212,8 @@ void URshipSubsystem::SendAll()
     TSharedPtr<FJsonObject> Machine = MakeShareable(new FJsonObject);
     Machine->SetStringField(TEXT("id"), MachineId);
     Machine->SetStringField(TEXT("execName"), MachineId);
+    // Hash for optimistic concurrency control (myko protocol requirement)
+    Machine->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
 
     SetItem("Machine", Machine, ERshipMessagePriority::High, "machine:" + MachineId);
 
@@ -1215,6 +1234,8 @@ void URshipSubsystem::SendAll()
     Instance->SetStringField(TEXT("machineId"), MachineId);
     Instance->SetStringField(TEXT("status"), "Available");
     Instance->SetStringField(TEXT("color"), ColorHex);
+    // Hash for optimistic concurrency control (myko protocol requirement)
+    Instance->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
 
     SetItem("Instance", Instance, ERshipMessagePriority::High, "instance:" + InstanceId);
 
