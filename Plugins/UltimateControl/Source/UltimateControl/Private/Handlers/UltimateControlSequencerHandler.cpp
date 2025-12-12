@@ -6,6 +6,7 @@
 #include "LevelSequence.h"
 #include "LevelSequenceActor.h"
 #include "LevelSequencePlayer.h"
+#include "MovieSceneSequencePlaybackSettings.h"
 #include "MovieScene.h"
 #include "MovieSceneTrack.h"
 #include "MovieSceneSection.h"
@@ -376,7 +377,11 @@ bool FUltimateControlSequencerHandler::HandleScrubSequence(const TSharedPtr<FJso
 		ULevelSequencePlayer* Player = SequenceActor->GetSequencePlayer();
 		if (Player)
 		{
-			Player->ScrubToTime(FTimespan::FromSeconds(Time));
+			// ScrubToTime was removed in UE 5.6 - use SetPlaybackPosition instead
+			FMovieSceneSequencePlaybackParams PlaybackParams;
+			PlaybackParams.Time = FFrameTime::FromDecimal(Time * Player->GetFrameRate().AsDecimal());
+			PlaybackParams.UpdateMethod = EUpdatePositionMethod::Scrub;
+			Player->SetPlaybackPosition(PlaybackParams);
 		}
 	}
 
@@ -703,8 +708,9 @@ bool FUltimateControlSequencerHandler::HandleSetPlaybackRange(const TSharedPtr<F
 	}
 
 	double TickResolution = MovieScene->GetTickResolution().AsDecimal();
-	FFrameNumber StartFrame = FFrameNumber(FMath::RoundToInt(Start * TickResolution));
-	FFrameNumber EndFrame = FFrameNumber(FMath::RoundToInt(End * TickResolution));
+	// FMath::RoundToInt returns int64 in UE 5.6+, but FFrameNumber takes int32
+	FFrameNumber StartFrame = FFrameNumber(static_cast<int32>(FMath::RoundToInt(Start * TickResolution)));
+	FFrameNumber EndFrame = FFrameNumber(static_cast<int32>(FMath::RoundToInt(End * TickResolution)));
 
 	MovieScene->SetPlaybackRange(TRange<FFrameNumber>(StartFrame, EndFrame));
 	Sequence->MarkPackageDirty();

@@ -151,10 +151,10 @@ TSharedPtr<FJsonObject> FUltimateControlAssetHandler::AssetDataToJson(const FAss
 
 		// Get all tags - API changed in UE 5.6
 #if ULTIMATE_CONTROL_UE_5_6_OR_LATER
-		// In UE 5.6+, iterate directly over TagsAndValues
+		// In UE 5.6+, iterate directly over TagsAndValues using AsString()
 		for (const auto& Tag : AssetData.TagsAndValues)
 		{
-			MetadataObj->SetStringField(Tag.Key.ToString(), Tag.Value.ToString());
+			MetadataObj->SetStringField(Tag.Key.ToString(), Tag.Value.AsString());
 		}
 #else
 		FAssetDataTagMap TagsAndValues;
@@ -188,7 +188,8 @@ bool FUltimateControlAssetHandler::HandleList(const TSharedPtr<FJsonObject>& Par
 
 	if (!ClassName.IsEmpty())
 	{
-		Filter.ClassPaths.Add(FTopLevelAssetPath(FName(*ClassName)));
+		// Use proper FTopLevelAssetPath constructor - ClassName should be like "/Script/Engine.StaticMesh"
+		Filter.ClassPaths.Add(FTopLevelAssetPath(*ClassName));
 	}
 
 	TArray<FAssetData> AssetList;
@@ -308,7 +309,8 @@ bool FUltimateControlAssetHandler::HandleSearch(const TSharedPtr<FJsonObject>& P
 
 	if (!ClassName.IsEmpty())
 	{
-		Filter.ClassPaths.Add(FTopLevelAssetPath(FName(*ClassName)));
+		// Use proper FTopLevelAssetPath constructor - ClassName should be like "/Script/Engine.StaticMesh"
+		Filter.ClassPaths.Add(FTopLevelAssetPath(*ClassName));
 	}
 
 	TArray<FAssetData> AllAssets;
