@@ -26,6 +26,7 @@
 		{ "Name": "Niagara", "Enabled": true },
 		{ "Name": "ControlRig", "Enabled": true },
 		{ "Name": "RigVM", "Enabled": true },
-		{ "Name": "LiveLink", "Enabled": true }
+		{ "Name": "LiveLink", "Enabled": true },
+		{ "Name": "ProceduralMeshComponent", "Enabled": true }
 	]
 }

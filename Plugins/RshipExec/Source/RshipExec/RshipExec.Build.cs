@@ -45,8 +45,12 @@ public class RshipExec : ModuleRules
 			PrivateIncludePaths.Add(IXWebSocketPath);
 
 			// IXWebSocket build configuration
-			PublicDefinitions.Add("IXWEBSOCKET_USE_TLS=0");  // Disable TLS (can enable if needed)
-			PublicDefinitions.Add("IXWEBSOCKET_USE_ZLIB=0"); // Disable zlib compression
+			// NOTE: Do NOT define IXWEBSOCKET_USE_TLS or IXWEBSOCKET_USE_ZLIB
+			// Their code uses #ifdef so defining them to 0 still enables them!
+			// By leaving them undefined, zlib and TLS are disabled.
+
+			// Disable shadowing warnings for third-party code (IXWebSocket has variable shadowing)
+			ShadowVariableWarningLevel = WarningLevel.Off;
 
 			// Platform-specific defines
 			if (Target.Platform == UnrealTargetPlatform.Win64)

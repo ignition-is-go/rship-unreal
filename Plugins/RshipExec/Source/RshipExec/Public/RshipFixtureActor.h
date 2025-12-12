@@ -17,7 +17,8 @@ class URshipFixtureManager;
 class URshipIESProfileService;
 
 // Non-dynamic delegate because TMap is not supported in dynamic delegates
-DECLARE_MULTICAST_DELEGATE_OneParam(FOnFixtureDMXUpdated, const TMap<FString, float>& /*DMXValues*/);
+// Parameter: DMXValues - map of channel name to value (0-1)
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnFixtureDMXUpdated, const TMap<FString COMMA float>&);
 
 /**
  * Actor that visualizes a fixture from rship with calibration-accurate rendering.
