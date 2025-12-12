@@ -70,6 +70,10 @@ private:
     TSharedRef<SWidget> BuildConnectionSection();
     TSharedRef<SWidget> BuildTargetsSection();
     TSharedRef<SWidget> BuildDiagnosticsSection();
+    TSharedRef<SWidget> Build2110Section();
+
+    // Update 2110 status
+    void Update2110Status();
 
     // Data
     TArray<TSharedPtr<FRshipTargetListItem>> TargetItems;
@@ -87,6 +91,13 @@ private:
     TSharedPtr<STextBlock> ByteRateText;
     TSharedPtr<STextBlock> DroppedText;
     TSharedPtr<STextBlock> BackoffText;
+
+    // 2110 status text blocks
+    TSharedPtr<STextBlock> RivermaxStatusText;
+    TSharedPtr<STextBlock> PTPStatusText;
+    TSharedPtr<STextBlock> IPMXStatusText;
+    TSharedPtr<STextBlock> GPUDirectStatusText;
+    TSharedPtr<STextBlock> NetworkStatusText;
 
     // Refresh timer
     float RefreshTimer = 0.0f;

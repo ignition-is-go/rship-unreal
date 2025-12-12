@@ -5,6 +5,7 @@
 #include "RshipSubsystem.h"
 #include "RshipTargetComponent.h"
 #include "RshipSettings.h"
+#include "Rship2110.h"  // For SMPTE 2110 status
 
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SBorder.h"
@@ -19,6 +20,8 @@
 #include "EditorStyleSet.h"
 #include "ISettingsModule.h"
 #include "Engine/Engine.h"
+#include "SocketSubsystem.h"
+#include "IPAddress.h"
 
 #define LOCTEXT_NAMESPACE "SRshipStatusPanel"
 
@@ -67,9 +70,25 @@ void SRshipStatusPanel::Construct(const FArguments& InArgs)
             // Diagnostics Section
             + SVerticalBox::Slot()
             .AutoHeight()
-            .Padding(0.0f, 8.0f, 0.0f, 0.0f)
+            .Padding(0.0f, 8.0f, 0.0f, 8.0f)
             [
                 BuildDiagnosticsSection()
+            ]
+
+            // Separator
+            + SVerticalBox::Slot()
+            .AutoHeight()
+            .Padding(0.0f, 4.0f)
+            [
+                SNew(SSeparator)
+            ]
+
+            // SMPTE 2110 Section
+            + SVerticalBox::Slot()
+            .AutoHeight()
+            .Padding(0.0f, 8.0f, 0.0f, 0.0f)
+            [
+                Build2110Section()
             ]
         ]
     ];
@@ -78,6 +97,7 @@ void SRshipStatusPanel::Construct(const FArguments& InArgs)
     RefreshTargetList();
     UpdateConnectionStatus();
     UpdateDiagnostics();
+    Update2110Status();
 }
 
 SRshipStatusPanel::~SRshipStatusPanel()
@@ -94,6 +114,7 @@ void SRshipStatusPanel::Tick(const FGeometry& AllottedGeometry, const double InC
         RefreshTimer = 0.0f;
         UpdateConnectionStatus();
         UpdateDiagnostics();
+        Update2110Status();
         RefreshTargetList();
     }
 }
@@ -641,6 +662,267 @@ void SRshipStatusPanel::OnTargetSelectionChanged(TSharedPtr<FRshipTargetListItem
     {
         // Could select the actor in the editor here
         // GEditor->SelectActor(Item->Component->GetOwner(), true, true);
+    }
+}
+
+TSharedRef<SWidget> SRshipStatusPanel::Build2110Section()
+{
+    return SNew(SVerticalBox)
+
+        // Header
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 0.0f, 0.0f, 8.0f)
+        [
+            SNew(STextBlock)
+            .Text(LOCTEXT("2110Title", "SMPTE 2110"))
+            .Font(FCoreStyle::GetDefaultFontStyle("Bold", 14))
+        ]
+
+        // Status grid
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        [
+            SNew(SVerticalBox)
+
+            // Rivermax row
+            + SVerticalBox::Slot()
+            .AutoHeight()
+            .Padding(0.0f, 2.0f)
+            [
+                SNew(SHorizontalBox)
+                + SHorizontalBox::Slot()
+                .AutoWidth()
+                [
+                    SNew(STextBlock)
+                    .Text(LOCTEXT("RivermaxLabel", "Rivermax: "))
+                    .MinDesiredWidth(80.0f)
+                ]
+                + SHorizontalBox::Slot()
+                .FillWidth(1.0f)
+                [
+                    SAssignNew(RivermaxStatusText, STextBlock)
+                    .Text(LOCTEXT("RivermaxDefault", "Checking..."))
+                ]
+            ]
+
+            // PTP row
+            + SVerticalBox::Slot()
+            .AutoHeight()
+            .Padding(0.0f, 2.0f)
+            [
+                SNew(SHorizontalBox)
+                + SHorizontalBox::Slot()
+                .AutoWidth()
+                [
+                    SNew(STextBlock)
+                    .Text(LOCTEXT("PTPLabel", "PTP: "))
+                    .MinDesiredWidth(80.0f)
+                ]
+                + SHorizontalBox::Slot()
+                .FillWidth(1.0f)
+                [
+                    SAssignNew(PTPStatusText, STextBlock)
+                    .Text(LOCTEXT("PTPDefault", "Checking..."))
+                ]
+            ]
+
+            // IPMX row
+            + SVerticalBox::Slot()
+            .AutoHeight()
+            .Padding(0.0f, 2.0f)
+            [
+                SNew(SHorizontalBox)
+                + SHorizontalBox::Slot()
+                .AutoWidth()
+                [
+                    SNew(STextBlock)
+                    .Text(LOCTEXT("IPMXLabel", "IPMX: "))
+                    .MinDesiredWidth(80.0f)
+                ]
+                + SHorizontalBox::Slot()
+                .FillWidth(1.0f)
+                [
+                    SAssignNew(IPMXStatusText, STextBlock)
+                    .Text(LOCTEXT("IPMXDefault", "Checking..."))
+                ]
+            ]
+
+            // GPUDirect row
+            + SVerticalBox::Slot()
+            .AutoHeight()
+            .Padding(0.0f, 2.0f)
+            [
+                SNew(SHorizontalBox)
+                + SHorizontalBox::Slot()
+                .AutoWidth()
+                [
+                    SNew(STextBlock)
+                    .Text(LOCTEXT("GPUDirectLabel", "GPUDirect: "))
+                    .MinDesiredWidth(80.0f)
+                ]
+                + SHorizontalBox::Slot()
+                .FillWidth(1.0f)
+                [
+                    SAssignNew(GPUDirectStatusText, STextBlock)
+                    .Text(LOCTEXT("GPUDirectDefault", "Checking..."))
+                ]
+            ]
+
+            // Network row
+            + SVerticalBox::Slot()
+            .AutoHeight()
+            .Padding(0.0f, 2.0f)
+            [
+                SNew(SHorizontalBox)
+                + SHorizontalBox::Slot()
+                .AutoWidth()
+                [
+                    SNew(STextBlock)
+                    .Text(LOCTEXT("NetworkLabel", "Network: "))
+                    .MinDesiredWidth(80.0f)
+                ]
+                + SHorizontalBox::Slot()
+                .FillWidth(1.0f)
+                [
+                    SAssignNew(NetworkStatusText, STextBlock)
+                    .Text(LOCTEXT("NetworkDefault", "Checking..."))
+                ]
+            ]
+        ];
+}
+
+void SRshipStatusPanel::Update2110Status()
+{
+    if (!FRship2110Module::IsAvailable())
+    {
+        // Module not loaded
+        FText NotLoadedText = LOCTEXT("2110NotLoaded", "Module not loaded");
+        if (RivermaxStatusText.IsValid()) RivermaxStatusText->SetText(NotLoadedText);
+        if (PTPStatusText.IsValid()) PTPStatusText->SetText(NotLoadedText);
+        if (IPMXStatusText.IsValid()) IPMXStatusText->SetText(NotLoadedText);
+        if (GPUDirectStatusText.IsValid()) GPUDirectStatusText->SetText(LOCTEXT("GPUDirectNotLoaded", "N/A"));
+        if (NetworkStatusText.IsValid()) NetworkStatusText->SetText(LOCTEXT("NetworkNotLoaded", "N/A"));
+        return;
+    }
+
+    FRship2110Module& Module = FRship2110Module::Get();
+
+    // Rivermax status
+    if (RivermaxStatusText.IsValid())
+    {
+        if (Module.IsRivermaxAvailable())
+        {
+            RivermaxStatusText->SetText(LOCTEXT("RivermaxAvailable", "Available (DLL loaded)"));
+            RivermaxStatusText->SetColorAndOpacity(FLinearColor(0.0f, 0.8f, 0.0f, 1.0f));
+        }
+        else
+        {
+            RivermaxStatusText->SetText(LOCTEXT("RivermaxNotAvailable", "Not available"));
+            RivermaxStatusText->SetColorAndOpacity(FLinearColor(0.8f, 0.0f, 0.0f, 1.0f));
+        }
+    }
+
+    // PTP status
+    if (PTPStatusText.IsValid())
+    {
+        if (Module.IsPTPAvailable())
+        {
+            PTPStatusText->SetText(LOCTEXT("PTPAvailable", "Available"));
+            PTPStatusText->SetColorAndOpacity(FLinearColor(0.0f, 0.8f, 0.0f, 1.0f));
+        }
+        else
+        {
+            PTPStatusText->SetText(LOCTEXT("PTPNotAvailable", "Not available"));
+            PTPStatusText->SetColorAndOpacity(FLinearColor(0.8f, 0.0f, 0.0f, 1.0f));
+        }
+    }
+
+    // IPMX status
+    if (IPMXStatusText.IsValid())
+    {
+        if (Module.IsIPMXAvailable())
+        {
+            IPMXStatusText->SetText(LOCTEXT("IPMXAvailable", "Available"));
+            IPMXStatusText->SetColorAndOpacity(FLinearColor(0.0f, 0.8f, 0.0f, 1.0f));
+        }
+        else
+        {
+            IPMXStatusText->SetText(LOCTEXT("IPMXNotAvailable", "Not available"));
+            IPMXStatusText->SetColorAndOpacity(FLinearColor(0.8f, 0.0f, 0.0f, 1.0f));
+        }
+    }
+
+    // GPUDirect status (compile-time check from module)
+#if RSHIP_GPUDIRECT_AVAILABLE
+    if (GPUDirectStatusText.IsValid())
+    {
+        GPUDirectStatusText->SetText(LOCTEXT("GPUDirectAvailable", "Compiled with support"));
+        GPUDirectStatusText->SetColorAndOpacity(FLinearColor(0.0f, 0.8f, 0.0f, 1.0f));
+    }
+#else
+    if (GPUDirectStatusText.IsValid())
+    {
+        GPUDirectStatusText->SetText(LOCTEXT("GPUDirectNotCompiled", "Not compiled"));
+        GPUDirectStatusText->SetColorAndOpacity(FLinearColor(0.5f, 0.5f, 0.5f, 1.0f));
+    }
+#endif
+
+    // Network status - show network interfaces
+    if (NetworkStatusText.IsValid())
+    {
+        ISocketSubsystem* SocketSubsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
+        if (SocketSubsystem)
+        {
+            TArray<TSharedPtr<FInternetAddr>> Addresses;
+            if (SocketSubsystem->GetLocalAdapterAddresses(Addresses))
+            {
+                TArray<FString> AddrStrings;
+                for (const TSharedPtr<FInternetAddr>& Addr : Addresses)
+                {
+                    if (Addr.IsValid())
+                    {
+                        FString AddrStr = Addr->ToString(false);
+                        // Skip loopback and link-local
+                        if (!AddrStr.StartsWith(TEXT("127.")) && !AddrStr.StartsWith(TEXT("169.254.")))
+                        {
+                            AddrStrings.Add(AddrStr);
+                        }
+                    }
+                }
+                if (AddrStrings.Num() > 0)
+                {
+                    // Show up to 3 interfaces
+                    FString DisplayStr;
+                    for (int32 i = 0; i < FMath::Min(3, AddrStrings.Num()); ++i)
+                    {
+                        if (i > 0) DisplayStr += TEXT(", ");
+                        DisplayStr += AddrStrings[i];
+                    }
+                    if (AddrStrings.Num() > 3)
+                    {
+                        DisplayStr += FString::Printf(TEXT(" (+%d more)"), AddrStrings.Num() - 3);
+                    }
+                    NetworkStatusText->SetText(FText::FromString(DisplayStr));
+                    NetworkStatusText->SetColorAndOpacity(FLinearColor::White);
+                }
+                else
+                {
+                    NetworkStatusText->SetText(LOCTEXT("NoNetworkInterfaces", "No interfaces found"));
+                    NetworkStatusText->SetColorAndOpacity(FLinearColor(0.8f, 0.5f, 0.0f, 1.0f));
+                }
+            }
+            else
+            {
+                NetworkStatusText->SetText(LOCTEXT("NetworkEnumFailed", "Failed to enumerate"));
+                NetworkStatusText->SetColorAndOpacity(FLinearColor(0.8f, 0.0f, 0.0f, 1.0f));
+            }
+        }
+        else
+        {
+            NetworkStatusText->SetText(LOCTEXT("SocketSubsystemNA", "Socket subsystem N/A"));
+            NetworkStatusText->SetColorAndOpacity(FLinearColor(0.8f, 0.0f, 0.0f, 1.0f));
+        }
     }
 }
 

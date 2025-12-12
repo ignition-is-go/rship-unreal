@@ -35,6 +35,8 @@ public class RshipExecEditor : ModuleRules
 				"WorkspaceMenuStructure",
 				"Projects",
 				"EditorWidgets",
+				"Rship2110",  // For SMPTE 2110 status display
+				"Sockets",    // For network interface enumeration
 			}
 		);
 	}
