@@ -379,7 +379,7 @@ bool FUltimateControlSequencerHandler::HandleScrubSequence(const TSharedPtr<FJso
 		{
 			// ScrubToTime was removed in UE 5.6 - use SetPlaybackPosition instead
 			FMovieSceneSequencePlaybackParams PlaybackParams;
-			PlaybackParams.Time = FFrameTime::FromDecimal(Time * Player->GetFrameRate().AsDecimal());
+			PlaybackParams.Time = static_cast<float>(Time);
 			PlaybackParams.UpdateMethod = EUpdatePositionMethod::Scrub;
 			Player->SetPlaybackPosition(PlaybackParams);
 		}
