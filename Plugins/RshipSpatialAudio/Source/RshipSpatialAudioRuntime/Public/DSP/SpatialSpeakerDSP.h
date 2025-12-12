@@ -509,6 +509,14 @@ public:
 	FSpatialSpeakerDSPManager();
 	~FSpatialSpeakerDSPManager();
 
+	// Non-copyable (contains TUniquePtr array)
+	FSpatialSpeakerDSPManager(const FSpatialSpeakerDSPManager&) = delete;
+	FSpatialSpeakerDSPManager& operator=(const FSpatialSpeakerDSPManager&) = delete;
+
+	// Move-only
+	FSpatialSpeakerDSPManager(FSpatialSpeakerDSPManager&&) = default;
+	FSpatialSpeakerDSPManager& operator=(FSpatialSpeakerDSPManager&&) = default;
+
 	/**
 	 * Initialize the manager.
 	 */

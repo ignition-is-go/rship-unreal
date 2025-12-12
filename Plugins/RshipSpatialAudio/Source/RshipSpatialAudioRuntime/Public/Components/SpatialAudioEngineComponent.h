@@ -5,9 +5,9 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "Core/SpatialAudioTypes.h"
+#include "Audio/SpatialRenderingEngine.h"
 #include "SpatialAudioEngineComponent.generated.h"
 
-class FSpatialRenderingEngine;
 class URshipSpatialAudioManager;
 class FSpatialAudioSubmixEffect;
 

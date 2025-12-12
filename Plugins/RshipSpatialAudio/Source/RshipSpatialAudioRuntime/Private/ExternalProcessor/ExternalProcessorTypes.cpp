@@ -198,7 +198,7 @@ TArray<uint8> FSpatialOSCMessage::Serialize() const
 
 		case ESpatialOSCArgumentType::Int64:
 			// 64-bit big-endian
-			WriteInt32BE(Buffer, static_cast<int32>(Arg.IntValue >> 32));
+			WriteInt32BE(Buffer, static_cast<int32>(static_cast<int64>(Arg.IntValue) >> 32));
 			WriteInt32BE(Buffer, static_cast<int32>(Arg.IntValue & 0xFFFFFFFF));
 			break;
 

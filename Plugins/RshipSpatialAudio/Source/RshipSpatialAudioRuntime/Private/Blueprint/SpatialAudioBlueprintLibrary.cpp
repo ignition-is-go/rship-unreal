@@ -345,7 +345,7 @@ bool USpatialAudioBlueprintLibrary::QuickConnectDS100(
 	Config.Network.bAutoReconnect = true;
 
 	// DS100-specific defaults
-	Config.DS100.DefaultMappingArea = 1;
+	Config.DS100.DefaultMappingArea = EDS100MappingArea::MappingArea1;
 	Config.DS100.bUse3DPositioning = true;
 	Config.DS100.bSendEnSpace = true;
 
