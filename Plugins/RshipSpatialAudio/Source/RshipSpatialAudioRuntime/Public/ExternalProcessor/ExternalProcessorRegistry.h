@@ -54,7 +54,6 @@ public:
 	 * @param Type The processor type to create.
 	 * @return New processor instance, or nullptr if type is unsupported.
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Rship|SpatialAudio|ExternalProcessor")
 	static IExternalSpatialProcessor* CreateProcessor(EExternalProcessorType Type);
 
 	/**
@@ -79,7 +78,6 @@ public:
 	 * @param Config Processor configuration.
 	 * @return Managed processor pointer (owned by registry).
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Rship|SpatialAudio|ExternalProcessor")
 	IExternalSpatialProcessor* GetOrCreateProcessor(const FExternalProcessorConfig& Config);
 
 	/**
@@ -88,7 +86,6 @@ public:
 	 * @param ProcessorId Processor identifier.
 	 * @return Processor pointer, or nullptr if not found.
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Rship|SpatialAudio|ExternalProcessor")
 	IExternalSpatialProcessor* GetProcessor(const FString& ProcessorId) const;
 
 	/**
