@@ -224,10 +224,10 @@ struct RSHIPEXEC_API FRshipMovementSpec
 };
 
 /**
- * DMX channel definition
+ * DMX channel definition for fixture library
  */
 USTRUCT(BlueprintType)
-struct RSHIPEXEC_API FRshipDMXChannel
+struct RSHIPEXEC_API FRshipFixtureDMXChannel
 {
     GENERATED_BODY()
 
@@ -274,7 +274,7 @@ struct RSHIPEXEC_API FRshipDMXMode
 
     /** Channel definitions */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Library")
-    TArray<FRshipDMXChannel> Channels;
+    TArray<FRshipFixtureDMXChannel> Channels;
 
     /** Is default mode */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Library")
