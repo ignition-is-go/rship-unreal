@@ -1,0 +1,34 @@
+[package]
+name = "rship-ndi-sender"
+version = "0.1.0"
+edition = "2021"
+authors = ["Rocketship"]
+description = "High-performance NDI sender with C FFI for Unreal Engine integration"
+license = "MIT"
+
+[lib]
+name = "rship_ndi_sender"
+crate-type = ["staticlib"]
+
+[dependencies]
+# NDI SDK wrapper - uses dynamic loading, vendored headers
+ndi-sdk = "0.4"
+
+# Lock-free channel for frame queue
+crossbeam-channel = "0.5"
+
+# Parking lot for efficient synchronization
+parking_lot = "0.12"
+
+[build-dependencies]
+cbindgen = "0.26"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.dev]
+opt-level = 1
