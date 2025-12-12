@@ -18,7 +18,7 @@ class USoundClass;
 class ULTIMATECONTROL_API FUltimateControlAudioHandler : public FUltimateControlHandlerBase
 {
 public:
-	virtual void RegisterMethods(TMap<FString, FJsonRpcMethodHandler>& Methods) override;
+	using FUltimateControlHandlerBase::FUltimateControlHandlerBase;
 
 private:
 	// Sound asset listing

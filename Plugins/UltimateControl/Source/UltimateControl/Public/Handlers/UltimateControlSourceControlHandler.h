@@ -8,12 +8,28 @@
 class ISourceControlProvider;
 
 /**
+ * Custom enum for source control file status
+ */
+enum class ESourceControlStatus : uint8
+{
+	Unknown,
+	NotInDepot,
+	NotCurrent,
+	CheckedOutOther,
+	OpenForAdd,
+	Deleted,
+	MarkedForDelete,
+	Branched,
+	Ignored
+};
+
+/**
  * Handler for Source Control operations
  */
 class ULTIMATECONTROL_API FUltimateControlSourceControlHandler : public FUltimateControlHandlerBase
 {
 public:
-	virtual void RegisterMethods(TMap<FString, FJsonRpcMethodHandler>& Methods) override;
+	using FUltimateControlHandlerBase::FUltimateControlHandlerBase;
 
 private:
 	// Provider status

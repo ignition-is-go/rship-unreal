@@ -14,7 +14,7 @@ class UPhysicsConstraintComponent;
 class ULTIMATECONTROL_API FUltimateControlPhysicsHandler : public FUltimateControlHandlerBase
 {
 public:
-	virtual void RegisterMethods(TMap<FString, FJsonRpcMethodHandler>& Methods) override;
+	using FUltimateControlHandlerBase::FUltimateControlHandlerBase;
 
 private:
 	// Global physics settings

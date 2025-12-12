@@ -5,6 +5,8 @@
 #include "Editor/TransBuffer.h"
 #include "ScopedTransaction.h"
 
+#define LOCTEXT_NAMESPACE "UltimateControlTransactionHandler"
+
 void FUltimateControlTransactionHandler::RegisterMethods(TMap<FString, FJsonRpcMethodHandler>& Methods)
 {
 	Methods.Add(TEXT("transaction.undo"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlTransactionHandler::HandleUndo));
@@ -31,7 +33,7 @@ bool FUltimateControlTransactionHandler::HandleUndo(const TSharedPtr<FJsonObject
 	UTransBuffer* TransBuffer = Cast<UTransBuffer>(GEditor->Trans);
 	if (!TransBuffer)
 	{
-		Error = CreateError(-32002, TEXT("Transaction buffer not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("Transaction buffer not available"));
 		return false;
 	}
 
@@ -68,7 +70,7 @@ bool FUltimateControlTransactionHandler::HandleRedo(const TSharedPtr<FJsonObject
 	UTransBuffer* TransBuffer = Cast<UTransBuffer>(GEditor->Trans);
 	if (!TransBuffer)
 	{
-		Error = CreateError(-32002, TEXT("Transaction buffer not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("Transaction buffer not available"));
 		return false;
 	}
 
@@ -105,7 +107,7 @@ bool FUltimateControlTransactionHandler::HandleGetUndoHistory(const TSharedPtr<F
 	UTransBuffer* TransBuffer = Cast<UTransBuffer>(GEditor->Trans);
 	if (!TransBuffer)
 	{
-		Error = CreateError(-32002, TEXT("Transaction buffer not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("Transaction buffer not available"));
 		return false;
 	}
 
@@ -114,13 +116,13 @@ bool FUltimateControlTransactionHandler::HandleGetUndoHistory(const TSharedPtr<F
 	int32 UndoCount = TransBuffer->GetUndoCount();
 	for (int32 i = 0; i < FMath::Min(UndoCount, Limit); i++)
 	{
-		FTransaction* Transaction = TransBuffer->GetTransaction(TransBuffer->GetQueueLength() - 1 - i);
+		const FTransaction* Transaction = TransBuffer->GetTransaction(TransBuffer->GetQueueLength() - 1 - i);
 		if (Transaction)
 		{
 			TSharedPtr<FJsonObject> TransactionObj = MakeShared<FJsonObject>();
 			TransactionObj->SetNumberField(TEXT("index"), i);
 			TransactionObj->SetStringField(TEXT("title"), Transaction->GetTitle().ToString());
-			TransactionObj->SetStringField(TEXT("context"), Transaction->GetContext().ToString());
+			TransactionObj->SetStringField(TEXT("context"), Transaction->GetContext().Context.ToString());
 			HistoryArray.Add(MakeShared<FJsonValueObject>(TransactionObj));
 		}
 	}
@@ -144,22 +146,26 @@ bool FUltimateControlTransactionHandler::HandleGetRedoHistory(const TSharedPtr<F
 	UTransBuffer* TransBuffer = Cast<UTransBuffer>(GEditor->Trans);
 	if (!TransBuffer)
 	{
-		Error = CreateError(-32002, TEXT("Transaction buffer not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("Transaction buffer not available"));
 		return false;
 	}
 
 	TArray<TSharedPtr<FJsonValue>> HistoryArray;
 
-	int32 RedoCount = TransBuffer->GetRedoCount();
+	// Note: GetRedoCount() may not exist in UE 5.6, calculate from queue
+	int32 QueueLength = TransBuffer->GetQueueLength();
+	int32 UndoCount = TransBuffer->GetUndoCount();
+	int32 RedoCount = QueueLength > UndoCount ? (QueueLength - UndoCount) : 0;
+
 	for (int32 i = 0; i < FMath::Min(RedoCount, Limit); i++)
 	{
-		FTransaction* Transaction = TransBuffer->GetTransaction(TransBuffer->GetQueueLength() + i);
+		const FTransaction* Transaction = TransBuffer->GetTransaction(TransBuffer->GetQueueLength() + i);
 		if (Transaction)
 		{
 			TSharedPtr<FJsonObject> TransactionObj = MakeShared<FJsonObject>();
 			TransactionObj->SetNumberField(TEXT("index"), i);
 			TransactionObj->SetStringField(TEXT("title"), Transaction->GetTitle().ToString());
-			TransactionObj->SetStringField(TEXT("context"), Transaction->GetContext().ToString());
+			TransactionObj->SetStringField(TEXT("context"), Transaction->GetContext().Context.ToString());
 			HistoryArray.Add(MakeShared<FJsonValueObject>(TransactionObj));
 		}
 	}
@@ -177,7 +183,7 @@ bool FUltimateControlTransactionHandler::HandleClearHistory(const TSharedPtr<FJs
 	UTransBuffer* TransBuffer = Cast<UTransBuffer>(GEditor->Trans);
 	if (!TransBuffer)
 	{
-		Error = CreateError(-32002, TEXT("Transaction buffer not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("Transaction buffer not available"));
 		return false;
 	}
 
@@ -194,7 +200,7 @@ bool FUltimateControlTransactionHandler::HandleCanUndo(const TSharedPtr<FJsonObj
 	UTransBuffer* TransBuffer = Cast<UTransBuffer>(GEditor->Trans);
 	if (!TransBuffer)
 	{
-		Error = CreateError(-32002, TEXT("Transaction buffer not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("Transaction buffer not available"));
 		return false;
 	}
 
@@ -205,7 +211,7 @@ bool FUltimateControlTransactionHandler::HandleCanUndo(const TSharedPtr<FJsonObj
 	// Get title of next undo action if available
 	if (TransBuffer->CanUndo())
 	{
-		FTransaction* NextUndo = TransBuffer->GetTransaction(TransBuffer->GetQueueLength() - 1);
+		const FTransaction* NextUndo = TransBuffer->GetTransaction(TransBuffer->GetQueueLength() - 1);
 		if (NextUndo)
 		{
 			ResultObj->SetStringField(TEXT("nextUndoTitle"), NextUndo->GetTitle().ToString());
@@ -221,18 +227,23 @@ bool FUltimateControlTransactionHandler::HandleCanRedo(const TSharedPtr<FJsonObj
 	UTransBuffer* TransBuffer = Cast<UTransBuffer>(GEditor->Trans);
 	if (!TransBuffer)
 	{
-		Error = CreateError(-32002, TEXT("Transaction buffer not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("Transaction buffer not available"));
 		return false;
 	}
 
 	TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
 	ResultObj->SetBoolField(TEXT("canRedo"), TransBuffer->CanRedo());
-	ResultObj->SetNumberField(TEXT("redoCount"), TransBuffer->GetRedoCount());
+
+	// Note: GetRedoCount() may not exist in UE 5.6, calculate from queue
+	int32 QueueLength = TransBuffer->GetQueueLength();
+	int32 UndoCount = TransBuffer->GetUndoCount();
+	int32 RedoCount = QueueLength > UndoCount ? (QueueLength - UndoCount) : 0;
+	ResultObj->SetNumberField(TEXT("redoCount"), RedoCount);
 
 	// Get title of next redo action if available
 	if (TransBuffer->CanRedo())
 	{
-		FTransaction* NextRedo = TransBuffer->GetTransaction(TransBuffer->GetQueueLength());
+		const FTransaction* NextRedo = TransBuffer->GetTransaction(TransBuffer->GetQueueLength());
 		if (NextRedo)
 		{
 			ResultObj->SetStringField(TEXT("nextRedoTitle"), NextRedo->GetTitle().ToString());
@@ -253,7 +264,7 @@ bool FUltimateControlTransactionHandler::HandleBeginTransaction(const TSharedPtr
 
 	if (ActiveTransactionIndex != INDEX_NONE)
 	{
-		Error = CreateError(-32002, TEXT("Transaction already in progress. Call transaction.end or transaction.cancel first."));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("Transaction already in progress. Call transaction.end or transaction.cancel first."));
 		return false;
 	}
 
@@ -271,7 +282,7 @@ bool FUltimateControlTransactionHandler::HandleEndTransaction(const TSharedPtr<F
 {
 	if (ActiveTransactionIndex == INDEX_NONE)
 	{
-		Error = CreateError(-32002, TEXT("No transaction in progress. Call transaction.begin first."));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No transaction in progress. Call transaction.begin first."));
 		return false;
 	}
 
@@ -291,7 +302,7 @@ bool FUltimateControlTransactionHandler::HandleCancelTransaction(const TSharedPt
 {
 	if (ActiveTransactionIndex == INDEX_NONE)
 	{
-		Error = CreateError(-32002, TEXT("No transaction in progress. Call transaction.begin first."));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No transaction in progress. Call transaction.begin first."));
 		return false;
 	}
 
@@ -318,4 +329,3 @@ bool FUltimateControlTransactionHandler::HandleIsInTransaction(const TSharedPtr<
 }
 
 #undef LOCTEXT_NAMESPACE
-#define LOCTEXT_NAMESPACE "UltimateControlTransactionHandler"

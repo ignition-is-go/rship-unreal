@@ -17,7 +17,7 @@ class ISequencer;
 class ULTIMATECONTROL_API FUltimateControlSequencerHandler : public FUltimateControlHandlerBase
 {
 public:
-	virtual void RegisterMethods(TMap<FString, FJsonRpcMethodHandler>& Methods) override;
+	using FUltimateControlHandlerBase::FUltimateControlHandlerBase;
 
 private:
 	// Sequence listing and info

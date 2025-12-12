@@ -1,11 +1,12 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Handlers/UltimateControlSessionHandler.h"
-#include "IConcertSyncClient.h"
-#include "IConcertClient.h"
-#include "IConcertClientWorkspace.h"
-#include "IConcertSyncClientModule.h"
-#include "ConcertMessageData.h"
+// TODO(nf): Concert/Multi-User includes may have changed in UE 5.6
+// #include "IConcertSyncClient.h"
+// #include "IConcertClient.h"
+// #include "IConcertClientWorkspace.h"
+// #include "IConcertSyncClientModule.h"
+// #include "ConcertMessageData.h"
 
 void FUltimateControlSessionHandler::RegisterMethods(TMap<FString, FJsonRpcMethodHandler>& Methods)
 {

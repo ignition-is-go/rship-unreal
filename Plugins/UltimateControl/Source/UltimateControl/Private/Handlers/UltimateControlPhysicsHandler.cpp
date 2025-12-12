@@ -9,6 +9,7 @@
 #include "Kismet/KismetSystemLibrary.h"
 #include "CollisionQueryParams.h"
 #include "WorldCollision.h"
+#include "EngineUtils.h"
 
 void FUltimateControlPhysicsHandler::RegisterMethods(TMap<FString, FJsonRpcMethodHandler>& Methods)
 {
@@ -52,7 +53,16 @@ UPrimitiveComponent* FUltimateControlPhysicsHandler::GetPrimitiveComponent(const
 	UWorld* World = GEditor->GetEditorWorldContext().World();
 	if (!World) return nullptr;
 
-	AActor* Actor = FindActorByName(World, ActorName);
+	// Find actor by label using TActorIterator
+	AActor* Actor = nullptr;
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		if (It->GetActorLabel() == ActorName || It->GetName() == ActorName)
+		{
+			Actor = *It;
+			break;
+		}
+	}
 	if (!Actor) return nullptr;
 
 	if (ComponentName.IsEmpty())
@@ -105,7 +115,7 @@ bool FUltimateControlPhysicsHandler::HandleGetGravity(const TSharedPtr<FJsonObje
 	UWorld* World = GEditor->GetEditorWorldContext().World();
 	if (!World)
 	{
-		Error = CreateError(-32002, TEXT("No world loaded"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No world loaded"));
 		return false;
 	}
 
@@ -123,14 +133,14 @@ bool FUltimateControlPhysicsHandler::HandleSetGravity(const TSharedPtr<FJsonObje
 	UWorld* World = GEditor->GetEditorWorldContext().World();
 	if (!World)
 	{
-		Error = CreateError(-32002, TEXT("No world loaded"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No world loaded"));
 		return false;
 	}
 
 	AWorldSettings* WorldSettings = World->GetWorldSettings();
 	if (!WorldSettings)
 	{
-		Error = CreateError(-32002, TEXT("World settings not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("World settings not available"));
 		return false;
 	}
 
@@ -155,14 +165,14 @@ bool FUltimateControlPhysicsHandler::HandleGetPhysicsSettings(const TSharedPtr<F
 	const UPhysicsSettings* Settings = UPhysicsSettings::Get();
 	if (!Settings)
 	{
-		Error = CreateError(-32002, TEXT("Physics settings not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("Physics settings not available"));
 		return false;
 	}
 
 	TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
 	ResultObj->SetNumberField(TEXT("defaultGravityZ"), Settings->DefaultGravityZ);
-	ResultObj->SetBoolField(TEXT("enableAsync"), Settings->bEnableAsyncScene);
-	ResultObj->SetBoolField(TEXT("enableCCD"), Settings->bDefaultHasComplexCollision);
+	// Note: bEnableAsyncScene and bDefaultHasComplexCollision are deprecated in UE 5.6
+	// These settings have been removed or reorganized in the physics settings
 
 	Result = MakeShared<FJsonValueObject>(ResultObj);
 	return true;
@@ -173,14 +183,14 @@ bool FUltimateControlPhysicsHandler::HandleGetSimulationSpeed(const TSharedPtr<F
 	UWorld* World = GEditor->GetEditorWorldContext().World();
 	if (!World)
 	{
-		Error = CreateError(-32002, TEXT("No world loaded"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No world loaded"));
 		return false;
 	}
 
 	AWorldSettings* WorldSettings = World->GetWorldSettings();
 	if (!WorldSettings)
 	{
-		Error = CreateError(-32002, TEXT("World settings not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("World settings not available"));
 		return false;
 	}
 
@@ -194,7 +204,7 @@ bool FUltimateControlPhysicsHandler::HandleSetSimulationSpeed(const TSharedPtr<F
 {
 	if (!Params->HasField(TEXT("speed")))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: speed"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: speed"));
 		return false;
 	}
 	float Speed = Params->GetNumberField(TEXT("speed"));
@@ -202,14 +212,14 @@ bool FUltimateControlPhysicsHandler::HandleSetSimulationSpeed(const TSharedPtr<F
 	UWorld* World = GEditor->GetEditorWorldContext().World();
 	if (!World)
 	{
-		Error = CreateError(-32002, TEXT("No world loaded"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No world loaded"));
 		return false;
 	}
 
 	AWorldSettings* WorldSettings = World->GetWorldSettings();
 	if (!WorldSettings)
 	{
-		Error = CreateError(-32002, TEXT("World settings not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("World settings not available"));
 		return false;
 	}
 
@@ -226,7 +236,7 @@ bool FUltimateControlPhysicsHandler::HandlePausePhysics(const TSharedPtr<FJsonOb
 	UWorld* World = GEditor->GetEditorWorldContext().World();
 	if (!World)
 	{
-		Error = CreateError(-32002, TEXT("No world loaded"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No world loaded"));
 		return false;
 	}
 
@@ -247,7 +257,7 @@ bool FUltimateControlPhysicsHandler::HandleResumePhysics(const TSharedPtr<FJsonO
 	UWorld* World = GEditor->GetEditorWorldContext().World();
 	if (!World)
 	{
-		Error = CreateError(-32002, TEXT("No world loaded"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No world loaded"));
 		return false;
 	}
 
@@ -266,7 +276,7 @@ bool FUltimateControlPhysicsHandler::HandleResumePhysics(const TSharedPtr<FJsonO
 bool FUltimateControlPhysicsHandler::HandleStepPhysics(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
 {
 	// Stepping physics is complex and typically done through simulation
-	Error = CreateError(-32002, TEXT("Stepping physics requires PIE. Use pie.simulate for physics simulation."));
+	Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("Stepping physics requires PIE. Use pie.simulate for physics simulation."));
 	return false;
 }
 
@@ -287,7 +297,7 @@ bool FUltimateControlPhysicsHandler::HandleGetPhysicsEnabled(const TSharedPtr<FJ
 	UPrimitiveComponent* Component = GetPrimitiveComponent(ActorName, ComponentName);
 	if (!Component)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Primitive component not found on actor: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Primitive component not found on actor: %s"), *ActorName));
 		return false;
 	}
 
@@ -321,7 +331,7 @@ bool FUltimateControlPhysicsHandler::HandleSetPhysicsEnabled(const TSharedPtr<FJ
 	UPrimitiveComponent* Component = GetPrimitiveComponent(ActorName, ComponentName);
 	if (!Component)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Primitive component not found on actor: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Primitive component not found on actor: %s"), *ActorName));
 		return false;
 	}
 
@@ -349,7 +359,7 @@ bool FUltimateControlPhysicsHandler::HandleGetMass(const TSharedPtr<FJsonObject>
 	UPrimitiveComponent* Component = GetPrimitiveComponent(ActorName, TEXT(""));
 	if (!Component)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Primitive component not found on actor: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Primitive component not found on actor: %s"), *ActorName));
 		return false;
 	}
 
@@ -369,7 +379,7 @@ bool FUltimateControlPhysicsHandler::HandleSetMass(const TSharedPtr<FJsonObject>
 
 	if (!Params->HasField(TEXT("mass")))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: mass"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: mass"));
 		return false;
 	}
 	float Mass = Params->GetNumberField(TEXT("mass"));
@@ -377,7 +387,7 @@ bool FUltimateControlPhysicsHandler::HandleSetMass(const TSharedPtr<FJsonObject>
 	UPrimitiveComponent* Component = GetPrimitiveComponent(ActorName, TEXT(""));
 	if (!Component)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Primitive component not found on actor: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Primitive component not found on actor: %s"), *ActorName));
 		return false;
 	}
 
@@ -400,7 +410,7 @@ bool FUltimateControlPhysicsHandler::HandleGetVelocity(const TSharedPtr<FJsonObj
 	UPrimitiveComponent* Component = GetPrimitiveComponent(ActorName, TEXT(""));
 	if (!Component)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Primitive component not found on actor: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Primitive component not found on actor: %s"), *ActorName));
 		return false;
 	}
 
@@ -421,7 +431,7 @@ bool FUltimateControlPhysicsHandler::HandleSetVelocity(const TSharedPtr<FJsonObj
 
 	if (!Params->HasField(TEXT("velocity")))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: velocity"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: velocity"));
 		return false;
 	}
 	FVector Velocity = JsonToVector(Params->GetObjectField(TEXT("velocity")));
@@ -429,7 +439,7 @@ bool FUltimateControlPhysicsHandler::HandleSetVelocity(const TSharedPtr<FJsonObj
 	UPrimitiveComponent* Component = GetPrimitiveComponent(ActorName, TEXT(""));
 	if (!Component)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Primitive component not found on actor: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Primitive component not found on actor: %s"), *ActorName));
 		return false;
 	}
 
@@ -452,7 +462,7 @@ bool FUltimateControlPhysicsHandler::HandleGetAngularVelocity(const TSharedPtr<F
 	UPrimitiveComponent* Component = GetPrimitiveComponent(ActorName, TEXT(""));
 	if (!Component)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Primitive component not found on actor: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Primitive component not found on actor: %s"), *ActorName));
 		return false;
 	}
 
@@ -472,7 +482,7 @@ bool FUltimateControlPhysicsHandler::HandleSetAngularVelocity(const TSharedPtr<F
 
 	if (!Params->HasField(TEXT("angularVelocity")))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: angularVelocity"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: angularVelocity"));
 		return false;
 	}
 	FVector AngularVelocity = JsonToVector(Params->GetObjectField(TEXT("angularVelocity")));
@@ -480,7 +490,7 @@ bool FUltimateControlPhysicsHandler::HandleSetAngularVelocity(const TSharedPtr<F
 	UPrimitiveComponent* Component = GetPrimitiveComponent(ActorName, TEXT(""));
 	if (!Component)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Primitive component not found on actor: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Primitive component not found on actor: %s"), *ActorName));
 		return false;
 	}
 
@@ -502,7 +512,7 @@ bool FUltimateControlPhysicsHandler::HandleApplyForce(const TSharedPtr<FJsonObje
 
 	if (!Params->HasField(TEXT("force")))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: force"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: force"));
 		return false;
 	}
 	FVector Force = JsonToVector(Params->GetObjectField(TEXT("force")));
@@ -510,7 +520,7 @@ bool FUltimateControlPhysicsHandler::HandleApplyForce(const TSharedPtr<FJsonObje
 	UPrimitiveComponent* Component = GetPrimitiveComponent(ActorName, TEXT(""));
 	if (!Component)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Primitive component not found on actor: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Primitive component not found on actor: %s"), *ActorName));
 		return false;
 	}
 
@@ -544,7 +554,7 @@ bool FUltimateControlPhysicsHandler::HandleApplyImpulse(const TSharedPtr<FJsonOb
 
 	if (!Params->HasField(TEXT("impulse")))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: impulse"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: impulse"));
 		return false;
 	}
 	FVector Impulse = JsonToVector(Params->GetObjectField(TEXT("impulse")));
@@ -552,7 +562,7 @@ bool FUltimateControlPhysicsHandler::HandleApplyImpulse(const TSharedPtr<FJsonOb
 	UPrimitiveComponent* Component = GetPrimitiveComponent(ActorName, TEXT(""));
 	if (!Component)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Primitive component not found on actor: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Primitive component not found on actor: %s"), *ActorName));
 		return false;
 	}
 
@@ -586,7 +596,7 @@ bool FUltimateControlPhysicsHandler::HandleApplyTorque(const TSharedPtr<FJsonObj
 
 	if (!Params->HasField(TEXT("torque")))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: torque"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: torque"));
 		return false;
 	}
 	FVector Torque = JsonToVector(Params->GetObjectField(TEXT("torque")));
@@ -594,7 +604,7 @@ bool FUltimateControlPhysicsHandler::HandleApplyTorque(const TSharedPtr<FJsonObj
 	UPrimitiveComponent* Component = GetPrimitiveComponent(ActorName, TEXT(""));
 	if (!Component)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Primitive component not found on actor: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Primitive component not found on actor: %s"), *ActorName));
 		return false;
 	}
 
@@ -622,21 +632,21 @@ bool FUltimateControlPhysicsHandler::HandleApplyRadialForce(const TSharedPtr<FJs
 {
 	if (!Params->HasField(TEXT("location")))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: location"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: location"));
 		return false;
 	}
 	FVector Location = JsonToVector(Params->GetObjectField(TEXT("location")));
 
 	if (!Params->HasField(TEXT("radius")))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: radius"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: radius"));
 		return false;
 	}
 	float Radius = Params->GetNumberField(TEXT("radius"));
 
 	if (!Params->HasField(TEXT("strength")))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: strength"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: strength"));
 		return false;
 	}
 	float Strength = Params->GetNumberField(TEXT("strength"));
@@ -644,7 +654,7 @@ bool FUltimateControlPhysicsHandler::HandleApplyRadialForce(const TSharedPtr<FJs
 	UWorld* World = GEditor->GetEditorWorldContext().World();
 	if (!World)
 	{
-		Error = CreateError(-32002, TEXT("No world loaded"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No world loaded"));
 		return false;
 	}
 
@@ -690,7 +700,7 @@ bool FUltimateControlPhysicsHandler::HandleGetCollisionEnabled(const TSharedPtr<
 	UPrimitiveComponent* Component = GetPrimitiveComponent(ActorName, TEXT(""));
 	if (!Component)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Primitive component not found on actor: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Primitive component not found on actor: %s"), *ActorName));
 		return false;
 	}
 
@@ -727,7 +737,7 @@ bool FUltimateControlPhysicsHandler::HandleSetCollisionEnabled(const TSharedPtr<
 	UPrimitiveComponent* Component = GetPrimitiveComponent(ActorName, TEXT(""));
 	if (!Component)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Primitive component not found on actor: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Primitive component not found on actor: %s"), *ActorName));
 		return false;
 	}
 
@@ -756,7 +766,7 @@ bool FUltimateControlPhysicsHandler::HandleGetCollisionProfile(const TSharedPtr<
 	UPrimitiveComponent* Component = GetPrimitiveComponent(ActorName, TEXT(""));
 	if (!Component)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Primitive component not found on actor: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Primitive component not found on actor: %s"), *ActorName));
 		return false;
 	}
 
@@ -783,7 +793,7 @@ bool FUltimateControlPhysicsHandler::HandleSetCollisionProfile(const TSharedPtr<
 	UPrimitiveComponent* Component = GetPrimitiveComponent(ActorName, TEXT(""));
 	if (!Component)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Primitive component not found on actor: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Primitive component not found on actor: %s"), *ActorName));
 		return false;
 	}
 
@@ -836,7 +846,7 @@ bool FUltimateControlPhysicsHandler::HandleLineTrace(const TSharedPtr<FJsonObjec
 {
 	if (!Params->HasField(TEXT("start")) || !Params->HasField(TEXT("end")))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameters: start, end"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameters: start, end"));
 		return false;
 	}
 	FVector Start = JsonToVector(Params->GetObjectField(TEXT("start")));
@@ -845,7 +855,7 @@ bool FUltimateControlPhysicsHandler::HandleLineTrace(const TSharedPtr<FJsonObjec
 	UWorld* World = GEditor->GetEditorWorldContext().World();
 	if (!World)
 	{
-		Error = CreateError(-32002, TEXT("No world loaded"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No world loaded"));
 		return false;
 	}
 
@@ -869,7 +879,7 @@ bool FUltimateControlPhysicsHandler::HandleSphereTrace(const TSharedPtr<FJsonObj
 {
 	if (!Params->HasField(TEXT("start")) || !Params->HasField(TEXT("end")) || !Params->HasField(TEXT("radius")))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameters: start, end, radius"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameters: start, end, radius"));
 		return false;
 	}
 	FVector Start = JsonToVector(Params->GetObjectField(TEXT("start")));
@@ -879,7 +889,7 @@ bool FUltimateControlPhysicsHandler::HandleSphereTrace(const TSharedPtr<FJsonObj
 	UWorld* World = GEditor->GetEditorWorldContext().World();
 	if (!World)
 	{
-		Error = CreateError(-32002, TEXT("No world loaded"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No world loaded"));
 		return false;
 	}
 
@@ -902,7 +912,7 @@ bool FUltimateControlPhysicsHandler::HandleBoxTrace(const TSharedPtr<FJsonObject
 {
 	if (!Params->HasField(TEXT("start")) || !Params->HasField(TEXT("end")) || !Params->HasField(TEXT("halfExtent")))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameters: start, end, halfExtent"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameters: start, end, halfExtent"));
 		return false;
 	}
 	FVector Start = JsonToVector(Params->GetObjectField(TEXT("start")));
@@ -912,7 +922,7 @@ bool FUltimateControlPhysicsHandler::HandleBoxTrace(const TSharedPtr<FJsonObject
 	UWorld* World = GEditor->GetEditorWorldContext().World();
 	if (!World)
 	{
-		Error = CreateError(-32002, TEXT("No world loaded"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No world loaded"));
 		return false;
 	}
 
@@ -935,7 +945,7 @@ bool FUltimateControlPhysicsHandler::HandleCapsuleTrace(const TSharedPtr<FJsonOb
 {
 	if (!Params->HasField(TEXT("start")) || !Params->HasField(TEXT("end")) || !Params->HasField(TEXT("radius")) || !Params->HasField(TEXT("halfHeight")))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameters: start, end, radius, halfHeight"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameters: start, end, radius, halfHeight"));
 		return false;
 	}
 	FVector Start = JsonToVector(Params->GetObjectField(TEXT("start")));
@@ -946,7 +956,7 @@ bool FUltimateControlPhysicsHandler::HandleCapsuleTrace(const TSharedPtr<FJsonOb
 	UWorld* World = GEditor->GetEditorWorldContext().World();
 	if (!World)
 	{
-		Error = CreateError(-32002, TEXT("No world loaded"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No world loaded"));
 		return false;
 	}
 
@@ -969,7 +979,7 @@ bool FUltimateControlPhysicsHandler::HandleOverlapSphere(const TSharedPtr<FJsonO
 {
 	if (!Params->HasField(TEXT("location")) || !Params->HasField(TEXT("radius")))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameters: location, radius"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameters: location, radius"));
 		return false;
 	}
 	FVector Location = JsonToVector(Params->GetObjectField(TEXT("location")));
@@ -978,7 +988,7 @@ bool FUltimateControlPhysicsHandler::HandleOverlapSphere(const TSharedPtr<FJsonO
 	UWorld* World = GEditor->GetEditorWorldContext().World();
 	if (!World)
 	{
-		Error = CreateError(-32002, TEXT("No world loaded"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No world loaded"));
 		return false;
 	}
 
@@ -1014,7 +1024,7 @@ bool FUltimateControlPhysicsHandler::HandleOverlapBox(const TSharedPtr<FJsonObje
 {
 	if (!Params->HasField(TEXT("location")) || !Params->HasField(TEXT("halfExtent")))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameters: location, halfExtent"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameters: location, halfExtent"));
 		return false;
 	}
 	FVector Location = JsonToVector(Params->GetObjectField(TEXT("location")));
@@ -1023,7 +1033,7 @@ bool FUltimateControlPhysicsHandler::HandleOverlapBox(const TSharedPtr<FJsonObje
 	UWorld* World = GEditor->GetEditorWorldContext().World();
 	if (!World)
 	{
-		Error = CreateError(-32002, TEXT("No world loaded"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No world loaded"));
 		return false;
 	}
 
@@ -1066,7 +1076,7 @@ bool FUltimateControlPhysicsHandler::HandleWakeRigidBody(const TSharedPtr<FJsonO
 	UPrimitiveComponent* Component = GetPrimitiveComponent(ActorName, TEXT(""));
 	if (!Component)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Primitive component not found on actor: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Primitive component not found on actor: %s"), *ActorName));
 		return false;
 	}
 
@@ -1089,7 +1099,7 @@ bool FUltimateControlPhysicsHandler::HandlePutRigidBodyToSleep(const TSharedPtr<
 	UPrimitiveComponent* Component = GetPrimitiveComponent(ActorName, TEXT(""));
 	if (!Component)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Primitive component not found on actor: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Primitive component not found on actor: %s"), *ActorName));
 		return false;
 	}
 
@@ -1112,7 +1122,7 @@ bool FUltimateControlPhysicsHandler::HandleIsSleeping(const TSharedPtr<FJsonObje
 	UPrimitiveComponent* Component = GetPrimitiveComponent(ActorName, TEXT(""));
 	if (!Component)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Primitive component not found on actor: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Primitive component not found on actor: %s"), *ActorName));
 		return false;
 	}
 
@@ -1128,7 +1138,7 @@ bool FUltimateControlPhysicsHandler::HandleListConstraints(const TSharedPtr<FJso
 	UWorld* World = GEditor->GetEditorWorldContext().World();
 	if (!World)
 	{
-		Error = CreateError(-32002, TEXT("No world loaded"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No world loaded"));
 		return false;
 	}
 
@@ -1157,18 +1167,18 @@ bool FUltimateControlPhysicsHandler::HandleListConstraints(const TSharedPtr<FJso
 
 bool FUltimateControlPhysicsHandler::HandleGetConstraint(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
 {
-	Error = CreateError(-32002, TEXT("Get constraint details not fully implemented."));
+	Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("Get constraint details not fully implemented."));
 	return false;
 }
 
 bool FUltimateControlPhysicsHandler::HandleCreateConstraint(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
 {
-	Error = CreateError(-32002, TEXT("Creating constraints via API not fully implemented."));
+	Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("Creating constraints via API not fully implemented."));
 	return false;
 }
 
 bool FUltimateControlPhysicsHandler::HandleBreakConstraint(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
 {
-	Error = CreateError(-32002, TEXT("Breaking constraints via API not fully implemented."));
+	Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("Breaking constraints via API not fully implemented."));
 	return false;
 }

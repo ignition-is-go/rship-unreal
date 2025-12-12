@@ -11,7 +11,7 @@
 class ULTIMATECONTROL_API FUltimateControlTransactionHandler : public FUltimateControlHandlerBase
 {
 public:
-	virtual void RegisterMethods(TMap<FString, FJsonRpcMethodHandler>& Methods) override;
+	using FUltimateControlHandlerBase::FUltimateControlHandlerBase;
 
 private:
 	// Undo/Redo operations

@@ -17,7 +17,7 @@ class USkeletalMeshComponent;
 class ULTIMATECONTROL_API FUltimateControlAnimationHandler : public FUltimateControlHandlerBase
 {
 public:
-	virtual void RegisterMethods(TMap<FString, FJsonRpcMethodHandler>& Methods) override;
+	using FUltimateControlHandlerBase::FUltimateControlHandlerBase;
 
 private:
 	// Animation asset listing

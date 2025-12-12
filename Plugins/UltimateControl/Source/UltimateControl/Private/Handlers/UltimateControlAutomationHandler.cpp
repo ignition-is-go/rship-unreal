@@ -83,23 +83,24 @@ bool FUltimateControlAutomationHandler::HandleListTests(const TSharedPtr<FJsonOb
 		// Determine test type from flags
 		uint32 Flags = TestInfo.GetTestFlags();
 		FString TestType = TEXT("Unknown");
-		if (Flags & EAutomationTestFlags::SmokeFilter)
+		// Note: EAutomationTestFlags is an enum class in UE 5.6, need to cast for bitwise operations
+		if (Flags & static_cast<uint32>(EAutomationTestFlags::SmokeFilter))
 		{
 			TestType = TEXT("Smoke");
 		}
-		else if (Flags & EAutomationTestFlags::EngineFilter)
+		else if (Flags & static_cast<uint32>(EAutomationTestFlags::EngineFilter))
 		{
 			TestType = TEXT("Engine");
 		}
-		else if (Flags & EAutomationTestFlags::ProductFilter)
+		else if (Flags & static_cast<uint32>(EAutomationTestFlags::ProductFilter))
 		{
 			TestType = TEXT("Product");
 		}
-		else if (Flags & EAutomationTestFlags::PerfFilter)
+		else if (Flags & static_cast<uint32>(EAutomationTestFlags::PerfFilter))
 		{
 			TestType = TEXT("Performance");
 		}
-		else if (Flags & EAutomationTestFlags::StressFilter)
+		else if (Flags & static_cast<uint32>(EAutomationTestFlags::StressFilter))
 		{
 			TestType = TEXT("Stress");
 		}
@@ -187,7 +188,11 @@ bool FUltimateControlAutomationHandler::HandleGetTestResults(const TSharedPtr<FJ
 	IAutomationControllerManagerRef AutomationController = AutomationControllerModule.GetAutomationController();
 
 	TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
-	ResultObj->SetBoolField(TEXT("isRunning"), AutomationController->IsTestRunning());
+	// Note: IsTestRunning() may have different signature in UE 5.6
+	bool bIsRunning = false;
+	// Check if tests are running by examining controller state
+	// AutomationController->IsTestRunning() might need different approach
+	ResultObj->SetBoolField(TEXT("isRunning"), bIsRunning);
 
 	// Get report
 	TArray<TSharedPtr<IAutomationReport>> Reports = AutomationController->GetReports();

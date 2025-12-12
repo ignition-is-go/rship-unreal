@@ -9,6 +9,7 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "GameFramework/Character.h"
+#include "EngineUtils.h"
 
 void FUltimateControlAnimationHandler::RegisterMethods(TMap<FString, FJsonRpcMethodHandler>& Methods)
 {
@@ -40,7 +41,16 @@ USkeletalMeshComponent* FUltimateControlAnimationHandler::GetSkeletalMeshCompone
 	UWorld* World = GEditor->GetEditorWorldContext().World();
 	if (!World) return nullptr;
 
-	AActor* Actor = FindActorByName(World, ActorName);
+	// Find actor by label using TActorIterator
+	AActor* Actor = nullptr;
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		if (It->GetActorLabel() == ActorName || It->GetName() == ActorName)
+		{
+			Actor = *It;
+			break;
+		}
+	}
 	if (!Actor) return nullptr;
 
 	// Try to get skeletal mesh component
@@ -172,7 +182,7 @@ bool FUltimateControlAnimationHandler::HandleGetAnimation(const TSharedPtr<FJson
 		return true;
 	}
 
-	Error = CreateError(-32003, FString::Printf(TEXT("Animation not found: %s"), *Path));
+	Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Animation not found: %s"), *Path));
 	return false;
 }
 
@@ -277,14 +287,14 @@ bool FUltimateControlAnimationHandler::HandlePlayAnimation(const TSharedPtr<FJso
 	USkeletalMeshComponent* SkeletalMesh = GetSkeletalMeshComponent(ActorName);
 	if (!SkeletalMesh)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("No skeletal mesh found on actor: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("No skeletal mesh found on actor: %s"), *ActorName));
 		return false;
 	}
 
 	UAnimSequence* Animation = LoadObject<UAnimSequence>(nullptr, *AnimPath);
 	if (!Animation)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Animation not found: %s"), *AnimPath));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Animation not found: %s"), *AnimPath));
 		return false;
 	}
 
@@ -321,7 +331,7 @@ bool FUltimateControlAnimationHandler::HandleStopAnimation(const TSharedPtr<FJso
 	USkeletalMeshComponent* SkeletalMesh = GetSkeletalMeshComponent(ActorName);
 	if (!SkeletalMesh)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("No skeletal mesh found on actor: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("No skeletal mesh found on actor: %s"), *ActorName));
 		return false;
 	}
 
@@ -344,7 +354,7 @@ bool FUltimateControlAnimationHandler::HandlePauseAnimation(const TSharedPtr<FJs
 	USkeletalMeshComponent* SkeletalMesh = GetSkeletalMeshComponent(ActorName);
 	if (!SkeletalMesh)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("No skeletal mesh found on actor: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("No skeletal mesh found on actor: %s"), *ActorName));
 		return false;
 	}
 
@@ -367,7 +377,7 @@ bool FUltimateControlAnimationHandler::HandleResumeAnimation(const TSharedPtr<FJ
 	USkeletalMeshComponent* SkeletalMesh = GetSkeletalMeshComponent(ActorName);
 	if (!SkeletalMesh)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("No skeletal mesh found on actor: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("No skeletal mesh found on actor: %s"), *ActorName));
 		return false;
 	}
 
@@ -390,7 +400,7 @@ bool FUltimateControlAnimationHandler::HandleGetPlaybackPosition(const TSharedPt
 	USkeletalMeshComponent* SkeletalMesh = GetSkeletalMeshComponent(ActorName);
 	if (!SkeletalMesh)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("No skeletal mesh found on actor: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("No skeletal mesh found on actor: %s"), *ActorName));
 		return false;
 	}
 
@@ -412,7 +422,7 @@ bool FUltimateControlAnimationHandler::HandleSetPlaybackPosition(const TSharedPt
 
 	if (!Params->HasField(TEXT("position")))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: position"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: position"));
 		return false;
 	}
 	float Position = Params->GetNumberField(TEXT("position"));
@@ -420,7 +430,7 @@ bool FUltimateControlAnimationHandler::HandleSetPlaybackPosition(const TSharedPt
 	USkeletalMeshComponent* SkeletalMesh = GetSkeletalMeshComponent(ActorName);
 	if (!SkeletalMesh)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("No skeletal mesh found on actor: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("No skeletal mesh found on actor: %s"), *ActorName));
 		return false;
 	}
 
@@ -443,7 +453,7 @@ bool FUltimateControlAnimationHandler::HandleGetPlaybackRate(const TSharedPtr<FJ
 	USkeletalMeshComponent* SkeletalMesh = GetSkeletalMeshComponent(ActorName);
 	if (!SkeletalMesh)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("No skeletal mesh found on actor: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("No skeletal mesh found on actor: %s"), *ActorName));
 		return false;
 	}
 
@@ -463,7 +473,7 @@ bool FUltimateControlAnimationHandler::HandleSetPlaybackRate(const TSharedPtr<FJ
 
 	if (!Params->HasField(TEXT("rate")))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: rate"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: rate"));
 		return false;
 	}
 	float Rate = Params->GetNumberField(TEXT("rate"));
@@ -471,7 +481,7 @@ bool FUltimateControlAnimationHandler::HandleSetPlaybackRate(const TSharedPtr<FJ
 	USkeletalMeshComponent* SkeletalMesh = GetSkeletalMeshComponent(ActorName);
 	if (!SkeletalMesh)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("No skeletal mesh found on actor: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("No skeletal mesh found on actor: %s"), *ActorName));
 		return false;
 	}
 
@@ -500,21 +510,21 @@ bool FUltimateControlAnimationHandler::HandlePlayMontage(const TSharedPtr<FJsonO
 	USkeletalMeshComponent* SkeletalMesh = GetSkeletalMeshComponent(ActorName);
 	if (!SkeletalMesh)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("No skeletal mesh found on actor: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("No skeletal mesh found on actor: %s"), *ActorName));
 		return false;
 	}
 
 	UAnimMontage* Montage = LoadObject<UAnimMontage>(nullptr, *MontagePath);
 	if (!Montage)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Montage not found: %s"), *MontagePath));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Montage not found: %s"), *MontagePath));
 		return false;
 	}
 
 	UAnimInstance* AnimInstance = SkeletalMesh->GetAnimInstance();
 	if (!AnimInstance)
 	{
-		Error = CreateError(-32002, TEXT("No anim instance on skeletal mesh"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No anim instance on skeletal mesh"));
 		return false;
 	}
 
@@ -557,14 +567,14 @@ bool FUltimateControlAnimationHandler::HandleStopMontage(const TSharedPtr<FJsonO
 	USkeletalMeshComponent* SkeletalMesh = GetSkeletalMeshComponent(ActorName);
 	if (!SkeletalMesh)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("No skeletal mesh found on actor: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("No skeletal mesh found on actor: %s"), *ActorName));
 		return false;
 	}
 
 	UAnimInstance* AnimInstance = SkeletalMesh->GetAnimInstance();
 	if (!AnimInstance)
 	{
-		Error = CreateError(-32002, TEXT("No anim instance on skeletal mesh"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No anim instance on skeletal mesh"));
 		return false;
 	}
 
@@ -599,14 +609,14 @@ bool FUltimateControlAnimationHandler::HandleJumpToMontageSection(const TSharedP
 	USkeletalMeshComponent* SkeletalMesh = GetSkeletalMeshComponent(ActorName);
 	if (!SkeletalMesh)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("No skeletal mesh found on actor: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("No skeletal mesh found on actor: %s"), *ActorName));
 		return false;
 	}
 
 	UAnimInstance* AnimInstance = SkeletalMesh->GetAnimInstance();
 	if (!AnimInstance)
 	{
-		Error = CreateError(-32002, TEXT("No anim instance on skeletal mesh"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No anim instance on skeletal mesh"));
 		return false;
 	}
 
@@ -629,14 +639,14 @@ bool FUltimateControlAnimationHandler::HandleGetMontagePosition(const TSharedPtr
 	USkeletalMeshComponent* SkeletalMesh = GetSkeletalMeshComponent(ActorName);
 	if (!SkeletalMesh)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("No skeletal mesh found on actor: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("No skeletal mesh found on actor: %s"), *ActorName));
 		return false;
 	}
 
 	UAnimInstance* AnimInstance = SkeletalMesh->GetAnimInstance();
 	if (!AnimInstance)
 	{
-		Error = CreateError(-32002, TEXT("No anim instance on skeletal mesh"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No anim instance on skeletal mesh"));
 		return false;
 	}
 
@@ -673,14 +683,14 @@ bool FUltimateControlAnimationHandler::HandleGetAnimBlueprintVariables(const TSh
 	USkeletalMeshComponent* SkeletalMesh = GetSkeletalMeshComponent(ActorName);
 	if (!SkeletalMesh)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("No skeletal mesh found on actor: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("No skeletal mesh found on actor: %s"), *ActorName));
 		return false;
 	}
 
 	UAnimInstance* AnimInstance = SkeletalMesh->GetAnimInstance();
 	if (!AnimInstance)
 	{
-		Error = CreateError(-32002, TEXT("No anim instance on skeletal mesh"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No anim instance on skeletal mesh"));
 		return false;
 	}
 
@@ -697,7 +707,7 @@ bool FUltimateControlAnimationHandler::HandleGetAnimBlueprintVariables(const TSh
 bool FUltimateControlAnimationHandler::HandleSetAnimBlueprintVariable(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
 {
 	// This requires runtime reflection to set variables on the anim instance
-	Error = CreateError(-32002, TEXT("Setting anim blueprint variables via API requires more specific implementation. Use blueprint function calls instead."));
+	Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("Setting anim blueprint variables via API requires more specific implementation. Use blueprint function calls instead."));
 	return false;
 }
 
@@ -712,14 +722,14 @@ bool FUltimateControlAnimationHandler::HandleGetSkeleton(const TSharedPtr<FJsonO
 	USkeletalMeshComponent* SkeletalMesh = GetSkeletalMeshComponent(ActorName);
 	if (!SkeletalMesh || !SkeletalMesh->GetSkeletalMeshAsset())
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("No skeletal mesh found on actor: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("No skeletal mesh found on actor: %s"), *ActorName));
 		return false;
 	}
 
 	USkeleton* Skeleton = SkeletalMesh->GetSkeletalMeshAsset()->GetSkeleton();
 	if (!Skeleton)
 	{
-		Error = CreateError(-32003, TEXT("No skeleton found"));
+		Error = UUltimateControlSubsystem::MakeError(-32003, TEXT("No skeleton found"));
 		return false;
 	}
 
@@ -760,14 +770,14 @@ bool FUltimateControlAnimationHandler::HandleGetBoneTransform(const TSharedPtr<F
 	USkeletalMeshComponent* SkeletalMesh = GetSkeletalMeshComponent(ActorName);
 	if (!SkeletalMesh)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("No skeletal mesh found on actor: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("No skeletal mesh found on actor: %s"), *ActorName));
 		return false;
 	}
 
 	int32 BoneIndex = SkeletalMesh->GetBoneIndex(FName(*BoneName));
 	if (BoneIndex == INDEX_NONE)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Bone not found: %s"), *BoneName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Bone not found: %s"), *BoneName));
 		return false;
 	}
 
@@ -784,6 +794,6 @@ bool FUltimateControlAnimationHandler::HandleGetBoneTransform(const TSharedPtr<F
 bool FUltimateControlAnimationHandler::HandleSetBoneTransform(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
 {
 	// Setting bone transforms at runtime requires specific bone modification techniques
-	Error = CreateError(-32002, TEXT("Setting bone transforms via API requires physics asset or animation modification. Use Modify Bone node in anim blueprints."));
+	Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("Setting bone transforms via API requires physics asset or animation modification. Use Modify Bone node in anim blueprints."));
 	return false;
 }

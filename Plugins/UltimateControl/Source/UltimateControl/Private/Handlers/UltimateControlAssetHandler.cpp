@@ -15,7 +15,7 @@
 #include "UObject/UObjectIterator.h"
 #include "UObject/PropertyPortFlags.h"
 #include "HAL/FileManager.h"
-#include "EditorAssetLibrary.h"
+#include "EditorScriptingUtilities/Public/EditorAssetLibrary.h"
 #include "ContentBrowserModule.h"
 #include "IContentBrowserSingleton.h"
 

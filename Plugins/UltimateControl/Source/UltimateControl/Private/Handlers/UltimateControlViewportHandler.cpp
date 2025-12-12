@@ -5,7 +5,7 @@
 #include "LevelEditorViewport.h"
 #include "SLevelViewport.h"
 #include "EditorViewportClient.h"
-#include "LevelEditorViewportSettings.h"
+#include "Settings/LevelEditorViewportSettings.h"
 #include "ImageUtils.h"
 #include "Engine/Texture2D.h"
 #include "Misc/FileHelper.h"

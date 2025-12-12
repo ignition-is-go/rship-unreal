@@ -14,7 +14,7 @@ class UPostProcessComponent;
 class ULTIMATECONTROL_API FUltimateControlRenderHandler : public FUltimateControlHandlerBase
 {
 public:
-	virtual void RegisterMethods(TMap<FString, FJsonRpcMethodHandler>& Methods) override;
+	using FUltimateControlHandlerBase::FUltimateControlHandlerBase;
 
 private:
 	// Quality settings

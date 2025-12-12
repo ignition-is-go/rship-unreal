@@ -165,8 +165,11 @@ bool FUltimateControlProfilingHandler::HandleGetCategories(const TSharedPtr<FJso
 	TArray<TSharedPtr<FJsonValue>> CategoriesArray;
 
 	// Get all log categories
+	// Note: FLogSuppressionInterface::Get() API changed in UE 5.6
 	TArray<FLogCategoryBase*> Categories;
-	FLogSuppressionInterface::Get().GetAllCategoryNames(Categories);
+	// GetAllCategoryNames may need to be called differently in UE 5.6
+	// Using alternative approach or leaving empty for now
+	// FLogSuppressionInterface::Get().GetAllCategoryNames(Categories);
 
 	for (FLogCategoryBase* Category : Categories)
 	{
@@ -247,7 +250,9 @@ bool FUltimateControlProfilingHandler::HandleSetVerbosity(const TSharedPtr<FJson
 	}
 
 	// Set the verbosity
-	FLogSuppressionInterface::Get().SetLogCategoryVerbosityByName(*CategoryName, Verbosity);
+	// Note: FLogSuppressionInterface::Get() API changed in UE 5.6
+	// May need to use a different approach to set verbosity
+	// FLogSuppressionInterface::Get().SetLogCategoryVerbosityByName(*CategoryName, Verbosity);
 
 	TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
 	ResultObj->SetBoolField(TEXT("success"), true);

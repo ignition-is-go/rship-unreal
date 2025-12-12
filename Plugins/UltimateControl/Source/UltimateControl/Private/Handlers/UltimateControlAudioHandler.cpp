@@ -11,6 +11,7 @@
 #include "AudioDevice.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
 
 void FUltimateControlAudioHandler::RegisterMethods(TMap<FString, FJsonRpcMethodHandler>& Methods)
 {
@@ -136,7 +137,7 @@ bool FUltimateControlAudioHandler::HandleGetSound(const TSharedPtr<FJsonObject>&
 	USoundBase* Sound = LoadObject<USoundBase>(nullptr, *Path);
 	if (!Sound)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Sound not found: %s"), *Path));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Sound not found: %s"), *Path));
 		return false;
 	}
 
@@ -267,14 +268,14 @@ bool FUltimateControlAudioHandler::HandlePlaySound2D(const TSharedPtr<FJsonObjec
 	USoundBase* Sound = LoadObject<USoundBase>(nullptr, *SoundPath);
 	if (!Sound)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Sound not found: %s"), *SoundPath));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Sound not found: %s"), *SoundPath));
 		return false;
 	}
 
 	UWorld* World = GEditor->GetEditorWorldContext().World();
 	if (!World)
 	{
-		Error = CreateError(-32002, TEXT("No world loaded"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No world loaded"));
 		return false;
 	}
 
@@ -305,7 +306,7 @@ bool FUltimateControlAudioHandler::HandlePlaySound2D(const TSharedPtr<FJsonObjec
 		return true;
 	}
 
-	Error = CreateError(-32002, TEXT("Failed to play sound"));
+	Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("Failed to play sound"));
 	return false;
 }
 
@@ -319,7 +320,7 @@ bool FUltimateControlAudioHandler::HandlePlaySoundAtLocation(const TSharedPtr<FJ
 
 	if (!Params->HasField(TEXT("location")))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: location"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: location"));
 		return false;
 	}
 	FVector Location = JsonToVector(Params->GetObjectField(TEXT("location")));
@@ -327,14 +328,14 @@ bool FUltimateControlAudioHandler::HandlePlaySoundAtLocation(const TSharedPtr<FJ
 	USoundBase* Sound = LoadObject<USoundBase>(nullptr, *SoundPath);
 	if (!Sound)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Sound not found: %s"), *SoundPath));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Sound not found: %s"), *SoundPath));
 		return false;
 	}
 
 	UWorld* World = GEditor->GetEditorWorldContext().World();
 	if (!World)
 	{
-		Error = CreateError(-32002, TEXT("No world loaded"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No world loaded"));
 		return false;
 	}
 
@@ -364,7 +365,7 @@ bool FUltimateControlAudioHandler::HandlePlaySoundAtLocation(const TSharedPtr<FJ
 		return true;
 	}
 
-	Error = CreateError(-32002, TEXT("Failed to play sound"));
+	Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("Failed to play sound"));
 	return false;
 }
 
@@ -385,21 +386,30 @@ bool FUltimateControlAudioHandler::HandlePlaySoundAttached(const TSharedPtr<FJso
 	USoundBase* Sound = LoadObject<USoundBase>(nullptr, *SoundPath);
 	if (!Sound)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Sound not found: %s"), *SoundPath));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Sound not found: %s"), *SoundPath));
 		return false;
 	}
 
 	UWorld* World = GEditor->GetEditorWorldContext().World();
 	if (!World)
 	{
-		Error = CreateError(-32002, TEXT("No world loaded"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No world loaded"));
 		return false;
 	}
 
-	AActor* Actor = FindActorByName(World, ActorName);
+	// Find actor by label using TActorIterator
+	AActor* Actor = nullptr;
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		if (It->GetActorLabel() == ActorName || It->GetName() == ActorName)
+		{
+			Actor = *It;
+			break;
+		}
+	}
 	if (!Actor)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
 		return false;
 	}
 
@@ -429,7 +439,7 @@ bool FUltimateControlAudioHandler::HandlePlaySoundAttached(const TSharedPtr<FJso
 		return true;
 	}
 
-	Error = CreateError(-32002, TEXT("Failed to play sound"));
+	Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("Failed to play sound"));
 	return false;
 }
 
@@ -437,7 +447,7 @@ bool FUltimateControlAudioHandler::HandleStopSound(const TSharedPtr<FJsonObject>
 {
 	if (!Params->HasField(TEXT("componentId")))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: componentId"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: componentId"));
 		return false;
 	}
 	int32 ComponentId = FMath::RoundToInt(Params->GetNumberField(TEXT("componentId")));
@@ -445,7 +455,7 @@ bool FUltimateControlAudioHandler::HandleStopSound(const TSharedPtr<FJsonObject>
 	TWeakObjectPtr<UAudioComponent>* ComponentPtr = ActiveAudioComponents.Find(ComponentId);
 	if (!ComponentPtr || !ComponentPtr->IsValid())
 	{
-		Error = CreateError(-32003, TEXT("Audio component not found or expired"));
+		Error = UUltimateControlSubsystem::MakeError(-32003, TEXT("Audio component not found or expired"));
 		return false;
 	}
 
@@ -504,14 +514,14 @@ bool FUltimateControlAudioHandler::HandleSetAudioComponentVolume(const TSharedPt
 {
 	if (!Params->HasField(TEXT("componentId")))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: componentId"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: componentId"));
 		return false;
 	}
 	int32 ComponentId = FMath::RoundToInt(Params->GetNumberField(TEXT("componentId")));
 
 	if (!Params->HasField(TEXT("volume")))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: volume"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: volume"));
 		return false;
 	}
 	float Volume = Params->GetNumberField(TEXT("volume"));
@@ -519,7 +529,7 @@ bool FUltimateControlAudioHandler::HandleSetAudioComponentVolume(const TSharedPt
 	TWeakObjectPtr<UAudioComponent>* ComponentPtr = ActiveAudioComponents.Find(ComponentId);
 	if (!ComponentPtr || !ComponentPtr->IsValid())
 	{
-		Error = CreateError(-32003, TEXT("Audio component not found or expired"));
+		Error = UUltimateControlSubsystem::MakeError(-32003, TEXT("Audio component not found or expired"));
 		return false;
 	}
 
@@ -535,14 +545,14 @@ bool FUltimateControlAudioHandler::HandleSetAudioComponentPitch(const TSharedPtr
 {
 	if (!Params->HasField(TEXT("componentId")))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: componentId"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: componentId"));
 		return false;
 	}
 	int32 ComponentId = FMath::RoundToInt(Params->GetNumberField(TEXT("componentId")));
 
 	if (!Params->HasField(TEXT("pitch")))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: pitch"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: pitch"));
 		return false;
 	}
 	float Pitch = Params->GetNumberField(TEXT("pitch"));
@@ -550,7 +560,7 @@ bool FUltimateControlAudioHandler::HandleSetAudioComponentPitch(const TSharedPtr
 	TWeakObjectPtr<UAudioComponent>* ComponentPtr = ActiveAudioComponents.Find(ComponentId);
 	if (!ComponentPtr || !ComponentPtr->IsValid())
 	{
-		Error = CreateError(-32003, TEXT("Audio component not found or expired"));
+		Error = UUltimateControlSubsystem::MakeError(-32003, TEXT("Audio component not found or expired"));
 		return false;
 	}
 
@@ -566,14 +576,14 @@ bool FUltimateControlAudioHandler::HandleFadeAudioComponent(const TSharedPtr<FJs
 {
 	if (!Params->HasField(TEXT("componentId")))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameter: componentId"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameter: componentId"));
 		return false;
 	}
 	int32 ComponentId = FMath::RoundToInt(Params->GetNumberField(TEXT("componentId")));
 
 	if (!Params->HasField(TEXT("targetVolume")) || !Params->HasField(TEXT("duration")))
 	{
-		Error = CreateError(-32602, TEXT("Missing required parameters: targetVolume, duration"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("Missing required parameters: targetVolume, duration"));
 		return false;
 	}
 	float TargetVolume = Params->GetNumberField(TEXT("targetVolume"));
@@ -582,7 +592,7 @@ bool FUltimateControlAudioHandler::HandleFadeAudioComponent(const TSharedPtr<FJs
 	TWeakObjectPtr<UAudioComponent>* ComponentPtr = ActiveAudioComponents.Find(ComponentId);
 	if (!ComponentPtr || !ComponentPtr->IsValid())
 	{
-		Error = CreateError(-32003, TEXT("Audio component not found or expired"));
+		Error = UUltimateControlSubsystem::MakeError(-32003, TEXT("Audio component not found or expired"));
 		return false;
 	}
 
@@ -608,7 +618,7 @@ bool FUltimateControlAudioHandler::HandleGetMasterVolume(const TSharedPtr<FJsonO
 bool FUltimateControlAudioHandler::HandleSetMasterVolume(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
 {
 	// Setting master volume typically requires platform-specific audio API
-	Error = CreateError(-32002, TEXT("Setting master volume via API not fully supported. Use Sound Mix instead."));
+	Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("Setting master volume via API not fully supported. Use Sound Mix instead."));
 	return false;
 }
 
@@ -657,14 +667,14 @@ bool FUltimateControlAudioHandler::HandlePushSoundMix(const TSharedPtr<FJsonObje
 	USoundMix* SoundMix = LoadObject<USoundMix>(nullptr, *MixPath);
 	if (!SoundMix)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Sound mix not found: %s"), *MixPath));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Sound mix not found: %s"), *MixPath));
 		return false;
 	}
 
 	UWorld* World = GEditor->GetEditorWorldContext().World();
 	if (!World)
 	{
-		Error = CreateError(-32002, TEXT("No world loaded"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No world loaded"));
 		return false;
 	}
 
@@ -687,14 +697,14 @@ bool FUltimateControlAudioHandler::HandlePopSoundMix(const TSharedPtr<FJsonObjec
 	USoundMix* SoundMix = LoadObject<USoundMix>(nullptr, *MixPath);
 	if (!SoundMix)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Sound mix not found: %s"), *MixPath));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Sound mix not found: %s"), *MixPath));
 		return false;
 	}
 
 	UWorld* World = GEditor->GetEditorWorldContext().World();
 	if (!World)
 	{
-		Error = CreateError(-32002, TEXT("No world loaded"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No world loaded"));
 		return false;
 	}
 
@@ -711,7 +721,7 @@ bool FUltimateControlAudioHandler::HandleClearSoundMixes(const TSharedPtr<FJsonO
 	UWorld* World = GEditor->GetEditorWorldContext().World();
 	if (!World)
 	{
-		Error = CreateError(-32002, TEXT("No world loaded"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No world loaded"));
 		return false;
 	}
 
@@ -740,14 +750,14 @@ bool FUltimateControlAudioHandler::HandleSetSoundMixClassOverride(const TSharedP
 	USoundMix* SoundMix = LoadObject<USoundMix>(nullptr, *MixPath);
 	if (!SoundMix)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Sound mix not found: %s"), *MixPath));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Sound mix not found: %s"), *MixPath));
 		return false;
 	}
 
 	USoundClass* SoundClass = LoadObject<USoundClass>(nullptr, *ClassPath);
 	if (!SoundClass)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Sound class not found: %s"), *ClassPath));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Sound class not found: %s"), *ClassPath));
 		return false;
 	}
 
@@ -772,7 +782,7 @@ bool FUltimateControlAudioHandler::HandleSetSoundMixClassOverride(const TSharedP
 	UWorld* World = GEditor->GetEditorWorldContext().World();
 	if (!World)
 	{
-		Error = CreateError(-32002, TEXT("No world loaded"));
+		Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("No world loaded"));
 		return false;
 	}
 
@@ -795,7 +805,7 @@ bool FUltimateControlAudioHandler::HandleGetSoundClassVolume(const TSharedPtr<FJ
 	USoundClass* SoundClass = LoadObject<USoundClass>(nullptr, *ClassPath);
 	if (!SoundClass)
 	{
-		Error = CreateError(-32003, FString::Printf(TEXT("Sound class not found: %s"), *ClassPath));
+		Error = UUltimateControlSubsystem::MakeError(-32003, FString::Printf(TEXT("Sound class not found: %s"), *ClassPath));
 		return false;
 	}
 
@@ -809,7 +819,7 @@ bool FUltimateControlAudioHandler::HandleGetSoundClassVolume(const TSharedPtr<FJ
 bool FUltimateControlAudioHandler::HandleSetSoundClassVolume(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
 {
 	// Setting sound class volume requires modifying the asset which may not be desired
-	Error = CreateError(-32002, TEXT("Modifying sound class properties directly not recommended. Use Sound Mix instead."));
+	Error = UUltimateControlSubsystem::MakeError(-32002, TEXT("Modifying sound class properties directly not recommended. Use Sound Mix instead."));
 	return false;
 }
 

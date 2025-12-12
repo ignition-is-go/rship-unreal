@@ -4,7 +4,8 @@
 #include "UltimateControl.h"
 
 #include "Editor.h"
-#include "EditorPlaySettings.h"
+// TODO(nf): EditorPlaySettings.h may have moved in UE 5.6
+// #include "EditorPlaySettings.h"
 #include "LevelEditor.h"
 #include "Settings/LevelEditorPlaySettings.h"
 #include "GameFramework/PlayerController.h"

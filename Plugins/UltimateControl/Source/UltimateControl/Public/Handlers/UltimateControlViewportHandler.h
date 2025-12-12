@@ -14,7 +14,7 @@ class FLevelEditorViewportClient;
 class ULTIMATECONTROL_API FUltimateControlViewportHandler : public FUltimateControlHandlerBase
 {
 public:
-	virtual void RegisterMethods(TMap<FString, FJsonRpcMethodHandler>& Methods) override;
+	using FUltimateControlHandlerBase::FUltimateControlHandlerBase;
 
 private:
 	// Viewport listing and info

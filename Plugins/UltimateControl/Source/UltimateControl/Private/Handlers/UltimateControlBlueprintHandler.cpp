@@ -19,7 +19,7 @@
 #include "Kismet2/KismetEditorUtilities.h"
 #include "KismetCompiler.h"
 #include "AssetRegistry/AssetRegistryModule.h"
-#include "EditorAssetLibrary.h"
+#include "EditorScriptingUtilities/Public/EditorAssetLibrary.h"
 #include "Factories/BlueprintFactory.h"
 #include "AssetToolsModule.h"
 

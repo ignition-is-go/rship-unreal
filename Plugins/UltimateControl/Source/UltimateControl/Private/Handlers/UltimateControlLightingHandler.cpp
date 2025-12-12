@@ -16,7 +16,8 @@
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Engine/TextureLightProfile.h"
 #include "Materials/MaterialInterface.h"
-#include "LightmassCharacterIndirectDetailVolume.h"
+// TODO(nf): LightmassCharacterIndirectDetailVolume.h does not exist in UE 5.6
+// #include "LightmassCharacterIndirectDetailVolume.h"
 
 void FUltimateControlLightingHandler::RegisterMethods(TMap<FString, FJsonRpcMethodHandler>& Methods)
 {

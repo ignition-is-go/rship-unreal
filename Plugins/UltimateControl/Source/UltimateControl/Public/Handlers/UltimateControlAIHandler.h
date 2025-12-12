@@ -17,7 +17,7 @@ class ANavigationData;
 class ULTIMATECONTROL_API FUltimateControlAIHandler : public FUltimateControlHandlerBase
 {
 public:
-	virtual void RegisterMethods(TMap<FString, FJsonRpcMethodHandler>& Methods) override;
+	using FUltimateControlHandlerBase::FUltimateControlHandlerBase;
 
 private:
 	// Navigation mesh

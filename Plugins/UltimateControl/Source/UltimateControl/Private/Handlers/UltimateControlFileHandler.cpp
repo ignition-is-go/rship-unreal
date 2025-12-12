@@ -69,13 +69,14 @@ bool FUltimateControlFileHandler::ValidatePath(const FString& Path, FString& Out
 	OutResolvedPath = Path;
 
 	// Handle relative paths - make them relative to project
-	if (!FPaths::IsRelativePath(Path))
+	// Note: IsRelativePath was deprecated in UE 5.6, use IsRelative instead
+	if (FPaths::IsRelative(Path))
 	{
-		OutResolvedPath = Path;
+		OutResolvedPath = FPaths::ProjectDir() / Path;
 	}
 	else
 	{
-		OutResolvedPath = FPaths::ProjectDir() / Path;
+		OutResolvedPath = Path;
 	}
 
 	// Normalize the path

@@ -16,7 +16,7 @@ class ANiagaraActor;
 class ULTIMATECONTROL_API FUltimateControlNiagaraHandler : public FUltimateControlHandlerBase
 {
 public:
-	virtual void RegisterMethods(TMap<FString, FJsonRpcMethodHandler>& Methods) override;
+	using FUltimateControlHandlerBase::FUltimateControlHandlerBase;
 
 private:
 	// System listing and info

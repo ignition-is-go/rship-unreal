@@ -159,7 +159,7 @@ bool FUltimateControlSourceControlHandler::HandleConnect(const TSharedPtr<FJsonO
 	ISourceControlProvider* Provider = GetProvider();
 	if (!Provider)
 	{
-		Error = CreateError(-32603, TEXT("Source control is not enabled"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Source control is not enabled"));
 		return true;
 	}
 
@@ -178,7 +178,7 @@ bool FUltimateControlSourceControlHandler::HandleGetFileStatus(const TSharedPtr<
 	FString FilePath = Params->GetStringField(TEXT("filePath"));
 	if (FilePath.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("filePath parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("filePath parameter required"));
 		return true;
 	}
 
@@ -191,7 +191,7 @@ bool FUltimateControlSourceControlHandler::HandleGetFilesStatus(const TSharedPtr
 	const TArray<TSharedPtr<FJsonValue>>* FilePaths;
 	if (!Params->TryGetArrayField(TEXT("filePaths"), FilePaths))
 	{
-		Error = CreateError(-32602, TEXT("filePaths array parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("filePaths array parameter required"));
 		return true;
 	}
 
@@ -211,14 +211,14 @@ bool FUltimateControlSourceControlHandler::HandleRefreshStatus(const TSharedPtr<
 	FString FilePath = Params->GetStringField(TEXT("filePath"));
 	if (FilePath.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("filePath parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("filePath parameter required"));
 		return true;
 	}
 
 	ISourceControlProvider* Provider = GetProvider();
 	if (!Provider)
 	{
-		Error = CreateError(-32603, TEXT("Source control is not enabled"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Source control is not enabled"));
 		return true;
 	}
 
@@ -239,14 +239,14 @@ bool FUltimateControlSourceControlHandler::HandleCheckOut(const TSharedPtr<FJson
 	FString FilePath = Params->GetStringField(TEXT("filePath"));
 	if (FilePath.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("filePath parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("filePath parameter required"));
 		return true;
 	}
 
 	ISourceControlProvider* Provider = GetProvider();
 	if (!Provider)
 	{
-		Error = CreateError(-32603, TEXT("Source control is not enabled"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Source control is not enabled"));
 		return true;
 	}
 
@@ -269,14 +269,14 @@ bool FUltimateControlSourceControlHandler::HandleCheckIn(const TSharedPtr<FJsonO
 
 	if (FilePath.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("filePath parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("filePath parameter required"));
 		return true;
 	}
 
 	ISourceControlProvider* Provider = GetProvider();
 	if (!Provider)
 	{
-		Error = CreateError(-32603, TEXT("Source control is not enabled"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Source control is not enabled"));
 		return true;
 	}
 
@@ -300,14 +300,14 @@ bool FUltimateControlSourceControlHandler::HandleRevert(const TSharedPtr<FJsonOb
 	FString FilePath = Params->GetStringField(TEXT("filePath"));
 	if (FilePath.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("filePath parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("filePath parameter required"));
 		return true;
 	}
 
 	ISourceControlProvider* Provider = GetProvider();
 	if (!Provider)
 	{
-		Error = CreateError(-32603, TEXT("Source control is not enabled"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Source control is not enabled"));
 		return true;
 	}
 
@@ -328,14 +328,14 @@ bool FUltimateControlSourceControlHandler::HandleSync(const TSharedPtr<FJsonObje
 	FString FilePath = Params->GetStringField(TEXT("filePath"));
 	if (FilePath.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("filePath parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("filePath parameter required"));
 		return true;
 	}
 
 	ISourceControlProvider* Provider = GetProvider();
 	if (!Provider)
 	{
-		Error = CreateError(-32603, TEXT("Source control is not enabled"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Source control is not enabled"));
 		return true;
 	}
 
@@ -356,14 +356,14 @@ bool FUltimateControlSourceControlHandler::HandleMarkForAdd(const TSharedPtr<FJs
 	FString FilePath = Params->GetStringField(TEXT("filePath"));
 	if (FilePath.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("filePath parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("filePath parameter required"));
 		return true;
 	}
 
 	ISourceControlProvider* Provider = GetProvider();
 	if (!Provider)
 	{
-		Error = CreateError(-32603, TEXT("Source control is not enabled"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Source control is not enabled"));
 		return true;
 	}
 
@@ -384,14 +384,14 @@ bool FUltimateControlSourceControlHandler::HandleMarkForDelete(const TSharedPtr<
 	FString FilePath = Params->GetStringField(TEXT("filePath"));
 	if (FilePath.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("filePath parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("filePath parameter required"));
 		return true;
 	}
 
 	ISourceControlProvider* Provider = GetProvider();
 	if (!Provider)
 	{
-		Error = CreateError(-32603, TEXT("Source control is not enabled"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Source control is not enabled"));
 		return true;
 	}
 
@@ -414,14 +414,14 @@ bool FUltimateControlSourceControlHandler::HandleMove(const TSharedPtr<FJsonObje
 
 	if (SourcePath.IsEmpty() || DestPath.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("sourcePath and destPath parameters required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("sourcePath and destPath parameters required"));
 		return true;
 	}
 
 	ISourceControlProvider* Provider = GetProvider();
 	if (!Provider)
 	{
-		Error = CreateError(-32603, TEXT("Source control is not enabled"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Source control is not enabled"));
 		return true;
 	}
 
@@ -445,14 +445,14 @@ bool FUltimateControlSourceControlHandler::HandleGetHistory(const TSharedPtr<FJs
 	FString FilePath = Params->GetStringField(TEXT("filePath"));
 	if (FilePath.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("filePath parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("filePath parameter required"));
 		return true;
 	}
 
 	ISourceControlProvider* Provider = GetProvider();
 	if (!Provider)
 	{
-		Error = CreateError(-32603, TEXT("Source control is not enabled"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Source control is not enabled"));
 		return true;
 	}
 
@@ -497,7 +497,7 @@ bool FUltimateControlSourceControlHandler::HandleDiff(const TSharedPtr<FJsonObje
 	FString FilePath = Params->GetStringField(TEXT("filePath"));
 	if (FilePath.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("filePath parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("filePath parameter required"));
 		return true;
 	}
 
@@ -525,7 +525,7 @@ bool FUltimateControlSourceControlHandler::HandleListChangelists(const TSharedPt
 	ISourceControlProvider* Provider = GetProvider();
 	if (!Provider)
 	{
-		Error = CreateError(-32603, TEXT("Source control is not enabled"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Source control is not enabled"));
 		return true;
 	}
 
@@ -562,7 +562,7 @@ bool FUltimateControlSourceControlHandler::HandleCreateChangelist(const TSharedP
 	ISourceControlProvider* Provider = GetProvider();
 	if (!Provider)
 	{
-		Error = CreateError(-32603, TEXT("Source control is not enabled"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Source control is not enabled"));
 		return true;
 	}
 

@@ -132,7 +132,7 @@ bool FUltimateControlOutlinerHandler::HandleGetHierarchy(const TSharedPtr<FJsonO
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -158,14 +158,14 @@ bool FUltimateControlOutlinerHandler::HandleGetActorHierarchy(const TSharedPtr<F
 	FString ActorName = Params->GetStringField(TEXT("actorName"));
 	if (ActorName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("actorName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("actorName parameter required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -181,7 +181,7 @@ bool FUltimateControlOutlinerHandler::HandleGetActorHierarchy(const TSharedPtr<F
 
 	if (!FoundActor)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
 		return true;
 	}
 
@@ -194,14 +194,14 @@ bool FUltimateControlOutlinerHandler::HandleGetParent(const TSharedPtr<FJsonObje
 	FString ActorName = Params->GetStringField(TEXT("actorName"));
 	if (ActorName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("actorName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("actorName parameter required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -217,7 +217,7 @@ bool FUltimateControlOutlinerHandler::HandleGetParent(const TSharedPtr<FJsonObje
 
 	if (!FoundActor)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
 		return true;
 	}
 
@@ -246,14 +246,14 @@ bool FUltimateControlOutlinerHandler::HandleSetParent(const TSharedPtr<FJsonObje
 
 	if (ActorName.IsEmpty() || ParentName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("actorName and parentName parameters required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("actorName and parentName parameters required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -269,13 +269,13 @@ bool FUltimateControlOutlinerHandler::HandleSetParent(const TSharedPtr<FJsonObje
 
 	if (!ChildActor)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Child actor not found: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Child actor not found: %s"), *ActorName));
 		return true;
 	}
 
 	if (!ParentActor)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Parent actor not found: %s"), *ParentName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Parent actor not found: %s"), *ParentName));
 		return true;
 	}
 
@@ -293,14 +293,14 @@ bool FUltimateControlOutlinerHandler::HandleDetachFromParent(const TSharedPtr<FJ
 	FString ActorName = Params->GetStringField(TEXT("actorName"));
 	if (ActorName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("actorName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("actorName parameter required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -316,7 +316,7 @@ bool FUltimateControlOutlinerHandler::HandleDetachFromParent(const TSharedPtr<FJ
 
 	if (!FoundActor)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
 		return true;
 	}
 
@@ -334,14 +334,14 @@ bool FUltimateControlOutlinerHandler::HandleGetChildren(const TSharedPtr<FJsonOb
 	FString ActorName = Params->GetStringField(TEXT("actorName"));
 	if (ActorName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("actorName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("actorName parameter required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -357,7 +357,7 @@ bool FUltimateControlOutlinerHandler::HandleGetChildren(const TSharedPtr<FJsonOb
 
 	if (!FoundActor)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
 		return true;
 	}
 
@@ -382,14 +382,14 @@ bool FUltimateControlOutlinerHandler::HandleGetAllDescendants(const TSharedPtr<F
 	FString ActorName = Params->GetStringField(TEXT("actorName"));
 	if (ActorName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("actorName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("actorName parameter required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -405,7 +405,7 @@ bool FUltimateControlOutlinerHandler::HandleGetAllDescendants(const TSharedPtr<F
 
 	if (!FoundActor)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
 		return true;
 	}
 
@@ -430,7 +430,7 @@ bool FUltimateControlOutlinerHandler::HandleListFolders(const TSharedPtr<FJsonOb
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -463,7 +463,7 @@ bool FUltimateControlOutlinerHandler::HandleCreateFolder(const TSharedPtr<FJsonO
 	FString FolderPath = Params->GetStringField(TEXT("path"));
 	if (FolderPath.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("path parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("path parameter required"));
 		return true;
 	}
 
@@ -482,14 +482,14 @@ bool FUltimateControlOutlinerHandler::HandleDeleteFolder(const TSharedPtr<FJsonO
 	FString FolderPath = Params->GetStringField(TEXT("path"));
 	if (FolderPath.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("path parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("path parameter required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -518,14 +518,14 @@ bool FUltimateControlOutlinerHandler::HandleRenameFolder(const TSharedPtr<FJsonO
 
 	if (OldPath.IsEmpty() || NewPath.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("oldPath and newPath parameters required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("oldPath and newPath parameters required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -553,14 +553,14 @@ bool FUltimateControlOutlinerHandler::HandleGetActorFolder(const TSharedPtr<FJso
 	FString ActorName = Params->GetStringField(TEXT("actorName"));
 	if (ActorName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("actorName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("actorName parameter required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -576,7 +576,7 @@ bool FUltimateControlOutlinerHandler::HandleGetActorFolder(const TSharedPtr<FJso
 
 	if (!FoundActor)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
 		return true;
 	}
 
@@ -596,14 +596,14 @@ bool FUltimateControlOutlinerHandler::HandleSetActorFolder(const TSharedPtr<FJso
 
 	if (ActorName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("actorName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("actorName parameter required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -619,7 +619,7 @@ bool FUltimateControlOutlinerHandler::HandleSetActorFolder(const TSharedPtr<FJso
 
 	if (!FoundActor)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
 		return true;
 	}
 
@@ -637,14 +637,14 @@ bool FUltimateControlOutlinerHandler::HandleGetActorsInFolder(const TSharedPtr<F
 	FString FolderPath = Params->GetStringField(TEXT("folder"));
 	if (FolderPath.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("folder parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("folder parameter required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -672,14 +672,14 @@ bool FUltimateControlOutlinerHandler::HandleGetActorLabel(const TSharedPtr<FJson
 	FString ActorName = Params->GetStringField(TEXT("actorName"));
 	if (ActorName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("actorName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("actorName parameter required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -695,7 +695,7 @@ bool FUltimateControlOutlinerHandler::HandleGetActorLabel(const TSharedPtr<FJson
 
 	if (!FoundActor)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
 		return true;
 	}
 
@@ -710,14 +710,14 @@ bool FUltimateControlOutlinerHandler::HandleSetActorLabel(const TSharedPtr<FJson
 
 	if (ActorName.IsEmpty() || NewLabel.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("actorName and label parameters required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("actorName and label parameters required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -733,7 +733,7 @@ bool FUltimateControlOutlinerHandler::HandleSetActorLabel(const TSharedPtr<FJson
 
 	if (!FoundActor)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
 		return true;
 	}
 
@@ -751,14 +751,14 @@ bool FUltimateControlOutlinerHandler::HandleGetActorHiddenInEditor(const TShared
 	FString ActorName = Params->GetStringField(TEXT("actorName"));
 	if (ActorName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("actorName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("actorName parameter required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -774,7 +774,7 @@ bool FUltimateControlOutlinerHandler::HandleGetActorHiddenInEditor(const TShared
 
 	if (!FoundActor)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
 		return true;
 	}
 
@@ -789,14 +789,14 @@ bool FUltimateControlOutlinerHandler::HandleSetActorHiddenInEditor(const TShared
 
 	if (ActorName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("actorName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("actorName parameter required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -812,7 +812,7 @@ bool FUltimateControlOutlinerHandler::HandleSetActorHiddenInEditor(const TShared
 
 	if (!FoundActor)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
 		return true;
 	}
 
@@ -830,14 +830,14 @@ bool FUltimateControlOutlinerHandler::HandleGetActorHiddenInGame(const TSharedPt
 	FString ActorName = Params->GetStringField(TEXT("actorName"));
 	if (ActorName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("actorName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("actorName parameter required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -853,7 +853,7 @@ bool FUltimateControlOutlinerHandler::HandleGetActorHiddenInGame(const TSharedPt
 
 	if (!FoundActor)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
 		return true;
 	}
 
@@ -868,14 +868,14 @@ bool FUltimateControlOutlinerHandler::HandleSetActorHiddenInGame(const TSharedPt
 
 	if (ActorName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("actorName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("actorName parameter required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -891,7 +891,7 @@ bool FUltimateControlOutlinerHandler::HandleSetActorHiddenInGame(const TSharedPt
 
 	if (!FoundActor)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
 		return true;
 	}
 
@@ -909,14 +909,14 @@ bool FUltimateControlOutlinerHandler::HandleGetActorLocked(const TSharedPtr<FJso
 	FString ActorName = Params->GetStringField(TEXT("actorName"));
 	if (ActorName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("actorName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("actorName parameter required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -932,7 +932,7 @@ bool FUltimateControlOutlinerHandler::HandleGetActorLocked(const TSharedPtr<FJso
 
 	if (!FoundActor)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
 		return true;
 	}
 
@@ -947,14 +947,14 @@ bool FUltimateControlOutlinerHandler::HandleSetActorLocked(const TSharedPtr<FJso
 
 	if (ActorName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("actorName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("actorName parameter required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -970,7 +970,7 @@ bool FUltimateControlOutlinerHandler::HandleSetActorLocked(const TSharedPtr<FJso
 
 	if (!FoundActor)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
 		return true;
 	}
 
@@ -988,14 +988,14 @@ bool FUltimateControlOutlinerHandler::HandleGetActorTags(const TSharedPtr<FJsonO
 	FString ActorName = Params->GetStringField(TEXT("actorName"));
 	if (ActorName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("actorName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("actorName parameter required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -1011,7 +1011,7 @@ bool FUltimateControlOutlinerHandler::HandleGetActorTags(const TSharedPtr<FJsonO
 
 	if (!FoundActor)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
 		return true;
 	}
 
@@ -1032,14 +1032,14 @@ bool FUltimateControlOutlinerHandler::HandleAddActorTag(const TSharedPtr<FJsonOb
 
 	if (ActorName.IsEmpty() || Tag.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("actorName and tag parameters required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("actorName and tag parameters required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -1055,7 +1055,7 @@ bool FUltimateControlOutlinerHandler::HandleAddActorTag(const TSharedPtr<FJsonOb
 
 	if (!FoundActor)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
 		return true;
 	}
 
@@ -1075,14 +1075,14 @@ bool FUltimateControlOutlinerHandler::HandleRemoveActorTag(const TSharedPtr<FJso
 
 	if (ActorName.IsEmpty() || Tag.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("actorName and tag parameters required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("actorName and tag parameters required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -1098,7 +1098,7 @@ bool FUltimateControlOutlinerHandler::HandleRemoveActorTag(const TSharedPtr<FJso
 
 	if (!FoundActor)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
 		return true;
 	}
 
@@ -1116,14 +1116,14 @@ bool FUltimateControlOutlinerHandler::HandleFindActorsByTag(const TSharedPtr<FJs
 	FString Tag = Params->GetStringField(TEXT("tag"));
 	if (Tag.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("tag parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("tag parameter required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -1151,7 +1151,7 @@ bool FUltimateControlOutlinerHandler::HandleListLayers(const TSharedPtr<FJsonObj
 	ULayersSubsystem* LayersSubsystem = GEditor->GetEditorSubsystem<ULayersSubsystem>();
 	if (!LayersSubsystem)
 	{
-		Error = CreateError(-32603, TEXT("Layers subsystem not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Layers subsystem not available"));
 		return true;
 	}
 
@@ -1164,7 +1164,14 @@ bool FUltimateControlOutlinerHandler::HandleListLayers(const TSharedPtr<FJsonObj
 	{
 		TSharedPtr<FJsonObject> LayerJson = MakeShared<FJsonObject>();
 		LayerJson->SetStringField(TEXT("name"), LayerName.ToString());
-		LayerJson->SetBoolField(TEXT("visible"), LayersSubsystem->IsLayerVisible(LayerName));
+		// Note: IsLayerVisible signature may have changed in UE 5.6
+		// Using GetLayerVisibility or checking layer state differently
+		bool bIsVisible = true;
+		if (UWorld* World = GEditor->GetEditorWorldContext().World())
+		{
+			bIsVisible = LayersSubsystem->IsLayerVisible(LayerName);
+		}
+		LayerJson->SetBoolField(TEXT("visible"), bIsVisible);
 		LayersArray.Add(MakeShared<FJsonValueObject>(LayerJson));
 	}
 
@@ -1177,14 +1184,14 @@ bool FUltimateControlOutlinerHandler::HandleCreateLayer(const TSharedPtr<FJsonOb
 	FString LayerName = Params->GetStringField(TEXT("name"));
 	if (LayerName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("name parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("name parameter required"));
 		return true;
 	}
 
 	ULayersSubsystem* LayersSubsystem = GEditor->GetEditorSubsystem<ULayersSubsystem>();
 	if (!LayersSubsystem)
 	{
-		Error = CreateError(-32603, TEXT("Layers subsystem not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Layers subsystem not available"));
 		return true;
 	}
 
@@ -1202,14 +1209,14 @@ bool FUltimateControlOutlinerHandler::HandleDeleteLayer(const TSharedPtr<FJsonOb
 	FString LayerName = Params->GetStringField(TEXT("name"));
 	if (LayerName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("name parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("name parameter required"));
 		return true;
 	}
 
 	ULayersSubsystem* LayersSubsystem = GEditor->GetEditorSubsystem<ULayersSubsystem>();
 	if (!LayersSubsystem)
 	{
-		Error = CreateError(-32603, TEXT("Layers subsystem not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Layers subsystem not available"));
 		return true;
 	}
 
@@ -1227,14 +1234,14 @@ bool FUltimateControlOutlinerHandler::HandleGetActorLayers(const TSharedPtr<FJso
 	FString ActorName = Params->GetStringField(TEXT("actorName"));
 	if (ActorName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("actorName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("actorName parameter required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -1250,7 +1257,7 @@ bool FUltimateControlOutlinerHandler::HandleGetActorLayers(const TSharedPtr<FJso
 
 	if (!FoundActor)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
 		return true;
 	}
 
@@ -1271,14 +1278,14 @@ bool FUltimateControlOutlinerHandler::HandleAddActorToLayer(const TSharedPtr<FJs
 
 	if (ActorName.IsEmpty() || LayerName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("actorName and layerName parameters required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("actorName and layerName parameters required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -1294,7 +1301,7 @@ bool FUltimateControlOutlinerHandler::HandleAddActorToLayer(const TSharedPtr<FJs
 
 	if (!FoundActor)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
 		return true;
 	}
 
@@ -1318,14 +1325,14 @@ bool FUltimateControlOutlinerHandler::HandleRemoveActorFromLayer(const TSharedPt
 
 	if (ActorName.IsEmpty() || LayerName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("actorName and layerName parameters required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("actorName and layerName parameters required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -1341,7 +1348,7 @@ bool FUltimateControlOutlinerHandler::HandleRemoveActorFromLayer(const TSharedPt
 
 	if (!FoundActor)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Actor not found: %s"), *ActorName));
 		return true;
 	}
 
@@ -1365,14 +1372,14 @@ bool FUltimateControlOutlinerHandler::HandleSetLayerVisibility(const TSharedPtr<
 
 	if (LayerName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("layerName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("layerName parameter required"));
 		return true;
 	}
 
 	ULayersSubsystem* LayersSubsystem = GEditor->GetEditorSubsystem<ULayersSubsystem>();
 	if (!LayersSubsystem)
 	{
-		Error = CreateError(-32603, TEXT("Layers subsystem not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Layers subsystem not available"));
 		return true;
 	}
 
@@ -1390,14 +1397,14 @@ bool FUltimateControlOutlinerHandler::HandleGroupActors(const TSharedPtr<FJsonOb
 	const TArray<TSharedPtr<FJsonValue>>* ActorNames;
 	if (!Params->TryGetArrayField(TEXT("actorNames"), ActorNames))
 	{
-		Error = CreateError(-32602, TEXT("actorNames array parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("actorNames array parameter required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -1417,7 +1424,7 @@ bool FUltimateControlOutlinerHandler::HandleGroupActors(const TSharedPtr<FJsonOb
 
 	if (ActorsToGroup.Num() < 2)
 	{
-		Error = CreateError(-32602, TEXT("At least 2 actors required for grouping"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("At least 2 actors required for grouping"));
 		return true;
 	}
 
@@ -1440,14 +1447,14 @@ bool FUltimateControlOutlinerHandler::HandleUngroupActors(const TSharedPtr<FJson
 	FString GroupName = Params->GetStringField(TEXT("groupName"));
 	if (GroupName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("groupName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("groupName parameter required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -1463,7 +1470,7 @@ bool FUltimateControlOutlinerHandler::HandleUngroupActors(const TSharedPtr<FJson
 
 	if (!GroupActor)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Group not found: %s"), *GroupName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Group not found: %s"), *GroupName));
 		return true;
 	}
 
@@ -1481,14 +1488,14 @@ bool FUltimateControlOutlinerHandler::HandleGetGroupMembers(const TSharedPtr<FJs
 	FString GroupName = Params->GetStringField(TEXT("groupName"));
 	if (GroupName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("groupName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("groupName parameter required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -1504,7 +1511,7 @@ bool FUltimateControlOutlinerHandler::HandleGetGroupMembers(const TSharedPtr<FJs
 
 	if (!GroupActor)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Group not found: %s"), *GroupName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Group not found: %s"), *GroupName));
 		return true;
 	}
 
@@ -1533,14 +1540,14 @@ bool FUltimateControlOutlinerHandler::HandleLockGroup(const TSharedPtr<FJsonObje
 	FString GroupName = Params->GetStringField(TEXT("groupName"));
 	if (GroupName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("groupName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("groupName parameter required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -1556,7 +1563,7 @@ bool FUltimateControlOutlinerHandler::HandleLockGroup(const TSharedPtr<FJsonObje
 
 	if (!GroupActor)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Group not found: %s"), *GroupName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Group not found: %s"), *GroupName));
 		return true;
 	}
 
@@ -1574,14 +1581,14 @@ bool FUltimateControlOutlinerHandler::HandleUnlockGroup(const TSharedPtr<FJsonOb
 	FString GroupName = Params->GetStringField(TEXT("groupName"));
 	if (GroupName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("groupName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("groupName parameter required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -1597,7 +1604,7 @@ bool FUltimateControlOutlinerHandler::HandleUnlockGroup(const TSharedPtr<FJsonOb
 
 	if (!GroupActor)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Group not found: %s"), *GroupName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Group not found: %s"), *GroupName));
 		return true;
 	}
 
@@ -1615,14 +1622,14 @@ bool FUltimateControlOutlinerHandler::HandleSearchActors(const TSharedPtr<FJsonO
 	FString Query = Params->GetStringField(TEXT("query"));
 	if (Query.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("query parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("query parameter required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -1654,14 +1661,14 @@ bool FUltimateControlOutlinerHandler::HandleFilterActorsByClass(const TSharedPtr
 	FString ClassName = Params->GetStringField(TEXT("className"));
 	if (ClassName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("className parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("className parameter required"));
 		return true;
 	}
 
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 

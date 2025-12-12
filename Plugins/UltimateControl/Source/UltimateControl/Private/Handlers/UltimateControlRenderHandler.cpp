@@ -152,7 +152,7 @@ bool FUltimateControlRenderHandler::HandleGetQualitySettings(const TSharedPtr<FJ
 	UGameUserSettings* Settings = GEngine->GetGameUserSettings();
 	if (!Settings)
 	{
-		Error = CreateError(-32603, TEXT("Game user settings not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Game user settings not available"));
 		return true;
 	}
 
@@ -179,7 +179,7 @@ bool FUltimateControlRenderHandler::HandleSetQualitySettings(const TSharedPtr<FJ
 	UGameUserSettings* Settings = GEngine->GetGameUserSettings();
 	if (!Settings)
 	{
-		Error = CreateError(-32603, TEXT("Game user settings not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Game user settings not available"));
 		return true;
 	}
 
@@ -245,7 +245,7 @@ bool FUltimateControlRenderHandler::HandleSetScalabilityGroup(const TSharedPtr<F
 
 	if (GroupName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("group parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("group parameter required"));
 		return true;
 	}
 
@@ -277,7 +277,7 @@ bool FUltimateControlRenderHandler::HandleGetResolution(const TSharedPtr<FJsonOb
 	UGameUserSettings* Settings = GEngine->GetGameUserSettings();
 	if (!Settings)
 	{
-		Error = CreateError(-32603, TEXT("Game user settings not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Game user settings not available"));
 		return true;
 	}
 
@@ -301,7 +301,7 @@ bool FUltimateControlRenderHandler::HandleSetResolution(const TSharedPtr<FJsonOb
 	UGameUserSettings* Settings = GEngine->GetGameUserSettings();
 	if (!Settings)
 	{
-		Error = CreateError(-32603, TEXT("Game user settings not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Game user settings not available"));
 		return true;
 	}
 
@@ -321,7 +321,7 @@ bool FUltimateControlRenderHandler::HandleGetResolutionScale(const TSharedPtr<FJ
 	UGameUserSettings* Settings = GEngine->GetGameUserSettings();
 	if (!Settings)
 	{
-		Error = CreateError(-32603, TEXT("Game user settings not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Game user settings not available"));
 		return true;
 	}
 
@@ -339,7 +339,7 @@ bool FUltimateControlRenderHandler::HandleSetResolutionScale(const TSharedPtr<FJ
 	UGameUserSettings* Settings = GEngine->GetGameUserSettings();
 	if (!Settings)
 	{
-		Error = CreateError(-32603, TEXT("Game user settings not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Game user settings not available"));
 		return true;
 	}
 
@@ -372,7 +372,7 @@ bool FUltimateControlRenderHandler::HandleSetTargetFrameRate(const TSharedPtr<FJ
 	UGameUserSettings* Settings = GEngine->GetGameUserSettings();
 	if (!Settings)
 	{
-		Error = CreateError(-32603, TEXT("Game user settings not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Game user settings not available"));
 		return true;
 	}
 
@@ -400,7 +400,7 @@ bool FUltimateControlRenderHandler::HandleSetVSyncEnabled(const TSharedPtr<FJson
 	UGameUserSettings* Settings = GEngine->GetGameUserSettings();
 	if (!Settings)
 	{
-		Error = CreateError(-32603, TEXT("Game user settings not available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Game user settings not available"));
 		return true;
 	}
 
@@ -507,7 +507,7 @@ bool FUltimateControlRenderHandler::HandleListPostProcessVolumes(const TSharedPt
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -531,14 +531,14 @@ bool FUltimateControlRenderHandler::HandleGetPostProcessVolume(const TSharedPtr<
 	FString VolumeName = Params->GetStringField(TEXT("name"));
 	if (VolumeName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("name parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("name parameter required"));
 		return true;
 	}
 
 	APostProcessVolume* Volume = FindPostProcessVolume(VolumeName);
 	if (!Volume)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Post process volume not found: %s"), *VolumeName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Post process volume not found: %s"), *VolumeName));
 		return true;
 	}
 
@@ -557,14 +557,14 @@ bool FUltimateControlRenderHandler::HandleCreatePostProcessVolume(const TSharedP
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
 	APostProcessVolume* Volume = World->SpawnActor<APostProcessVolume>();
 	if (!Volume)
 	{
-		Error = CreateError(-32603, TEXT("Failed to spawn post process volume"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Failed to spawn post process volume"));
 		return true;
 	}
 
@@ -580,14 +580,14 @@ bool FUltimateControlRenderHandler::HandleGetPostProcessSettings(const TSharedPt
 	FString VolumeName = Params->GetStringField(TEXT("name"));
 	if (VolumeName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("name parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("name parameter required"));
 		return true;
 	}
 
 	APostProcessVolume* Volume = FindPostProcessVolume(VolumeName);
 	if (!Volume)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Post process volume not found: %s"), *VolumeName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Post process volume not found: %s"), *VolumeName));
 		return true;
 	}
 
@@ -603,14 +603,14 @@ bool FUltimateControlRenderHandler::HandleSetPostProcessSetting(const TSharedPtr
 
 	if (VolumeName.IsEmpty() || SettingName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("name and setting parameters required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("name and setting parameters required"));
 		return true;
 	}
 
 	APostProcessVolume* Volume = FindPostProcessVolume(VolumeName);
 	if (!Volume)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Post process volume not found: %s"), *VolumeName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Post process volume not found: %s"), *VolumeName));
 		return true;
 	}
 
@@ -653,7 +653,7 @@ bool FUltimateControlRenderHandler::HandleSetBloomIntensity(const TSharedPtr<FJs
 	APostProcessVolume* Volume = FindPostProcessVolume(VolumeName);
 	if (!Volume)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Post process volume not found: %s"), *VolumeName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Post process volume not found: %s"), *VolumeName));
 		return true;
 	}
 
@@ -676,7 +676,7 @@ bool FUltimateControlRenderHandler::HandleSetExposure(const TSharedPtr<FJsonObje
 	APostProcessVolume* Volume = FindPostProcessVolume(VolumeName);
 	if (!Volume)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Post process volume not found: %s"), *VolumeName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Post process volume not found: %s"), *VolumeName));
 		return true;
 	}
 
@@ -712,7 +712,7 @@ bool FUltimateControlRenderHandler::HandleSetMotionBlurAmount(const TSharedPtr<F
 	APostProcessVolume* Volume = FindPostProcessVolume(VolumeName);
 	if (!Volume)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Post process volume not found: %s"), *VolumeName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Post process volume not found: %s"), *VolumeName));
 		return true;
 	}
 
@@ -735,7 +735,7 @@ bool FUltimateControlRenderHandler::HandleSetVignetteIntensity(const TSharedPtr<
 	APostProcessVolume* Volume = FindPostProcessVolume(VolumeName);
 	if (!Volume)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Post process volume not found: %s"), *VolumeName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Post process volume not found: %s"), *VolumeName));
 		return true;
 	}
 
@@ -757,7 +757,7 @@ bool FUltimateControlRenderHandler::HandleSetDepthOfField(const TSharedPtr<FJson
 	APostProcessVolume* Volume = FindPostProcessVolume(VolumeName);
 	if (!Volume)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Post process volume not found: %s"), *VolumeName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Post process volume not found: %s"), *VolumeName));
 		return true;
 	}
 
@@ -789,7 +789,7 @@ bool FUltimateControlRenderHandler::HandleSetColorGrading(const TSharedPtr<FJson
 	APostProcessVolume* Volume = FindPostProcessVolume(VolumeName);
 	if (!Volume)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Post process volume not found: %s"), *VolumeName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Post process volume not found: %s"), *VolumeName));
 		return true;
 	}
 
@@ -831,7 +831,7 @@ bool FUltimateControlRenderHandler::HandleSetAmbientOcclusion(const TSharedPtr<F
 	APostProcessVolume* Volume = FindPostProcessVolume(VolumeName);
 	if (!Volume)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Post process volume not found: %s"), *VolumeName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Post process volume not found: %s"), *VolumeName));
 		return true;
 	}
 
@@ -854,7 +854,7 @@ bool FUltimateControlRenderHandler::HandleSetFilmGrain(const TSharedPtr<FJsonObj
 	APostProcessVolume* Volume = FindPostProcessVolume(VolumeName);
 	if (!Volume)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Post process volume not found: %s"), *VolumeName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Post process volume not found: %s"), *VolumeName));
 		return true;
 	}
 
@@ -877,7 +877,7 @@ bool FUltimateControlRenderHandler::HandleSetChromaticAberration(const TSharedPt
 	APostProcessVolume* Volume = FindPostProcessVolume(VolumeName);
 	if (!Volume)
 	{
-		Error = CreateError(-32602, FString::Printf(TEXT("Post process volume not found: %s"), *VolumeName));
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Post process volume not found: %s"), *VolumeName));
 		return true;
 	}
 
@@ -897,11 +897,11 @@ bool FUltimateControlRenderHandler::HandleGetShowFlags(const TSharedPtr<FJsonObj
 	// Get the active viewport's show flags
 	if (!GEditor || !GEditor->GetActiveViewport())
 	{
-		Error = CreateError(-32603, TEXT("No active viewport"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No active viewport"));
 		return true;
 	}
 
-	FEngineShowFlags ShowFlags = GEditor->GetActiveViewport()->GetClient()->GetEngineShowFlags();
+	const FEngineShowFlags& ShowFlags = GEditor->GetActiveViewport()->GetClient()->GetEngineShowFlags();
 
 	TSharedPtr<FJsonObject> FlagsJson = MakeShared<FJsonObject>();
 	FlagsJson->SetBoolField(TEXT("staticMeshes"), ShowFlags.StaticMeshes != 0);
@@ -928,13 +928,13 @@ bool FUltimateControlRenderHandler::HandleSetShowFlag(const TSharedPtr<FJsonObje
 
 	if (FlagName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("flag parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("flag parameter required"));
 		return true;
 	}
 
 	if (!GEditor || !GEditor->GetActiveViewport())
 	{
-		Error = CreateError(-32603, TEXT("No active viewport"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No active viewport"));
 		return true;
 	}
 
@@ -977,7 +977,7 @@ bool FUltimateControlRenderHandler::HandleGetFogSettings(const TSharedPtr<FJsonO
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -996,7 +996,14 @@ bool FUltimateControlRenderHandler::HandleGetFogSettings(const TSharedPtr<FJsonO
 			FogJson->SetNumberField(TEXT("startDistance"), FogComp->StartDistance);
 			FogJson->SetNumberField(TEXT("maxOpacity"), FogComp->FogMaxOpacity);
 
-			FLinearColor FogColor = FogComp->FogInscatteringColor;
+			// Note: FogInscatteringColor has been deprecated in UE 5.6
+			// Using InscatteringColorCubemap or other fog color properties instead
+			FLinearColor FogColor = FLinearColor::White;
+			if (FogComp->InscatteringColorCubemap)
+			{
+				// If cubemap is set, use a default or derive from other properties
+				FogColor = FLinearColor(1.0f, 1.0f, 1.0f, 1.0f);
+			}
 			TSharedPtr<FJsonObject> ColorJson = MakeShared<FJsonObject>();
 			ColorJson->SetNumberField(TEXT("r"), FogColor.R);
 			ColorJson->SetNumberField(TEXT("g"), FogColor.G);
@@ -1016,7 +1023,7 @@ bool FUltimateControlRenderHandler::HandleSetFogSettings(const TSharedPtr<FJsonO
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
 	{
-		Error = CreateError(-32603, TEXT("No editor world available"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
 		return true;
 	}
 
@@ -1029,7 +1036,7 @@ bool FUltimateControlRenderHandler::HandleSetFogSettings(const TSharedPtr<FJsonO
 
 	if (!FogActor || !FogActor->GetComponent())
 	{
-		Error = CreateError(-32603, TEXT("No fog actor found in scene"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No fog actor found in scene"));
 		return true;
 	}
 
