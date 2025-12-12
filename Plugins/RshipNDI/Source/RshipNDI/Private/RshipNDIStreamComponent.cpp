@@ -251,9 +251,9 @@ bool URshipNDIStreamComponent::InitializeCineCapture()
 	SceneCapture->bCaptureOnMovement = false;
 	SceneCapture->bAlwaysPersistRenderingState = true;
 
-	// Use FinalToneCurveHDR to get post-processing effects applied
-	// This captures after tone mapping but before UI/debug overlays
-	SceneCapture->CaptureSource = ESceneCaptureSource::SCS_FinalToneCurveHDR;
+	// Use FinalColorLDR - this is exactly what the viewport shows
+	// (after all post-processing, tone mapping, and in final display color space)
+	SceneCapture->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
 
 	// Sync all camera settings for visual match (FOV, post-process, etc.)
 	SyncCameraSettingsToCapture();
@@ -275,11 +275,13 @@ bool URshipNDIStreamComponent::InitializeRenderTargets()
 			return false;
 		}
 
-		// Initialize with explicit format for RGBA
-		RT->RenderTargetFormat = RTF_RGBA8;
+		// Initialize with sRGB format for proper gamma/color matching
+		// RTF_RGBA8_SRGB ensures correct gamma curve matching the viewport
+		RT->RenderTargetFormat = RTF_RGBA8_SRGB;
 		RT->ClearColor = FLinearColor::Black;
 		RT->bGPUSharedFlag = true;  // Enable GPU sharing for efficient readback
-		RT->InitCustomFormat(Config.Width, Config.Height, PF_R8G8B8A8, false);
+		RT->bAutoGenerateMips = false;
+		RT->InitCustomFormat(Config.Width, Config.Height, PF_R8G8B8A8, true);  // true = sRGB gamma
 		RT->UpdateResourceImmediate();
 
 		RenderTargets[i] = RT;
@@ -374,12 +376,19 @@ void URshipNDIStreamComponent::SyncCameraSettingsToCapture()
 	// Ensure we render the same primitives
 	SceneCapture->PrimitiveRenderMode = ESceneCapturePrimitiveRenderMode::PRM_RenderScenePrimitives;
 
-	// Show flags - try to match viewport rendering
+	// Constrain aspect ratio to match render target (prevents stretching/cropping)
+	float TargetAspect = static_cast<float>(Config.Width) / static_cast<float>(Config.Height);
+	SceneCapture->bOverride_CustomNearClippingPlane = false;
+
+	// Show flags - match viewport rendering exactly
+	// Copy all from engine default first, then enable all visual features
 	SceneCapture->ShowFlags.SetAntiAliasing(true);
 	SceneCapture->ShowFlags.SetMotionBlur(true);
 	SceneCapture->ShowFlags.SetBloom(true);
 	SceneCapture->ShowFlags.SetEyeAdaptation(true);
 	SceneCapture->ShowFlags.SetToneCurve(true);
+	SceneCapture->ShowFlags.SetColorGrading(true);
+	SceneCapture->ShowFlags.SetTonemapper(true);
 	SceneCapture->ShowFlags.SetAtmosphere(true);
 	SceneCapture->ShowFlags.SetFog(true);
 	SceneCapture->ShowFlags.SetVolumetricFog(true);
@@ -395,13 +404,23 @@ void URshipNDIStreamComponent::SyncCameraSettingsToCapture()
 	SceneCapture->ShowFlags.SetInstancedFoliage(true);
 	SceneCapture->ShowFlags.SetLighting(true);
 	SceneCapture->ShowFlags.SetGame(true);
+	SceneCapture->ShowFlags.SetVignette(true);
+	SceneCapture->ShowFlags.SetGrain(true);
+	SceneCapture->ShowFlags.SetSeparateTranslucency(true);
+	SceneCapture->ShowFlags.SetScreenPercentage(true);
+	SceneCapture->ShowFlags.SetTemporalAA(true);
+	SceneCapture->ShowFlags.SetDistanceFieldAO(true);
+	SceneCapture->ShowFlags.SetVolumetricLightmap(true);
+	SceneCapture->ShowFlags.SetContactShadows(true);
+	SceneCapture->ShowFlags.SetCapsuleShadows(true);
+	SceneCapture->ShowFlags.SetSubsurfaceScattering(true);
 
 	// Log initial sync
 	static bool bLoggedSync = false;
 	if (!bLoggedSync)
 	{
-		UE_LOG(LogRshipNDI, Log, TEXT("SyncCameraSettingsToCapture - FOV: %.1f, PostProcess weight: %.1f"),
-			SceneCapture->FOVAngle, SceneCapture->PostProcessBlendWeight);
+		UE_LOG(LogRshipNDI, Log, TEXT("SyncCameraSettingsToCapture - FOV: %.1f, PostProcess weight: %.1f, AspectRatio: %.3f"),
+			SceneCapture->FOVAngle, SceneCapture->PostProcessBlendWeight, TargetAspect);
 		bLoggedSync = true;
 	}
 }
