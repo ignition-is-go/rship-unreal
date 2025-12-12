@@ -1,10 +1,14 @@
 // Copyright Rocketship. All Rights Reserved.
 
 #include "Rship2110Settings.h"
+#include "Rship2110.h"
 #include "HAL/FileManager.h"
+#include "HAL/PlatformProcess.h"
 #include "Misc/Paths.h"
 #include "Misc/FileHelper.h"
 #include "Interfaces/IPluginManager.h"
+#include "SocketSubsystem.h"
+#include "IPAddress.h"
 
 #if WITH_EDITOR
 #include "DesktopPlatformModule.h"
@@ -63,6 +67,9 @@ URship2110Settings::URship2110Settings()
 
     // Initialize license status
     RefreshLicenseStatus();
+
+    // Initialize feature status
+    RefreshStatus();
 }
 
 URship2110Settings* URship2110Settings::Get()
@@ -234,4 +241,109 @@ void URship2110Settings::RefreshLicenseStatus()
         LicenseStatus = TEXT("Rivermax SDK not available - Running in stub mode");
     }
 #endif
+}
+
+void URship2110Settings::RefreshStatus()
+{
+    // Get module instance if available
+    if (FRship2110Module::IsAvailable())
+    {
+        FRship2110Module& Module = FRship2110Module::Get();
+
+        // Rivermax status
+        if (Module.IsRivermaxAvailable())
+        {
+            RivermaxStatus = TEXT("✓ Available (DLL loaded)");
+        }
+        else
+        {
+#if RSHIP_RIVERMAX_AVAILABLE
+            RivermaxStatus = TEXT("✗ DLL not found (compiled with support)");
+#else
+            RivermaxStatus = TEXT("✗ Not available (stub mode)");
+#endif
+        }
+
+        // PTP status
+        if (Module.IsPTPAvailable())
+        {
+            PTPStatus = TEXT("✓ Available");
+        }
+        else
+        {
+            PTPStatus = TEXT("✗ Not available");
+        }
+
+        // IPMX status
+        if (Module.IsIPMXAvailable())
+        {
+            IPMXStatus = TEXT("✓ Available");
+        }
+        else
+        {
+            IPMXStatus = TEXT("✗ Not available");
+        }
+    }
+    else
+    {
+        RivermaxStatus = TEXT("Module not loaded");
+        PTPStatus = TEXT("Module not loaded");
+        IPMXStatus = TEXT("Module not loaded");
+    }
+
+    // GPUDirect status
+#if RSHIP_GPUDIRECT_AVAILABLE
+    GPUDirectStatus = TEXT("✓ Compiled with support");
+#else
+    GPUDirectStatus = TEXT("✗ Not available");
+#endif
+
+    // SDK Version
+#if RSHIP_RIVERMAX_AVAILABLE
+    SDKVersion = TEXT("Rivermax SDK detected at build time");
+#else
+    SDKVersion = TEXT("No SDK (stub implementation)");
+#endif
+
+    // Network interfaces
+    ISocketSubsystem* SocketSubsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
+    if (SocketSubsystem)
+    {
+        TArray<TSharedPtr<FInternetAddr>> Addresses;
+        if (SocketSubsystem->GetLocalAdapterAddresses(Addresses))
+        {
+            TArray<FString> AddrStrings;
+            for (const TSharedPtr<FInternetAddr>& Addr : Addresses)
+            {
+                if (Addr.IsValid())
+                {
+                    FString AddrStr = Addr->ToString(false);
+                    // Skip loopback and link-local
+                    if (!AddrStr.StartsWith(TEXT("127.")) && !AddrStr.StartsWith(TEXT("169.254.")))
+                    {
+                        AddrStrings.Add(AddrStr);
+                    }
+                }
+            }
+            if (AddrStrings.Num() > 0)
+            {
+                NetworkStatus = FString::Join(AddrStrings, TEXT(", "));
+            }
+            else
+            {
+                NetworkStatus = TEXT("No network interfaces found");
+            }
+        }
+        else
+        {
+            NetworkStatus = TEXT("Failed to enumerate interfaces");
+        }
+    }
+    else
+    {
+        NetworkStatus = TEXT("Socket subsystem unavailable");
+    }
+
+    // Also refresh license status
+    RefreshLicenseStatus();
 }

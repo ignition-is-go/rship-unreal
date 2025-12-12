@@ -26,6 +26,45 @@ public:
     URship2110Settings();
 
     // ============================================================================
+    // STATUS (Runtime Feature Availability)
+    // ============================================================================
+
+    /** Rivermax SDK availability status */
+    UPROPERTY(VisibleAnywhere, Category = "Status",
+        meta = (DisplayName = "Rivermax SDK"))
+    FString RivermaxStatus;
+
+    /** PTP synchronization availability status */
+    UPROPERTY(VisibleAnywhere, Category = "Status",
+        meta = (DisplayName = "PTP Support"))
+    FString PTPStatus;
+
+    /** IPMX/NMOS availability status */
+    UPROPERTY(VisibleAnywhere, Category = "Status",
+        meta = (DisplayName = "IPMX/NMOS Support"))
+    FString IPMXStatus;
+
+    /** GPUDirect RDMA availability status */
+    UPROPERTY(VisibleAnywhere, Category = "Status",
+        meta = (DisplayName = "GPUDirect RDMA"))
+    FString GPUDirectStatus;
+
+    /** Detected SDK version */
+    UPROPERTY(VisibleAnywhere, Category = "Status",
+        meta = (DisplayName = "SDK Version"))
+    FString SDKVersion;
+
+    /** Network interface status */
+    UPROPERTY(VisibleAnywhere, Category = "Status",
+        meta = (DisplayName = "Network Interfaces"))
+    FString NetworkStatus;
+
+    /** Refresh all status information */
+    UFUNCTION(CallInEditor, Category = "Status",
+        meta = (DisplayName = "Refresh Status"))
+    void RefreshStatus();
+
+    // ============================================================================
     // RIVERMAX LICENSE
     // ============================================================================
 
