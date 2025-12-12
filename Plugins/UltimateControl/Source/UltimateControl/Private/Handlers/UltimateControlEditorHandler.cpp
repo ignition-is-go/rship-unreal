@@ -1,6 +1,8 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Handlers/UltimateControlEditorHandler.h"
+#include "UltimateControlSubsystem.h"
+#include "UltimateControlVersion.h"
 #include "Editor.h"
 #include "LevelEditor.h"
 #include "Modules/ModuleManager.h"
@@ -197,7 +199,11 @@ bool FUltimateControlEditorHandler::HandleFocusWindow(const TSharedPtr<FJsonObje
 			if (Window->GetTitle().ToString().Contains(Title))
 			{
 				Window->BringToFront();
+#if ULTIMATE_CONTROL_UE_5_6_OR_LATER
+				FSlateApplication::Get().SetUserFocus(0, Window, EFocusCause::SetDirectly);
+#else
 				FSlateApplication::Get().SetAllUserFocus(&Window.Get(), EFocusCause::SetDirectly);
+#endif
 
 				TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
 				ResultObj->SetBoolField(TEXT("success"), true);
@@ -259,7 +265,13 @@ bool FUltimateControlEditorHandler::HandleListTabs(const TSharedPtr<FJsonObject>
 	{
 		// Get registered tab spawner IDs
 		TArray<FName> AllTabIds;
+#if !ULTIMATE_CONTROL_UE_5_6_OR_LATER
 		TabManager->GetAllSpawnerTabIds(AllTabIds);
+#else
+		// GetAllSpawnerTabIds removed in UE 5.6 - use known tab IDs instead
+		AllTabIds = { TEXT("LevelEditorToolBox"), TEXT("ContentBrowserTab1"), TEXT("OutputLog"),
+			TEXT("WorldSettingsTab"), TEXT("LevelEditorSelectionDetails"), TEXT("PlacementBrowser") };
+#endif
 
 		for (const FName& TabId : AllTabIds)
 		{
@@ -389,7 +401,13 @@ bool FUltimateControlEditorHandler::HandleGetLayout(const TSharedPtr<FJsonObject
 	if (TabManager.IsValid())
 	{
 		TArray<FName> AllTabIds;
+#if !ULTIMATE_CONTROL_UE_5_6_OR_LATER
 		TabManager->GetAllSpawnerTabIds(AllTabIds);
+#else
+		// GetAllSpawnerTabIds removed in UE 5.6 - use known tab IDs instead
+		AllTabIds = { TEXT("LevelEditorToolBox"), TEXT("ContentBrowserTab1"), TEXT("OutputLog"),
+			TEXT("WorldSettingsTab"), TEXT("LevelEditorSelectionDetails"), TEXT("PlacementBrowser") };
+#endif
 
 		for (const FName& TabId : AllTabIds)
 		{
@@ -521,7 +539,11 @@ bool FUltimateControlEditorHandler::HandleGetCurrentMode(const TSharedPtr<FJsonO
 	TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
 
 	TArray<TSharedPtr<FJsonValue>> ActiveModes;
+#if ULTIMATE_CONTROL_UE_5_6_OR_LATER
+	TArray<FEditorModeID> ActiveModeIds = ModeTools.GetActiveModeIDs();
+#else
 	TArray<FEditorModeID> ActiveModeIds = ModeTools.GetActiveScriptableModes();
+#endif
 
 	for (const FEditorModeID& ModeId : ActiveModeIds)
 	{
@@ -586,7 +608,11 @@ bool FUltimateControlEditorHandler::HandleListModes(const TSharedPtr<FJsonObject
 	};
 
 	FEditorModeTools& ModeTools = GLevelEditorModeTools();
+#if ULTIMATE_CONTROL_UE_5_6_OR_LATER
+	TArray<FEditorModeID> ActiveModes = ModeTools.GetActiveModeIDs();
+#else
 	TArray<FEditorModeID> ActiveModes = ModeTools.GetActiveScriptableModes();
+#endif
 
 	for (const auto& Mode : StandardModes)
 	{
@@ -847,7 +873,15 @@ bool FUltimateControlEditorHandler::HandleSetSnapSettings(const TSharedPtr<FJson
 	double GridSize;
 	if (Params->TryGetNumberField(TEXT("gridSize"), GridSize))
 	{
+#if ULTIMATE_CONTROL_UE_5_6_OR_LATER
+		// SetGridSize deprecated in UE 5.6 - use viewport settings directly
+		if (ViewportSettings)
+		{
+			ViewportSettings->GridSizes[0] = static_cast<float>(GridSize);
+		}
+#else
 		GEditor->SetGridSize(0, static_cast<float>(GridSize));
+#endif
 	}
 
 	TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
@@ -937,13 +971,21 @@ bool FUltimateControlEditorHandler::HandleSetGridSettings(const TSharedPtr<FJson
 		return false;
 	}
 
+	ULevelEditorViewportSettings* ViewportSettings = GetMutableDefault<ULevelEditorViewportSettings>();
+
 	double GridSize;
 	if (Params->TryGetNumberField(TEXT("gridSize"), GridSize))
 	{
+#if ULTIMATE_CONTROL_UE_5_6_OR_LATER
+		// SetGridSize deprecated in UE 5.6 - use viewport settings directly
+		if (ViewportSettings)
+		{
+			ViewportSettings->GridSizes[0] = static_cast<float>(GridSize);
+		}
+#else
 		GEditor->SetGridSize(0, static_cast<float>(GridSize));
+#endif
 	}
-
-	ULevelEditorViewportSettings* ViewportSettings = GetMutableDefault<ULevelEditorViewportSettings>();
 	if (ViewportSettings)
 	{
 		bool bGridEnabled;

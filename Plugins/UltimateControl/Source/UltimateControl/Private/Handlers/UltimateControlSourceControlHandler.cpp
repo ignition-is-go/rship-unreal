@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Handlers/UltimateControlSourceControlHandler.h"
+#include "UltimateControlSubsystem.h"
 #include "ISourceControlModule.h"
 #include "ISourceControlProvider.h"
 #include "SourceControlOperations.h"

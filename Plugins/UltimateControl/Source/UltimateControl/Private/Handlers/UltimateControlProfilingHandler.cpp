@@ -1,6 +1,7 @@
 // Copyright Rocketship. All Rights Reserved.
 
 #include "Handlers/UltimateControlProfilingHandler.h"
+#include "UltimateControlSubsystem.h"
 #include "UltimateControl.h"
 
 #include "HAL/PlatformMemory.h"

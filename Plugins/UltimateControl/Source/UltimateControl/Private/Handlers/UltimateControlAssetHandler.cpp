@@ -1,6 +1,8 @@
 // Copyright Rocketship. All Rights Reserved.
 
 #include "Handlers/UltimateControlAssetHandler.h"
+#include "UltimateControlSubsystem.h"
+#include "UltimateControlVersion.h"
 #include "UltimateControl.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
@@ -132,8 +134,7 @@ TSharedPtr<FJsonObject> FUltimateControlAssetHandler::AssetDataToJson(const FAss
 	Obj->SetBoolField(TEXT("isRedirector"), AssetData.IsRedirector());
 
 	// Get disk size if available
-	const FAssetPackageData* PackageData = AssetData.GetTagValueRef<FAssetPackageData>(FPrimaryAssetId::PrimaryAssetTypeName);
-	// We can't easily get the package data from FAssetData directly, but we can get the file size
+	// Note: FAssetPackageData access changed in UE 5.6 - using file size directly instead
 	FString PackageFilename;
 	if (FPackageName::TryConvertLongPackageNameToFilename(AssetData.PackageName.ToString(), PackageFilename))
 	{
@@ -149,8 +150,13 @@ TSharedPtr<FJsonObject> FUltimateControlAssetHandler::AssetDataToJson(const FAss
 		TSharedPtr<FJsonObject> MetadataObj = MakeShared<FJsonObject>();
 
 		// Get all tags
+#if ULTIMATE_CONTROL_UE_5_6_OR_LATER
+		// GetTagsAndValues API changed in UE 5.6 - now returns map directly
+		const FAssetDataTagMap& TagsAndValues = AssetData.TagsAndValues.GetMap();
+#else
 		FAssetDataTagMap TagsAndValues;
 		AssetData.GetTagsAndValues(TagsAndValues);
+#endif
 		for (const auto& Tag : TagsAndValues)
 		{
 			MetadataObj->SetStringField(Tag.Key.ToString(), Tag.Value.GetValue());

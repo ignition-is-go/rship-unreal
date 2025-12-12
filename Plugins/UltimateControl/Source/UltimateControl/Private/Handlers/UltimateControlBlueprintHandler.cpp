@@ -1,6 +1,7 @@
 // Copyright Rocketship. All Rights Reserved.
 
 #include "Handlers/UltimateControlBlueprintHandler.h"
+#include "UltimateControlSubsystem.h"
 #include "UltimateControl.h"
 
 #include "Engine/Blueprint.h"
@@ -22,6 +23,7 @@
 #include "EditorAssetLibrary.h"
 #include "Factories/BlueprintFactory.h"
 #include "AssetToolsModule.h"
+#include "GameFramework/Character.h"
 
 FUltimateControlBlueprintHandler::FUltimateControlBlueprintHandler(UUltimateControlSubsystem* InSubsystem)
 	: FUltimateControlHandlerBase(InSubsystem)

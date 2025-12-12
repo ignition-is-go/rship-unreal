@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Handlers/UltimateControlLiveCodingHandler.h"
+#include "UltimateControlSubsystem.h"
 #include "Modules/ModuleManager.h"
 
 // Live Coding module is optional - check if header exists

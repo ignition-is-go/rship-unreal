@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Handlers/UltimateControlTransactionHandler.h"
+#include "UltimateControlSubsystem.h"
 #include "Editor.h"
 #include "Editor/TransBuffer.h"
 #include "ScopedTransaction.h"

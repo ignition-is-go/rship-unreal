@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Handlers/UltimateControlPhysicsHandler.h"
+#include "UltimateControlSubsystem.h"
 #include "Components/PrimitiveComponent.h"
 #include "PhysicsEngine/PhysicsConstraintComponent.h"
 #include "Engine/World.h"

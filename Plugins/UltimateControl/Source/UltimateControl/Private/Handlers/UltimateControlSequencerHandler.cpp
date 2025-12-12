@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Handlers/UltimateControlSequencerHandler.h"
+#include "UltimateControlSubsystem.h"
 #include "LevelSequence.h"
 #include "LevelSequenceActor.h"
 #include "LevelSequencePlayer.h"
@@ -12,7 +13,6 @@
 #include "ISequencer.h"
 #include "LevelEditor.h"
 #include "Subsystems/AssetEditorSubsystem.h"
-#include "Toolkits/AssetEditorManager.h"
 #include "EngineUtils.h"
 #include "Factories/LevelSequenceFactoryNew.h"
 #include "AssetToolsModule.h"

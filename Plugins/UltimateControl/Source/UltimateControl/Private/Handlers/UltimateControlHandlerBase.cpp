@@ -1,6 +1,7 @@
 // Copyright Rocketship. All Rights Reserved.
 
 #include "Handlers/UltimateControlHandlerBase.h"
+#include "UltimateControlSubsystem.h"
 #include "EngineUtils.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"

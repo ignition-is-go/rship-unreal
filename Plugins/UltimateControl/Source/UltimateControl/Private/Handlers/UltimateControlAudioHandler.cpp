@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Handlers/UltimateControlAudioHandler.h"
+#include "UltimateControlSubsystem.h"
 #include "Sound/SoundBase.h"
 #include "Sound/SoundWave.h"
 #include "Sound/SoundCue.h"

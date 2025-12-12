@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Handlers/UltimateControlSessionHandler.h"
+#include "UltimateControlSubsystem.h"
 
 // Concert/Multi-User includes - these are optional editor-only features
 #if WITH_EDITOR

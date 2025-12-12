@@ -1,6 +1,8 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Handlers/UltimateControlAIHandler.h"
+#include "UltimateControlSubsystem.h"
+#include "UltimateControlVersion.h"
 #include "Editor.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
@@ -276,7 +278,12 @@ bool FUltimateControlAIHandler::HandleGetNavigationStatus(const TSharedPtr<FJson
 
 	if (NavSys)
 	{
+#if ULTIMATE_CONTROL_UE_5_6_OR_LATER
+		// IsNavigationBuildingNow() renamed in UE 5.6
+		StatusJson->SetBoolField(TEXT("isNavigationBuildingNow"), NavSys->IsNavigationBuildInProgress());
+#else
 		StatusJson->SetBoolField(TEXT("isNavigationBuildingNow"), NavSys->IsNavigationBuildingNow());
+#endif
 		StatusJson->SetBoolField(TEXT("isNavigationBuildingLocked"), NavSys->IsNavigationBuildingLocked());
 
 		// Count nav mesh actors

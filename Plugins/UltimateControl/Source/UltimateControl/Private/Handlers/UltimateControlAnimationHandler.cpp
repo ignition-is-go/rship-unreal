@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Handlers/UltimateControlAnimationHandler.h"
+#include "UltimateControlSubsystem.h"
 #include "UltimateControlVersion.h"
 #include "Animation/AnimSequence.h"
 #include "Animation/AnimMontage.h"

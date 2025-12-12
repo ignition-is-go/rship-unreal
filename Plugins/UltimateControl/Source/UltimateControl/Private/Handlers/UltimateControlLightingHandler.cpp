@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Handlers/UltimateControlLightingHandler.h"
+#include "UltimateControlSubsystem.h"
 #include "Engine/Light.h"
 #include "Components/LightComponent.h"
 #include "Components/PointLightComponent.h"

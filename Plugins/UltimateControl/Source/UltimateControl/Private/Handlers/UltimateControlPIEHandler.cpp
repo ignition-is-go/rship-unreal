@@ -1,6 +1,7 @@
 // Copyright Rocketship. All Rights Reserved.
 
 #include "Handlers/UltimateControlPIEHandler.h"
+#include "UltimateControlSubsystem.h"
 #include "UltimateControl.h"
 
 #include "Editor.h"

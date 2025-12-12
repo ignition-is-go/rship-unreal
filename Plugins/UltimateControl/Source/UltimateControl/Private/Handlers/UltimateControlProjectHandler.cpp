@@ -1,6 +1,7 @@
 // Copyright Rocketship. All Rights Reserved.
 
 #include "Handlers/UltimateControlProjectHandler.h"
+#include "UltimateControlSubsystem.h"
 #include "UltimateControl.h"
 #include "UltimateControlVersion.h"
 

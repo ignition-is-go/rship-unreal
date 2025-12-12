@@ -1,6 +1,7 @@
 // Copyright Rocketship. All Rights Reserved.
 
 #include "Handlers/UltimateControlConsoleHandler.h"
+#include "UltimateControlSubsystem.h"
 #include "UltimateControl.h"
 
 #include "HAL/IConsoleManager.h"

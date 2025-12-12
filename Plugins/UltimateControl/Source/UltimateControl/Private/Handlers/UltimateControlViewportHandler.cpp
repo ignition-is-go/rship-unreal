@@ -1,6 +1,8 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Handlers/UltimateControlViewportHandler.h"
+#include "UltimateControlSubsystem.h"
+#include "UltimateControlVersion.h"
 #include "LevelEditor.h"
 #include "LevelEditorViewport.h"
 #include "SLevelViewport.h"
@@ -360,7 +362,12 @@ bool FUltimateControlViewportHandler::HandleGetViewportSettings(const TSharedPtr
 	SettingsObj->SetBoolField(TEXT("realtime"), ViewportClient->IsRealtime());
 	SettingsObj->SetStringField(TEXT("viewMode"), ViewModeToString(ViewportClient->GetViewMode()));
 	SettingsObj->SetBoolField(TEXT("showStats"), ViewportClient->ShouldShowStats());
+#if !ULTIMATE_CONTROL_UE_5_6_OR_LATER
 	SettingsObj->SetBoolField(TEXT("showFPS"), ViewportClient->ShouldShowFPS());
+#else
+	// ShouldShowFPS() removed in UE 5.6 - FPS display is part of stats
+	SettingsObj->SetBoolField(TEXT("showFPS"), ViewportClient->ShouldShowStats());
+#endif
 	SettingsObj->SetNumberField(TEXT("exposureSettings"), ViewportClient->ExposureSettings.FixedEV100);
 	SettingsObj->SetNumberField(TEXT("farClipPlane"), ViewportClient->GetFarClipPlaneOverride());
 	SettingsObj->SetNumberField(TEXT("cameraSpeedSetting"), ViewportClient->GetCameraSpeedSetting());

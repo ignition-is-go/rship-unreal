@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Handlers/UltimateControlMaterialHandler.h"
+#include "UltimateControlSubsystem.h"
 #include "UltimateControlVersion.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"

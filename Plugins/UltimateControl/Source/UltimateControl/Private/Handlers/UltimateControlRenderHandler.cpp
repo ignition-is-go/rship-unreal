@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Handlers/UltimateControlRenderHandler.h"
+#include "UltimateControlSubsystem.h"
 #include "UltimateControlVersion.h"
 #include "Editor.h"
 #include "Engine/World.h"
