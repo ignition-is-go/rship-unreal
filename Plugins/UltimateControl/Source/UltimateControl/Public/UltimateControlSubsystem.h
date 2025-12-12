@@ -95,6 +95,9 @@ class ULTIMATECONTROL_API UUltimateControlSubsystem : public UEditorSubsystem
 	GENERATED_BODY()
 
 public:
+	/** Destructor - must be declared in header but defined in cpp for TUniquePtr with forward declarations */
+	virtual ~UUltimateControlSubsystem();
+
 	//~ Begin UEditorSubsystem Interface
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;

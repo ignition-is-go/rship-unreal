@@ -17,7 +17,7 @@ class ISequencer;
 class ULTIMATECONTROL_API FUltimateControlSequencerHandler : public FUltimateControlHandlerBase
 {
 public:
-	using FUltimateControlHandlerBase::FUltimateControlHandlerBase;
+	explicit FUltimateControlSequencerHandler(UUltimateControlSubsystem* InSubsystem);
 
 private:
 	// Sequence listing and info

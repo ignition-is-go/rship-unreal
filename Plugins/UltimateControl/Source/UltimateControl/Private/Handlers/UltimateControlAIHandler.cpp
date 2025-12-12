@@ -4,7 +4,7 @@
 #include "Editor.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
-#include "AIModule/Classes/AIController.h"
+#include "AIController.h"
 #include "BehaviorTree/BehaviorTree.h"
 #include "BehaviorTree/BehaviorTreeComponent.h"
 #include "BehaviorTree/BlackboardComponent.h"

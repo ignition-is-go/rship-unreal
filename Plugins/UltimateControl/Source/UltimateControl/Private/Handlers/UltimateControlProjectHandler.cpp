@@ -311,7 +311,16 @@ bool FUltimateControlProjectHandler::HandleGetDirtyPackages(const TSharedPtr<FJs
 		{
 			TSharedPtr<FJsonObject> PkgObj = MakeShared<FJsonObject>();
 			PkgObj->SetStringField(TEXT("name"), Package->GetName());
-			PkgObj->SetStringField(TEXT("fileName"), Package->FileName.ToString());
+			// UE 5.6+: FileName was removed, use GetLoadedPath instead
+			FString FileName;
+			if (FPackageName::TryConvertLongPackageNameToFilename(Package->GetName(), FileName))
+			{
+				PkgObj->SetStringField(TEXT("fileName"), FileName);
+			}
+			else
+			{
+				PkgObj->SetStringField(TEXT("fileName"), Package->GetName());
+			}
 			PkgObj->SetBoolField(TEXT("isMap"), Package->ContainsMap());
 			PackagesArray.Add(MakeShared<FJsonValueObject>(PkgObj));
 		}
@@ -362,7 +371,7 @@ bool FUltimateControlProjectHandler::HandleCompileBlueprints(const TSharedPtr<FJ
 		for (TObjectIterator<UBlueprint> It; It; ++It)
 		{
 			UBlueprint* Blueprint = *It;
-			if (Blueprint && !Blueprint->IsPendingKill())
+			if (IsValid(Blueprint))
 			{
 				FKismetEditorUtilities::CompileBlueprint(Blueprint, EBlueprintCompileOptions::None);
 				CompiledCount++;

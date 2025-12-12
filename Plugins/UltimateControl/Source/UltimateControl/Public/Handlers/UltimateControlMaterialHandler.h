@@ -16,7 +16,7 @@ class UMaterialExpressionParameter;
 class ULTIMATECONTROL_API FUltimateControlMaterialHandler : public FUltimateControlHandlerBase
 {
 public:
-	using FUltimateControlHandlerBase::FUltimateControlHandlerBase;
+	explicit FUltimateControlMaterialHandler(UUltimateControlSubsystem* InSubsystem);
 
 private:
 	// Material listing and info

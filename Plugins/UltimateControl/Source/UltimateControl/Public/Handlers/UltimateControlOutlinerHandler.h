@@ -11,7 +11,7 @@
 class ULTIMATECONTROL_API FUltimateControlOutlinerHandler : public FUltimateControlHandlerBase
 {
 public:
-	using FUltimateControlHandlerBase::FUltimateControlHandlerBase;
+	explicit FUltimateControlOutlinerHandler(UUltimateControlSubsystem* InSubsystem);
 
 private:
 	// Hierarchy

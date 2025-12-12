@@ -8,6 +8,53 @@
 #include "Settings/LevelEditorPlaySettings.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/Pawn.h"
+#include "EngineUtils.h"
+
+namespace
+{
+	// Helper to get PIE world pause state (UE 5.6 compatible)
+	bool IsPIESessionPaused()
+	{
+		if (!GEditor || !GEditor->IsPlaySessionInProgress())
+		{
+			return false;
+		}
+
+		for (const FWorldContext& Context : GEngine->GetWorldContexts())
+		{
+			if (Context.WorldType == EWorldType::PIE)
+			{
+				UWorld* PIEWorld = Context.World();
+				if (PIEWorld)
+				{
+					return PIEWorld->IsPaused();
+				}
+			}
+		}
+		return false;
+	}
+
+	// Helper to toggle PIE world pause state (UE 5.6 compatible)
+	void TogglePIEPause(bool bPause)
+	{
+		for (const FWorldContext& Context : GEngine->GetWorldContexts())
+		{
+			if (Context.WorldType == EWorldType::PIE)
+			{
+				UWorld* PIEWorld = Context.World();
+				if (PIEWorld)
+				{
+					APlayerController* PC = PIEWorld->GetFirstPlayerController();
+					if (PC)
+					{
+						PC->SetPause(bPause);
+					}
+				}
+				break;
+			}
+		}
+	}
+}
 
 FUltimateControlPIEHandler::FUltimateControlPIEHandler(UUltimateControlSubsystem* InSubsystem)
 	: FUltimateControlHandlerBase(InSubsystem)
@@ -137,16 +184,17 @@ bool FUltimateControlPIEHandler::HandlePause(const TSharedPtr<FJsonObject>& Para
 		return false;
 	}
 
-	bool bPause = GetOptionalBool(Params, TEXT("pause"), !GEditor->IsPlaySessionPaused());
+	bool bCurrentlyPaused = IsPIESessionPaused();
+	bool bPause = GetOptionalBool(Params, TEXT("pause"), !bCurrentlyPaused);
 
-	if (bPause != GEditor->IsPlaySessionPaused())
+	if (bPause != bCurrentlyPaused)
 	{
-		GEditor->PlaySessionPaused();
+		TogglePIEPause(bPause);
 	}
 
 	TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
 	ResultObj->SetBoolField(TEXT("success"), true);
-	ResultObj->SetBoolField(TEXT("isPaused"), GEditor->IsPlaySessionPaused());
+	ResultObj->SetBoolField(TEXT("isPaused"), IsPIESessionPaused());
 
 	OutResult = MakeShared<FJsonValueObject>(ResultObj);
 	return true;
@@ -162,7 +210,7 @@ bool FUltimateControlPIEHandler::HandleGetState(const TSharedPtr<FJsonObject>& P
 
 	TSharedPtr<FJsonObject> StateObj = MakeShared<FJsonObject>();
 	StateObj->SetBoolField(TEXT("isPlaying"), GEditor->IsPlaySessionInProgress());
-	StateObj->SetBoolField(TEXT("isPaused"), GEditor->IsPlaySessionPaused());
+	StateObj->SetBoolField(TEXT("isPaused"), IsPIESessionPaused());
 	StateObj->SetBoolField(TEXT("isSimulating"), GEditor->bIsSimulatingInEditor);
 
 	// Get the PIE world if available

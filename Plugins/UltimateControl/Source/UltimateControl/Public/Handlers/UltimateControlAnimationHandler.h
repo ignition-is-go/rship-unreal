@@ -17,7 +17,7 @@ class USkeletalMeshComponent;
 class ULTIMATECONTROL_API FUltimateControlAnimationHandler : public FUltimateControlHandlerBase
 {
 public:
-	using FUltimateControlHandlerBase::FUltimateControlHandlerBase;
+	explicit FUltimateControlAnimationHandler(UUltimateControlSubsystem* InSubsystem);
 
 private:
 	// Animation asset listing

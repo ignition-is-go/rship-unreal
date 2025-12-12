@@ -14,7 +14,7 @@ class FLevelEditorViewportClient;
 class ULTIMATECONTROL_API FUltimateControlViewportHandler : public FUltimateControlHandlerBase
 {
 public:
-	using FUltimateControlHandlerBase::FUltimateControlHandlerBase;
+	explicit FUltimateControlViewportHandler(UUltimateControlSubsystem* InSubsystem);
 
 private:
 	// Viewport listing and info

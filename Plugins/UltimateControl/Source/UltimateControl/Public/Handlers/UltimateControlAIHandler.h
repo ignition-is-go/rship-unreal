@@ -17,7 +17,7 @@ class ANavigationData;
 class ULTIMATECONTROL_API FUltimateControlAIHandler : public FUltimateControlHandlerBase
 {
 public:
-	using FUltimateControlHandlerBase::FUltimateControlHandlerBase;
+	explicit FUltimateControlAIHandler(UUltimateControlSubsystem* InSubsystem);
 
 private:
 	// Navigation mesh

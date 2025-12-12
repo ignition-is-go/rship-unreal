@@ -11,7 +11,7 @@
 class ULTIMATECONTROL_API FUltimateControlTransactionHandler : public FUltimateControlHandlerBase
 {
 public:
-	using FUltimateControlHandlerBase::FUltimateControlHandlerBase;
+	explicit FUltimateControlTransactionHandler(UUltimateControlSubsystem* InSubsystem);
 
 private:
 	// Undo/Redo operations

@@ -13,7 +13,7 @@
 #include "AssetToolsModule.h"
 #include "Factories/MaterialFactoryNew.h"
 #include "Factories/MaterialInstanceConstantFactoryNew.h"
-#include "MaterialEditor/MaterialEditorUtilities.h"
+#include "MaterialEditorUtilities.h"
 #include "MaterialGraph/MaterialGraph.h"
 
 FUltimateControlMaterialHandler::FUltimateControlMaterialHandler(UUltimateControlSubsystem* InSubsystem)

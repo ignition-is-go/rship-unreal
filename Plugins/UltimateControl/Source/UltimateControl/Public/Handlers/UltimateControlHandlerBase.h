@@ -95,5 +95,14 @@ protected:
 	/** Parse transform from JSON */
 	static FTransform JsonToTransform(const TSharedPtr<FJsonObject>& JsonObj);
 
+	/** Convert FLinearColor to JSON */
+	static TSharedPtr<FJsonObject> ColorToJson(const FLinearColor& Color);
+
+	/** Parse color from JSON */
+	static FLinearColor JsonToColor(const TSharedPtr<FJsonObject>& JsonObj);
+
+	/** Find actor by name or label in the editor world */
+	static AActor* FindActorByName(UWorld* World, const FString& ActorName);
+
 	UUltimateControlSubsystem* Subsystem;
 };

@@ -18,7 +18,7 @@ class USoundClass;
 class ULTIMATECONTROL_API FUltimateControlAudioHandler : public FUltimateControlHandlerBase
 {
 public:
-	using FUltimateControlHandlerBase::FUltimateControlHandlerBase;
+	explicit FUltimateControlAudioHandler(UUltimateControlSubsystem* InSubsystem);
 
 private:
 	// Sound asset listing

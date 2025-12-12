@@ -11,7 +11,7 @@
 class ULTIMATECONTROL_API FUltimateControlLiveCodingHandler : public FUltimateControlHandlerBase
 {
 public:
-	using FUltimateControlHandlerBase::FUltimateControlHandlerBase;
+	explicit FUltimateControlLiveCodingHandler(UUltimateControlSubsystem* InSubsystem);
 
 private:
 	// Live Coding

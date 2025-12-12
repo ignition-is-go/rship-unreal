@@ -269,13 +269,21 @@ bool FUltimateControlLiveCodingHandler::HandleCancelCompile(const TSharedPtr<FJs
 bool FUltimateControlLiveCodingHandler::HandleHotReload(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
 {
 #if WITH_HOT_RELOAD
-	IHotReloadInterface& HotReload = IHotReloadInterface::GetHotReloadInterface();
+	IHotReloadInterface* HotReload = &IHotReloadInterface::GetHotReloadInterface();
+	if (!HotReload)
+	{
+		TSharedPtr<FJsonObject> ResultJson = MakeShared<FJsonObject>();
+		ResultJson->SetBoolField(TEXT("success"), false);
+		ResultJson->SetStringField(TEXT("message"), TEXT("Hot reload interface not available"));
+		Result = MakeShared<FJsonValueObject>(ResultJson);
+		return true;
+	}
 
 	// Check if we can hot reload
-	if (!HotReload.IsCurrentlyCompiling())
+	if (!HotReload->IsCurrentlyCompiling())
 	{
 		// Trigger hot reload
-		HotReload.DoHotReloadFromEditor(EHotReloadFlags::None);
+		HotReload->DoHotReloadFromEditor(EHotReloadFlags::None);
 
 		TSharedPtr<FJsonObject> ResultJson = MakeShared<FJsonObject>();
 		ResultJson->SetBoolField(TEXT("success"), true);
@@ -305,11 +313,11 @@ bool FUltimateControlLiveCodingHandler::HandleHotReload(const TSharedPtr<FJsonOb
 bool FUltimateControlLiveCodingHandler::HandleCanHotReload(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
 {
 #if WITH_HOT_RELOAD
-	IHotReloadInterface& HotReload = IHotReloadInterface::GetHotReloadInterface();
+	IHotReloadInterface* HotReload = &IHotReloadInterface::GetHotReloadInterface();
 
 	TSharedPtr<FJsonObject> StatusJson = MakeShared<FJsonObject>();
-	StatusJson->SetBoolField(TEXT("canHotReload"), true);
-	StatusJson->SetBoolField(TEXT("isCompiling"), HotReload.IsCurrentlyCompiling());
+	StatusJson->SetBoolField(TEXT("canHotReload"), HotReload != nullptr);
+	StatusJson->SetBoolField(TEXT("isCompiling"), HotReload ? HotReload->IsCurrentlyCompiling() : false);
 
 	Result = MakeShared<FJsonValueObject>(StatusJson);
 #else

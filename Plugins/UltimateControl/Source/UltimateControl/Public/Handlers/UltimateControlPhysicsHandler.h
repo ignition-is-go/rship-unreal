@@ -14,7 +14,7 @@ class UPhysicsConstraintComponent;
 class ULTIMATECONTROL_API FUltimateControlPhysicsHandler : public FUltimateControlHandlerBase
 {
 public:
-	using FUltimateControlHandlerBase::FUltimateControlHandlerBase;
+	explicit FUltimateControlPhysicsHandler(UUltimateControlSubsystem* InSubsystem);
 
 private:
 	// Global physics settings

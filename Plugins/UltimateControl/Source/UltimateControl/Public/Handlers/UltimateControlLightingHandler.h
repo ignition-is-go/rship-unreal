@@ -16,7 +16,7 @@ class ADirectionalLight;
 class ULTIMATECONTROL_API FUltimateControlLightingHandler : public FUltimateControlHandlerBase
 {
 public:
-	using FUltimateControlHandlerBase::FUltimateControlHandlerBase;
+	explicit FUltimateControlLightingHandler(UUltimateControlSubsystem* InSubsystem);
 
 private:
 	// Light listing and info

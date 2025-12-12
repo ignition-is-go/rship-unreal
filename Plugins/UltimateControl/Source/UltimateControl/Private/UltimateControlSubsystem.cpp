@@ -72,6 +72,11 @@ void UUltimateControlSubsystem::Deinitialize()
 	Super::Deinitialize();
 }
 
+UUltimateControlSubsystem::~UUltimateControlSubsystem()
+{
+	// Destructor defined here where complete types are available for TUniquePtr destruction
+}
+
 UUltimateControlSubsystem* UUltimateControlSubsystem::Get()
 {
 	if (GEditor)

@@ -11,7 +11,7 @@
 class ULTIMATECONTROL_API FUltimateControlSessionHandler : public FUltimateControlHandlerBase
 {
 public:
-	using FUltimateControlHandlerBase::FUltimateControlHandlerBase;
+	explicit FUltimateControlSessionHandler(UUltimateControlSubsystem* InSubsystem);
 
 private:
 	// Session discovery

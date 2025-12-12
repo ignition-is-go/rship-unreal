@@ -29,7 +29,7 @@ enum class ESourceControlStatus : uint8
 class ULTIMATECONTROL_API FUltimateControlSourceControlHandler : public FUltimateControlHandlerBase
 {
 public:
-	using FUltimateControlHandlerBase::FUltimateControlHandlerBase;
+	explicit FUltimateControlSourceControlHandler(UUltimateControlSubsystem* InSubsystem);
 
 private:
 	// Provider status

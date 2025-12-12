@@ -14,7 +14,7 @@ class UPostProcessComponent;
 class ULTIMATECONTROL_API FUltimateControlRenderHandler : public FUltimateControlHandlerBase
 {
 public:
-	using FUltimateControlHandlerBase::FUltimateControlHandlerBase;
+	explicit FUltimateControlRenderHandler(UUltimateControlSubsystem* InSubsystem);
 
 private:
 	// Quality settings

@@ -1,7 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Handlers/UltimateControlSequencerHandler.h"
-#include "LevelSequence/LevelSequence.h"
+#include "LevelSequence.h"
 #include "LevelSequenceActor.h"
 #include "LevelSequencePlayer.h"
 #include "MovieScene.h"

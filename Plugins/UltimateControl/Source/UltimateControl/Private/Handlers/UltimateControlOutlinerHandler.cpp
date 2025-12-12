@@ -1205,12 +1205,12 @@ bool FUltimateControlOutlinerHandler::HandleListLayers(const TSharedPtr<FJsonObj
 	{
 		TSharedPtr<FJsonObject> LayerJson = MakeShared<FJsonObject>();
 		LayerJson->SetStringField(TEXT("name"), LayerName.ToString());
-		// Note: IsLayerVisible signature may have changed in UE 5.6
-		// Using GetLayerVisibility or checking layer state differently
+		// In UE 5.6+, use TryGetLayer to check layer existence and visibility
 		bool bIsVisible = true;
-		if (UWorld* World = GEditor->GetEditorWorldContext().World())
+		FActorLayer OutLayer;
+		if (LayersSubsystem->TryGetLayer(LayerName, OutLayer))
 		{
-			bIsVisible = LayersSubsystem->IsLayerVisible(LayerName);
+			bIsVisible = OutLayer.bIsVisible;
 		}
 		LayerJson->SetBoolField(TEXT("visible"), bIsVisible);
 		LayersArray.Add(MakeShared<FJsonValueObject>(LayerJson));

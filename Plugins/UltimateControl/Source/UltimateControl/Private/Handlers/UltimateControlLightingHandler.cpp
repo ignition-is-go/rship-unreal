@@ -497,7 +497,10 @@ bool FUltimateControlLightingHandler::HandleSetLightEnabled(const TSharedPtr<FJs
 		return false;
 	}
 
-	LightComp->SetAffectDynamicIndirectLighting(bEnabled);
+	// SetAffectDynamicIndirectLighting was removed in UE 5.6
+	// Use SetVisibility to enable/disable the light component instead
+	LightComp->SetVisibility(bEnabled);
+	LightComp->SetActive(bEnabled);
 
 	TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
 	ResultObj->SetBoolField(TEXT("success"), true);
@@ -961,11 +964,26 @@ bool FUltimateControlLightingHandler::HandleGetLightBuildStatus(const TSharedPtr
 
 bool FUltimateControlLightingHandler::HandleCancelLightBuild(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
 {
-	// Cancel lighting build
-	GEditor->CancelLightingBuild();
+	// CancelLightingBuild was removed in UE 5.6 - Lumen replaced static lighting
+	// In UE 5.6+, most lighting is computed in real-time using Lumen
+	// For static lighting builds, use the Lightmass subsystem if available
 
 	TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
-	ResultObj->SetBoolField(TEXT("success"), true);
+
+	// Check if any lightmass build is in progress
+	if (GEditor->IsLightingBuildCurrentlyRunning())
+	{
+		// Try to cancel through the editor's lightmass interface
+		// Note: Direct cancellation API was removed in UE 5.6
+		ResultObj->SetBoolField(TEXT("success"), false);
+		ResultObj->SetStringField(TEXT("message"), TEXT("Use the Build menu to cancel lighting builds in UE 5.6+"));
+	}
+	else
+	{
+		ResultObj->SetBoolField(TEXT("success"), true);
+		ResultObj->SetStringField(TEXT("message"), TEXT("No lighting build in progress"));
+	}
+
 	Result = MakeShared<FJsonValueObject>(ResultObj);
 	return true;
 }

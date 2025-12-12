@@ -1,6 +1,9 @@
 // Copyright Rocketship. All Rights Reserved.
 
 #include "Handlers/UltimateControlHandlerBase.h"
+#include "EngineUtils.h"
+#include "Engine/World.h"
+#include "GameFramework/Actor.h"
 
 void FUltimateControlHandlerBase::RegisterMethod(
 	const FString& MethodName,
@@ -211,4 +214,47 @@ FTransform FUltimateControlHandlerBase::JsonToTransform(const TSharedPtr<FJsonOb
 	}
 
 	return FTransform(Rotation, Location, Scale);
+}
+
+TSharedPtr<FJsonObject> FUltimateControlHandlerBase::ColorToJson(const FLinearColor& Color)
+{
+	TSharedPtr<FJsonObject> Obj = MakeShared<FJsonObject>();
+	Obj->SetNumberField(TEXT("r"), Color.R);
+	Obj->SetNumberField(TEXT("g"), Color.G);
+	Obj->SetNumberField(TEXT("b"), Color.B);
+	Obj->SetNumberField(TEXT("a"), Color.A);
+	return Obj;
+}
+
+FLinearColor FUltimateControlHandlerBase::JsonToColor(const TSharedPtr<FJsonObject>& JsonObj)
+{
+	if (!JsonObj.IsValid())
+	{
+		return FLinearColor::White;
+	}
+	return FLinearColor(
+		JsonObj->GetNumberField(TEXT("r")),
+		JsonObj->GetNumberField(TEXT("g")),
+		JsonObj->GetNumberField(TEXT("b")),
+		JsonObj->HasField(TEXT("a")) ? JsonObj->GetNumberField(TEXT("a")) : 1.0f
+	);
+}
+
+AActor* FUltimateControlHandlerBase::FindActorByName(UWorld* World, const FString& ActorName)
+{
+	if (!World || ActorName.IsEmpty())
+	{
+		return nullptr;
+	}
+
+	// Try to find by label first (display name in editor), then by name
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		AActor* Actor = *It;
+		if (Actor->GetActorLabel() == ActorName || Actor->GetName() == ActorName)
+		{
+			return Actor;
+		}
+	}
+	return nullptr;
 }

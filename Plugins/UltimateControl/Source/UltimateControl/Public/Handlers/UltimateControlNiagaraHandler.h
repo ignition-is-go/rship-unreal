@@ -16,7 +16,7 @@ class ANiagaraActor;
 class ULTIMATECONTROL_API FUltimateControlNiagaraHandler : public FUltimateControlHandlerBase
 {
 public:
-	using FUltimateControlHandlerBase::FUltimateControlHandlerBase;
+	explicit FUltimateControlNiagaraHandler(UUltimateControlSubsystem* InSubsystem);
 
 private:
 	// System listing and info

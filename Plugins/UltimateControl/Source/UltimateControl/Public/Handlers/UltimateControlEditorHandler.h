@@ -11,7 +11,7 @@
 class ULTIMATECONTROL_API FUltimateControlEditorHandler : public FUltimateControlHandlerBase
 {
 public:
-	using FUltimateControlHandlerBase::FUltimateControlHandlerBase;
+	explicit FUltimateControlEditorHandler(UUltimateControlSubsystem* InSubsystem);
 
 private:
 	// Window management
