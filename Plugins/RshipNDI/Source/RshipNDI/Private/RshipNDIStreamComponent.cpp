@@ -22,8 +22,8 @@ URshipNDIStreamComponent::URshipNDIStreamComponent()
 
 	// Default configuration
 	Config.StreamName = TEXT("Unreal CineCamera");
-	Config.Width = 7680;  // 8K
-	Config.Height = 4320;
+	Config.Width = 1920;  // 1080p (start with reasonable default, can scale up)
+	Config.Height = 1080;
 	Config.FrameRate = 60;
 	Config.bEnableAlpha = true;
 	Config.BufferCount = 3;
@@ -233,10 +233,25 @@ bool URshipNDIStreamComponent::InitializeCineCapture()
 		return false;
 	}
 	UE_LOG(LogRshipNDI, Log, TEXT("URshipNDIStreamComponent::InitializeCineCapture - Using standard SceneCaptureComponent2D (CineCameraSceneCapture plugin not available)"));
+
+	// Sync FOV from CineCamera in fallback path
+	if (CineCameraComponent.IsValid())
+	{
+		float CameraFOV = CineCameraComponent->FieldOfView;
+		SceneCapture->FOVAngle = CameraFOV;
+		UE_LOG(LogRshipNDI, Log, TEXT("URshipNDIStreamComponent::InitializeCineCapture - Synced FOV: %.1f degrees"), CameraFOV);
+	}
 #endif
 
-	// Attach to the camera actor's root
-	SceneCapture->SetupAttachment(OwningCameraActor->GetRootComponent());
+	// Attach to the CineCameraComponent for correct position/rotation
+	if (CineCameraComponent.IsValid())
+	{
+		SceneCapture->SetupAttachment(CineCameraComponent.Get());
+	}
+	else
+	{
+		SceneCapture->SetupAttachment(OwningCameraActor->GetRootComponent());
+	}
 	SceneCapture->RegisterComponent();
 
 	// Configure capture settings

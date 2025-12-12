@@ -262,6 +262,39 @@ void FNDIStreamRenderer::ProcessCompletedReadback(FStagingBuffer& Staging)
 			// Calculate actual data size using the stride
 			int32 DataSize = LineStrideBytes * Config.Height;
 
+			// Debug: Check if data is all zeros (black)
+			const uint8* DataPtr = static_cast<const uint8*>(Data);
+			bool bAllZeros = true;
+			uint64 SampleSum = 0;
+			// Sample every 1000th pixel to check for content
+			for (int32 i = 0; i < DataSize && i < 100000; i += 4000)
+			{
+				SampleSum += DataPtr[i] + DataPtr[i+1] + DataPtr[i+2] + DataPtr[i+3];
+				if (DataPtr[i] != 0 || DataPtr[i+1] != 0 || DataPtr[i+2] != 0)
+				{
+					bAllZeros = false;
+				}
+			}
+
+			// Log diagnostic info (first few frames only)
+			static int32 DiagFrameCount = 0;
+			if (DiagFrameCount < 10)
+			{
+				UE_LOG(LogRshipNDI, Log, TEXT("NDI Frame %d: %dx%d, RowPitch=%d pixels, Stride=%d bytes, DataSize=%d, AllZeros=%s, SampleSum=%llu"),
+					Staging.FrameNumber, Config.Width, Config.Height,
+					RowPitchInPixels, LineStrideBytes, DataSize,
+					bAllZeros ? TEXT("YES") : TEXT("NO"),
+					SampleSum);
+
+				// Log first 4 pixels
+				UE_LOG(LogRshipNDI, Log, TEXT("  First pixels: [%d,%d,%d,%d] [%d,%d,%d,%d] [%d,%d,%d,%d] [%d,%d,%d,%d]"),
+					DataPtr[0], DataPtr[1], DataPtr[2], DataPtr[3],
+					DataPtr[4], DataPtr[5], DataPtr[6], DataPtr[7],
+					DataPtr[8], DataPtr[9], DataPtr[10], DataPtr[11],
+					DataPtr[12], DataPtr[13], DataPtr[14], DataPtr[15]);
+				++DiagFrameCount;
+			}
+
 			// Create frame struct for Rust
 			RshipNDIFrame Frame;
 			Frame.data = static_cast<const uint8*>(Data);
