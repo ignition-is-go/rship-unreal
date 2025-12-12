@@ -255,8 +255,12 @@ void FNDIStreamRenderer::ProcessCompletedReadback(FStagingBuffer& Staging)
 
 		if (Data)
 		{
-			// Calculate data size
-			int32 DataSize = Config.Width * Config.Height * 4; // RGBA
+			// Calculate actual line stride in bytes (GPU may add padding for alignment)
+			// RowPitchInPixels is the number of pixels per row including any padding
+			int32 LineStrideBytes = RowPitchInPixels * 4; // RGBA = 4 bytes per pixel
+
+			// Calculate actual data size using the stride
+			int32 DataSize = LineStrideBytes * Config.Height;
 
 			// Create frame struct for Rust
 			RshipNDIFrame Frame;
@@ -264,6 +268,7 @@ void FNDIStreamRenderer::ProcessCompletedReadback(FStagingBuffer& Staging)
 			Frame.data_size = DataSize;
 			Frame.width = Config.Width;
 			Frame.height = Config.Height;
+			Frame.line_stride_bytes = LineStrideBytes;
 			Frame.frame_number = Staging.FrameNumber;
 			Frame.timestamp_100ns = FDateTime::Now().GetTicks(); // 100ns units
 

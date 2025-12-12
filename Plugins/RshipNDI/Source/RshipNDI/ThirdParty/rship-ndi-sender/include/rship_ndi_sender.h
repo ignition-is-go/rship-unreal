@@ -30,12 +30,14 @@ struct RshipNDIConfig {
 struct RshipNDIFrame {
     /// Pointer to RGBA pixel data (must remain valid during call)
     const uint8_t *data;
-    /// Size of data in bytes (width * height * 4 for RGBA)
+    /// Size of data in bytes (actual buffer size, may include row padding)
     uintptr_t data_size;
     /// Frame width in pixels
     int width;
     /// Frame height in pixels
     int height;
+    /// Line stride in bytes (bytes per row, may be > width*4 due to GPU alignment)
+    int line_stride_bytes;
     /// Frame number for ordering/debugging
     int64_t frame_number;
     /// Timestamp in 100-nanosecond units (NDI timecode format)

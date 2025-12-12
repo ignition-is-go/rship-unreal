@@ -268,12 +268,14 @@ fn get_ndi_library() -> Result<&'static NDILibrary, &'static str> {
 pub struct RshipNDIFrame {
     /// Pointer to RGBA pixel data (must remain valid during call)
     pub data: *const u8,
-    /// Size of data in bytes (width * height * 4 for RGBA)
+    /// Size of data in bytes (actual buffer size, may include row padding)
     pub data_size: usize,
     /// Frame width in pixels
     pub width: c_int,
     /// Frame height in pixels
     pub height: c_int,
+    /// Line stride in bytes (bytes per row, may be > width*4 due to GPU alignment)
+    pub line_stride_bytes: c_int,
     /// Frame number for ordering/debugging
     pub frame_number: i64,
     /// Timestamp in 100-nanosecond units (NDI timecode format)
@@ -325,6 +327,7 @@ struct FrameData {
     data: Vec<u8>,
     width: i32,
     height: i32,
+    line_stride_bytes: i32,
     #[allow(dead_code)]
     frame_number: i64,
     timestamp_100ns: i64,
@@ -557,12 +560,19 @@ pub unsafe extern "C" fn rship_ndi_submit_frame(
         return false;
     }
 
-    // Expected size for RGBA
-    let expected_size = (frame.width as usize) * (frame.height as usize) * 4;
+    // Determine line stride (use provided value, or calculate tight packing)
+    let line_stride = if frame.line_stride_bytes > 0 {
+        frame.line_stride_bytes as usize
+    } else {
+        (frame.width as usize) * 4  // Default to tight packing
+    };
+
+    // Expected size based on actual stride
+    let expected_size = line_stride * (frame.height as usize);
     if frame.data_size < expected_size {
         eprintln!(
-            "rship_ndi_submit_frame: data_size {} < expected {} for {}x{}",
-            frame.data_size, expected_size, frame.width, frame.height
+            "rship_ndi_submit_frame: data_size {} < expected {} for {}x{} (stride {})",
+            frame.data_size, expected_size, frame.width, frame.height, line_stride
         );
         return false;
     }
@@ -573,6 +583,7 @@ pub unsafe extern "C" fn rship_ndi_submit_frame(
         data: data.to_vec(),
         width: frame.width,
         height: frame.height,
+        line_stride_bytes: line_stride as i32,
         frame_number: frame.frame_number,
         timestamp_100ns: frame.timestamp_100ns,
     };
@@ -711,8 +722,8 @@ fn sender_thread_main(
             Ok(frame_data) => {
                 let start = Instant::now();
 
-                // Calculate line stride (bytes per row)
-                let line_stride = frame_data.width * 4; // RGBA = 4 bytes per pixel
+                // Use actual line stride from frame (handles GPU memory alignment)
+                let line_stride = frame_data.line_stride_bytes;
 
                 // Create NDI video frame descriptor
                 let video_frame = NDILibVideoFrameV2 {
