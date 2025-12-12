@@ -406,7 +406,6 @@ TSharedRef<SWidget> SRshipDashboardWidget::BuildFixturePanel()
             .BorderImage(FAppStyle::GetBrush("ToolPanel.DarkGroupBorder"))
             [
                 SAssignNew(FixtureListView, SListView<TSharedPtr<FRshipDashboardFixtureItem>>)
-                .ItemHeight(24)
                 .ListItemsSource(&FixtureItems)
                 .OnGenerateRow(this, &SRshipDashboardWidget::GenerateFixtureRow)
                 .HeaderRow
@@ -460,7 +459,6 @@ TSharedRef<SWidget> SRshipDashboardWidget::BuildPulseLogPanel()
                 .BorderImage(FAppStyle::GetBrush("ToolPanel.DarkGroupBorder"))
                 [
                     SAssignNew(PulseLogView, SListView<TSharedPtr<FRshipDashboardPulseItem>>)
-                    .ItemHeight(20)
                     .ListItemsSource(&PulseItems)
                     .OnGenerateRow(this, &SRshipDashboardWidget::GeneratePulseRow)
                     .HeaderRow
