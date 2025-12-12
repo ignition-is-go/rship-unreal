@@ -5,7 +5,7 @@
 #include "CoreMinimal.h"
 #include "Modules/ModuleManager.h"
 
-DECLARE_LOG_CATEGORY_EXTERN(LogRshipSpatialAudio, Log, All);
+RSHIPSPATIALAUDIORUNTIME_API DECLARE_LOG_CATEGORY_EXTERN(LogRshipSpatialAudio, Log, All);
 
 /**
  * Runtime module for Rship Spatial Audio system.

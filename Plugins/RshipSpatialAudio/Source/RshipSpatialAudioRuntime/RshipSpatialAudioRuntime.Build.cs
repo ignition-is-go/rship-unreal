@@ -40,6 +40,8 @@ public class RshipSpatialAudioRuntime : ModuleRules
 				"Json",
 				"JsonUtilities",
 				"Projects",
+				"Sockets",             // UDP socket support
+				"Networking",          // Network utilities (FIPv4Address, etc.)
 			}
 		);
 
