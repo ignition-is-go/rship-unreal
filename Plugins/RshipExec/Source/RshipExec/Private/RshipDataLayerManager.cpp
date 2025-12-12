@@ -12,9 +12,9 @@
 #include "WorldPartition/DataLayer/DataLayerAsset.h"
 
 // DataLayer delegate API:
-// - UE 5.6+: OnDataLayerInstanceRuntimeStateChanged() on UDataLayerSubsystem
-// - Future versions may change - update guards as needed
-#define RSHIP_USE_DATALAYER_SUBSYSTEM_DELEGATE (ENGINE_MAJOR_VERSION > 5 || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 6))
+// NOTE: UE 5.6 does not expose OnDataLayerInstanceRuntimeStateChanged on UDataLayerSubsystem
+// Automatic state change notifications are not available - use manual queries instead
+// The query functions (GetAllDataLayers, GetDataLayerInfo, etc.) still work correctly
 
 URshipDataLayerManager::URshipDataLayerManager()
 {
@@ -30,35 +30,14 @@ void URshipDataLayerManager::Initialize(URshipSubsystem* InSubsystem)
 		return;
 	}
 
-	// Bind to Data Layer state changes
-	UDataLayerSubsystem* DataLayerSS = GetDataLayerSubsystem();
-	if (DataLayerSS)
-	{
-#if RSHIP_USE_DATALAYER_SUBSYSTEM_DELEGATE
-		// UE 5.6+: OnDataLayerInstanceRuntimeStateChanged is on UDataLayerSubsystem
-		DataLayerStateChangedHandle = DataLayerSS->OnDataLayerInstanceRuntimeStateChanged().AddUObject(
-			this, &URshipDataLayerManager::OnDataLayerRuntimeStateChanged);
-#else
-		// Pre-5.6: Would need to use UDataLayerManager delegate (not supported - plugin requires 5.6+)
-		UE_LOG(LogTemp, Warning, TEXT("RshipDataLayerManager: DataLayer delegate not available in this UE version"));
-#endif
-	}
-
-	UE_LOG(LogTemp, Log, TEXT("RshipDataLayerManager: Initialized"));
+	// Note: DataLayer state change delegate is not available in UE 5.6
+	// Use manual queries (GetDataLayerState, IsDataLayerLoaded, etc.) to check state
+	UE_LOG(LogTemp, Log, TEXT("RshipDataLayerManager: Initialized (manual state queries only)"));
 }
 
 void URshipDataLayerManager::Shutdown()
 {
-	// Unbind from Data Layer events
-#if RSHIP_USE_DATALAYER_SUBSYSTEM_DELEGATE
-	UDataLayerSubsystem* DataLayerSS = GetDataLayerSubsystem();
-	if (DataLayerSS && DataLayerStateChangedHandle.IsValid())
-	{
-		DataLayerSS->OnDataLayerInstanceRuntimeStateChanged().Remove(DataLayerStateChangedHandle);
-	}
-#endif
 	DataLayerStateChangedHandle.Reset();
-
 	DataLayerStates.Empty();
 	Subsystem = nullptr;
 
@@ -498,13 +477,14 @@ int32 URshipDataLayerManager::CreateGroupsForAllDataLayers()
 		FString GroupId = TEXT("DataLayer_") + Info.DataLayerName;
 
 		// Create group if it doesn't exist
-		FRshipTargetGroup Group;
-		if (!GroupManager->GetGroup(GroupId, Group))
+		FRshipTargetGroup ExistingGroup;
+		if (!GroupManager->GetGroup(GroupId, ExistingGroup))
 		{
-			Group.GroupId = GroupId;
-			Group.DisplayName = Info.DataLayerName;
-			Group.Description = FString::Printf(TEXT("Auto-created group for Data Layer '%s'"), *Info.DataLayerName);
-			GroupManager->CreateGroup(Group);
+			// Create new group using the API
+			FRshipTargetGroup NewGroup = GroupManager->CreateGroup(Info.DataLayerName, FLinearColor::Gray);
+			// Update with custom GroupId for data layer association
+			NewGroup.GroupId = GroupId;
+			GroupManager->UpdateGroup(NewGroup);
 		}
 
 		// Add all targets from this data layer to the group

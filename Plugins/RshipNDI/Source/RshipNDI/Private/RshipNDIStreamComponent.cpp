@@ -6,11 +6,14 @@
 
 #include "CineCameraActor.h"
 #include "CineCameraComponent.h"
-// CineCameraSceneCapture module
-// The include path is added in RshipNDI.Build.cs
-#include "CineCaptureComponent2D.h"
+#include "Components/SceneCaptureComponent2D.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "Kismet/GameplayStatics.h"
+
+// CineCameraSceneCapture module (optional - provides exact CineCamera matching)
+#if RSHIP_HAS_CINE_CAPTURE
+#include "CineCaptureComponent2D.h"
+#endif
 
 URshipNDIStreamComponent::URshipNDIStreamComponent()
 {
@@ -210,27 +213,39 @@ bool URshipNDIStreamComponent::InitializeCineCapture()
 		return false;
 	}
 
-	// Create CineCaptureComponent2D - this automatically syncs with the parent CineCamera
-	CineCapture = NewObject<UCineCaptureComponent2D>(OwningCameraActor.Get(), TEXT("NDICineCapture"));
+#if RSHIP_HAS_CINE_CAPTURE
+	// Create CineCaptureComponent2D - this automatically syncs with the parent CineCamera's
+	// filmback, DOF, and lens settings for exact visual match
+	UCineCaptureComponent2D* CineCapture = NewObject<UCineCaptureComponent2D>(OwningCameraActor.Get(), TEXT("NDICineCapture"));
 	if (!CineCapture)
 	{
 		UE_LOG(LogRshipNDI, Error, TEXT("URshipNDIStreamComponent::InitializeCineCapture - Failed to create UCineCaptureComponent2D"));
 		return false;
 	}
+	SceneCapture = CineCapture;
+	UE_LOG(LogRshipNDI, Log, TEXT("URshipNDIStreamComponent::InitializeCineCapture - Using CineCaptureComponent2D (exact CineCamera match)"));
+#else
+	// Fallback to standard USceneCaptureComponent2D
+	SceneCapture = NewObject<USceneCaptureComponent2D>(OwningCameraActor.Get(), TEXT("NDISceneCapture"));
+	if (!SceneCapture)
+	{
+		UE_LOG(LogRshipNDI, Error, TEXT("URshipNDIStreamComponent::InitializeCineCapture - Failed to create USceneCaptureComponent2D"));
+		return false;
+	}
+	UE_LOG(LogRshipNDI, Log, TEXT("URshipNDIStreamComponent::InitializeCineCapture - Using standard SceneCaptureComponent2D (CineCameraSceneCapture plugin not available)"));
+#endif
 
 	// Attach to the camera actor's root
-	CineCapture->SetupAttachment(OwningCameraActor->GetRootComponent());
-	CineCapture->RegisterComponent();
+	SceneCapture->SetupAttachment(OwningCameraActor->GetRootComponent());
+	SceneCapture->RegisterComponent();
 
 	// Configure capture settings
-	CineCapture->bCaptureEveryFrame = false;  // We capture manually
-	CineCapture->bCaptureOnMovement = false;
-	CineCapture->bAlwaysPersistRenderingState = true;
+	SceneCapture->bCaptureEveryFrame = false;  // We capture manually
+	SceneCapture->bCaptureOnMovement = false;
+	SceneCapture->bAlwaysPersistRenderingState = true;
 
 	// Set capture source to final color
-	CineCapture->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
-
-	UE_LOG(LogRshipNDI, Log, TEXT("URshipNDIStreamComponent::InitializeCineCapture - CineCapture created and attached"));
+	SceneCapture->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
 
 	return true;
 }
@@ -263,9 +278,9 @@ bool URshipNDIStreamComponent::InitializeRenderTargets()
 	}
 
 	// Assign first render target to capture component
-	if (CineCapture && RenderTargets.Num() > 0)
+	if (SceneCapture && RenderTargets.Num() > 0)
 	{
-		CineCapture->TextureTarget = RenderTargets[0];
+		SceneCapture->TextureTarget = RenderTargets[0];
 	}
 
 	UE_LOG(LogRshipNDI, Log, TEXT("URshipNDIStreamComponent::InitializeRenderTargets - Created %d render targets"),
@@ -276,7 +291,7 @@ bool URshipNDIStreamComponent::InitializeRenderTargets()
 
 bool URshipNDIStreamComponent::InitializeNDISender()
 {
-	Renderer = MakeUnique<FNDIStreamRenderer>();
+	Renderer = MakeShared<FNDIStreamRenderer>();
 
 	FNDIStreamRenderer::FConfig RendererConfig;
 	RendererConfig.Width = Config.Width;
@@ -305,11 +320,11 @@ void URshipNDIStreamComponent::CleanupResources()
 		Renderer.Reset();
 	}
 
-	// Destroy CineCapture
-	if (CineCapture)
+	// Destroy SceneCapture
+	if (SceneCapture)
 	{
-		CineCapture->DestroyComponent();
-		CineCapture = nullptr;
+		SceneCapture->DestroyComponent();
+		SceneCapture = nullptr;
 	}
 
 	// Release render targets
@@ -327,7 +342,7 @@ void URshipNDIStreamComponent::CleanupResources()
 
 void URshipNDIStreamComponent::CaptureFrame()
 {
-	if (!CineCapture || RenderTargets.Num() == 0 || !Renderer)
+	if (!SceneCapture || RenderTargets.Num() == 0 || !Renderer)
 	{
 		return;
 	}
@@ -340,10 +355,10 @@ void URshipNDIStreamComponent::CaptureFrame()
 	}
 
 	// Assign render target to capture component
-	CineCapture->TextureTarget = CurrentRT;
+	SceneCapture->TextureTarget = CurrentRT;
 
 	// Trigger capture
-	CineCapture->CaptureScene();
+	SceneCapture->CaptureScene();
 
 	// Submit for GPU readback
 	if (Renderer->SubmitFrame(CurrentRT, FrameCounter))

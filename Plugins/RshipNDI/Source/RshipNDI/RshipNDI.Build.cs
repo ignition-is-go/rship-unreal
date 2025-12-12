@@ -145,17 +145,14 @@ public class RshipNDI : ModuleRules
 			}
 		);
 
-		// CineCameraSceneCapture plugin for UCineCaptureComponent2D
-		// NOTE: This plugin must be enabled in the project
-		PrivateDependencyModuleNames.Add("CineCameraSceneCapture");
+		// CineCameraSceneCapture plugin for UCineCaptureComponent2D (optional)
+		// This plugin provides UCineCaptureComponent2D for exact CineCamera matching
+		// If not available, we fall back to standard USceneCaptureComponent2D
 
-		// Add explicit include path for CineCameraSceneCapture module
-		// The module doesn't expose its headers via the standard mechanism
 		// EngineDirectory points to Engine/Source, so we go up to Engine root first
 		string EngineRoot = Path.GetFullPath(Path.Combine(EngineDirectory, ".."));
-		System.Console.WriteLine("RshipNDI: Engine root detected at: " + EngineRoot);
 
-		// Try multiple potential plugin locations
+		// Try multiple potential plugin locations for CineCameraSceneCapture
 		string[] PotentialPluginPaths = new string[]
 		{
 			// Standard engine installation - VirtualProduction category
@@ -168,32 +165,37 @@ public class RshipNDI : ModuleRules
 			Path.Combine(EngineRoot, "Plugins", "Media", "CineCameraSceneCapture", "Source", "CineCameraSceneCapture", "Public"),
 			// Alternative - Runtime category
 			Path.Combine(EngineRoot, "Plugins", "Runtime", "CineCameraSceneCapture", "Source", "CineCameraSceneCapture", "Public"),
-			// Alternative - Compositing category (sometimes VirtualProduction plugins are here)
+			// Alternative - Compositing category
 			Path.Combine(EngineRoot, "Plugins", "Compositing", "CineCameraSceneCapture", "Source", "CineCameraSceneCapture", "Public"),
 		};
 
-		bool bFoundIncludePath = false;
+		bool bFoundCineCapture = false;
 		foreach (string IncludePath in PotentialPluginPaths)
 		{
 			if (Directory.Exists(IncludePath))
 			{
 				PublicIncludePaths.Add(IncludePath);
-				System.Console.WriteLine("RshipNDI: Added CineCameraSceneCapture include path: " + IncludePath);
-				bFoundIncludePath = true;
+				PrivateDependencyModuleNames.Add("CineCameraSceneCapture");
+				bFoundCineCapture = true;
+				System.Console.WriteLine("RshipNDI: CineCameraSceneCapture found at: " + IncludePath);
 				break;
 			}
 		}
 
-		if (!bFoundIncludePath)
+		// Define whether CineCameraSceneCapture is available
+		if (bFoundCineCapture)
 		{
-			System.Console.WriteLine("RshipNDI: WARNING - CineCameraSceneCapture include path not found");
-			System.Console.WriteLine("RshipNDI:   The CineCameraSceneCapture plugin may not expose public headers.");
-			System.Console.WriteLine("RshipNDI:   Build may fail with 'CineCaptureComponent2D.h' not found.");
-			System.Console.WriteLine("RshipNDI:   Searched paths:");
-			foreach (string IncludePath in PotentialPluginPaths)
-			{
-				System.Console.WriteLine("RshipNDI:     - " + IncludePath);
-			}
+			PublicDefinitions.Add("RSHIP_HAS_CINE_CAPTURE=1");
+		}
+		else
+		{
+			PublicDefinitions.Add("RSHIP_HAS_CINE_CAPTURE=0");
+			System.Console.WriteLine("RshipNDI: ==================================================");
+			System.Console.WriteLine("RshipNDI: CineCameraSceneCapture plugin NOT found.");
+			System.Console.WriteLine("RshipNDI: Using standard USceneCaptureComponent2D instead.");
+			System.Console.WriteLine("RshipNDI: For exact CineCamera DOF/lens matching, install");
+			System.Console.WriteLine("RshipNDI: the CineCameraSceneCapture plugin.");
+			System.Console.WriteLine("RshipNDI: ==================================================");
 		}
 
 		// Editor-only dependencies

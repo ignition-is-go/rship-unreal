@@ -11,7 +11,10 @@
 // Forward declarations
 class ACineCameraActor;
 class UCineCameraComponent;
+class USceneCaptureComponent2D;
+#if RSHIP_HAS_CINE_CAPTURE
 class UCineCaptureComponent2D;
+#endif
 class FNDIStreamRenderer;
 
 /**
@@ -153,16 +156,20 @@ private:
 	UPROPERTY()
 	TWeakObjectPtr<UCineCameraComponent> CineCameraComponent;
 
-	/** Scene capture component for exact CineCamera match */
+	/** Scene capture component for rendering
+	 *  Uses UCineCaptureComponent2D if available (exact CineCamera match)
+	 *  Falls back to USceneCaptureComponent2D otherwise
+	 */
 	UPROPERTY()
-	UCineCaptureComponent2D* CineCapture = nullptr;
+	USceneCaptureComponent2D* SceneCapture = nullptr;
 
 	/** Triple-buffered render targets */
 	UPROPERTY()
 	TArray<UTextureRenderTarget2D*> RenderTargets;
 
 	/** GPU renderer (handles async readback and NDI send) */
-	TUniquePtr<FNDIStreamRenderer> Renderer;
+	/** Note: Using TSharedPtr instead of TUniquePtr to avoid incomplete type issues with UHT-generated code */
+	TSharedPtr<FNDIStreamRenderer> Renderer;
 
 	/** Current buffer index for round-robin */
 	int32 CurrentBufferIndex = 0;
