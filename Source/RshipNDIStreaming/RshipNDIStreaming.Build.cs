@@ -51,10 +51,26 @@ public class RshipNDIStreaming : ModuleRules
 		}
 		else
 		{
+			System.Console.WriteLine("RshipNDIStreaming: ==================================================");
 			System.Console.WriteLine("RshipNDIStreaming: Rust NDI sender library NOT found.");
-			System.Console.WriteLine("RshipNDIStreaming: To enable NDI streaming, build with:");
+			System.Console.WriteLine("RshipNDIStreaming: NDI streaming will be DISABLED.");
+			System.Console.WriteLine("RshipNDIStreaming: ");
+			System.Console.WriteLine("RshipNDIStreaming: To enable NDI streaming, build the Rust library:");
 			System.Console.WriteLine("RshipNDIStreaming:   cd " + RustLibPath);
 			System.Console.WriteLine("RshipNDIStreaming:   cargo build --release");
+			System.Console.WriteLine("RshipNDIStreaming: ");
+			System.Console.WriteLine("RshipNDIStreaming: NOTE: At runtime, NDI Tools must be installed:");
+			System.Console.WriteLine("RshipNDIStreaming:   https://ndi.video/tools/");
+			System.Console.WriteLine("RshipNDIStreaming: ==================================================");
+		}
+
+		// Check for bundled NDI runtime (optional - for redistribution)
+		string NDIRuntimePath = Path.Combine(ModuleDirectory, "ThirdParty", "NDI", "Bin");
+		if (Directory.Exists(NDIRuntimePath))
+		{
+			// Add runtime dependency path for deployment
+			RuntimeDependencies.Add(Path.Combine(NDIRuntimePath, "*"));
+			System.Console.WriteLine("RshipNDIStreaming: Bundled NDI runtime found at " + NDIRuntimePath);
 		}
 
 		// Define whether Rust NDI sender is available

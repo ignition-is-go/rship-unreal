@@ -3,6 +3,8 @@
 //! This library provides a thread-safe NDI video sender that accepts raw RGBA frames
 //! from Unreal Engine's GPU readback and transmits them via NDI.
 //!
+//! Uses runtime dynamic loading of NDI library - no compile-time NDI SDK dependency.
+//!
 //! # Architecture
 //!
 //! ```text
@@ -18,24 +20,243 @@
 //! Sender Thread (dedicated)
 //!        |
 //!        v
-//! NDI SDK (async send)
+//! NDI Runtime (dynamically loaded)
 //! ```
 
 use crossbeam_channel::{bounded, Receiver, Sender, TrySendError};
+use libloading::{Library, Symbol};
+use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
-use std::ffi::{c_char, c_int, c_void, CStr};
+use std::ffi::{c_char, c_int, c_void, CStr, CString};
 use std::ptr;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-// Re-export NDI types we need
-use ndi_sdk::send::SendInstance;
-use ndi_sdk::FourCCVideoType;
+// ============================================================================
+// NDI SDK TYPES (from Processing.NDI.Lib.h)
+// These match the official NDI SDK structures
+// ============================================================================
+
+/// NDI video frame format types
+#[repr(i32)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum NDILibFourCCVideoType {
+    UYVY = 0x59565955,  // YCbCr color space, 4:2:2
+    UYVA = 0x41565955,  // YCbCr + Alpha, 4:2:2:4
+    P216 = 0x36313250,  // YCbCr, 4:2:2, 16bpp
+    PA16 = 0x36314150,  // YCbCr + Alpha, 4:2:2:4, 16bpp
+    YV12 = 0x32315659,  // YCbCr, 4:2:0 (planar)
+    I420 = 0x30323449,  // YCbCr, 4:2:0 (planar)
+    NV12 = 0x3231564E,  // YCbCr, 4:2:0 (semi-planar)
+    BGRA = 0x41524742,  // BGRA, 8bpp per component
+    BGRX = 0x58524742,  // BGRX, 8bpp per component (no alpha)
+    RGBA = 0x41424752,  // RGBA, 8bpp per component
+    RGBX = 0x58424752,  // RGBX, 8bpp per component (no alpha)
+}
+
+/// NDI frame format type (progressive/interlaced)
+#[repr(i32)]
+#[derive(Clone, Copy, Debug)]
+pub enum NDILibFrameFormatType {
+    Progressive = 1,
+    Interleaved = 0,
+    Field0 = 2,
+    Field1 = 3,
+}
+
+/// NDI video frame descriptor (matches NDIlib_video_frame_v2_t)
+#[repr(C)]
+pub struct NDILibVideoFrameV2 {
+    pub xres: c_int,
+    pub yres: c_int,
+    pub four_cc: NDILibFourCCVideoType,
+    pub frame_rate_n: c_int,
+    pub frame_rate_d: c_int,
+    pub picture_aspect_ratio: f32,
+    pub frame_format_type: NDILibFrameFormatType,
+    pub timecode: i64,
+    pub p_data: *mut u8,
+    pub line_stride_in_bytes: c_int,
+    pub p_metadata: *const c_char,
+    pub timestamp: i64,
+}
+
+/// NDI send create descriptor (matches NDIlib_send_create_t)
+#[repr(C)]
+pub struct NDILibSendCreate {
+    pub p_ndi_name: *const c_char,
+    pub p_groups: *const c_char,
+    pub clock_video: bool,
+    pub clock_audio: bool,
+}
 
 // ============================================================================
-// FFI TYPES
+// NDI FUNCTION SIGNATURES
+// ============================================================================
+
+type NDILibInitializeFn = unsafe extern "C" fn() -> bool;
+type NDILibDestroyFn = unsafe extern "C" fn();
+type NDILibSendCreateFn = unsafe extern "C" fn(*const NDILibSendCreate) -> *mut c_void;
+type NDILibSendDestroyFn = unsafe extern "C" fn(*mut c_void);
+type NDILibSendSendVideoV2Fn = unsafe extern "C" fn(*mut c_void, *const NDILibVideoFrameV2);
+type NDILibSendGetNoConnectionsFn = unsafe extern "C" fn(*mut c_void, u32) -> c_int;
+
+// ============================================================================
+// NDI LIBRARY WRAPPER
+// ============================================================================
+
+struct NDILibrary {
+    #[allow(dead_code)]
+    lib: Library,
+    initialize: NDILibInitializeFn,
+    destroy: NDILibDestroyFn,
+    send_create: NDILibSendCreateFn,
+    send_destroy: NDILibSendDestroyFn,
+    send_video_v2: NDILibSendSendVideoV2Fn,
+    send_get_no_connections: NDILibSendGetNoConnectionsFn,
+}
+
+impl NDILibrary {
+    fn load() -> Result<Self, String> {
+        // Platform-specific library names
+        // Platform-specific library names to search
+        // Order: bundled with plugin -> system install -> standard paths
+        #[cfg(target_os = "windows")]
+        let lib_names = [
+            // Standard NDI Tools install location (most common)
+            "Processing.NDI.Lib.x64.dll",
+            // Alternative name
+            "ndi.dll",
+            // Program Files location
+            "C:\\Program Files\\NDI\\NDI 6 Runtime\\v6\\Processing.NDI.Lib.x64.dll",
+            "C:\\Program Files\\NDI\\NDI 5 Runtime\\v5\\Processing.NDI.Lib.x64.dll",
+        ];
+
+        #[cfg(target_os = "macos")]
+        let lib_names = [
+            // NDI SDK for macOS install location
+            "/Library/NDI SDK for macOS/lib/macOS/libndi.dylib",
+            // Homebrew or manual install
+            "/usr/local/lib/libndi.dylib",
+            "/opt/homebrew/lib/libndi.dylib",
+            // Dynamic linker search
+            "libndi.dylib",
+        ];
+
+        #[cfg(target_os = "linux")]
+        let lib_names = [
+            // NDI 6 and 5 shared object
+            "libndi.so.6",
+            "libndi.so.5",
+            "libndi.so",
+            // Standard library paths
+            "/usr/lib/libndi.so",
+            "/usr/local/lib/libndi.so",
+            "/usr/lib/x86_64-linux-gnu/libndi.so",
+        ];
+
+        let mut last_error = String::new();
+
+        for lib_name in lib_names {
+            match unsafe { Library::new(lib_name) } {
+                Ok(lib) => {
+                    // Load all required functions - get raw pointers first to avoid borrow issues
+                    unsafe {
+                        let initialize_sym: Symbol<NDILibInitializeFn> =
+                            match lib.get(b"NDIlib_initialize\0") {
+                                Ok(s) => s,
+                                Err(e) => {
+                                    last_error = format!("Failed to load NDIlib_initialize: {}", e);
+                                    continue;
+                                }
+                            };
+                        let initialize = *initialize_sym;
+
+                        let destroy_sym: Symbol<NDILibDestroyFn> =
+                            match lib.get(b"NDIlib_destroy\0") {
+                                Ok(s) => s,
+                                Err(e) => {
+                                    last_error = format!("Failed to load NDIlib_destroy: {}", e);
+                                    continue;
+                                }
+                            };
+                        let destroy = *destroy_sym;
+
+                        let send_create_sym: Symbol<NDILibSendCreateFn> =
+                            match lib.get(b"NDIlib_send_create\0") {
+                                Ok(s) => s,
+                                Err(e) => {
+                                    last_error = format!("Failed to load NDIlib_send_create: {}", e);
+                                    continue;
+                                }
+                            };
+                        let send_create = *send_create_sym;
+
+                        let send_destroy_sym: Symbol<NDILibSendDestroyFn> =
+                            match lib.get(b"NDIlib_send_destroy\0") {
+                                Ok(s) => s,
+                                Err(e) => {
+                                    last_error = format!("Failed to load NDIlib_send_destroy: {}", e);
+                                    continue;
+                                }
+                            };
+                        let send_destroy = *send_destroy_sym;
+
+                        let send_video_v2_sym: Symbol<NDILibSendSendVideoV2Fn> =
+                            match lib.get(b"NDIlib_send_send_video_v2\0") {
+                                Ok(s) => s,
+                                Err(e) => {
+                                    last_error = format!("Failed to load NDIlib_send_send_video_v2: {}", e);
+                                    continue;
+                                }
+                            };
+                        let send_video_v2 = *send_video_v2_sym;
+
+                        let send_get_no_connections_sym: Symbol<NDILibSendGetNoConnectionsFn> =
+                            match lib.get(b"NDIlib_send_get_no_connections\0") {
+                                Ok(s) => s,
+                                Err(e) => {
+                                    last_error = format!("Failed to load NDIlib_send_get_no_connections: {}", e);
+                                    continue;
+                                }
+                            };
+                        let send_get_no_connections = *send_get_no_connections_sym;
+
+                        return Ok(NDILibrary {
+                            lib,
+                            initialize,
+                            destroy,
+                            send_create,
+                            send_destroy,
+                            send_video_v2,
+                            send_get_no_connections,
+                        });
+                    }
+                }
+                Err(e) => {
+                    last_error = format!("{}: {}", lib_name, e);
+                }
+            }
+        }
+
+        Err(format!("Failed to load NDI library. Last error: {}", last_error))
+    }
+}
+
+// Global NDI library instance
+static NDI_LIBRARY: OnceCell<Result<NDILibrary, String>> = OnceCell::new();
+
+fn get_ndi_library() -> Result<&'static NDILibrary, &'static str> {
+    NDI_LIBRARY
+        .get_or_init(|| NDILibrary::load())
+        .as_ref()
+        .map_err(|e| e.as_str())
+}
+
+// ============================================================================
+// FFI TYPES (exported to C++)
 // ============================================================================
 
 /// Frame data passed from C++ (Unreal Engine)
@@ -100,6 +321,7 @@ struct FrameData {
     data: Vec<u8>,
     width: i32,
     height: i32,
+    #[allow(dead_code)]
     frame_number: i64,
     timestamp_100ns: i64,
 }
@@ -107,7 +329,10 @@ struct FrameData {
 /// Sender configuration (internal)
 #[derive(Clone)]
 struct SenderConfig {
+    stream_name: String,
+    #[allow(dead_code)]
     width: i32,
+    #[allow(dead_code)]
     height: i32,
     framerate_num: i32,
     framerate_den: i32,
@@ -178,6 +403,12 @@ pub unsafe extern "C" fn rship_ndi_create(config: *const RshipNDIConfig) -> *mut
         return ptr::null_mut();
     }
 
+    // Check NDI library is available
+    if let Err(e) = get_ndi_library() {
+        eprintln!("rship_ndi_create: NDI library not available: {}", e);
+        return ptr::null_mut();
+    }
+
     // Convert stream name
     let stream_name = if config.stream_name.is_null() {
         "Unreal NDI Stream".to_string()
@@ -198,18 +429,17 @@ pub unsafe extern "C" fn rship_ndi_create(config: *const RshipNDIConfig) -> *mut
         3 // Default triple-buffer
     };
 
-    // Initialize NDI
-    // Note: ndi-sdk handles NDI library loading automatically
-    let send_instance = match SendInstance::new(&stream_name, None, false) {
-        Ok(instance) => instance,
-        Err(e) => {
-            eprintln!("rship_ndi_create: failed to create NDI sender: {:?}", e);
-            return ptr::null_mut();
-        }
+    let sender_config = SenderConfig {
+        stream_name: stream_name.clone(),
+        width: config.width,
+        height: config.height,
+        framerate_num: config.framerate_num,
+        framerate_den: config.framerate_den,
+        enable_alpha: config.enable_alpha,
     };
 
     println!(
-        "rship_ndi_create: created NDI sender '{}' @ {}x{} @ {}/{} fps, alpha={}",
+        "rship_ndi_create: creating NDI sender '{}' @ {}x{} @ {}/{} fps, alpha={}",
         stream_name,
         config.width,
         config.height,
@@ -229,14 +459,6 @@ pub unsafe extern "C" fn rship_ndi_create(config: *const RshipNDIConfig) -> *mut
         connected_receivers: AtomicI32::new(0),
     });
 
-    let sender_config = SenderConfig {
-        width: config.width,
-        height: config.height,
-        framerate_num: config.framerate_num,
-        framerate_den: config.framerate_den,
-        enable_alpha: config.enable_alpha,
-    };
-
     // Clone for thread
     let thread_shutdown = shutdown.clone();
     let thread_stats = stats.clone();
@@ -246,7 +468,7 @@ pub unsafe extern "C" fn rship_ndi_create(config: *const RshipNDIConfig) -> *mut
     let sender_thread = match thread::Builder::new()
         .name("NDI-Sender".into())
         .spawn(move || {
-            sender_thread_main(send_instance, rx, thread_shutdown, thread_stats, thread_config);
+            sender_thread_main(rx, thread_shutdown, thread_stats, thread_config);
         }) {
         Ok(t) => t,
         Err(e) => {
@@ -406,9 +628,7 @@ pub unsafe extern "C" fn rship_ndi_get_stats(
 /// * `false` otherwise
 #[no_mangle]
 pub extern "C" fn rship_ndi_is_available() -> bool {
-    // ndi-sdk uses dynamic loading, try to verify it works
-    // For now, assume available if we can be called
-    true
+    get_ndi_library().is_ok()
 }
 
 // ============================================================================
@@ -419,18 +639,62 @@ pub extern "C" fn rship_ndi_is_available() -> bool {
 ///
 /// Continuously receives frames from the channel and sends them via NDI.
 fn sender_thread_main(
-    send_instance: SendInstance,
     rx: Receiver<FrameData>,
     shutdown: Arc<AtomicBool>,
     stats: Arc<SenderStats>,
     config: SenderConfig,
 ) {
-    println!("sender_thread_main: started");
+    println!("sender_thread_main: starting NDI initialization");
+
+    // Get NDI library
+    let ndi = match get_ndi_library() {
+        Ok(lib) => lib,
+        Err(e) => {
+            eprintln!("sender_thread_main: failed to get NDI library: {}", e);
+            return;
+        }
+    };
+
+    // Initialize NDI
+    let initialized = unsafe { (ndi.initialize)() };
+    if !initialized {
+        eprintln!("sender_thread_main: NDIlib_initialize failed");
+        return;
+    }
+
+    // Create NDI sender
+    let stream_name_c = match CString::new(config.stream_name.as_str()) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("sender_thread_main: invalid stream name: {}", e);
+            unsafe { (ndi.destroy)() };
+            return;
+        }
+    };
+
+    let create_desc = NDILibSendCreate {
+        p_ndi_name: stream_name_c.as_ptr(),
+        p_groups: ptr::null(),
+        clock_video: true,
+        clock_audio: false,
+    };
+
+    let ndi_sender = unsafe { (ndi.send_create)(&create_desc) };
+    if ndi_sender.is_null() {
+        eprintln!("sender_thread_main: NDIlib_send_create failed");
+        unsafe { (ndi.destroy)() };
+        return;
+    }
+
+    println!(
+        "sender_thread_main: NDI sender '{}' created successfully",
+        config.stream_name
+    );
 
     let four_cc = if config.enable_alpha {
-        FourCCVideoType::RGBA
+        NDILibFourCCVideoType::RGBA
     } else {
-        FourCCVideoType::RGBX
+        NDILibFourCCVideoType::RGBX
     };
 
     // Rolling average for send time
@@ -446,24 +710,24 @@ fn sender_thread_main(
                 // Calculate line stride (bytes per row)
                 let line_stride = frame_data.width * 4; // RGBA = 4 bytes per pixel
 
-                // Create NDI video frame
-                // Note: NDI SDK expects the data pointer to remain valid during send
-                let result = send_video_frame(
-                    &send_instance,
-                    frame_data.width,
-                    frame_data.height,
+                // Create NDI video frame descriptor
+                let video_frame = NDILibVideoFrameV2 {
+                    xres: frame_data.width,
+                    yres: frame_data.height,
                     four_cc,
-                    config.framerate_num,
-                    config.framerate_den,
-                    line_stride,
-                    &frame_data.data,
-                    frame_data.timestamp_100ns,
-                );
+                    frame_rate_n: config.framerate_num,
+                    frame_rate_d: config.framerate_den,
+                    picture_aspect_ratio: frame_data.width as f32 / frame_data.height as f32,
+                    frame_format_type: NDILibFrameFormatType::Progressive,
+                    timecode: frame_data.timestamp_100ns,
+                    p_data: frame_data.data.as_ptr() as *mut u8,
+                    line_stride_in_bytes: line_stride,
+                    p_metadata: ptr::null(),
+                    timestamp: frame_data.timestamp_100ns,
+                };
 
-                if let Err(e) = result {
-                    eprintln!("sender_thread_main: NDI send error: {:?}", e);
-                    continue;
-                }
+                // Send frame
+                unsafe { (ndi.send_video_v2)(ndi_sender, &video_frame) };
 
                 // Update statistics
                 let elapsed_us = start.elapsed().as_micros() as f64;
@@ -488,7 +752,7 @@ fn sender_thread_main(
 
         // Periodically check connection count (every second)
         if last_connection_check.elapsed() > Duration::from_secs(1) {
-            let num_connections = send_instance.get_no_connections() as i32;
+            let num_connections = unsafe { (ndi.send_get_no_connections)(ndi_sender, 0) };
             stats
                 .connected_receivers
                 .store(num_connections, Ordering::Relaxed);
@@ -496,44 +760,15 @@ fn sender_thread_main(
         }
     }
 
+    println!("sender_thread_main: cleaning up");
+
+    // Cleanup
+    unsafe {
+        (ndi.send_destroy)(ndi_sender);
+        (ndi.destroy)();
+    }
+
     println!("sender_thread_main: exiting");
-}
-
-/// Send a video frame via NDI.
-///
-/// This is a helper that handles the NDI frame setup and send.
-fn send_video_frame(
-    send_instance: &SendInstance,
-    width: i32,
-    height: i32,
-    four_cc: FourCCVideoType,
-    framerate_num: i32,
-    framerate_den: i32,
-    line_stride: i32,
-    data: &[u8],
-    timestamp_100ns: i64,
-) -> Result<(), Box<dyn std::error::Error>> {
-    // Create NDI video frame descriptor
-    let video_frame = ndi_sdk::VideoFrame {
-        xres: width,
-        yres: height,
-        four_cc,
-        frame_rate_n: framerate_num,
-        frame_rate_d: framerate_den,
-        picture_aspect_ratio: width as f32 / height as f32,
-        frame_format_type: ndi_sdk::FrameFormatType::Progressive,
-        timecode: timestamp_100ns,
-        data: data.as_ptr() as *mut u8,
-        line_stride_in_bytes: line_stride,
-        metadata: None,
-        timestamp: timestamp_100ns,
-    };
-
-    // Send frame asynchronously
-    // NDI handles the actual network transmission
-    send_instance.send_video(&video_frame)?;
-
-    Ok(())
 }
 
 // ============================================================================
@@ -550,5 +785,13 @@ mod tests {
         assert!(std::mem::size_of::<RshipNDIFrame>() > 0);
         assert!(std::mem::size_of::<RshipNDIConfig>() > 0);
         assert!(std::mem::size_of::<RshipNDIStats>() > 0);
+    }
+
+    #[test]
+    fn test_four_cc_values() {
+        // Verify FourCC values match NDI SDK
+        assert_eq!(NDILibFourCCVideoType::RGBA as i32, 0x41424752);
+        assert_eq!(NDILibFourCCVideoType::RGBX as i32, 0x58424752);
+        assert_eq!(NDILibFourCCVideoType::BGRA as i32, 0x41524742);
     }
 }
