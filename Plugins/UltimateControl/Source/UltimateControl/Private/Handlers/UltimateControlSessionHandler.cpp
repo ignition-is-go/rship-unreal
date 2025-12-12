@@ -20,53 +20,82 @@
 	#define ULTIMATE_CONTROL_HAS_CONCERT 0
 #endif
 
-void FUltimateControlSessionHandler::RegisterMethods(TMap<FString, FJsonRpcMethodHandler>& Methods)
+FUltimateControlSessionHandler::FUltimateControlSessionHandler(UUltimateControlSubsystem* InSubsystem)
+	: FUltimateControlHandlerBase(InSubsystem)
 {
 	// Session discovery
-	Methods.Add(TEXT("session.list"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleListSessions));
-	Methods.Add(TEXT("session.getCurrent"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleGetCurrentSession));
-	Methods.Add(TEXT("session.isInSession"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleIsInSession));
+	RegisterMethod(TEXT("session.list"), TEXT("List available sessions"), TEXT("Session"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleListSessions));
+	RegisterMethod(TEXT("session.getCurrent"), TEXT("Get current session info"), TEXT("Session"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleGetCurrentSession));
+	RegisterMethod(TEXT("session.isInSession"), TEXT("Check if in a session"), TEXT("Session"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleIsInSession));
 
 	// Session management
-	Methods.Add(TEXT("session.create"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleCreateSession));
-	Methods.Add(TEXT("session.join"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleJoinSession));
-	Methods.Add(TEXT("session.leave"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleLeaveSession));
-	Methods.Add(TEXT("session.delete"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleDeleteSession));
+	RegisterMethod(TEXT("session.create"), TEXT("Create a new session"), TEXT("Session"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleCreateSession));
+	RegisterMethod(TEXT("session.join"), TEXT("Join an existing session"), TEXT("Session"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleJoinSession));
+	RegisterMethod(TEXT("session.leave"), TEXT("Leave current session"), TEXT("Session"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleLeaveSession));
+	RegisterMethod(TEXT("session.delete"), TEXT("Delete a session"), TEXT("Session"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleDeleteSession), true);
 
 	// Users
-	Methods.Add(TEXT("session.listUsers"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleListUsers));
-	Methods.Add(TEXT("session.getCurrentUser"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleGetCurrentUser));
-	Methods.Add(TEXT("session.getUserInfo"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleGetUserInfo));
-	Methods.Add(TEXT("session.kickUser"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleKickUser));
+	RegisterMethod(TEXT("session.listUsers"), TEXT("List users in session"), TEXT("Session"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleListUsers));
+	RegisterMethod(TEXT("session.getCurrentUser"), TEXT("Get current user info"), TEXT("Session"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleGetCurrentUser));
+	RegisterMethod(TEXT("session.getUserInfo"), TEXT("Get user information"), TEXT("Session"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleGetUserInfo));
+	RegisterMethod(TEXT("session.kickUser"), TEXT("Kick a user from session"), TEXT("Session"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleKickUser), true);
 
 	// Presence
-	Methods.Add(TEXT("session.getUserPresence"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleGetUserPresence));
-	Methods.Add(TEXT("session.getUserActivity"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleGetUserActivity));
-	Methods.Add(TEXT("session.getUserSelection"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleGetUserSelection));
+	RegisterMethod(TEXT("session.getUserPresence"), TEXT("Get user presence"), TEXT("Session"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleGetUserPresence));
+	RegisterMethod(TEXT("session.getUserActivity"), TEXT("Get user activity"), TEXT("Session"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleGetUserActivity));
+	RegisterMethod(TEXT("session.getUserSelection"), TEXT("Get user selection"), TEXT("Session"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleGetUserSelection));
 
 	// Locking
-	Methods.Add(TEXT("session.lockObject"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleLockObject));
-	Methods.Add(TEXT("session.unlockObject"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleUnlockObject));
-	Methods.Add(TEXT("session.getObjectLock"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleGetObjectLock));
-	Methods.Add(TEXT("session.listLockedObjects"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleListLockedObjects));
-	Methods.Add(TEXT("session.forceUnlock"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleForceUnlock));
+	RegisterMethod(TEXT("session.lockObject"), TEXT("Lock an object"), TEXT("Session"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleLockObject));
+	RegisterMethod(TEXT("session.unlockObject"), TEXT("Unlock an object"), TEXT("Session"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleUnlockObject));
+	RegisterMethod(TEXT("session.getObjectLock"), TEXT("Get object lock status"), TEXT("Session"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleGetObjectLock));
+	RegisterMethod(TEXT("session.listLockedObjects"), TEXT("List locked objects"), TEXT("Session"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleListLockedObjects));
+	RegisterMethod(TEXT("session.forceUnlock"), TEXT("Force unlock an object"), TEXT("Session"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleForceUnlock), true);
 
 	// Transactions
-	Methods.Add(TEXT("session.getPendingTransactions"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleGetPendingTransactions));
-	Methods.Add(TEXT("session.getTransactionHistory"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleGetTransactionHistory));
+	RegisterMethod(TEXT("session.getPendingTransactions"), TEXT("Get pending transactions"), TEXT("Session"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleGetPendingTransactions));
+	RegisterMethod(TEXT("session.getTransactionHistory"), TEXT("Get transaction history"), TEXT("Session"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleGetTransactionHistory));
 
 	// Synchronization
-	Methods.Add(TEXT("session.persist"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandlePersistSession));
-	Methods.Add(TEXT("session.restore"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleRestoreSession));
-	Methods.Add(TEXT("session.getSyncStatus"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleGetSyncStatus));
+	RegisterMethod(TEXT("session.persist"), TEXT("Persist session changes"), TEXT("Session"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandlePersistSession));
+	RegisterMethod(TEXT("session.restore"), TEXT("Restore session"), TEXT("Session"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleRestoreSession));
+	RegisterMethod(TEXT("session.getSyncStatus"), TEXT("Get sync status"), TEXT("Session"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleGetSyncStatus));
 
 	// Settings
-	Methods.Add(TEXT("session.getSettings"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleGetSessionSettings));
-	Methods.Add(TEXT("session.setSettings"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleSetSessionSettings));
+	RegisterMethod(TEXT("session.getSettings"), TEXT("Get session settings"), TEXT("Session"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleGetSessionSettings));
+	RegisterMethod(TEXT("session.setSettings"), TEXT("Set session settings"), TEXT("Session"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleSetSessionSettings));
 
 	// Server
-	Methods.Add(TEXT("session.getServerInfo"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleGetServerInfo));
-	Methods.Add(TEXT("session.listServers"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleListServers));
+	RegisterMethod(TEXT("session.getServerInfo"), TEXT("Get server information"), TEXT("Session"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleGetServerInfo));
+	RegisterMethod(TEXT("session.listServers"), TEXT("List available servers"), TEXT("Session"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlSessionHandler::HandleListServers));
 }
 
 TSharedPtr<FJsonObject> FUltimateControlSessionHandler::SessionToJson()
@@ -199,7 +228,7 @@ bool FUltimateControlSessionHandler::HandleCreateSession(const TSharedPtr<FJsonO
 	FString SessionName = Params->GetStringField(TEXT("sessionName"));
 	if (SessionName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("sessionName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("sessionName parameter required"));
 		return true;
 	}
 
@@ -216,7 +245,7 @@ bool FUltimateControlSessionHandler::HandleJoinSession(const TSharedPtr<FJsonObj
 	FString SessionName = Params->GetStringField(TEXT("sessionName"));
 	if (SessionName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("sessionName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("sessionName parameter required"));
 		return true;
 	}
 
@@ -344,7 +373,7 @@ bool FUltimateControlSessionHandler::HandleGetUserInfo(const TSharedPtr<FJsonObj
 	FString UserId = Params->GetStringField(TEXT("userId"));
 	if (UserId.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("userId parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("userId parameter required"));
 		return true;
 	}
 
@@ -398,7 +427,7 @@ bool FUltimateControlSessionHandler::HandleLockObject(const TSharedPtr<FJsonObje
 	FString ObjectPath = Params->GetStringField(TEXT("objectPath"));
 	if (ObjectPath.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("objectPath parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("objectPath parameter required"));
 		return true;
 	}
 
@@ -443,7 +472,7 @@ bool FUltimateControlSessionHandler::HandleUnlockObject(const TSharedPtr<FJsonOb
 	FString ObjectPath = Params->GetStringField(TEXT("objectPath"));
 	if (ObjectPath.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("objectPath parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("objectPath parameter required"));
 		return true;
 	}
 
@@ -487,7 +516,7 @@ bool FUltimateControlSessionHandler::HandleGetObjectLock(const TSharedPtr<FJsonO
 	FString ObjectPath = Params->GetStringField(TEXT("objectPath"));
 	if (ObjectPath.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("objectPath parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("objectPath parameter required"));
 		return true;
 	}
 

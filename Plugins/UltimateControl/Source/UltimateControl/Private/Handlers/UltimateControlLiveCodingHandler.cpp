@@ -1,48 +1,80 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Handlers/UltimateControlLiveCodingHandler.h"
-#include "ILiveCodingModule.h"
-#include "IHotReload.h"
 #include "Modules/ModuleManager.h"
 #include "Misc/HotReloadInterface.h"
 
-void FUltimateControlLiveCodingHandler::RegisterMethods(TMap<FString, FJsonRpcMethodHandler>& Methods)
+// Live Coding module is optional - check if header exists
+#if __has_include("ILiveCodingModule.h")
+	#include "ILiveCodingModule.h"
+	#define ULTIMATE_CONTROL_HAS_LIVE_CODING 1
+#else
+	#define ULTIMATE_CONTROL_HAS_LIVE_CODING 0
+#endif
+
+// Hot Reload interface
+#if __has_include("IHotReload.h")
+	#include "IHotReload.h"
+#endif
+
+FUltimateControlLiveCodingHandler::FUltimateControlLiveCodingHandler(UUltimateControlSubsystem* InSubsystem)
+	: FUltimateControlHandlerBase(InSubsystem)
 {
 	// Live Coding
-	Methods.Add(TEXT("liveCoding.isEnabled"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleIsLiveCodingEnabled));
-	Methods.Add(TEXT("liveCoding.enable"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleEnableLiveCoding));
-	Methods.Add(TEXT("liveCoding.disable"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleDisableLiveCoding));
-	Methods.Add(TEXT("liveCoding.start"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleStartLiveCoding));
+	RegisterMethod(TEXT("liveCoding.isEnabled"), TEXT("Check if live coding is enabled"), TEXT("LiveCoding"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleIsLiveCodingEnabled));
+	RegisterMethod(TEXT("liveCoding.enable"), TEXT("Enable live coding"), TEXT("LiveCoding"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleEnableLiveCoding));
+	RegisterMethod(TEXT("liveCoding.disable"), TEXT("Disable live coding"), TEXT("LiveCoding"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleDisableLiveCoding));
+	RegisterMethod(TEXT("liveCoding.start"), TEXT("Start live coding session"), TEXT("LiveCoding"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleStartLiveCoding));
 
 	// Compilation
-	Methods.Add(TEXT("liveCoding.compile"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleCompile));
-	Methods.Add(TEXT("liveCoding.getCompileStatus"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleGetCompileStatus));
-	Methods.Add(TEXT("liveCoding.cancelCompile"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleCancelCompile));
+	RegisterMethod(TEXT("liveCoding.compile"), TEXT("Trigger compilation"), TEXT("LiveCoding"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleCompile));
+	RegisterMethod(TEXT("liveCoding.getCompileStatus"), TEXT("Get compilation status"), TEXT("LiveCoding"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleGetCompileStatus));
+	RegisterMethod(TEXT("liveCoding.cancelCompile"), TEXT("Cancel ongoing compilation"), TEXT("LiveCoding"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleCancelCompile));
 
 	// Hot Reload
-	Methods.Add(TEXT("hotReload.reload"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleHotReload));
-	Methods.Add(TEXT("hotReload.canReload"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleCanHotReload));
+	RegisterMethod(TEXT("hotReload.reload"), TEXT("Trigger hot reload"), TEXT("HotReload"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleHotReload));
+	RegisterMethod(TEXT("hotReload.canReload"), TEXT("Check if hot reload is available"), TEXT("HotReload"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleCanHotReload));
 
 	// Module information
-	Methods.Add(TEXT("module.list"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleListModules));
-	Methods.Add(TEXT("module.getInfo"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleGetModuleInfo));
-	Methods.Add(TEXT("module.isLoaded"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleIsModuleLoaded));
+	RegisterMethod(TEXT("module.list"), TEXT("List loaded modules"), TEXT("Modules"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleListModules));
+	RegisterMethod(TEXT("module.getInfo"), TEXT("Get module information"), TEXT("Modules"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleGetModuleInfo));
+	RegisterMethod(TEXT("module.isLoaded"), TEXT("Check if module is loaded"), TEXT("Modules"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleIsModuleLoaded));
 
 	// Patch information
-	Methods.Add(TEXT("liveCoding.getPendingPatches"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleGetPendingPatches));
-	Methods.Add(TEXT("liveCoding.getAppliedPatches"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleGetAppliedPatches));
+	RegisterMethod(TEXT("liveCoding.getPendingPatches"), TEXT("Get pending patches"), TEXT("LiveCoding"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleGetPendingPatches));
+	RegisterMethod(TEXT("liveCoding.getAppliedPatches"), TEXT("Get applied patches"), TEXT("LiveCoding"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleGetAppliedPatches));
 
 	// Build settings
-	Methods.Add(TEXT("build.getConfiguration"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleGetBuildConfiguration));
-	Methods.Add(TEXT("build.getCompilerSettings"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleGetCompilerSettings));
+	RegisterMethod(TEXT("build.getConfiguration"), TEXT("Get build configuration"), TEXT("Build"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleGetBuildConfiguration));
+	RegisterMethod(TEXT("build.getCompilerSettings"), TEXT("Get compiler settings"), TEXT("Build"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleGetCompilerSettings));
 
 	// Project files
-	Methods.Add(TEXT("project.generateFiles"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleGenerateProjectFiles));
-	Methods.Add(TEXT("project.refreshFiles"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleRefreshProjectFiles));
+	RegisterMethod(TEXT("project.generateFiles"), TEXT("Generate project files"), TEXT("Project"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleGenerateProjectFiles));
+	RegisterMethod(TEXT("project.refreshFiles"), TEXT("Refresh project files"), TEXT("Project"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleRefreshProjectFiles));
 
 	// Compile errors
-	Methods.Add(TEXT("compile.getErrors"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleGetCompileErrors));
-	Methods.Add(TEXT("compile.getWarnings"), FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleGetCompileWarnings));
+	RegisterMethod(TEXT("compile.getErrors"), TEXT("Get compilation errors"), TEXT("Compile"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleGetCompileErrors));
+	RegisterMethod(TEXT("compile.getWarnings"), TEXT("Get compilation warnings"), TEXT("Compile"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlLiveCodingHandler::HandleGetCompileWarnings));
 }
 
 TSharedPtr<FJsonObject> FUltimateControlLiveCodingHandler::ModuleToJson(const FModuleStatus& ModuleStatus)
@@ -57,6 +89,7 @@ TSharedPtr<FJsonObject> FUltimateControlLiveCodingHandler::ModuleToJson(const FM
 
 bool FUltimateControlLiveCodingHandler::HandleIsLiveCodingEnabled(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
 {
+#if ULTIMATE_CONTROL_HAS_LIVE_CODING
 	ILiveCodingModule* LiveCoding = FModuleManager::GetModulePtr<ILiveCodingModule>(LIVE_CODING_MODULE_NAME);
 
 	TSharedPtr<FJsonObject> StatusJson = MakeShared<FJsonObject>();
@@ -70,14 +103,23 @@ bool FUltimateControlLiveCodingHandler::HandleIsLiveCodingEnabled(const TSharedP
 
 	Result = MakeShared<FJsonValueObject>(StatusJson);
 	return true;
+#else
+	TSharedPtr<FJsonObject> StatusJson = MakeShared<FJsonObject>();
+	StatusJson->SetBoolField(TEXT("moduleLoaded"), false);
+	StatusJson->SetBoolField(TEXT("enabled"), false);
+	StatusJson->SetStringField(TEXT("message"), TEXT("Live Coding not available in this build"));
+	Result = MakeShared<FJsonValueObject>(StatusJson);
+	return true;
+#endif
 }
 
 bool FUltimateControlLiveCodingHandler::HandleEnableLiveCoding(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
 {
+#if ULTIMATE_CONTROL_HAS_LIVE_CODING
 	ILiveCodingModule* LiveCoding = FModuleManager::GetModulePtr<ILiveCodingModule>(LIVE_CODING_MODULE_NAME);
 	if (!LiveCoding)
 	{
-		Error = CreateError(-32603, TEXT("Live Coding module not loaded"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Live Coding module not loaded"));
 		return true;
 	}
 
@@ -89,14 +131,19 @@ bool FUltimateControlLiveCodingHandler::HandleEnableLiveCoding(const TSharedPtr<
 
 	Result = MakeShared<FJsonValueObject>(ResultJson);
 	return true;
+#else
+	Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Live Coding not available in this build"));
+	return true;
+#endif
 }
 
 bool FUltimateControlLiveCodingHandler::HandleDisableLiveCoding(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
 {
+#if ULTIMATE_CONTROL_HAS_LIVE_CODING
 	ILiveCodingModule* LiveCoding = FModuleManager::GetModulePtr<ILiveCodingModule>(LIVE_CODING_MODULE_NAME);
 	if (!LiveCoding)
 	{
-		Error = CreateError(-32603, TEXT("Live Coding module not loaded"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Live Coding module not loaded"));
 		return true;
 	}
 
@@ -108,14 +155,19 @@ bool FUltimateControlLiveCodingHandler::HandleDisableLiveCoding(const TSharedPtr
 
 	Result = MakeShared<FJsonValueObject>(ResultJson);
 	return true;
+#else
+	Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Live Coding not available in this build"));
+	return true;
+#endif
 }
 
 bool FUltimateControlLiveCodingHandler::HandleStartLiveCoding(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
 {
+#if ULTIMATE_CONTROL_HAS_LIVE_CODING
 	ILiveCodingModule* LiveCoding = FModuleManager::GetModulePtr<ILiveCodingModule>(LIVE_CODING_MODULE_NAME);
 	if (!LiveCoding)
 	{
-		Error = CreateError(-32603, TEXT("Live Coding module not loaded"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Live Coding module not loaded"));
 		return true;
 	}
 
@@ -129,20 +181,25 @@ bool FUltimateControlLiveCodingHandler::HandleStartLiveCoding(const TSharedPtr<F
 
 	Result = MakeShared<FJsonValueObject>(ResultJson);
 	return true;
+#else
+	Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Live Coding not available in this build"));
+	return true;
+#endif
 }
 
 bool FUltimateControlLiveCodingHandler::HandleCompile(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
 {
+#if ULTIMATE_CONTROL_HAS_LIVE_CODING
 	ILiveCodingModule* LiveCoding = FModuleManager::GetModulePtr<ILiveCodingModule>(LIVE_CODING_MODULE_NAME);
 	if (!LiveCoding)
 	{
-		Error = CreateError(-32603, TEXT("Live Coding module not loaded"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Live Coding module not loaded"));
 		return true;
 	}
 
 	if (!LiveCoding->IsEnabledForSession())
 	{
-		Error = CreateError(-32603, TEXT("Live Coding is not enabled for this session"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Live Coding is not enabled for this session"));
 		return true;
 	}
 
@@ -154,10 +211,15 @@ bool FUltimateControlLiveCodingHandler::HandleCompile(const TSharedPtr<FJsonObje
 
 	Result = MakeShared<FJsonValueObject>(ResultJson);
 	return true;
+#else
+	Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Live Coding not available in this build"));
+	return true;
+#endif
 }
 
 bool FUltimateControlLiveCodingHandler::HandleGetCompileStatus(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
 {
+#if ULTIMATE_CONTROL_HAS_LIVE_CODING
 	ILiveCodingModule* LiveCoding = FModuleManager::GetModulePtr<ILiveCodingModule>(LIVE_CODING_MODULE_NAME);
 
 	TSharedPtr<FJsonObject> StatusJson = MakeShared<FJsonObject>();
@@ -173,14 +235,21 @@ bool FUltimateControlLiveCodingHandler::HandleGetCompileStatus(const TSharedPtr<
 
 	Result = MakeShared<FJsonValueObject>(StatusJson);
 	return true;
+#else
+	TSharedPtr<FJsonObject> StatusJson = MakeShared<FJsonObject>();
+	StatusJson->SetBoolField(TEXT("isCompiling"), false);
+	Result = MakeShared<FJsonValueObject>(StatusJson);
+	return true;
+#endif
 }
 
 bool FUltimateControlLiveCodingHandler::HandleCancelCompile(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
 {
+#if ULTIMATE_CONTROL_HAS_LIVE_CODING
 	ILiveCodingModule* LiveCoding = FModuleManager::GetModulePtr<ILiveCodingModule>(LIVE_CODING_MODULE_NAME);
 	if (!LiveCoding)
 	{
-		Error = CreateError(-32603, TEXT("Live Coding module not loaded"));
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Live Coding module not loaded"));
 		return true;
 	}
 
@@ -191,6 +260,10 @@ bool FUltimateControlLiveCodingHandler::HandleCancelCompile(const TSharedPtr<FJs
 
 	Result = MakeShared<FJsonValueObject>(ResultJson);
 	return true;
+#else
+	Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("Live Coding not available in this build"));
+	return true;
+#endif
 }
 
 bool FUltimateControlLiveCodingHandler::HandleHotReload(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
@@ -278,7 +351,7 @@ bool FUltimateControlLiveCodingHandler::HandleGetModuleInfo(const TSharedPtr<FJs
 	FString ModuleName = Params->GetStringField(TEXT("moduleName"));
 	if (ModuleName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("moduleName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("moduleName parameter required"));
 		return true;
 	}
 
@@ -294,7 +367,7 @@ bool FUltimateControlLiveCodingHandler::HandleGetModuleInfo(const TSharedPtr<FJs
 		}
 	}
 
-	Error = CreateError(-32602, FString::Printf(TEXT("Module not found: %s"), *ModuleName));
+	Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Module not found: %s"), *ModuleName));
 	return true;
 }
 
@@ -303,7 +376,7 @@ bool FUltimateControlLiveCodingHandler::HandleIsModuleLoaded(const TSharedPtr<FJ
 	FString ModuleName = Params->GetStringField(TEXT("moduleName"));
 	if (ModuleName.IsEmpty())
 	{
-		Error = CreateError(-32602, TEXT("moduleName parameter required"));
+		Error = UUltimateControlSubsystem::MakeError(-32602, TEXT("moduleName parameter required"));
 		return true;
 	}
 
@@ -314,6 +387,7 @@ bool FUltimateControlLiveCodingHandler::HandleIsModuleLoaded(const TSharedPtr<FJ
 
 bool FUltimateControlLiveCodingHandler::HandleGetPendingPatches(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
 {
+#if ULTIMATE_CONTROL_HAS_LIVE_CODING
 	ILiveCodingModule* LiveCoding = FModuleManager::GetModulePtr<ILiveCodingModule>(LIVE_CODING_MODULE_NAME);
 
 	TSharedPtr<FJsonObject> PatchesJson = MakeShared<FJsonObject>();
@@ -329,6 +403,12 @@ bool FUltimateControlLiveCodingHandler::HandleGetPendingPatches(const TSharedPtr
 
 	Result = MakeShared<FJsonValueObject>(PatchesJson);
 	return true;
+#else
+	TSharedPtr<FJsonObject> PatchesJson = MakeShared<FJsonObject>();
+	PatchesJson->SetBoolField(TEXT("hasPendingPatches"), false);
+	Result = MakeShared<FJsonValueObject>(PatchesJson);
+	return true;
+#endif
 }
 
 bool FUltimateControlLiveCodingHandler::HandleGetAppliedPatches(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)

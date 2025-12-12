@@ -78,10 +78,11 @@ bool FUltimateControlAutomationHandler::HandleListTests(const TSharedPtr<FJsonOb
 		TSharedPtr<FJsonObject> TestObj = MakeShared<FJsonObject>();
 		TestObj->SetStringField(TEXT("name"), TestInfo.GetTestName());
 		TestObj->SetStringField(TEXT("displayName"), TestInfo.GetDisplayName());
-		TestObj->SetNumberField(TEXT("testFlags"), TestInfo.GetTestFlags());
+		TestObj->SetNumberField(TEXT("testFlags"), static_cast<int64>(TestInfo.GetTestFlags()));
 
 		// Determine test type from flags
-		uint32 Flags = TestInfo.GetTestFlags();
+		// Note: EAutomationTestFlags is an enum class in UE 5.6+
+		uint32 Flags = static_cast<uint32>(TestInfo.GetTestFlags());
 		FString TestType = TEXT("Unknown");
 		// Note: EAutomationTestFlags is an enum class in UE 5.6, need to cast for bitwise operations
 		if (Flags & static_cast<uint32>(EAutomationTestFlags::SmokeFilter))
@@ -205,8 +206,11 @@ bool FUltimateControlAutomationHandler::HandleGetTestResults(const TSharedPtr<FJ
 			TSharedPtr<FJsonObject> ReportObj = MakeShared<FJsonObject>();
 			ReportObj->SetStringField(TEXT("name"), Report->GetDisplayName());
 
+			// UE 5.6: GetState() now requires a cluster index parameter
+			// Use index 0 for the default cluster
 			FString StateStr = TEXT("Unknown");
-			switch (Report->GetState())
+			EAutomationState State = Report->GetState(0);
+			switch (State)
 			{
 			case EAutomationState::NotRun: StateStr = TEXT("NotRun"); break;
 			case EAutomationState::InProcess: StateStr = TEXT("InProcess"); break;
