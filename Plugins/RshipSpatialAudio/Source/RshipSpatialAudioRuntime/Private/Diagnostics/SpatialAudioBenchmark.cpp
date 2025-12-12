@@ -294,10 +294,10 @@ FSpatialAudioBenchmarkResult USpatialAudioBenchmark::BenchmarkOSCSerialization(i
 	Result.OperationName = FString::Printf(TEXT("OSC Serialization (%d messages)"), NumMessages);
 
 	// Create test messages
-	TArray<FOSCMessage> Messages;
+	TArray<FRshipOSCMessage> Messages;
 	for (int32 i = 0; i < NumMessages; ++i)
 	{
-		FOSCMessage Msg;
+		FRshipOSCMessage Msg;
 		Msg.Address = TEXT("/dbaudio1/coordinatemapping/source_position_xy");
 		Msg.AddInt(1);
 		Msg.AddInt(i + 1);
@@ -311,7 +311,7 @@ FSpatialAudioBenchmarkResult USpatialAudioBenchmark::BenchmarkOSCSerialization(i
 	{
 		FScopedBenchmark Scope(Result);
 
-		for (const FOSCMessage& Msg : Messages)
+		for (const FRshipOSCMessage& Msg : Messages)
 		{
 			TArray<uint8> Data = Msg.Serialize();
 		}

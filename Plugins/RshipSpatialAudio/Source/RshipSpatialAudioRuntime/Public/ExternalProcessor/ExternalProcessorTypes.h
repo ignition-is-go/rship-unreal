@@ -69,7 +69,7 @@ enum class EProcessorProtocol : uint8
  * OSC argument type.
  */
 UENUM(BlueprintType)
-enum class EOSCArgumentType : uint8
+enum class ERshipOSCArgumentType : uint8
 {
 	Int32,
 	Float,
@@ -90,12 +90,12 @@ enum class EOSCArgumentType : uint8
  * Single OSC argument.
  */
 USTRUCT(BlueprintType)
-struct RSHIPSPATIALAUDIORUNTIME_API FOSCArgument
+struct RSHIPSPATIALAUDIORUNTIME_API FRshipOSCArgument
 {
 	GENERATED_BODY()
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OSC")
-	EOSCArgumentType Type = EOSCArgumentType::Float;
+	ERshipOSCArgumentType Type = ERshipOSCArgumentType::Float;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OSC")
 	int32 IntValue = 0;
@@ -110,16 +110,16 @@ struct RSHIPSPATIALAUDIORUNTIME_API FOSCArgument
 	TArray<uint8> BlobValue;
 
 	// Convenience constructors (non-USTRUCT)
-	static FOSCArgument MakeInt(int32 Value);
-	static FOSCArgument MakeFloat(float Value);
-	static FOSCArgument MakeString(const FString& Value);
+	static FRshipOSCArgument MakeInt(int32 Value);
+	static FRshipOSCArgument MakeFloat(float Value);
+	static FRshipOSCArgument MakeString(const FString& Value);
 };
 
 /**
  * Complete OSC message.
  */
 USTRUCT(BlueprintType)
-struct RSHIPSPATIALAUDIORUNTIME_API FOSCMessage
+struct RSHIPSPATIALAUDIORUNTIME_API FRshipOSCMessage
 {
 	GENERATED_BODY()
 
@@ -129,7 +129,7 @@ struct RSHIPSPATIALAUDIORUNTIME_API FOSCMessage
 
 	/** Message arguments */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OSC")
-	TArray<FOSCArgument> Arguments;
+	TArray<FRshipOSCArgument> Arguments;
 
 	/** Timestamp (0 = immediate) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OSC")
@@ -144,14 +144,14 @@ struct RSHIPSPATIALAUDIORUNTIME_API FOSCMessage
 	TArray<uint8> Serialize() const;
 
 	/** Parse from OSC binary format */
-	static bool Parse(const TArray<uint8>& Data, FOSCMessage& OutMessage);
+	static bool Parse(const TArray<uint8>& Data, FRshipOSCMessage& OutMessage);
 };
 
 /**
  * OSC bundle (collection of messages with shared timetag).
  */
 USTRUCT(BlueprintType)
-struct RSHIPSPATIALAUDIORUNTIME_API FOSCBundle
+struct RSHIPSPATIALAUDIORUNTIME_API FRshipOSCBundle
 {
 	GENERATED_BODY()
 
@@ -159,13 +159,13 @@ struct RSHIPSPATIALAUDIORUNTIME_API FOSCBundle
 	int64 TimeTag = 1;  // 1 = immediate
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "OSC")
-	TArray<FOSCMessage> Messages;
+	TArray<FRshipOSCMessage> Messages;
 
 	/** Serialize to OSC binary format */
 	TArray<uint8> Serialize() const;
 
 	/** Parse from OSC binary format */
-	static bool Parse(const TArray<uint8>& Data, FOSCBundle& OutBundle);
+	static bool Parse(const TArray<uint8>& Data, FRshipOSCBundle& OutBundle);
 };
 
 // ============================================================================
@@ -509,4 +509,4 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
 	FOnOSCMessageReceived,
 	EExternalProcessorType, ProcessorType,
-	const FOSCMessage&, Message);
+	const FRshipOSCMessage&, Message);

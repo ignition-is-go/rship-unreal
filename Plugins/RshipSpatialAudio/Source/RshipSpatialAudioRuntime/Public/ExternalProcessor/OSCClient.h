@@ -15,7 +15,7 @@
 /**
  * Delegate for received OSC messages.
  */
-DECLARE_DELEGATE_OneParam(FOnOSCMessageReceivedNative, const FOSCMessage&);
+DECLARE_DELEGATE_OneParam(FOnOSCMessageReceivedNative, const FRshipOSCMessage&);
 
 /**
  * Delegate for connection state changes.
@@ -43,10 +43,10 @@ DECLARE_DELEGATE_OneParam(FOnOSCError, const FString& /* ErrorMessage */);
  *
  * Usage:
  *   FOSCClient Client;
- *   Client.OnMessageReceived.BindLambda([](const FOSCMessage& Msg) { ... });
+ *   Client.OnMessageReceived.BindLambda([](const FRshipOSCMessage& Msg) { ... });
  *   Client.Initialize(TEXT("192.168.1.100"), 50010, 50011);
  *
- *   FOSCMessage Msg;
+ *   FRshipOSCMessage Msg;
  *   Msg.Address = TEXT("/some/address");
  *   Msg.AddFloat(1.0f);
  *   Client.Send(Msg);
@@ -122,7 +122,7 @@ public:
 	 * @param Message The message to send.
 	 * @return True if message was sent/queued successfully.
 	 */
-	bool Send(const FOSCMessage& Message);
+	bool Send(const FRshipOSCMessage& Message);
 
 	/**
 	 * Send an OSC bundle.
@@ -130,7 +130,7 @@ public:
 	 * @param Bundle The bundle to send.
 	 * @return True if bundle was sent successfully.
 	 */
-	bool Send(const FOSCBundle& Bundle);
+	bool Send(const FRshipOSCBundle& Bundle);
 
 	/**
 	 * Send raw bytes (already-serialized OSC data).
@@ -146,7 +146,7 @@ public:
 	 * @param Messages The messages to bundle and send.
 	 * @return True if bundle was sent successfully.
 	 */
-	bool SendBundle(const TArray<FOSCMessage>& Messages);
+	bool SendBundle(const TArray<FRshipOSCMessage>& Messages);
 
 	/**
 	 * Flush any queued messages immediately.
@@ -253,31 +253,31 @@ private:
 /**
  * Helper class for building OSC messages with fluent API.
  */
-class RSHIPSPATIALAUDIORUNTIME_API FOSCMessageBuilder
+class RSHIPSPATIALAUDIORUNTIME_API FRshipOSCMessageBuilder
 {
 public:
-	explicit FOSCMessageBuilder(const FString& Address);
+	explicit FRshipOSCMessageBuilder(const FString& Address);
 
-	FOSCMessageBuilder& Int(int32 Value);
-	FOSCMessageBuilder& Float(float Value);
-	FOSCMessageBuilder& String(const FString& Value);
-	FOSCMessageBuilder& Blob(const TArray<uint8>& Value);
-	FOSCMessageBuilder& True();
-	FOSCMessageBuilder& False();
+	FRshipOSCMessageBuilder& Int(int32 Value);
+	FRshipOSCMessageBuilder& Float(float Value);
+	FRshipOSCMessageBuilder& String(const FString& Value);
+	FRshipOSCMessageBuilder& Blob(const TArray<uint8>& Value);
+	FRshipOSCMessageBuilder& True();
+	FRshipOSCMessageBuilder& False();
 
-	FOSCMessage Build() const { return Message; }
+	FRshipOSCMessage Build() const { return Message; }
 
 	// Implicit conversion
-	operator FOSCMessage() const { return Message; }
+	operator FRshipOSCMessage() const { return Message; }
 
 private:
-	FOSCMessage Message;
+	FRshipOSCMessage Message;
 };
 
 // Convenience function
-inline FOSCMessageBuilder OSCMsg(const FString& Address)
+inline FRshipOSCMessageBuilder OSCMsg(const FString& Address)
 {
-	return FOSCMessageBuilder(Address);
+	return FRshipOSCMessageBuilder(Address);
 }
 
 // ============================================================================

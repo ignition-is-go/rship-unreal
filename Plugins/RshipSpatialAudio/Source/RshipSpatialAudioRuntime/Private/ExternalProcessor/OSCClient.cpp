@@ -132,7 +132,7 @@ bool FOSCClient::SetRemoteAddress(const FString& Host, int32 Port)
 	return true;
 }
 
-bool FOSCClient::Send(const FOSCMessage& Message)
+bool FOSCClient::Send(const FRshipOSCMessage& Message)
 {
 	if (!bInitialized || !SendSocket)
 	{
@@ -143,7 +143,7 @@ bool FOSCClient::Send(const FOSCMessage& Message)
 	return SendRaw(Data);
 }
 
-bool FOSCClient::Send(const FOSCBundle& Bundle)
+bool FOSCClient::Send(const FRshipOSCBundle& Bundle)
 {
 	if (!bInitialized || !SendSocket)
 	{
@@ -194,7 +194,7 @@ bool FOSCClient::SendRaw(const TArray<uint8>& Data)
 	return bSuccess;
 }
 
-bool FOSCClient::SendBundle(const TArray<FOSCMessage>& Messages)
+bool FOSCClient::SendBundle(const TArray<FRshipOSCMessage>& Messages)
 {
 	if (Messages.Num() == 0)
 	{
@@ -206,7 +206,7 @@ bool FOSCClient::SendBundle(const TArray<FOSCMessage>& Messages)
 		return Send(Messages[0]);
 	}
 
-	FOSCBundle Bundle;
+	FRshipOSCBundle Bundle;
 	Bundle.TimeTag = 1;  // Immediate
 	Bundle.Messages = Messages;
 
@@ -334,10 +334,10 @@ void FOSCClient::HandleDataReceived(const FArrayReaderPtr& Data, const FIPv4Endp
 	if (DataArray.Num() >= 8 && DataArray[0] == '#')
 	{
 		// OSC bundle
-		FOSCBundle Bundle;
-		if (FOSCBundle::Parse(DataArray, Bundle))
+		FRshipOSCBundle Bundle;
+		if (FRshipOSCBundle::Parse(DataArray, Bundle))
 		{
-			for (const FOSCMessage& Message : Bundle.Messages)
+			for (const FRshipOSCMessage& Message : Bundle.Messages)
 			{
 				MessagesReceived++;
 				if (OnMessageReceived.IsBound())
@@ -350,8 +350,8 @@ void FOSCClient::HandleDataReceived(const FArrayReaderPtr& Data, const FIPv4Endp
 	else
 	{
 		// OSC message
-		FOSCMessage Message;
-		if (FOSCMessage::Parse(DataArray, Message))
+		FRshipOSCMessage Message;
+		if (FRshipOSCMessage::Parse(DataArray, Message))
 		{
 			MessagesReceived++;
 			if (OnMessageReceived.IsBound())
@@ -414,53 +414,53 @@ void FOSCClient::UpdateConnectionState()
 }
 
 // ============================================================================
-// FOSCMessageBuilder
+// FRshipOSCMessageBuilder
 // ============================================================================
 
-FOSCMessageBuilder::FOSCMessageBuilder(const FString& Address)
+FRshipOSCMessageBuilder::FRshipOSCMessageBuilder(const FString& Address)
 {
 	Message.Address = Address;
 }
 
-FOSCMessageBuilder& FOSCMessageBuilder::Int(int32 Value)
+FRshipOSCMessageBuilder& FRshipOSCMessageBuilder::Int(int32 Value)
 {
 	Message.AddInt(Value);
 	return *this;
 }
 
-FOSCMessageBuilder& FOSCMessageBuilder::Float(float Value)
+FRshipOSCMessageBuilder& FRshipOSCMessageBuilder::Float(float Value)
 {
 	Message.AddFloat(Value);
 	return *this;
 }
 
-FOSCMessageBuilder& FOSCMessageBuilder::String(const FString& Value)
+FRshipOSCMessageBuilder& FRshipOSCMessageBuilder::String(const FString& Value)
 {
 	Message.AddString(Value);
 	return *this;
 }
 
-FOSCMessageBuilder& FOSCMessageBuilder::Blob(const TArray<uint8>& Value)
+FRshipOSCMessageBuilder& FRshipOSCMessageBuilder::Blob(const TArray<uint8>& Value)
 {
-	FOSCArgument Arg;
-	Arg.Type = EOSCArgumentType::Blob;
+	FRshipOSCArgument Arg;
+	Arg.Type = ERshipOSCArgumentType::Blob;
 	Arg.BlobValue = Value;
 	Message.Arguments.Add(Arg);
 	return *this;
 }
 
-FOSCMessageBuilder& FOSCMessageBuilder::True()
+FRshipOSCMessageBuilder& FRshipOSCMessageBuilder::True()
 {
-	FOSCArgument Arg;
-	Arg.Type = EOSCArgumentType::BoolTrue;
+	FRshipOSCArgument Arg;
+	Arg.Type = ERshipOSCArgumentType::BoolTrue;
 	Message.Arguments.Add(Arg);
 	return *this;
 }
 
-FOSCMessageBuilder& FOSCMessageBuilder::False()
+FRshipOSCMessageBuilder& FRshipOSCMessageBuilder::False()
 {
-	FOSCArgument Arg;
-	Arg.Type = EOSCArgumentType::BoolFalse;
+	FRshipOSCArgument Arg;
+	Arg.Type = ERshipOSCArgumentType::BoolFalse;
 	Message.Arguments.Add(Arg);
 	return *this;
 }

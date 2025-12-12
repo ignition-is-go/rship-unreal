@@ -3,50 +3,50 @@
 #include "ExternalProcessor/ExternalProcessorTypes.h"
 
 // ============================================================================
-// FOSCArgument
+// FRshipOSCArgument
 // ============================================================================
 
-FOSCArgument FOSCArgument::MakeInt(int32 Value)
+FRshipOSCArgument FRshipOSCArgument::MakeInt(int32 Value)
 {
-	FOSCArgument Arg;
-	Arg.Type = EOSCArgumentType::Int32;
+	FRshipOSCArgument Arg;
+	Arg.Type = ERshipOSCArgumentType::Int32;
 	Arg.IntValue = Value;
 	return Arg;
 }
 
-FOSCArgument FOSCArgument::MakeFloat(float Value)
+FRshipOSCArgument FRshipOSCArgument::MakeFloat(float Value)
 {
-	FOSCArgument Arg;
-	Arg.Type = EOSCArgumentType::Float;
+	FRshipOSCArgument Arg;
+	Arg.Type = ERshipOSCArgumentType::Float;
 	Arg.FloatValue = Value;
 	return Arg;
 }
 
-FOSCArgument FOSCArgument::MakeString(const FString& Value)
+FRshipOSCArgument FRshipOSCArgument::MakeString(const FString& Value)
 {
-	FOSCArgument Arg;
-	Arg.Type = EOSCArgumentType::String;
+	FRshipOSCArgument Arg;
+	Arg.Type = ERshipOSCArgumentType::String;
 	Arg.StringValue = Value;
 	return Arg;
 }
 
 // ============================================================================
-// FOSCMessage
+// FRshipOSCMessage
 // ============================================================================
 
-void FOSCMessage::AddInt(int32 Value)
+void FRshipOSCMessage::AddInt(int32 Value)
 {
-	Arguments.Add(FOSCArgument::MakeInt(Value));
+	Arguments.Add(FRshipOSCArgument::MakeInt(Value));
 }
 
-void FOSCMessage::AddFloat(float Value)
+void FRshipOSCMessage::AddFloat(float Value)
 {
-	Arguments.Add(FOSCArgument::MakeFloat(Value));
+	Arguments.Add(FRshipOSCArgument::MakeFloat(Value));
 }
 
-void FOSCMessage::AddString(const FString& Value)
+void FRshipOSCMessage::AddString(const FString& Value)
 {
-	Arguments.Add(FOSCArgument::MakeString(Value));
+	Arguments.Add(FRshipOSCArgument::MakeString(Value));
 }
 
 // Helper: Pad to 4-byte boundary
@@ -127,7 +127,7 @@ static FString ReadOSCString(const uint8* Data, int32 MaxLen, int32& OutBytesRea
 	return Result;
 }
 
-TArray<uint8> FOSCMessage::Serialize() const
+TArray<uint8> FRshipOSCMessage::Serialize() const
 {
 	TArray<uint8> Buffer;
 
@@ -136,35 +136,35 @@ TArray<uint8> FOSCMessage::Serialize() const
 
 	// Build type tag string
 	FString TypeTag = TEXT(",");
-	for (const FOSCArgument& Arg : Arguments)
+	for (const FRshipOSCArgument& Arg : Arguments)
 	{
 		switch (Arg.Type)
 		{
-		case EOSCArgumentType::Int32:
+		case ERshipOSCArgumentType::Int32:
 			TypeTag.AppendChar('i');
 			break;
-		case EOSCArgumentType::Float:
+		case ERshipOSCArgumentType::Float:
 			TypeTag.AppendChar('f');
 			break;
-		case EOSCArgumentType::String:
+		case ERshipOSCArgumentType::String:
 			TypeTag.AppendChar('s');
 			break;
-		case EOSCArgumentType::Blob:
+		case ERshipOSCArgumentType::Blob:
 			TypeTag.AppendChar('b');
 			break;
-		case EOSCArgumentType::BoolTrue:
+		case ERshipOSCArgumentType::BoolTrue:
 			TypeTag.AppendChar('T');
 			break;
-		case EOSCArgumentType::BoolFalse:
+		case ERshipOSCArgumentType::BoolFalse:
 			TypeTag.AppendChar('F');
 			break;
-		case EOSCArgumentType::Nil:
+		case ERshipOSCArgumentType::Nil:
 			TypeTag.AppendChar('N');
 			break;
-		case EOSCArgumentType::Int64:
+		case ERshipOSCArgumentType::Int64:
 			TypeTag.AppendChar('h');
 			break;
-		case EOSCArgumentType::Double:
+		case ERshipOSCArgumentType::Double:
 			TypeTag.AppendChar('d');
 			break;
 		default:
@@ -174,35 +174,35 @@ TArray<uint8> FOSCMessage::Serialize() const
 	WriteOSCString(Buffer, TypeTag);
 
 	// Write argument data
-	for (const FOSCArgument& Arg : Arguments)
+	for (const FRshipOSCArgument& Arg : Arguments)
 	{
 		switch (Arg.Type)
 		{
-		case EOSCArgumentType::Int32:
+		case ERshipOSCArgumentType::Int32:
 			WriteInt32BE(Buffer, Arg.IntValue);
 			break;
 
-		case EOSCArgumentType::Float:
+		case ERshipOSCArgumentType::Float:
 			WriteFloatBE(Buffer, Arg.FloatValue);
 			break;
 
-		case EOSCArgumentType::String:
+		case ERshipOSCArgumentType::String:
 			WriteOSCString(Buffer, Arg.StringValue);
 			break;
 
-		case EOSCArgumentType::Blob:
+		case ERshipOSCArgumentType::Blob:
 			WriteInt32BE(Buffer, Arg.BlobValue.Num());
 			Buffer.Append(Arg.BlobValue);
 			PadTo4Bytes(Buffer);
 			break;
 
-		case EOSCArgumentType::Int64:
+		case ERshipOSCArgumentType::Int64:
 			// 64-bit big-endian
 			WriteInt32BE(Buffer, static_cast<int32>(Arg.IntValue >> 32));
 			WriteInt32BE(Buffer, static_cast<int32>(Arg.IntValue & 0xFFFFFFFF));
 			break;
 
-		case EOSCArgumentType::Double:
+		case ERshipOSCArgumentType::Double:
 			{
 				union { double d; int64 i; } u;
 				u.d = static_cast<double>(Arg.FloatValue);
@@ -220,7 +220,7 @@ TArray<uint8> FOSCMessage::Serialize() const
 	return Buffer;
 }
 
-bool FOSCMessage::Parse(const TArray<uint8>& Data, FOSCMessage& OutMessage)
+bool FRshipOSCMessage::Parse(const TArray<uint8>& Data, FRshipOSCMessage& OutMessage)
 {
 	if (Data.Num() < 4)
 	{
@@ -259,13 +259,13 @@ bool FOSCMessage::Parse(const TArray<uint8>& Data, FOSCMessage& OutMessage)
 	for (int32 i = 1; i < TypeTag.Len(); ++i)
 	{
 		TCHAR TypeChar = TypeTag[i];
-		FOSCArgument Arg;
+		FRshipOSCArgument Arg;
 
 		switch (TypeChar)
 		{
 		case 'i':
 			if (Remaining < 4) return false;
-			Arg.Type = EOSCArgumentType::Int32;
+			Arg.Type = ERshipOSCArgumentType::Int32;
 			Arg.IntValue = ReadInt32BE(Ptr);
 			Ptr += 4;
 			Remaining -= 4;
@@ -273,14 +273,14 @@ bool FOSCMessage::Parse(const TArray<uint8>& Data, FOSCMessage& OutMessage)
 
 		case 'f':
 			if (Remaining < 4) return false;
-			Arg.Type = EOSCArgumentType::Float;
+			Arg.Type = ERshipOSCArgumentType::Float;
 			Arg.FloatValue = ReadFloatBE(Ptr);
 			Ptr += 4;
 			Remaining -= 4;
 			break;
 
 		case 's':
-			Arg.Type = EOSCArgumentType::String;
+			Arg.Type = ERshipOSCArgumentType::String;
 			Arg.StringValue = ReadOSCString(Ptr, Remaining, BytesRead);
 			Ptr += BytesRead;
 			Remaining -= BytesRead;
@@ -293,7 +293,7 @@ bool FOSCMessage::Parse(const TArray<uint8>& Data, FOSCMessage& OutMessage)
 				Ptr += 4;
 				Remaining -= 4;
 				if (Remaining < BlobSize) return false;
-				Arg.Type = EOSCArgumentType::Blob;
+				Arg.Type = ERshipOSCArgumentType::Blob;
 				Arg.BlobValue.SetNum(BlobSize);
 				FMemory::Memcpy(Arg.BlobValue.GetData(), Ptr, BlobSize);
 				int32 PaddedSize = (BlobSize + 3) & ~3;
@@ -303,15 +303,15 @@ bool FOSCMessage::Parse(const TArray<uint8>& Data, FOSCMessage& OutMessage)
 			break;
 
 		case 'T':
-			Arg.Type = EOSCArgumentType::BoolTrue;
+			Arg.Type = ERshipOSCArgumentType::BoolTrue;
 			break;
 
 		case 'F':
-			Arg.Type = EOSCArgumentType::BoolFalse;
+			Arg.Type = ERshipOSCArgumentType::BoolFalse;
 			break;
 
 		case 'N':
-			Arg.Type = EOSCArgumentType::Nil;
+			Arg.Type = ERshipOSCArgumentType::Nil;
 			break;
 
 		default:
@@ -326,10 +326,10 @@ bool FOSCMessage::Parse(const TArray<uint8>& Data, FOSCMessage& OutMessage)
 }
 
 // ============================================================================
-// FOSCBundle
+// FRshipOSCBundle
 // ============================================================================
 
-TArray<uint8> FOSCBundle::Serialize() const
+TArray<uint8> FRshipOSCBundle::Serialize() const
 {
 	TArray<uint8> Buffer;
 
@@ -341,7 +341,7 @@ TArray<uint8> FOSCBundle::Serialize() const
 	WriteInt32BE(Buffer, static_cast<int32>(TimeTag & 0xFFFFFFFF));
 
 	// Bundle elements
-	for (const FOSCMessage& Message : Messages)
+	for (const FRshipOSCMessage& Message : Messages)
 	{
 		TArray<uint8> MessageData = Message.Serialize();
 		WriteInt32BE(Buffer, MessageData.Num());
@@ -351,7 +351,7 @@ TArray<uint8> FOSCBundle::Serialize() const
 	return Buffer;
 }
 
-bool FOSCBundle::Parse(const TArray<uint8>& Data, FOSCBundle& OutBundle)
+bool FRshipOSCBundle::Parse(const TArray<uint8>& Data, FRshipOSCBundle& OutBundle)
 {
 	if (Data.Num() < 16)  // "#bundle" + timetag
 	{
@@ -406,8 +406,8 @@ bool FOSCBundle::Parse(const TArray<uint8>& Data, FOSCBundle& OutBundle)
 			ElementData.SetNum(ElementSize);
 			FMemory::Memcpy(ElementData.GetData(), Ptr, ElementSize);
 
-			FOSCMessage Message;
-			if (FOSCMessage::Parse(ElementData, Message))
+			FRshipOSCMessage Message;
+			if (FRshipOSCMessage::Parse(ElementData, Message))
 			{
 				OutBundle.Messages.Add(Message);
 			}
