@@ -756,19 +756,26 @@ void URshipControlRigBinding::ApplyBindingToControlRig(int32 Index)
 
     case ERshipControlRigPropertyType::Rotator:
         {
-            // UE 5.6: Use MakeFromEulerTransform for rotator values
-            FEulerTransform EulerTransform;
-            EulerTransform.Rotation = State.CurrentRotator;
-            FRigControlValue Value = FRigControlValue::MakeFromEulerTransform(EulerTransform, ERigControlType::EulerTransform);
+            // UE 5.6: Store euler angles as FVector3f (pitch, yaw, roll) for rotator controls
+            FVector3f EulerAngles(
+                State.CurrentRotator.Pitch,
+                State.CurrentRotator.Yaw,
+                State.CurrentRotator.Roll
+            );
+            FRigControlValue Value;
+            Value.Set<FVector3f>(EulerAngles);
             Hierarchy->SetControlValue(Key, Value, ERigControlValueType::Current);
         }
         break;
 
     case ERshipControlRigPropertyType::Transform:
         {
-            // UE 5.6: Use MakeFromEulerTransform for transform values
-            FEulerTransform EulerTransform(State.CurrentTransform);
-            FRigControlValue Value = FRigControlValue::MakeFromEulerTransform(EulerTransform, ERigControlType::EulerTransform);
+            // UE 5.6: Use hierarchy's MakeControlValueFromEulerTransform method
+            FEulerTransform EulerTransform;
+            EulerTransform.SetLocation(State.CurrentTransform.GetLocation());
+            EulerTransform.SetRotator(State.CurrentTransform.Rotator());
+            EulerTransform.SetScale3D(State.CurrentTransform.GetScale3D());
+            FRigControlValue Value = Hierarchy->MakeControlValueFromEulerTransform(EulerTransform);
             Hierarchy->SetControlValue(Key, Value, ERigControlValueType::Current);
         }
         break;
