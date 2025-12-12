@@ -1,6 +1,6 @@
 // Copyright Rocketship. All Rights Reserved.
 // SMPTE 2110 / IPMX / PTP Integration Module
-// Build version: 2024.12.12.4 - Direct DLL copy to Binaries folder
+// Build version: 2024.12.12.5 - Graceful loading + SDK 1.8 support
 //
 // Rivermax SDK Setup:
 // The SDK is bundled in ThirdParty/Rivermax. Users only need to:
@@ -22,7 +22,6 @@ public class Rship2110 : ModuleRules
     private string RivermaxDLLPath = "";  // Path to DLLs (bin directory)
     private bool bRivermaxAvailable = false;  // SDK headers/libs found
     private bool bRivermaxDLLsFound = false;  // DLLs found (required for runtime)
-    private bool bRivermaxDLLsInSDK = false;  // DLLs are in SDK dir (can be copied)
     private bool bRivermaxLicenseFound = false;
 
     public Rship2110(ReadOnlyTargetRules Target) : base(Target)
@@ -103,14 +102,13 @@ public class Rship2110 : ModuleRules
         }
 
         // Define availability macros
-        // IMPORTANT: On Windows, we require BOTH SDK and DLLs to enable Rivermax support
-        // Otherwise the module will fail to load at runtime even with delay-loading
+        // We compile with Rivermax support if SDK is found, and use delay-loading
+        // so the module can still load even if rivermax.dll isn't present at runtime
         bool bEnableRivermax = bRivermaxAvailable;
         if (Target.Platform == UnrealTargetPlatform.Win64 && bRivermaxAvailable && !bRivermaxDLLsFound)
         {
-            System.Console.WriteLine("Rship2110: Rivermax SDK found but DLLs not available - compiling in STUB MODE");
-            System.Console.WriteLine("Rship2110: To enable Rivermax, ensure DLLs are in SDK bin/ directory or system PATH");
-            bEnableRivermax = false;
+            System.Console.WriteLine("Rship2110: Rivermax SDK found but DLLs not detected at build time");
+            System.Console.WriteLine("Rship2110: Module will use delay-loading - Rivermax features available if DLLs present at runtime");
         }
 
         if (bEnableRivermax)
@@ -241,13 +239,23 @@ public class Rship2110 : ModuleRules
         }
 
         // 2. Default NVIDIA Rivermax installation paths (Windows)
-        // The SDK installer typically puts runtime DLLs in a separate location
+        // SDK 1.8+ uses different structure - check multiple variations
         dllSearchPaths.Add("C:\\Program Files\\NVIDIA\\Rivermax\\bin");
         dllSearchPaths.Add("C:\\Program Files\\NVIDIA\\Rivermax\\bin\\x64");
+        dllSearchPaths.Add("C:\\Program Files\\NVIDIA\\Rivermax\\lib");
+        dllSearchPaths.Add("C:\\Program Files\\NVIDIA\\Rivermax\\lib\\x64");
+        // SDK 1.8 may install to versioned folders
+        dllSearchPaths.Add("C:\\Program Files\\NVIDIA\\Rivermax SDK\\bin");
+        dllSearchPaths.Add("C:\\Program Files\\NVIDIA\\Rivermax SDK\\lib");
+        dllSearchPaths.Add("C:\\Program Files\\NVIDIA\\Rivermax SDK 1.8\\bin");
+        dllSearchPaths.Add("C:\\Program Files\\NVIDIA\\Rivermax SDK 1.8\\lib");
+        // Legacy Mellanox paths
         dllSearchPaths.Add("C:\\Program Files\\Mellanox\\Rivermax\\bin");
         dllSearchPaths.Add("C:\\Program Files\\Mellanox\\Rivermax\\bin\\x64");
+        dllSearchPaths.Add("C:\\Program Files\\Mellanox\\Rivermax\\lib");
         dllSearchPaths.Add("C:\\Rivermax\\bin");
         dllSearchPaths.Add("C:\\Rivermax\\bin\\x64");
+        dllSearchPaths.Add("C:\\Rivermax\\lib");
 
         // 3. Check NVIDIA driver installation (some versions bundle Rivermax)
         string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
@@ -271,8 +279,7 @@ public class Rship2110 : ModuleRules
             {
                 RivermaxDLLPath = dllPath;
                 bRivermaxDLLsFound = true;
-                bRivermaxDLLsInSDK = true;  // Found in known SDK location - can be copied
-                System.Console.WriteLine("Rship2110: Found Rivermax DLLs in SDK: " + dllPath);
+                System.Console.WriteLine("Rship2110: Found Rivermax DLLs in: " + dllPath);
 
                 // List all DLLs found
                 string[] expectedDlls = new string[] { "rivermax.dll", "dpcp.dll", "mlx5devx.dll" };
@@ -306,9 +313,7 @@ public class Rship2110 : ModuleRules
             {
                 RivermaxDLLPath = dir;
                 bRivermaxDLLsFound = true;
-                bRivermaxDLLsInSDK = false;  // In PATH only - will load at runtime but can't copy
                 System.Console.WriteLine("Rship2110: Found Rivermax DLLs in system PATH: " + dir);
-                System.Console.WriteLine("Rship2110: DLLs will load from PATH at runtime (not copied to output)");
                 return;
             }
         }
@@ -377,9 +382,9 @@ public class Rship2110 : ModuleRules
             }
         );
 
-        // Only configure Rivermax if BOTH SDK and DLLs are available
-        // Without DLLs, linking against the SDK would cause runtime load failures
-        if (bRivermaxAvailable && bRivermaxDLLsFound)
+        // Configure Rivermax if SDK is available
+        // Use delay-loading so module can load even without rivermax.dll present
+        if (bRivermaxAvailable)
         {
             System.Console.WriteLine("Rship2110: Rivermax SDK path: " + RivermaxSDKPath);
             System.Console.WriteLine("Rship2110: Rivermax DLL path: " + RivermaxDLLPath);
@@ -399,66 +404,78 @@ public class Rship2110 : ModuleRules
             {
                 PublicAdditionalLibraries.Add(rivermaxLib);
                 System.Console.WriteLine("Rship2110: Linking against: " + rivermaxLib);
+
+                // CRITICAL: Use delay-loading so module can load without rivermax.dll
+                // The runtime code must check if DLL is available before calling any functions
+                PublicDelayLoadDLLs.Add("rivermax.dll");
+                System.Console.WriteLine("Rship2110: Using delay-load for rivermax.dll (graceful loading)");
             }
 
-            // Copy DLLs to the plugin's Binaries folder for editor development
+            // Copy DLLs to the plugin's Binaries folder for editor development (if found)
             // RuntimeDependencies only works for packaging - we need direct copy for editor
-            string pluginBinariesDir = Path.Combine(ModuleDirectory, "..", "..", "Binaries", "Win64");
-            if (!Directory.Exists(pluginBinariesDir))
+            if (bRivermaxDLLsFound && !string.IsNullOrEmpty(RivermaxDLLPath))
             {
-                Directory.CreateDirectory(pluginBinariesDir);
-                System.Console.WriteLine("Rship2110: Created Binaries directory: " + pluginBinariesDir);
+                string pluginBinariesDir = Path.Combine(ModuleDirectory, "..", "..", "Binaries", "Win64");
+                if (!Directory.Exists(pluginBinariesDir))
+                {
+                    Directory.CreateDirectory(pluginBinariesDir);
+                    System.Console.WriteLine("Rship2110: Created Binaries directory: " + pluginBinariesDir);
+                }
+
+                string[] dllFiles = new string[] { "rivermax.dll", "dpcp.dll", "mlx5devx.dll" };
+                foreach (string dllFile in dllFiles)
+                {
+                    string srcPath = Path.Combine(RivermaxDLLPath, dllFile);
+                    string dstPath = Path.Combine(pluginBinariesDir, dllFile);
+
+                    if (File.Exists(srcPath))
+                    {
+                        // Copy if destination doesn't exist or is older
+                        bool needsCopy = !File.Exists(dstPath);
+                        if (!needsCopy)
+                        {
+                            DateTime srcTime = File.GetLastWriteTime(srcPath);
+                            DateTime dstTime = File.GetLastWriteTime(dstPath);
+                            needsCopy = srcTime > dstTime;
+                        }
+
+                        if (needsCopy)
+                        {
+                            try
+                            {
+                                File.Copy(srcPath, dstPath, true);
+                                System.Console.WriteLine("Rship2110: Copied " + dllFile + " to Binaries");
+                            }
+                            catch (Exception ex)
+                            {
+                                System.Console.WriteLine("Rship2110: WARNING - Failed to copy " + dllFile + ": " + ex.Message);
+                            }
+                        }
+                        else
+                        {
+                            System.Console.WriteLine("Rship2110: " + dllFile + " already up to date");
+                        }
+
+                        // Also add to RuntimeDependencies for packaging
+                        RuntimeDependencies.Add("$(BinaryOutputDir)/" + dllFile, srcPath);
+                    }
+                    else
+                    {
+                        // dpcp.dll and mlx5devx.dll may be optional driver components
+                        if (dllFile == "rivermax.dll")
+                        {
+                            System.Console.WriteLine("Rship2110: WARNING - rivermax.dll not found at: " + srcPath);
+                        }
+                        else
+                        {
+                            System.Console.WriteLine("Rship2110: Optional DLL not found: " + dllFile);
+                        }
+                    }
+                }
             }
-
-            string[] dllFiles = new string[] { "rivermax.dll", "dpcp.dll", "mlx5devx.dll" };
-            foreach (string dllFile in dllFiles)
+            else
             {
-                string srcPath = Path.Combine(RivermaxDLLPath, dllFile);
-                string dstPath = Path.Combine(pluginBinariesDir, dllFile);
-
-                if (File.Exists(srcPath))
-                {
-                    // Copy if destination doesn't exist or is older
-                    bool needsCopy = !File.Exists(dstPath);
-                    if (!needsCopy)
-                    {
-                        DateTime srcTime = File.GetLastWriteTime(srcPath);
-                        DateTime dstTime = File.GetLastWriteTime(dstPath);
-                        needsCopy = srcTime > dstTime;
-                    }
-
-                    if (needsCopy)
-                    {
-                        try
-                        {
-                            File.Copy(srcPath, dstPath, true);
-                            System.Console.WriteLine("Rship2110: Copied " + dllFile + " to Binaries");
-                        }
-                        catch (Exception ex)
-                        {
-                            System.Console.WriteLine("Rship2110: WARNING - Failed to copy " + dllFile + ": " + ex.Message);
-                        }
-                    }
-                    else
-                    {
-                        System.Console.WriteLine("Rship2110: " + dllFile + " already up to date");
-                    }
-
-                    // Also add to RuntimeDependencies for packaging
-                    RuntimeDependencies.Add("$(BinaryOutputDir)/" + dllFile, srcPath);
-                }
-                else
-                {
-                    // dpcp.dll and mlx5devx.dll may be optional driver components
-                    if (dllFile == "rivermax.dll")
-                    {
-                        System.Console.WriteLine("Rship2110: ERROR - rivermax.dll not found at: " + srcPath);
-                    }
-                    else
-                    {
-                        System.Console.WriteLine("Rship2110: Optional DLL not found: " + dllFile);
-                    }
-                }
+                System.Console.WriteLine("Rship2110: DLLs not found at build time - will attempt to load from system PATH at runtime");
             }
 
             // Copy license file to output if found

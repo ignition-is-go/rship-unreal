@@ -2,6 +2,7 @@
 
 #include "Rship2110.h"
 #include "Modules/ModuleManager.h"
+#include "HAL/PlatformProcess.h"
 
 #if WITH_EDITOR
 #include "ISettingsModule.h"
@@ -12,14 +13,41 @@
 
 DEFINE_LOG_CATEGORY(LogRship2110);
 
+// Runtime check if rivermax.dll is actually available (for delay-loaded builds)
+static bool CheckRivermaxDLLAvailable()
+{
+#if PLATFORM_WINDOWS && RSHIP_RIVERMAX_AVAILABLE
+    // Try to load the delay-loaded DLL explicitly to check availability
+    void* DllHandle = FPlatformProcess::GetDllHandle(TEXT("rivermax.dll"));
+    if (DllHandle)
+    {
+        // DLL is available - don't free it since we need it
+        return true;
+    }
+    return false;
+#else
+    return false;
+#endif
+}
+
 void FRship2110Module::StartupModule()
 {
     UE_LOG(LogRship2110, Log, TEXT("Rship2110 module starting up"));
 
-    // Check feature availability based on compile-time defines
+    // Check feature availability based on compile-time defines AND runtime DLL availability
 #if RSHIP_RIVERMAX_AVAILABLE
-    bRivermaxAvailable = true;
-    UE_LOG(LogRship2110, Log, TEXT("Rivermax SDK: Available"));
+    // Compiled with Rivermax support - now check if DLL is actually present
+    if (CheckRivermaxDLLAvailable())
+    {
+        bRivermaxAvailable = true;
+        UE_LOG(LogRship2110, Log, TEXT("Rivermax SDK: Available (DLL loaded)"));
+    }
+    else
+    {
+        bRivermaxAvailable = false;
+        UE_LOG(LogRship2110, Warning, TEXT("Rivermax SDK: Compiled with support but rivermax.dll not found - features disabled"));
+        UE_LOG(LogRship2110, Warning, TEXT("Ensure rivermax.dll is in plugin Binaries folder or system PATH"));
+    }
 #else
     bRivermaxAvailable = false;
     UE_LOG(LogRship2110, Log, TEXT("Rivermax SDK: Not available (stub mode)"));
