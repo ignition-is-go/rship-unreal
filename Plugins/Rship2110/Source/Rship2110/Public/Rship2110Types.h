@@ -26,9 +26,9 @@ struct RSHIP2110_API FRshipPTPClockQuality
     UPROPERTY(BlueprintReadOnly, Category = "Rship|PTP")
     uint8 ClockAccuracy = 0xFE;  // Unknown
 
-    /** Variance of clock */
+    /** Variance of clock (IEEE 1588 format, stored as int32 for Blueprint compatibility) */
     UPROPERTY(BlueprintReadOnly, Category = "Rship|PTP")
-    uint16 OffsetScaledLogVariance = 0xFFFF;
+    int32 OffsetScaledLogVariance = 0xFFFF;
 };
 
 /**
@@ -59,9 +59,9 @@ struct RSHIP2110_API FRshipPTPGrandmaster
     UPROPERTY(BlueprintReadOnly, Category = "Rship|PTP")
     FRshipPTPClockQuality Quality;
 
-    /** Steps removed from GM */
+    /** Steps removed from GM (stored as int32 for Blueprint compatibility) */
     UPROPERTY(BlueprintReadOnly, Category = "Rship|PTP")
-    uint16 StepsRemoved = 0;
+    int32 StepsRemoved = 0;
 };
 
 /**
@@ -330,9 +330,9 @@ struct RSHIP2110_API FRship2110TransportParams
         meta = (ClampMin = "96", ClampMax = "127"))
     int32 PayloadType = 96;
 
-    /** SSRC (Synchronization Source Identifier) */
+    /** SSRC (Synchronization Source Identifier, stored as int64 for Blueprint compatibility) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110")
-    uint32 SSRC = 0;
+    int64 SSRC = 0;
 
     /** DSCP value for QoS (default 46 = EF/Expedited Forwarding) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110",
