@@ -149,32 +149,21 @@ public class RshipNDIStreaming : ModuleRules
 	{
 		try
 		{
-			// Check if cargo is available
-			ProcessStartInfo cargoCheck = new ProcessStartInfo
+			// Find cargo executable - check common locations on Windows
+			string cargoPath = FindCargoExecutable();
+			if (string.IsNullOrEmpty(cargoPath))
 			{
-				FileName = "cargo",
-				Arguments = "--version",
-				RedirectStandardOutput = true,
-				RedirectStandardError = true,
-				UseShellExecute = false,
-				CreateNoWindow = true
-			};
-
-			using (Process checkProcess = Process.Start(cargoCheck))
-			{
-				checkProcess.WaitForExit(5000);
-				if (checkProcess.ExitCode != 0)
-				{
-					System.Console.WriteLine("RshipNDIStreaming: cargo not found, skipping auto-build");
-					return;
-				}
+				System.Console.WriteLine("RshipNDIStreaming: cargo not found, skipping auto-build");
+				System.Console.WriteLine("RshipNDIStreaming: Install Rust from https://rustup.rs or add cargo to PATH");
+				return;
 			}
 
+			System.Console.WriteLine("RshipNDIStreaming: Found cargo at: " + cargoPath);
 			System.Console.WriteLine("RshipNDIStreaming: Building Rust library (this may take a minute on first build)...");
 
 			ProcessStartInfo buildInfo = new ProcessStartInfo
 			{
-				FileName = "cargo",
+				FileName = cargoPath,
 				Arguments = "build --release",
 				WorkingDirectory = RustLibPath,
 				RedirectStandardOutput = true,
@@ -220,5 +209,66 @@ public class RshipNDIStreaming : ModuleRules
 		{
 			System.Console.WriteLine("RshipNDIStreaming: Auto-build failed: " + ex.Message);
 		}
+	}
+
+	/// <summary>
+	/// Find the cargo executable, checking PATH and common installation locations.
+	/// </summary>
+	private string FindCargoExecutable()
+	{
+		// First try PATH
+		string cargoName = System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(
+			System.Runtime.InteropServices.OSPlatform.Windows) ? "cargo.exe" : "cargo";
+
+		// Check if cargo is in PATH
+		try
+		{
+			ProcessStartInfo psi = new ProcessStartInfo
+			{
+				FileName = cargoName,
+				Arguments = "--version",
+				RedirectStandardOutput = true,
+				RedirectStandardError = true,
+				UseShellExecute = false,
+				CreateNoWindow = true
+			};
+
+			using (Process p = Process.Start(psi))
+			{
+				p.WaitForExit(5000);
+				if (p.ExitCode == 0)
+				{
+					return cargoName; // Found in PATH
+				}
+			}
+		}
+		catch { }
+
+		// Check common installation locations
+		string userProfile = System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile);
+		string[] possiblePaths = new string[]
+		{
+			// Windows rustup default
+			Path.Combine(userProfile, ".cargo", "bin", "cargo.exe"),
+			// Windows alternative
+			Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData), "cargo", "bin", "cargo.exe"),
+			// macOS/Linux rustup default
+			Path.Combine(userProfile, ".cargo", "bin", "cargo"),
+			// Homebrew on macOS
+			"/opt/homebrew/bin/cargo",
+			"/usr/local/bin/cargo",
+			// Linux system install
+			"/usr/bin/cargo",
+		};
+
+		foreach (string path in possiblePaths)
+		{
+			if (File.Exists(path))
+			{
+				return path;
+			}
+		}
+
+		return null;
 	}
 }
