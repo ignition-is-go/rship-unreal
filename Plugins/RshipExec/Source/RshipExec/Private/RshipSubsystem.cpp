@@ -1254,7 +1254,9 @@ void URshipSubsystem::SendJson(TSharedPtr<FJsonObject> Payload)
 
 void URshipSubsystem::SetItem(FString itemType, TSharedPtr<FJsonObject> data, ERshipMessagePriority Priority, const FString& CoalesceKey)
 {
-    TSharedPtr<FJsonObject> wrapped = WrapWSEvent(MakeSet(itemType, data));
+    // MakeSet already produces the complete event format with event: "ws:m:event"
+    // Do NOT double-wrap with WrapWSEvent
+    TSharedPtr<FJsonObject> payload = MakeSet(itemType, data);
 
     // Determine message type for coalescing
     ERshipMessageType Type = ERshipMessageType::Registration;
@@ -1267,7 +1269,7 @@ void URshipSubsystem::SetItem(FString itemType, TSharedPtr<FJsonObject> data, ER
         Type = ERshipMessageType::InstanceInfo;
     }
 
-    QueueMessage(wrapped, Priority, Type, CoalesceKey);
+    QueueMessage(payload, Priority, Type, CoalesceKey);
 }
 
 void URshipSubsystem::PulseEmitter(FString targetId, FString emitterId, TSharedPtr<FJsonObject> data)
