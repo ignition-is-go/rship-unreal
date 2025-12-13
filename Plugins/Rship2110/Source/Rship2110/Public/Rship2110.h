@@ -23,7 +23,7 @@ DECLARE_LOG_CATEGORY_EXTERN(LogRship2110, Log, All);
  * Module interface for Rship2110.
  * Provides SMPTE 2110 professional media streaming integrated with UE rendering.
  */
-class FRship2110Module : public IModuleInterface
+class RSHIP2110_API FRship2110Module : public IModuleInterface
 {
 public:
     /** IModuleInterface implementation */
