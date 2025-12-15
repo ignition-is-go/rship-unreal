@@ -20,6 +20,11 @@
 #include "RshipNDIStreamTypes.h"
 #endif
 
+#if RSHIP_HAS_COLOR_MANAGEMENT
+#include "RshipColorManagementSubsystem.h"
+#include "RshipColorConfig.h"
+#endif
+
 #include "Engine/Engine.h"
 #include "Editor.h"
 #include "Framework/Docking/TabManager.h"
@@ -90,6 +95,15 @@ void SRshipDashboardWidget::Construct(const FArguments& InArgs)
     NDITotalReceivers = 0;
 #endif
 
+#if RSHIP_HAS_COLOR_MANAGEMENT
+    CurrentExposureMode = 1;  // Auto
+    CurrentManualEV = 0.0f;
+    CurrentExposureBias = 0.0f;
+    CurrentColorSpace = 1;  // Rec709
+    bCurrentHDREnabled = false;
+    bCurrentSyncToViewport = true;
+#endif
+
     ChildSlot
     [
         SNew(SBorder)
@@ -132,6 +146,16 @@ void SRshipDashboardWidget::Construct(const FArguments& InArgs)
                 .Padding(0, 0, 0, 8)
                 [
                     BuildNDIPanel()
+                ]
+#endif
+
+#if RSHIP_HAS_COLOR_MANAGEMENT
+                // Color Management
+                +SVerticalBox::Slot()
+                .AutoHeight()
+                .Padding(0, 0, 0, 8)
+                [
+                    BuildColorManagementPanel()
                 ]
 #endif
 
@@ -709,6 +733,10 @@ void SRshipDashboardWidget::RefreshData()
 #if RSHIP_HAS_NDI
     RefreshNDIList();
 #endif
+
+#if RSHIP_HAS_COLOR_MANAGEMENT
+    RefreshColorData();
+#endif
 }
 
 void SRshipDashboardWidget::RefreshFixtureList()
@@ -1229,6 +1257,443 @@ FReply SRshipNDIRowWidget::HandleStartStopClicked()
 }
 
 #endif // RSHIP_HAS_NDI
+
+// ============================================================================
+// COLOR MANAGEMENT PANEL
+// ============================================================================
+
+#if RSHIP_HAS_COLOR_MANAGEMENT
+
+TSharedRef<SWidget> SRshipDashboardWidget::BuildColorManagementPanel()
+{
+    return SNew(SExpandableArea)
+        .AreaTitle(LOCTEXT("ColorTitle", "Color Management"))
+        .InitiallyCollapsed(false)
+        .BodyContent()
+        [
+            SNew(SVerticalBox)
+
+            // Exposure Mode Row
+            +SVerticalBox::Slot()
+            .AutoHeight()
+            .Padding(4)
+            [
+                SNew(SHorizontalBox)
+
+                +SHorizontalBox::Slot()
+                .AutoWidth()
+                .VAlign(VAlign_Center)
+                [
+                    SNew(STextBlock)
+                    .Text(LOCTEXT("ExposureModeLabel", "Exposure: "))
+                ]
+
+                +SHorizontalBox::Slot()
+                .AutoWidth()
+                .VAlign(VAlign_Center)
+                .Padding(4, 0)
+                [
+                    SAssignNew(ExposureModeText, STextBlock)
+                    .Text(LOCTEXT("ExposureAuto", "Auto"))
+                ]
+
+                +SHorizontalBox::Slot()
+                .FillWidth(1.0f)
+                [
+                    SNullWidget::NullWidget
+                ]
+
+                +SHorizontalBox::Slot()
+                .AutoWidth()
+                .Padding(2, 0)
+                [
+                    SNew(SButton)
+                    .Text(LOCTEXT("ManualBtn", "Manual"))
+                    .OnClicked(this, &SRshipDashboardWidget::OnExposureModeManualClicked)
+                ]
+
+                +SHorizontalBox::Slot()
+                .AutoWidth()
+                .Padding(2, 0)
+                [
+                    SNew(SButton)
+                    .Text(LOCTEXT("AutoBtn", "Auto"))
+                    .OnClicked(this, &SRshipDashboardWidget::OnExposureModeAutoClicked)
+                ]
+
+                +SHorizontalBox::Slot()
+                .AutoWidth()
+                .Padding(2, 0)
+                [
+                    SNew(SButton)
+                    .Text(LOCTEXT("HistogramBtn", "Histogram"))
+                    .OnClicked(this, &SRshipDashboardWidget::OnExposureModeHistogramClicked)
+                ]
+            ]
+
+            // Manual EV Slider
+            +SVerticalBox::Slot()
+            .AutoHeight()
+            .Padding(4)
+            [
+                SNew(SHorizontalBox)
+
+                +SHorizontalBox::Slot()
+                .AutoWidth()
+                .VAlign(VAlign_Center)
+                [
+                    SNew(STextBlock)
+                    .Text(LOCTEXT("ManualEVLabel", "Manual EV: "))
+                ]
+
+                +SHorizontalBox::Slot()
+                .FillWidth(1.0f)
+                .VAlign(VAlign_Center)
+                .Padding(4, 0)
+                [
+                    SAssignNew(ManualEVSlider, SSlider)
+                    .Value(0.5f)  // -16 to +16 -> 0 to 1
+                    .OnValueChanged(this, &SRshipDashboardWidget::OnManualEVChanged)
+                ]
+
+                +SHorizontalBox::Slot()
+                .AutoWidth()
+                .VAlign(VAlign_Center)
+                [
+                    SAssignNew(ManualEVValueText, STextBlock)
+                    .Text(LOCTEXT("ManualEVValue", "0.0 EV"))
+                    .MinDesiredWidth(60.0f)
+                ]
+            ]
+
+            // Exposure Bias Slider
+            +SVerticalBox::Slot()
+            .AutoHeight()
+            .Padding(4)
+            [
+                SNew(SHorizontalBox)
+
+                +SHorizontalBox::Slot()
+                .AutoWidth()
+                .VAlign(VAlign_Center)
+                [
+                    SNew(STextBlock)
+                    .Text(LOCTEXT("ExposureBiasLabel", "Bias: "))
+                ]
+
+                +SHorizontalBox::Slot()
+                .FillWidth(1.0f)
+                .VAlign(VAlign_Center)
+                .Padding(4, 0)
+                [
+                    SAssignNew(ExposureBiasSlider, SSlider)
+                    .Value(0.5f)  // -4 to +4 -> 0 to 1
+                    .OnValueChanged(this, &SRshipDashboardWidget::OnExposureBiasChanged)
+                ]
+
+                +SHorizontalBox::Slot()
+                .AutoWidth()
+                .VAlign(VAlign_Center)
+                [
+                    SAssignNew(ExposureBiasValueText, STextBlock)
+                    .Text(LOCTEXT("ExposureBiasValue", "0.0 EV"))
+                    .MinDesiredWidth(60.0f)
+                ]
+            ]
+
+            // Color Space Row
+            +SVerticalBox::Slot()
+            .AutoHeight()
+            .Padding(4)
+            [
+                SNew(SHorizontalBox)
+
+                +SHorizontalBox::Slot()
+                .AutoWidth()
+                .VAlign(VAlign_Center)
+                [
+                    SNew(STextBlock)
+                    .Text(LOCTEXT("ColorSpaceLabel", "Color Space: "))
+                ]
+
+                +SHorizontalBox::Slot()
+                .AutoWidth()
+                .VAlign(VAlign_Center)
+                .Padding(4, 0)
+                [
+                    SAssignNew(ColorSpaceText, STextBlock)
+                    .Text(LOCTEXT("ColorSpaceRec709", "Rec.709"))
+                ]
+            ]
+
+            // HDR and Viewport Sync Row
+            +SVerticalBox::Slot()
+            .AutoHeight()
+            .Padding(4)
+            [
+                SNew(SHorizontalBox)
+
+                +SHorizontalBox::Slot()
+                .AutoWidth()
+                .VAlign(VAlign_Center)
+                [
+                    SAssignNew(HDREnabledCheckbox, SCheckBox)
+                    .IsChecked(ECheckBoxState::Unchecked)
+                    .OnCheckStateChanged(this, &SRshipDashboardWidget::OnHDREnabledChanged)
+                    [
+                        SNew(STextBlock)
+                        .Text(LOCTEXT("HDREnabled", "HDR Output"))
+                    ]
+                ]
+
+                +SHorizontalBox::Slot()
+                .AutoWidth()
+                .VAlign(VAlign_Center)
+                .Padding(16, 0, 0, 0)
+                [
+                    SAssignNew(ViewportSyncCheckbox, SCheckBox)
+                    .IsChecked(ECheckBoxState::Checked)
+                    .OnCheckStateChanged(this, &SRshipDashboardWidget::OnViewportSyncChanged)
+                    [
+                        SNew(STextBlock)
+                        .Text(LOCTEXT("ViewportSync", "Sync to Viewport"))
+                    ]
+                ]
+
+                +SHorizontalBox::Slot()
+                .FillWidth(1.0f)
+                [
+                    SNullWidget::NullWidget
+                ]
+
+                +SHorizontalBox::Slot()
+                .AutoWidth()
+                [
+                    SNew(SButton)
+                    .Text(LOCTEXT("ApplyViewport", "Apply to Viewport"))
+                    .OnClicked(this, &SRshipDashboardWidget::OnApplyToViewportClicked)
+                ]
+            ]
+        ];
+}
+
+void SRshipDashboardWidget::RefreshColorData()
+{
+    UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+    if (!World)
+    {
+        return;
+    }
+
+    URshipColorManagementSubsystem* ColorSubsystem = World->GetSubsystem<URshipColorManagementSubsystem>();
+    if (!ColorSubsystem)
+    {
+        return;
+    }
+
+    FRshipColorConfig Config = ColorSubsystem->GetColorConfig();
+
+    // Update exposure mode
+    CurrentExposureMode = static_cast<int32>(Config.Exposure.Mode);
+    FString ModeStr;
+    switch (Config.Exposure.Mode)
+    {
+    case ERshipExposureMode::Manual: ModeStr = TEXT("Manual"); break;
+    case ERshipExposureMode::Auto: ModeStr = TEXT("Auto"); break;
+    case ERshipExposureMode::Histogram: ModeStr = TEXT("Histogram"); break;
+    }
+    if (ExposureModeText.IsValid())
+    {
+        ExposureModeText->SetText(FText::FromString(ModeStr));
+    }
+
+    // Update manual EV
+    CurrentManualEV = Config.Exposure.ManualExposureEV;
+    if (ManualEVSlider.IsValid())
+    {
+        // Map -16 to +16 -> 0 to 1
+        float SliderValue = (CurrentManualEV + 16.0f) / 32.0f;
+        ManualEVSlider->SetValue(SliderValue);
+    }
+    if (ManualEVValueText.IsValid())
+    {
+        ManualEVValueText->SetText(FText::FromString(FString::Printf(TEXT("%.1f EV"), CurrentManualEV)));
+    }
+
+    // Update exposure bias
+    CurrentExposureBias = Config.Exposure.ExposureBias;
+    if (ExposureBiasSlider.IsValid())
+    {
+        // Map -4 to +4 -> 0 to 1
+        float SliderValue = (CurrentExposureBias + 4.0f) / 8.0f;
+        ExposureBiasSlider->SetValue(SliderValue);
+    }
+    if (ExposureBiasValueText.IsValid())
+    {
+        ExposureBiasValueText->SetText(FText::FromString(FString::Printf(TEXT("%.1f EV"), CurrentExposureBias)));
+    }
+
+    // Update color space
+    CurrentColorSpace = static_cast<int32>(Config.ColorSpace);
+    FString ColorSpaceStr;
+    switch (Config.ColorSpace)
+    {
+    case ERshipColorSpace::sRGB: ColorSpaceStr = TEXT("sRGB"); break;
+    case ERshipColorSpace::Rec709: ColorSpaceStr = TEXT("Rec.709"); break;
+    case ERshipColorSpace::Rec2020: ColorSpaceStr = TEXT("Rec.2020"); break;
+    case ERshipColorSpace::DCIP3: ColorSpaceStr = TEXT("DCI-P3"); break;
+    }
+    if (ColorSpaceText.IsValid())
+    {
+        ColorSpaceText->SetText(FText::FromString(ColorSpaceStr));
+    }
+
+    // Update HDR
+    bCurrentHDREnabled = Config.bEnableHDR;
+    if (HDREnabledCheckbox.IsValid())
+    {
+        HDREnabledCheckbox->SetIsChecked(bCurrentHDREnabled ? ECheckBoxState::Checked : ECheckBoxState::Unchecked);
+    }
+
+    // Update viewport sync
+    bCurrentSyncToViewport = Config.bSyncExposureToViewport;
+    if (ViewportSyncCheckbox.IsValid())
+    {
+        ViewportSyncCheckbox->SetIsChecked(bCurrentSyncToViewport ? ECheckBoxState::Checked : ECheckBoxState::Unchecked);
+    }
+}
+
+FReply SRshipDashboardWidget::OnExposureModeManualClicked()
+{
+    UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+    if (World)
+    {
+        if (URshipColorManagementSubsystem* ColorSubsystem = World->GetSubsystem<URshipColorManagementSubsystem>())
+        {
+            FRshipColorConfig Config = ColorSubsystem->GetColorConfig();
+            Config.Exposure.Mode = ERshipExposureMode::Manual;
+            ColorSubsystem->SetColorConfig(Config);
+        }
+    }
+    return FReply::Handled();
+}
+
+FReply SRshipDashboardWidget::OnExposureModeAutoClicked()
+{
+    UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+    if (World)
+    {
+        if (URshipColorManagementSubsystem* ColorSubsystem = World->GetSubsystem<URshipColorManagementSubsystem>())
+        {
+            FRshipColorConfig Config = ColorSubsystem->GetColorConfig();
+            Config.Exposure.Mode = ERshipExposureMode::Auto;
+            ColorSubsystem->SetColorConfig(Config);
+        }
+    }
+    return FReply::Handled();
+}
+
+FReply SRshipDashboardWidget::OnExposureModeHistogramClicked()
+{
+    UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+    if (World)
+    {
+        if (URshipColorManagementSubsystem* ColorSubsystem = World->GetSubsystem<URshipColorManagementSubsystem>())
+        {
+            FRshipColorConfig Config = ColorSubsystem->GetColorConfig();
+            Config.Exposure.Mode = ERshipExposureMode::Histogram;
+            ColorSubsystem->SetColorConfig(Config);
+        }
+    }
+    return FReply::Handled();
+}
+
+void SRshipDashboardWidget::OnManualEVChanged(float NewValue)
+{
+    // Map 0 to 1 -> -16 to +16
+    float EV = (NewValue * 32.0f) - 16.0f;
+
+    if (ManualEVValueText.IsValid())
+    {
+        ManualEVValueText->SetText(FText::FromString(FString::Printf(TEXT("%.1f EV"), EV)));
+    }
+
+    UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+    if (World)
+    {
+        if (URshipColorManagementSubsystem* ColorSubsystem = World->GetSubsystem<URshipColorManagementSubsystem>())
+        {
+            FRshipColorConfig Config = ColorSubsystem->GetColorConfig();
+            Config.Exposure.ManualExposureEV = EV;
+            ColorSubsystem->SetColorConfig(Config);
+        }
+    }
+}
+
+void SRshipDashboardWidget::OnExposureBiasChanged(float NewValue)
+{
+    // Map 0 to 1 -> -4 to +4
+    float Bias = (NewValue * 8.0f) - 4.0f;
+
+    if (ExposureBiasValueText.IsValid())
+    {
+        ExposureBiasValueText->SetText(FText::FromString(FString::Printf(TEXT("%.1f EV"), Bias)));
+    }
+
+    UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+    if (World)
+    {
+        if (URshipColorManagementSubsystem* ColorSubsystem = World->GetSubsystem<URshipColorManagementSubsystem>())
+        {
+            FRshipColorConfig Config = ColorSubsystem->GetColorConfig();
+            Config.Exposure.ExposureBias = Bias;
+            ColorSubsystem->SetColorConfig(Config);
+        }
+    }
+}
+
+void SRshipDashboardWidget::OnHDREnabledChanged(ECheckBoxState NewState)
+{
+    UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+    if (World)
+    {
+        if (URshipColorManagementSubsystem* ColorSubsystem = World->GetSubsystem<URshipColorManagementSubsystem>())
+        {
+            FRshipColorConfig Config = ColorSubsystem->GetColorConfig();
+            Config.bEnableHDR = (NewState == ECheckBoxState::Checked);
+            ColorSubsystem->SetColorConfig(Config);
+        }
+    }
+}
+
+void SRshipDashboardWidget::OnViewportSyncChanged(ECheckBoxState NewState)
+{
+    UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+    if (World)
+    {
+        if (URshipColorManagementSubsystem* ColorSubsystem = World->GetSubsystem<URshipColorManagementSubsystem>())
+        {
+            FRshipColorConfig Config = ColorSubsystem->GetColorConfig();
+            Config.bSyncExposureToViewport = (NewState == ECheckBoxState::Checked);
+            ColorSubsystem->SetColorConfig(Config);
+        }
+    }
+}
+
+FReply SRshipDashboardWidget::OnApplyToViewportClicked()
+{
+    UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+    if (World)
+    {
+        if (URshipColorManagementSubsystem* ColorSubsystem = World->GetSubsystem<URshipColorManagementSubsystem>())
+        {
+            ColorSubsystem->ApplyToViewport();
+        }
+    }
+    return FReply::Handled();
+}
+
+#endif // RSHIP_HAS_COLOR_MANAGEMENT
 
 #undef LOCTEXT_NAMESPACE
 

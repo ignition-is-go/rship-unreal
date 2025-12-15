@@ -27,6 +27,10 @@ class ACineCameraActor;
 class URshipNDIStreamComponent;
 #endif
 
+#if RSHIP_HAS_COLOR_MANAGEMENT
+class URshipColorManagementSubsystem;
+#endif
+
 // ============================================================================
 // DASHBOARD DATA STRUCTURES
 // ============================================================================
@@ -133,6 +137,15 @@ private:
     int32 NDITotalReceivers;
 #endif
 
+#if RSHIP_HAS_COLOR_MANAGEMENT
+    int32 CurrentExposureMode;  // 0=Manual, 1=Auto, 2=Histogram
+    float CurrentManualEV;
+    float CurrentExposureBias;
+    int32 CurrentColorSpace;  // 0=sRGB, 1=Rec709, 2=Rec2020, 3=DCIP3
+    bool bCurrentHDREnabled;
+    bool bCurrentSyncToViewport;
+#endif
+
     // ========================================================================
     // UI WIDGETS
     // ========================================================================
@@ -153,6 +166,17 @@ private:
     TSharedPtr<STextBlock> NDISenderStatusText;
 #endif
 
+#if RSHIP_HAS_COLOR_MANAGEMENT
+    TSharedPtr<STextBlock> ExposureModeText;
+    TSharedPtr<STextBlock> ColorSpaceText;
+    TSharedPtr<SSlider> ManualEVSlider;
+    TSharedPtr<STextBlock> ManualEVValueText;
+    TSharedPtr<SSlider> ExposureBiasSlider;
+    TSharedPtr<STextBlock> ExposureBiasValueText;
+    TSharedPtr<SCheckBox> HDREnabledCheckbox;
+    TSharedPtr<SCheckBox> ViewportSyncCheckbox;
+#endif
+
     // ========================================================================
     // UI BUILDERS
     // ========================================================================
@@ -165,6 +189,10 @@ private:
 
 #if RSHIP_HAS_NDI
     TSharedRef<SWidget> BuildNDIPanel();
+#endif
+
+#if RSHIP_HAS_COLOR_MANAGEMENT
+    TSharedRef<SWidget> BuildColorManagementPanel();
 #endif
 
     // List view generators
@@ -194,6 +222,18 @@ private:
     FReply OnNDIStartAllClicked();
     FReply OnNDIStopAllClicked();
     void OnNDIStreamStartStopClicked(TSharedPtr<FRshipDashboardNDIItem> Item);
+#endif
+
+#if RSHIP_HAS_COLOR_MANAGEMENT
+    FReply OnExposureModeManualClicked();
+    FReply OnExposureModeAutoClicked();
+    FReply OnExposureModeHistogramClicked();
+    void OnManualEVChanged(float NewValue);
+    void OnExposureBiasChanged(float NewValue);
+    void OnHDREnabledChanged(ECheckBoxState NewState);
+    void OnViewportSyncChanged(ECheckBoxState NewState);
+    FReply OnApplyToViewportClicked();
+    void RefreshColorData();
 #endif
 
     // ========================================================================
