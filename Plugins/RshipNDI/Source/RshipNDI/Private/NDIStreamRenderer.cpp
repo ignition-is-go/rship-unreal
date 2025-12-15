@@ -208,26 +208,29 @@ void FNDIStreamRenderer::EnqueueReadback(UTextureRenderTarget2D* RenderTarget, i
 	// Enqueue the GPU readback on the render thread
 	FRHIGPUTextureReadback* Readback = Buffer.Readback;
 
+	// Capture the texture pointer on the game thread while we have valid context
+	FTextureRenderTargetResource* RenderTargetResource = RTResource;
+
 	ENQUEUE_RENDER_COMMAND(NDIEnqueueReadback)(
-		[Readback, RTResource](FRHICommandListImmediate& RHICmdList)
+		[Readback, RenderTargetResource](FRHICommandListImmediate& RHICmdList)
 		{
-			FRHITexture* Texture = RTResource->GetRenderTargetTexture();
-			if (Texture)
+			if (!RenderTargetResource)
 			{
-				// UE 5.7+: After CaptureScene(), the texture might be in SRVGraphics state
-				// (from post-processing reads) or RTV state. Use SRVMask to handle both
-				// readable states, then transition to CopySrc for the readback.
-				//
-				// State flow: SRVGraphics/RTV -> CopySrc -> SRVGraphics (for next capture's PP)
-				RHICmdList.Transition(FRHITransitionInfo(Texture, ERHIAccess::SRVMask, ERHIAccess::CopySrc));
-
-				// Enqueue copy from render target to staging buffer
-				Readback->EnqueueCopy(RHICmdList, Texture);
-
-				// Transition to SRVGraphics - this is the state scene capture expects
-				// for post-processing to read from the previous frame's result
-				RHICmdList.Transition(FRHITransitionInfo(Texture, ERHIAccess::CopySrc, ERHIAccess::SRVGraphics));
+				UE_LOG(LogRshipNDI, Warning, TEXT("NDIEnqueueReadback - RenderTargetResource is null"));
+				return;
 			}
+
+			FRHITexture* Texture = RenderTargetResource->GetRenderTargetTexture();
+			if (!Texture)
+			{
+				UE_LOG(LogRshipNDI, Warning, TEXT("NDIEnqueueReadback - GetRenderTargetTexture() returned null"));
+				return;
+			}
+
+			// EnqueueCopy handles its own resource transitions internally.
+			// Adding explicit transitions can cause issues if the texture state doesn't match.
+			// Let the RHI manage the state transitions automatically.
+			Readback->EnqueueCopy(RHICmdList, Texture);
 		});
 }
 
