@@ -72,8 +72,15 @@ private:
 	bool HandleGetFogSettings(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error);
 	bool HandleSetFogSettings(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error);
 
+	// Color Management (RshipColorManagement integration)
+	bool HandleGetColorConfig(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error);
+	bool HandleSetColorConfig(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error);
+	bool HandleSetExposureMode(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error);
+	bool HandleApplyColorToViewport(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error);
+
 	// Helper methods
 	TSharedPtr<FJsonObject> PostProcessVolumeToJson(APostProcessVolume* Volume);
 	TSharedPtr<FJsonObject> PostProcessSettingsToJson(const FPostProcessSettings& Settings);
 	APostProcessVolume* FindPostProcessVolume(const FString& VolumeName);
+	TSharedPtr<FJsonObject> ColorConfigToJson(const struct FRshipColorConfig& Config);
 };

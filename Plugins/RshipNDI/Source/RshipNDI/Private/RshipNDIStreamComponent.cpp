@@ -10,6 +10,9 @@
 #include "Engine/TextureRenderTarget2D.h"
 #include "Kismet/GameplayStatics.h"
 
+// Color management integration
+#include "RshipColorManagementSubsystem.h"
+
 // CineCameraSceneCapture module (optional - provides exact CineCamera matching)
 #if RSHIP_HAS_CINE_CAPTURE
 #include "CineCaptureComponent2D.h"
@@ -371,14 +374,30 @@ void URshipNDIStreamComponent::SyncCameraSettingsToCapture()
 	// Sync FOV - computed from focal length and filmback
 	SceneCapture->FOVAngle = CineCamera->FieldOfView;
 
-	// Copy post-process settings from CineCamera for visual match
-	// This includes bloom, exposure, color grading, vignette, etc.
-	SceneCapture->PostProcessSettings = CineCamera->PostProcessSettings;
-	SceneCapture->PostProcessBlendWeight = 1.0f;
+	// Check for color management subsystem - if available, use centralized config
+	URshipColorManagementSubsystem* ColorSubsystem = nullptr;
+	if (UWorld* World = GetWorld())
+	{
+		ColorSubsystem = World->GetSubsystem<URshipColorManagementSubsystem>();
+	}
+
+	if (ColorSubsystem)
+	{
+		// Use centralized color configuration
+		ColorSubsystem->ConfigureSceneCapture(SceneCapture);
+		UE_LOG(LogRshipNDI, Verbose, TEXT("Using RshipColorManagement subsystem for capture settings"));
+	}
+	else
+	{
+		// Fallback: Copy post-process settings from CineCamera for visual match
+		SceneCapture->PostProcessSettings = CineCamera->PostProcessSettings;
+		SceneCapture->PostProcessBlendWeight = 1.0f;
+	}
 
 	// Exposure handling depends on Config.bMatchViewportExposure:
 	// - true: Enable eye adaptation so capture drifts WITH viewport (they match)
 	// - false: Disable eye adaptation for fixed, predictable broadcast exposure
+	// Note: If ColorSubsystem is active, it controls eye adaptation via its own config
 
 	// Ensure consistent gamma/color handling
 	SceneCapture->bEnableClipPlane = false;
@@ -401,7 +420,11 @@ void URshipNDIStreamComponent::SyncCameraSettingsToCapture()
 	SceneCapture->ShowFlags.SetAntiAliasing(true);
 	SceneCapture->ShowFlags.SetMotionBlur(true);
 	SceneCapture->ShowFlags.SetBloom(true);
-	SceneCapture->ShowFlags.SetEyeAdaptation(Config.bMatchViewportExposure);  // Match viewport or use fixed exposure
+	// Eye adaptation: ColorSubsystem takes priority, then local Config
+	bool bEnableEyeAdaptation = ColorSubsystem
+		? ColorSubsystem->ShouldEnableEyeAdaptation()
+		: Config.bMatchViewportExposure;
+	SceneCapture->ShowFlags.SetEyeAdaptation(bEnableEyeAdaptation);
 	SceneCapture->ShowFlags.SetToneCurve(true);
 	SceneCapture->ShowFlags.SetColorGrading(true);
 	SceneCapture->ShowFlags.SetTonemapper(true);
@@ -434,9 +457,10 @@ void URshipNDIStreamComponent::SyncCameraSettingsToCapture()
 	// Log initial sync (use member variable to allow logging after stream restart)
 	if (!bLoggedCameraSync)
 	{
-		UE_LOG(LogRshipNDI, Log, TEXT("SyncCameraSettingsToCapture - FOV: %.1f, PostProcess weight: %.1f, AspectRatio: %.3f, EyeAdaptation: %s"),
-			SceneCapture->FOVAngle, SceneCapture->PostProcessBlendWeight, TargetAspect,
-			Config.bMatchViewportExposure ? TEXT("ON (matching viewport)") : TEXT("OFF (fixed exposure)"));
+		UE_LOG(LogRshipNDI, Log, TEXT("SyncCameraSettingsToCapture - FOV: %.1f, AspectRatio: %.3f, EyeAdaptation: %s, ColorMgmt: %s"),
+			SceneCapture->FOVAngle, TargetAspect,
+			bEnableEyeAdaptation ? TEXT("ON") : TEXT("OFF"),
+			ColorSubsystem ? TEXT("Active") : TEXT("Fallback"));
 		bLoggedCameraSync = true;
 	}
 }

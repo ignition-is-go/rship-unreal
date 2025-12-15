@@ -133,6 +133,7 @@ public class RshipNDI : ModuleRules
 				"RenderCore",
 				"RHI",
 				"CinematicCamera",         // For ACineCameraActor, UCineCameraComponent
+				"RshipColorManagement",    // For color config and subsystem
 			}
 		);
 
