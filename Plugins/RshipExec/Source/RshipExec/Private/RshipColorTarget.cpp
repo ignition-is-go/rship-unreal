@@ -17,9 +17,8 @@ ARshipColorTarget::ARshipColorTarget()
 	// Create root component
 	RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
 
-	// Create target component for rship registration
+	// Create target component for rship registration (UActorComponent, no attachment needed)
 	TargetComponent = CreateDefaultSubobject<URshipTargetComponent>(TEXT("RshipTarget"));
-	TargetComponent->SetupAttachment(RootComponent);
 }
 
 void ARshipColorTarget::BeginPlay()
@@ -50,8 +49,8 @@ void ARshipColorTarget::BindToColorSubsystem()
 		ColorSubsystem = World->GetSubsystem<URshipColorManagementSubsystem>();
 		if (ColorSubsystem.IsValid())
 		{
-			// Bind to config change delegate
-			ConfigChangedHandle = ColorSubsystem->OnColorConfigChanged.AddUObject(
+			// Bind to config change delegate (dynamic delegate requires AddDynamic)
+			ColorSubsystem->OnColorConfigChanged.AddDynamic(
 				this, &ARshipColorTarget::OnColorConfigChangedInternal);
 
 			UE_LOG(LogRshipExec, Log, TEXT("RshipColorTarget: Bound to ColorManagementSubsystem"));
@@ -75,7 +74,8 @@ void ARshipColorTarget::UnbindFromColorSubsystem()
 #if RSHIP_HAS_COLOR_MANAGEMENT
 	if (ColorSubsystem.IsValid())
 	{
-		ColorSubsystem->OnColorConfigChanged.Remove(ConfigChangedHandle);
+		ColorSubsystem->OnColorConfigChanged.RemoveDynamic(
+			this, &ARshipColorTarget::OnColorConfigChangedInternal);
 		ColorSubsystem.Reset();
 
 		UE_LOG(LogRshipExec, Log, TEXT("RshipColorTarget: Unbound from ColorManagementSubsystem"));

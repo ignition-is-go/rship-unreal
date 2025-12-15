@@ -14,6 +14,7 @@ public class RshipColorManagement : ModuleRules
 				"Core",
 				"CoreUObject",
 				"Engine",
+				"CinematicCamera",  // For CineCameraActor/CineCameraComponent
 			}
 		);
 
