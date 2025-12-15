@@ -269,6 +269,12 @@ struct RSHIPCOLORMANAGEMENT_API FRshipColorConfig
 };
 
 /**
- * Delegate fired when color configuration changes.
+ * Delegate fired when color configuration changes (Blueprint-assignable).
  */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnColorConfigChanged, const FRshipColorConfig&, NewConfig);
+
+/**
+ * Native C++ delegate for color config changes.
+ * Use this for C++ binding - doesn't require UFUNCTION on callback.
+ */
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnColorConfigChangedNative, const FRshipColorConfig& /*NewConfig*/);

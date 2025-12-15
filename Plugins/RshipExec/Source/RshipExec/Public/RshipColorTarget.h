@@ -174,8 +174,7 @@ public:
 
 protected:
 #if RSHIP_HAS_COLOR_MANAGEMENT
-	/** Handle color config changes from subsystem - must be UFUNCTION for dynamic delegate */
-	UFUNCTION()
+	/** Handle color config changes from subsystem (uses native delegate, no UFUNCTION needed) */
 	void OnColorConfigChangedInternal(const FRshipColorConfig& NewConfig);
 #endif
 
@@ -183,6 +182,9 @@ private:
 #if RSHIP_HAS_COLOR_MANAGEMENT
 	/** Cached reference to color management subsystem (weak ptr, no UPROPERTY due to preprocessor block) */
 	TWeakObjectPtr<URshipColorManagementSubsystem> ColorSubsystem;
+
+	/** Delegate handle for native config change notifications */
+	FDelegateHandle ConfigChangedHandle;
 
 	/** Convert config to JSON string */
 	FString ConfigToJson(const FRshipColorConfig& Config) const;

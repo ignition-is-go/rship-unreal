@@ -47,8 +47,9 @@ void URshipColorManagementSubsystem::SetColorConfig(const FRshipColorConfig& New
 		ApplyToViewport();
 	}
 
-	// Broadcast change
+	// Broadcast change to both Blueprint and native delegates
 	OnColorConfigChanged.Broadcast(ActiveConfig);
+	OnColorConfigChangedNative.Broadcast(ActiveConfig);
 }
 
 void URshipColorManagementSubsystem::ApplyToViewport()

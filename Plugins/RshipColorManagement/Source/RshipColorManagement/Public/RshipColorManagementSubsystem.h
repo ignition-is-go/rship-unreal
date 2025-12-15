@@ -96,9 +96,12 @@ public:
 	// Events
 	// ========================================================================
 
-	/** Fired when color configuration changes */
+	/** Fired when color configuration changes (Blueprint-assignable) */
 	UPROPERTY(BlueprintAssignable, Category = "Rship|Color")
 	FOnColorConfigChanged OnColorConfigChanged;
+
+	/** Native C++ delegate for color config changes (no UFUNCTION required on callback) */
+	FOnColorConfigChangedNative OnColorConfigChangedNative;
 
 protected:
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;

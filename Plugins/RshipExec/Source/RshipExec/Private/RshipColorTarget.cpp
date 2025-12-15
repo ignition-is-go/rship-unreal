@@ -49,8 +49,8 @@ void ARshipColorTarget::BindToColorSubsystem()
 		ColorSubsystem = World->GetSubsystem<URshipColorManagementSubsystem>();
 		if (ColorSubsystem.IsValid())
 		{
-			// Bind to config change delegate (dynamic delegate requires AddDynamic)
-			ColorSubsystem->OnColorConfigChanged.AddDynamic(
+			// Bind to native config change delegate (doesn't require UFUNCTION on callback)
+			ConfigChangedHandle = ColorSubsystem->OnColorConfigChangedNative.AddUObject(
 				this, &ARshipColorTarget::OnColorConfigChangedInternal);
 
 			UE_LOG(LogRshipExec, Log, TEXT("RshipColorTarget: Bound to ColorManagementSubsystem"));
@@ -74,8 +74,8 @@ void ARshipColorTarget::UnbindFromColorSubsystem()
 #if RSHIP_HAS_COLOR_MANAGEMENT
 	if (ColorSubsystem.IsValid())
 	{
-		ColorSubsystem->OnColorConfigChanged.RemoveDynamic(
-			this, &ARshipColorTarget::OnColorConfigChangedInternal);
+		ColorSubsystem->OnColorConfigChangedNative.Remove(ConfigChangedHandle);
+		ConfigChangedHandle.Reset();
 		ColorSubsystem.Reset();
 
 		UE_LOG(LogRshipExec, Log, TEXT("RshipColorTarget: Unbound from ColorManagementSubsystem"));
