@@ -180,8 +180,7 @@ protected:
 
 private:
 #if RSHIP_HAS_COLOR_MANAGEMENT
-	/** Cached reference to color management subsystem */
-	UPROPERTY()
+	/** Cached reference to color management subsystem (weak ptr, no UPROPERTY due to preprocessor block) */
 	TWeakObjectPtr<URshipColorManagementSubsystem> ColorSubsystem;
 
 	/** Delegate handle for config change notifications */
