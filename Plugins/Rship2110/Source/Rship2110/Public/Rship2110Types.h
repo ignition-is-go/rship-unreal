@@ -184,6 +184,161 @@ enum class ERship2110ColorFormat : uint8
 };
 
 /**
+ * Color primaries (colorimetry) for 2110-20 HDR support
+ */
+UENUM(BlueprintType)
+enum class ERship2110Colorimetry : uint8
+{
+    /** BT.709 - Standard HD (sRGB primaries) */
+    BT709           UMETA(DisplayName = "BT.709"),
+
+    /** BT.2020 - Wide Color Gamut for UHD/HDR */
+    BT2020          UMETA(DisplayName = "BT.2020"),
+
+    /** BT.2100 - HDR with BT.2020 primaries */
+    BT2100          UMETA(DisplayName = "BT.2100"),
+
+    /** DCI-P3 - Digital Cinema */
+    DCIP3           UMETA(DisplayName = "DCI-P3"),
+
+    /** ST 2065-1 - ACES */
+    ST2065_1        UMETA(DisplayName = "ACES (ST 2065-1)")
+};
+
+/**
+ * Transfer function (EOTF/OETF) for 2110-20 HDR support
+ */
+UENUM(BlueprintType)
+enum class ERship2110TransferFunction : uint8
+{
+    /** SDR gamma (~BT.1886) */
+    SDR             UMETA(DisplayName = "SDR (BT.1886)"),
+
+    /** PQ (Perceptual Quantizer) - ST.2084 for HDR10/Dolby Vision */
+    PQ              UMETA(DisplayName = "PQ (ST.2084)"),
+
+    /** HLG (Hybrid Log-Gamma) - ARIB STD-B67 for broadcast HDR */
+    HLG             UMETA(DisplayName = "HLG (ARIB STD-B67)"),
+
+    /** Linear (1.0 gamma, scene-referred) */
+    Linear          UMETA(DisplayName = "Linear"),
+
+    /** sRGB transfer function */
+    sRGB            UMETA(DisplayName = "sRGB")
+};
+
+/**
+ * HDR metadata for content light levels (ST.2086 / CTA-861.3)
+ */
+USTRUCT(BlueprintType)
+struct RSHIP2110_API FRship2110HDRMetadata
+{
+    GENERATED_BODY()
+
+    /** Enable HDR metadata in stream */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|HDR")
+    bool bEnabled = false;
+
+    /** Maximum Content Light Level (MaxCLL) in nits */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|HDR",
+        meta = (ClampMin = "0", ClampMax = "10000", EditCondition = "bEnabled"))
+    int32 MaxContentLightLevel = 1000;
+
+    /** Maximum Frame-Average Light Level (MaxFALL) in nits */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|HDR",
+        meta = (ClampMin = "0", ClampMax = "10000", EditCondition = "bEnabled"))
+    int32 MaxFrameAverageLightLevel = 400;
+
+    /** Mastering display primaries - Red X (0.0-1.0, normalized to 0.00002) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|HDR",
+        meta = (ClampMin = "0.0", ClampMax = "1.0", EditCondition = "bEnabled"))
+    float DisplayPrimariesRedX = 0.708f;  // BT.2020 default
+
+    /** Mastering display primaries - Red Y */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|HDR",
+        meta = (ClampMin = "0.0", ClampMax = "1.0", EditCondition = "bEnabled"))
+    float DisplayPrimariesRedY = 0.292f;
+
+    /** Mastering display primaries - Green X */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|HDR",
+        meta = (ClampMin = "0.0", ClampMax = "1.0", EditCondition = "bEnabled"))
+    float DisplayPrimariesGreenX = 0.170f;
+
+    /** Mastering display primaries - Green Y */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|HDR",
+        meta = (ClampMin = "0.0", ClampMax = "1.0", EditCondition = "bEnabled"))
+    float DisplayPrimariesGreenY = 0.797f;
+
+    /** Mastering display primaries - Blue X */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|HDR",
+        meta = (ClampMin = "0.0", ClampMax = "1.0", EditCondition = "bEnabled"))
+    float DisplayPrimariesBlueX = 0.131f;
+
+    /** Mastering display primaries - Blue Y */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|HDR",
+        meta = (ClampMin = "0.0", ClampMax = "1.0", EditCondition = "bEnabled"))
+    float DisplayPrimariesBlueY = 0.046f;
+
+    /** White point X (D65 = 0.3127) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|HDR",
+        meta = (ClampMin = "0.0", ClampMax = "1.0", EditCondition = "bEnabled"))
+    float WhitePointX = 0.3127f;
+
+    /** White point Y (D65 = 0.3290) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|HDR",
+        meta = (ClampMin = "0.0", ClampMax = "1.0", EditCondition = "bEnabled"))
+    float WhitePointY = 0.3290f;
+
+    /** Mastering display maximum luminance in nits */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|HDR",
+        meta = (ClampMin = "0", ClampMax = "10000", EditCondition = "bEnabled"))
+    int32 MaxDisplayMasteringLuminance = 1000;
+
+    /** Mastering display minimum luminance in nits (stored as 0.0001 nits units) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|HDR",
+        meta = (ClampMin = "0.0", ClampMax = "10.0", EditCondition = "bEnabled"))
+    float MinDisplayMasteringLuminance = 0.005f;
+
+    /** Set to BT.2020 HDR10 defaults */
+    void SetHDR10Defaults()
+    {
+        bEnabled = true;
+        MaxContentLightLevel = 1000;
+        MaxFrameAverageLightLevel = 400;
+        // BT.2020 primaries
+        DisplayPrimariesRedX = 0.708f;
+        DisplayPrimariesRedY = 0.292f;
+        DisplayPrimariesGreenX = 0.170f;
+        DisplayPrimariesGreenY = 0.797f;
+        DisplayPrimariesBlueX = 0.131f;
+        DisplayPrimariesBlueY = 0.046f;
+        WhitePointX = 0.3127f;
+        WhitePointY = 0.3290f;
+        MaxDisplayMasteringLuminance = 1000;
+        MinDisplayMasteringLuminance = 0.005f;
+    }
+
+    /** Set to HLG broadcast defaults */
+    void SetHLGDefaults()
+    {
+        bEnabled = true;
+        MaxContentLightLevel = 1000;
+        MaxFrameAverageLightLevel = 400;
+        // BT.2020 primaries for HLG
+        DisplayPrimariesRedX = 0.708f;
+        DisplayPrimariesRedY = 0.292f;
+        DisplayPrimariesGreenX = 0.170f;
+        DisplayPrimariesGreenY = 0.797f;
+        DisplayPrimariesBlueX = 0.131f;
+        DisplayPrimariesBlueY = 0.046f;
+        WhitePointX = 0.3127f;
+        WhitePointY = 0.3290f;
+        MaxDisplayMasteringLuminance = 1000;
+        MinDisplayMasteringLuminance = 0.005f;
+    }
+};
+
+/**
  * Bit depth for video samples
  */
 UENUM(BlueprintType)
@@ -261,6 +416,18 @@ struct RSHIP2110_API FRship2110VideoFormat
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110")
     bool bInterlaced = false;
 
+    /** Color primaries / colorimetry */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|HDR")
+    ERship2110Colorimetry Colorimetry = ERship2110Colorimetry::BT709;
+
+    /** Transfer function (EOTF/OETF) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|HDR")
+    ERship2110TransferFunction TransferFunction = ERship2110TransferFunction::SDR;
+
+    /** HDR metadata (ST.2086 / CTA-861.3) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|HDR")
+    FRship2110HDRMetadata HDRMetadata;
+
     /** Get frame rate as decimal */
     double GetFrameRateDecimal() const
     {
@@ -296,6 +463,67 @@ struct RSHIP2110_API FRship2110VideoFormat
             case ERship2110BitDepth::Bits_16: return 16;
             default: return 10;
         }
+    }
+
+    /** Check if format uses HDR */
+    bool IsHDR() const
+    {
+        return TransferFunction == ERship2110TransferFunction::PQ ||
+               TransferFunction == ERship2110TransferFunction::HLG;
+    }
+
+    /** Check if format uses wide color gamut */
+    bool IsWideColorGamut() const
+    {
+        return Colorimetry == ERship2110Colorimetry::BT2020 ||
+               Colorimetry == ERship2110Colorimetry::BT2100 ||
+               Colorimetry == ERship2110Colorimetry::DCIP3;
+    }
+
+    /** Get colorimetry string for SDP (e.g., "BT2020") */
+    FString GetColorimetryString() const
+    {
+        switch (Colorimetry)
+        {
+            case ERship2110Colorimetry::BT709: return TEXT("BT709");
+            case ERship2110Colorimetry::BT2020: return TEXT("BT2020");
+            case ERship2110Colorimetry::BT2100: return TEXT("BT2100");
+            case ERship2110Colorimetry::DCIP3: return TEXT("DCIP3");
+            case ERship2110Colorimetry::ST2065_1: return TEXT("ST2065-1");
+            default: return TEXT("BT709");
+        }
+    }
+
+    /** Get transfer characteristic string for SDP (e.g., "SDR", "PQ", "HLG") */
+    FString GetTransferCharacteristicString() const
+    {
+        switch (TransferFunction)
+        {
+            case ERship2110TransferFunction::SDR: return TEXT("SDR");
+            case ERship2110TransferFunction::PQ: return TEXT("PQ");
+            case ERship2110TransferFunction::HLG: return TEXT("HLG");
+            case ERship2110TransferFunction::Linear: return TEXT("LINEAR");
+            case ERship2110TransferFunction::sRGB: return TEXT("sRGB");
+            default: return TEXT("SDR");
+        }
+    }
+
+    /** Configure for HDR10 (BT.2020 + PQ) */
+    void SetHDR10()
+    {
+        Colorimetry = ERship2110Colorimetry::BT2020;
+        TransferFunction = ERship2110TransferFunction::PQ;
+        BitDepth = ERship2110BitDepth::Bits_10;
+        HDRMetadata.SetHDR10Defaults();
+    }
+
+    /** Configure for HLG broadcast (BT.2020 + HLG) */
+    void SetHLG()
+    {
+        Colorimetry = ERship2110Colorimetry::BT2020;
+        TransferFunction = ERship2110TransferFunction::HLG;
+        BitDepth = ERship2110BitDepth::Bits_10;
+        HDRMetadata.SetHLGDefaults();
     }
 };
 
@@ -625,6 +853,181 @@ struct RSHIP2110_API FRshipRivermaxStatus
     UPROPERTY(BlueprintReadOnly, Category = "Rship|Rivermax")
     FString LastError;
 };
+
+// ============================================================================
+// HDR COLOR CONVERSION UTILITIES
+// ============================================================================
+
+/**
+ * HDR color conversion utilities for SMPTE ST.2084 (PQ) and ARIB STD-B67 (HLG).
+ * These functions implement the EOTF (Electro-Optical Transfer Function) and
+ * OETF (Opto-Electronic Transfer Function) for HDR standards.
+ */
+namespace Rship2110ColorUtils
+{
+    // ST.2084 (PQ) constants
+    constexpr float PQ_M1 = 0.1593017578125f;       // 2610/16384
+    constexpr float PQ_M2 = 78.84375f;              // 2523/32 * 128
+    constexpr float PQ_C1 = 0.8359375f;             // 3424/4096
+    constexpr float PQ_C2 = 18.8515625f;            // 2413/128
+    constexpr float PQ_C3 = 18.6875f;               // 2392/128
+    constexpr float PQ_MAX_LUMINANCE = 10000.0f;    // Peak luminance in nits
+
+    // HLG constants (ARIB STD-B67)
+    constexpr float HLG_A = 0.17883277f;
+    constexpr float HLG_B = 0.28466892f;  // 1 - 4*a
+    constexpr float HLG_C = 0.55991073f;  // 0.5 - a * ln(4*a)
+
+    /**
+     * PQ OETF: Linear light (normalized to 10000 nits) -> PQ encoded value [0,1]
+     * Input: Linear light value normalized such that 1.0 = 10000 nits
+     * Output: PQ encoded value [0,1]
+     */
+    inline float LinearToPQ(float LinearValue)
+    {
+        if (LinearValue <= 0.0f)
+            return 0.0f;
+
+        const float Ym1 = FMath::Pow(LinearValue, PQ_M1);
+        const float Numerator = PQ_C1 + PQ_C2 * Ym1;
+        const float Denominator = 1.0f + PQ_C3 * Ym1;
+        return FMath::Pow(Numerator / Denominator, PQ_M2);
+    }
+
+    /**
+     * PQ EOTF: PQ encoded value [0,1] -> Linear light (normalized to 10000 nits)
+     * Input: PQ encoded value [0,1]
+     * Output: Linear light value normalized such that 1.0 = 10000 nits
+     */
+    inline float PQToLinear(float PQValue)
+    {
+        if (PQValue <= 0.0f)
+            return 0.0f;
+
+        const float Em2 = FMath::Pow(PQValue, 1.0f / PQ_M2);
+        const float Numerator = FMath::Max(Em2 - PQ_C1, 0.0f);
+        const float Denominator = PQ_C2 - PQ_C3 * Em2;
+        return FMath::Pow(Numerator / Denominator, 1.0f / PQ_M1);
+    }
+
+    /**
+     * HLG OETF: Linear light [0,1] -> HLG encoded value [0,1]
+     * Input: Scene-referred linear light (1.0 = diffuse white)
+     * Output: HLG encoded signal [0,1]
+     */
+    inline float LinearToHLG(float LinearValue)
+    {
+        if (LinearValue <= 0.0f)
+            return 0.0f;
+
+        if (LinearValue <= 1.0f / 12.0f)
+        {
+            return FMath::Sqrt(3.0f * LinearValue);
+        }
+        else
+        {
+            return HLG_A * FMath::Loge(12.0f * LinearValue - HLG_B) + HLG_C;
+        }
+    }
+
+    /**
+     * HLG inverse OETF: HLG encoded value [0,1] -> Linear light [0,1]
+     * Input: HLG encoded signal [0,1]
+     * Output: Scene-referred linear light (1.0 = diffuse white)
+     */
+    inline float HLGToLinear(float HLGValue)
+    {
+        if (HLGValue <= 0.0f)
+            return 0.0f;
+
+        if (HLGValue <= 0.5f)
+        {
+            return (HLGValue * HLGValue) / 3.0f;
+        }
+        else
+        {
+            return (FMath::Exp((HLGValue - HLG_C) / HLG_A) + HLG_B) / 12.0f;
+        }
+    }
+
+    /**
+     * Convert linear light in nits to PQ normalized value
+     * @param NitsValue Luminance in nits (cd/m²)
+     * @return PQ encoded value [0,1]
+     */
+    inline float NitsToPQ(float NitsValue)
+    {
+        return LinearToPQ(NitsValue / PQ_MAX_LUMINANCE);
+    }
+
+    /**
+     * Convert PQ encoded value to luminance in nits
+     * @param PQValue PQ encoded value [0,1]
+     * @return Luminance in nits (cd/m²)
+     */
+    inline float PQToNits(float PQValue)
+    {
+        return PQToLinear(PQValue) * PQ_MAX_LUMINANCE;
+    }
+
+    /**
+     * BT.709 to BT.2020 color space conversion matrix (row-major)
+     * Used for converting SDR content to wide color gamut
+     */
+    inline FLinearColor BT709ToBT2020(const FLinearColor& BT709Color)
+    {
+        // BT.709 RGB to BT.2020 RGB matrix
+        const float R = 0.6274f * BT709Color.R + 0.3293f * BT709Color.G + 0.0433f * BT709Color.B;
+        const float G = 0.0691f * BT709Color.R + 0.9195f * BT709Color.G + 0.0114f * BT709Color.B;
+        const float B = 0.0164f * BT709Color.R + 0.0880f * BT709Color.G + 0.8956f * BT709Color.B;
+        return FLinearColor(R, G, B, BT709Color.A);
+    }
+
+    /**
+     * BT.2020 to BT.709 color space conversion matrix (row-major)
+     * Used for converting WCG content back to SDR
+     */
+    inline FLinearColor BT2020ToBT709(const FLinearColor& BT2020Color)
+    {
+        // BT.2020 RGB to BT.709 RGB matrix
+        const float R =  1.6605f * BT2020Color.R - 0.5877f * BT2020Color.G - 0.0728f * BT2020Color.B;
+        const float G = -0.1246f * BT2020Color.R + 1.1330f * BT2020Color.G - 0.0084f * BT2020Color.B;
+        const float B = -0.0182f * BT2020Color.R - 0.1006f * BT2020Color.G + 1.1187f * BT2020Color.B;
+        return FLinearColor(R, G, B, BT2020Color.A);
+    }
+
+    /**
+     * Convert 10-bit code value to normalized float
+     */
+    inline float Code10ToFloat(uint16 CodeValue)
+    {
+        return static_cast<float>(CodeValue) / 1023.0f;
+    }
+
+    /**
+     * Convert normalized float to 10-bit code value
+     */
+    inline uint16 FloatToCode10(float NormalizedValue)
+    {
+        return static_cast<uint16>(FMath::Clamp(NormalizedValue * 1023.0f + 0.5f, 0.0f, 1023.0f));
+    }
+
+    /**
+     * Convert 12-bit code value to normalized float
+     */
+    inline float Code12ToFloat(uint16 CodeValue)
+    {
+        return static_cast<float>(CodeValue) / 4095.0f;
+    }
+
+    /**
+     * Convert normalized float to 12-bit code value
+     */
+    inline uint16 FloatToCode12(float NormalizedValue)
+    {
+        return static_cast<uint16>(FMath::Clamp(NormalizedValue * 4095.0f + 0.5f, 0.0f, 4095.0f));
+    }
+}
 
 // ============================================================================
 // DELEGATES
