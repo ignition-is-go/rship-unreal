@@ -232,10 +232,10 @@ TSharedPtr<FJsonObject> FUltimateControlLandscapeHandler::LayerInfoToJson(ULands
 	}
 
 #if ULTIMATE_CONTROL_UE_5_7_OR_LATER
-	// UE 5.7+: LayerName is private, bNoWeightBlend uses getter
+	// UE 5.7+: LayerName is private, bNoWeightBlend removed
 	Json->SetStringField(TEXT("name"), LayerInfo->GetLayerName().ToString());
 	Json->SetStringField(TEXT("path"), LayerInfo->GetPathName());
-	Json->SetBoolField(TEXT("noWeightBlend"), LayerInfo->IsNoWeightBlend());
+	// Note: bNoWeightBlend removed in UE 5.7 with no public getter
 #else
 	// UE 5.6 and earlier: Direct property access
 	Json->SetStringField(TEXT("name"), LayerInfo->LayerName.ToString());
@@ -589,9 +589,8 @@ bool FUltimateControlLandscapeHandler::HandleListLandscapeLayers(const TSharedPt
 			if (Layer.LayerInfoObj)
 			{
 				LayerJson->SetStringField(TEXT("layerInfoPath"), Layer.LayerInfoObj->GetPathName());
-#if ULTIMATE_CONTROL_UE_5_7_OR_LATER
-				LayerJson->SetBoolField(TEXT("noWeightBlend"), Layer.LayerInfoObj->IsNoWeightBlend());
-#else
+#if !ULTIMATE_CONTROL_UE_5_7_OR_LATER
+				// bNoWeightBlend removed in UE 5.7 with no public getter
 				LayerJson->SetBoolField(TEXT("noWeightBlend"), Layer.LayerInfoObj->bNoWeightBlend);
 #endif
 			}
@@ -637,9 +636,8 @@ bool FUltimateControlLandscapeHandler::HandleGetLayerInfo(const TSharedPtr<FJson
 			if (Layer.LayerInfoObj)
 			{
 				LayerJson->SetStringField(TEXT("layerInfoPath"), Layer.LayerInfoObj->GetPathName());
-#if ULTIMATE_CONTROL_UE_5_7_OR_LATER
-				LayerJson->SetBoolField(TEXT("noWeightBlend"), Layer.LayerInfoObj->IsNoWeightBlend());
-#else
+#if !ULTIMATE_CONTROL_UE_5_7_OR_LATER
+				// bNoWeightBlend removed in UE 5.7 with no public getter
 				LayerJson->SetBoolField(TEXT("noWeightBlend"), Layer.LayerInfoObj->bNoWeightBlend);
 #endif
 			}

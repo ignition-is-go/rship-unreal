@@ -545,11 +545,12 @@ bool FUltimateControlViewportHandler::HandleTakeScreenshot(const TSharedPtr<FJso
 	}
 
 	// Save to file
-	TArray<uint8> CompressedBitmap;
 #if ULTIMATE_CONTROL_UE_5_7_OR_LATER
-	// UE 5.7+: CompressImageArray deprecated, use PNGCompressImageArray
+	// UE 5.7+: CompressImageArray deprecated, use PNGCompressImageArray with TArray64
+	TArray64<uint8> CompressedBitmap;
 	FImageUtils::PNGCompressImageArray(Size.X, Size.Y, Bitmap, CompressedBitmap);
 #else
+	TArray<uint8> CompressedBitmap;
 	FImageUtils::CompressImageArray(Size.X, Size.Y, Bitmap, CompressedBitmap);
 #endif
 
