@@ -15,6 +15,10 @@
 #include "Components/ExponentialHeightFogComponent.h"
 #include "Engine/ExponentialHeightFog.h"
 
+// Color management integration
+#include "RshipColorManagementSubsystem.h"
+#include "RshipColorConfig.h"
+
 FUltimateControlRenderHandler::FUltimateControlRenderHandler(UUltimateControlSubsystem* InSubsystem)
 	: FUltimateControlHandlerBase(InSubsystem)
 {
@@ -109,6 +113,16 @@ FUltimateControlRenderHandler::FUltimateControlRenderHandler(UUltimateControlSub
 		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleGetFogSettings));
 	RegisterMethod(TEXT("render.setFogSettings"), TEXT("Set fog settings"), TEXT("Render"),
 		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetFogSettings));
+
+	// Color Management (RshipColorManagement integration)
+	RegisterMethod(TEXT("color.getConfig"), TEXT("Get color management configuration"), TEXT("Color"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleGetColorConfig));
+	RegisterMethod(TEXT("color.setConfig"), TEXT("Set color management configuration"), TEXT("Color"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetColorConfig));
+	RegisterMethod(TEXT("color.setExposureMode"), TEXT("Set exposure mode (Manual/Auto/Histogram)"), TEXT("Color"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetExposureMode));
+	RegisterMethod(TEXT("color.applyToViewport"), TEXT("Apply color config to viewport"), TEXT("Color"),
+		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleApplyColorToViewport));
 }
 
 TSharedPtr<FJsonObject> FUltimateControlRenderHandler::PostProcessVolumeToJson(APostProcessVolume* Volume)
@@ -1112,6 +1126,248 @@ bool FUltimateControlRenderHandler::HandleSetFogSettings(const TSharedPtr<FJsonO
 
 	TSharedPtr<FJsonObject> ResultJson = MakeShared<FJsonObject>();
 	ResultJson->SetBoolField(TEXT("success"), true);
+
+	Result = MakeShared<FJsonValueObject>(ResultJson);
+	return true;
+}
+
+// ============================================================================
+// Color Management Handlers
+// ============================================================================
+
+TSharedPtr<FJsonObject> FUltimateControlRenderHandler::ColorConfigToJson(const FRshipColorConfig& Config)
+{
+	TSharedPtr<FJsonObject> Json = MakeShared<FJsonObject>();
+
+	// Capture mode
+	FString CaptureModeStr;
+	switch (Config.CaptureMode)
+	{
+	case ERshipCaptureMode::FinalColorLDR: CaptureModeStr = TEXT("FinalColorLDR"); break;
+	case ERshipCaptureMode::SceneColorHDR: CaptureModeStr = TEXT("SceneColorHDR"); break;
+	case ERshipCaptureMode::RawSceneColor: CaptureModeStr = TEXT("RawSceneColor"); break;
+	}
+	Json->SetStringField(TEXT("captureMode"), CaptureModeStr);
+
+	// Color space
+	FString ColorSpaceStr;
+	switch (Config.ColorSpace)
+	{
+	case ERshipColorSpace::sRGB: ColorSpaceStr = TEXT("sRGB"); break;
+	case ERshipColorSpace::Rec709: ColorSpaceStr = TEXT("Rec709"); break;
+	case ERshipColorSpace::Rec2020: ColorSpaceStr = TEXT("Rec2020"); break;
+	case ERshipColorSpace::DCIP3: ColorSpaceStr = TEXT("DCIP3"); break;
+	}
+	Json->SetStringField(TEXT("colorSpace"), ColorSpaceStr);
+
+	// Transfer function
+	FString TransferStr;
+	switch (Config.TransferFunction)
+	{
+	case ERshipTransferFunction::sRGB: TransferStr = TEXT("sRGB"); break;
+	case ERshipTransferFunction::BT1886: TransferStr = TEXT("BT1886"); break;
+	case ERshipTransferFunction::PQ: TransferStr = TEXT("PQ"); break;
+	case ERshipTransferFunction::HLG: TransferStr = TEXT("HLG"); break;
+	case ERshipTransferFunction::Linear: TransferStr = TEXT("Linear"); break;
+	}
+	Json->SetStringField(TEXT("transferFunction"), TransferStr);
+
+	// Exposure settings
+	TSharedPtr<FJsonObject> ExposureJson = MakeShared<FJsonObject>();
+	FString ExposureModeStr;
+	switch (Config.Exposure.Mode)
+	{
+	case ERshipExposureMode::Manual: ExposureModeStr = TEXT("Manual"); break;
+	case ERshipExposureMode::Auto: ExposureModeStr = TEXT("Auto"); break;
+	case ERshipExposureMode::Histogram: ExposureModeStr = TEXT("Histogram"); break;
+	}
+	ExposureJson->SetStringField(TEXT("mode"), ExposureModeStr);
+	ExposureJson->SetNumberField(TEXT("manualEV"), Config.Exposure.ManualExposureEV);
+	ExposureJson->SetNumberField(TEXT("bias"), Config.Exposure.ExposureBias);
+	ExposureJson->SetNumberField(TEXT("autoMinBrightness"), Config.Exposure.AutoExposureMinBrightness);
+	ExposureJson->SetNumberField(TEXT("autoMaxBrightness"), Config.Exposure.AutoExposureMaxBrightness);
+	ExposureJson->SetNumberField(TEXT("autoSpeed"), Config.Exposure.AutoExposureSpeed);
+	Json->SetObjectField(TEXT("exposure"), ExposureJson);
+
+	// Tonemap settings
+	TSharedPtr<FJsonObject> TonemapJson = MakeShared<FJsonObject>();
+	TonemapJson->SetBoolField(TEXT("enabled"), Config.Tonemap.bEnabled);
+	TonemapJson->SetNumberField(TEXT("slope"), Config.Tonemap.Slope);
+	TonemapJson->SetNumberField(TEXT("toe"), Config.Tonemap.Toe);
+	TonemapJson->SetNumberField(TEXT("shoulder"), Config.Tonemap.Shoulder);
+	TonemapJson->SetNumberField(TEXT("blackClip"), Config.Tonemap.BlackClip);
+	TonemapJson->SetNumberField(TEXT("whiteClip"), Config.Tonemap.WhiteClip);
+	Json->SetObjectField(TEXT("tonemap"), TonemapJson);
+
+	// HDR settings
+	Json->SetBoolField(TEXT("hdrEnabled"), Config.bEnableHDR);
+	Json->SetNumberField(TEXT("hdrMaxLuminance"), Config.HDRMaxLuminance);
+	Json->SetNumberField(TEXT("hdrMinLuminance"), Config.HDRMinLuminance);
+
+	// Viewport sync
+	Json->SetBoolField(TEXT("syncToViewport"), Config.bSyncExposureToViewport);
+
+	return Json;
+}
+
+bool FUltimateControlRenderHandler::HandleGetColorConfig(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
+{
+	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+	if (!World)
+	{
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
+		return true;
+	}
+
+	URshipColorManagementSubsystem* ColorSubsystem = World->GetSubsystem<URshipColorManagementSubsystem>();
+	if (!ColorSubsystem)
+	{
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("RshipColorManagement subsystem not available"));
+		return true;
+	}
+
+	FRshipColorConfig Config = ColorSubsystem->GetColorConfig();
+	Result = MakeShared<FJsonValueObject>(ColorConfigToJson(Config));
+	return true;
+}
+
+bool FUltimateControlRenderHandler::HandleSetColorConfig(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
+{
+	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+	if (!World)
+	{
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
+		return true;
+	}
+
+	URshipColorManagementSubsystem* ColorSubsystem = World->GetSubsystem<URshipColorManagementSubsystem>();
+	if (!ColorSubsystem)
+	{
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("RshipColorManagement subsystem not available"));
+		return true;
+	}
+
+	FRshipColorConfig Config = ColorSubsystem->GetColorConfig();
+
+	// Parse exposure mode
+	if (Params->HasField(TEXT("exposureMode")))
+	{
+		FString ModeStr = Params->GetStringField(TEXT("exposureMode"));
+		if (ModeStr == TEXT("Manual")) Config.Exposure.Mode = ERshipExposureMode::Manual;
+		else if (ModeStr == TEXT("Auto")) Config.Exposure.Mode = ERshipExposureMode::Auto;
+		else if (ModeStr == TEXT("Histogram")) Config.Exposure.Mode = ERshipExposureMode::Histogram;
+	}
+
+	// Parse exposure values
+	if (Params->HasField(TEXT("manualEV")))
+		Config.Exposure.ManualExposureEV = static_cast<float>(Params->GetNumberField(TEXT("manualEV")));
+	if (Params->HasField(TEXT("exposureBias")))
+		Config.Exposure.ExposureBias = static_cast<float>(Params->GetNumberField(TEXT("exposureBias")));
+
+	// Parse color space
+	if (Params->HasField(TEXT("colorSpace")))
+	{
+		FString SpaceStr = Params->GetStringField(TEXT("colorSpace"));
+		if (SpaceStr == TEXT("sRGB")) Config.ColorSpace = ERshipColorSpace::sRGB;
+		else if (SpaceStr == TEXT("Rec709")) Config.ColorSpace = ERshipColorSpace::Rec709;
+		else if (SpaceStr == TEXT("Rec2020")) Config.ColorSpace = ERshipColorSpace::Rec2020;
+		else if (SpaceStr == TEXT("DCIP3")) Config.ColorSpace = ERshipColorSpace::DCIP3;
+	}
+
+	// Parse HDR
+	if (Params->HasField(TEXT("hdrEnabled")))
+		Config.bEnableHDR = Params->GetBoolField(TEXT("hdrEnabled"));
+
+	// Parse viewport sync
+	if (Params->HasField(TEXT("syncToViewport")))
+		Config.bSyncExposureToViewport = Params->GetBoolField(TEXT("syncToViewport"));
+
+	ColorSubsystem->SetColorConfig(Config);
+
+	TSharedPtr<FJsonObject> ResultJson = MakeShared<FJsonObject>();
+	ResultJson->SetBoolField(TEXT("success"), true);
+	ResultJson->SetObjectField(TEXT("config"), ColorConfigToJson(Config));
+
+	Result = MakeShared<FJsonValueObject>(ResultJson);
+	return true;
+}
+
+bool FUltimateControlRenderHandler::HandleSetExposureMode(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
+{
+	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+	if (!World)
+	{
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
+		return true;
+	}
+
+	URshipColorManagementSubsystem* ColorSubsystem = World->GetSubsystem<URshipColorManagementSubsystem>();
+	if (!ColorSubsystem)
+	{
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("RshipColorManagement subsystem not available"));
+		return true;
+	}
+
+	FString ModeStr;
+	if (!RequireString(Params, TEXT("mode"), ModeStr, Error))
+	{
+		return true;
+	}
+
+	FRshipColorConfig Config = ColorSubsystem->GetColorConfig();
+
+	if (ModeStr == TEXT("Manual"))
+	{
+		Config.Exposure.Mode = ERshipExposureMode::Manual;
+		// Optionally set manual EV
+		if (Params->HasField(TEXT("ev")))
+			Config.Exposure.ManualExposureEV = static_cast<float>(Params->GetNumberField(TEXT("ev")));
+	}
+	else if (ModeStr == TEXT("Auto"))
+	{
+		Config.Exposure.Mode = ERshipExposureMode::Auto;
+	}
+	else if (ModeStr == TEXT("Histogram"))
+	{
+		Config.Exposure.Mode = ERshipExposureMode::Histogram;
+	}
+	else
+	{
+		Error = UUltimateControlSubsystem::MakeError(-32602, FString::Printf(TEXT("Invalid exposure mode: %s. Use Manual, Auto, or Histogram"), *ModeStr));
+		return true;
+	}
+
+	ColorSubsystem->SetColorConfig(Config);
+
+	TSharedPtr<FJsonObject> ResultJson = MakeShared<FJsonObject>();
+	ResultJson->SetBoolField(TEXT("success"), true);
+	ResultJson->SetStringField(TEXT("mode"), ModeStr);
+
+	Result = MakeShared<FJsonValueObject>(ResultJson);
+	return true;
+}
+
+bool FUltimateControlRenderHandler::HandleApplyColorToViewport(const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& Result, TSharedPtr<FJsonObject>& Error)
+{
+	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+	if (!World)
+	{
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("No editor world available"));
+		return true;
+	}
+
+	URshipColorManagementSubsystem* ColorSubsystem = World->GetSubsystem<URshipColorManagementSubsystem>();
+	if (!ColorSubsystem)
+	{
+		Error = UUltimateControlSubsystem::MakeError(-32603, TEXT("RshipColorManagement subsystem not available"));
+		return true;
+	}
+
+	ColorSubsystem->ApplyToViewport();
+
+	TSharedPtr<FJsonObject> ResultJson = MakeShared<FJsonObject>();
+	ResultJson->SetBoolField(TEXT("success"), true);
+	ResultJson->SetStringField(TEXT("message"), TEXT("Color config applied to viewport"));
 
 	Result = MakeShared<FJsonValueObject>(ResultJson);
 	return true;

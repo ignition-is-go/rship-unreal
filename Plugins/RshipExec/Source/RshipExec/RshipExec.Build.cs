@@ -154,6 +154,22 @@ public class RshipExec : ModuleRules
 			System.Console.WriteLine("RshipExec: RshipNDI plugin not found, NDI dashboard disabled");
 		}
 
+		// RshipColorManagement plugin for broadcast color control
+		string RshipColorPluginPath = Path.Combine(ModuleDirectory, "..", "..", "..", "RshipColorManagement");
+		bool bHasRshipColor = Directory.Exists(RshipColorPluginPath);
+
+		if (bHasRshipColor)
+		{
+			PrivateDependencyModuleNames.Add("RshipColorManagement");
+			PublicDefinitions.Add("RSHIP_HAS_COLOR_MANAGEMENT=1");
+			System.Console.WriteLine("RshipExec: RshipColorManagement plugin found, color targets enabled");
+		}
+		else
+		{
+			PublicDefinitions.Add("RSHIP_HAS_COLOR_MANAGEMENT=0");
+			System.Console.WriteLine("RshipExec: RshipColorManagement plugin not found, color targets disabled");
+		}
+
 		PrivateDependencyModuleNames.AddRange(
 			new string[]
 			{

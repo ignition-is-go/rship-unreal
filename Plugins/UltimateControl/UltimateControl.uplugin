@@ -30,6 +30,7 @@
 	],
 	"Plugins": [
 		{ "Name": "Niagara", "Enabled": true },
-		{ "Name": "EditorScriptingUtilities", "Enabled": true }
+		{ "Name": "EditorScriptingUtilities", "Enabled": true },
+		{ "Name": "RshipColorManagement", "Enabled": true }
 	]
 }

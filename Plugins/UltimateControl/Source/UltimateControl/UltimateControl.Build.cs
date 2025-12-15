@@ -32,6 +32,7 @@ public class UltimateControl : ModuleRules
 				"HTTP",
 				"Sockets",
 				"Networking",
+				"RshipColorManagement",  // Color management for broadcast outputs
 			}
 		);
 
