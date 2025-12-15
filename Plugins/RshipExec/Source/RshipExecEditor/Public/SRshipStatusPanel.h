@@ -70,10 +70,11 @@ private:
     TSharedRef<SWidget> BuildConnectionSection();
     TSharedRef<SWidget> BuildTargetsSection();
     TSharedRef<SWidget> BuildDiagnosticsSection();
-    TSharedRef<SWidget> Build2110Section();
 
-    // Update 2110 status
+#if RSHIP_EDITOR_HAS_2110
+    TSharedRef<SWidget> Build2110Section();
     void Update2110Status();
+#endif
 
     // Data
     TArray<TSharedPtr<FRshipTargetListItem>> TargetItems;
@@ -92,12 +93,14 @@ private:
     TSharedPtr<STextBlock> DroppedText;
     TSharedPtr<STextBlock> BackoffText;
 
+#if RSHIP_EDITOR_HAS_2110
     // 2110 status text blocks
     TSharedPtr<STextBlock> RivermaxStatusText;
     TSharedPtr<STextBlock> PTPStatusText;
     TSharedPtr<STextBlock> IPMXStatusText;
     TSharedPtr<STextBlock> GPUDirectStatusText;
     TSharedPtr<STextBlock> NetworkStatusText;
+#endif
 
     // Refresh timer
     float RefreshTimer = 0.0f;

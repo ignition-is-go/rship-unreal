@@ -5,7 +5,10 @@
 #include "RshipSubsystem.h"
 #include "RshipTargetComponent.h"
 #include "RshipSettings.h"
+
+#if RSHIP_EDITOR_HAS_2110
 #include "Rship2110.h"  // For SMPTE 2110 status
+#endif
 
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SBorder.h"
@@ -83,6 +86,7 @@ void SRshipStatusPanel::Construct(const FArguments& InArgs)
                 SNew(SSeparator)
             ]
 
+#if RSHIP_EDITOR_HAS_2110
             // SMPTE 2110 Section
             + SVerticalBox::Slot()
             .AutoHeight()
@@ -90,6 +94,7 @@ void SRshipStatusPanel::Construct(const FArguments& InArgs)
             [
                 Build2110Section()
             ]
+#endif
         ]
     ];
 
@@ -97,7 +102,9 @@ void SRshipStatusPanel::Construct(const FArguments& InArgs)
     RefreshTargetList();
     UpdateConnectionStatus();
     UpdateDiagnostics();
+#if RSHIP_EDITOR_HAS_2110
     Update2110Status();
+#endif
 }
 
 SRshipStatusPanel::~SRshipStatusPanel()
@@ -114,7 +121,9 @@ void SRshipStatusPanel::Tick(const FGeometry& AllottedGeometry, const double InC
         RefreshTimer = 0.0f;
         UpdateConnectionStatus();
         UpdateDiagnostics();
+#if RSHIP_EDITOR_HAS_2110
         Update2110Status();
+#endif
         RefreshTargetList();
     }
 }
@@ -665,6 +674,7 @@ void SRshipStatusPanel::OnTargetSelectionChanged(TSharedPtr<FRshipTargetListItem
     }
 }
 
+#if RSHIP_EDITOR_HAS_2110
 TSharedRef<SWidget> SRshipStatusPanel::Build2110Section()
 {
     return SNew(SVerticalBox)
@@ -925,6 +935,7 @@ void SRshipStatusPanel::Update2110Status()
         }
     }
 }
+#endif // RSHIP_EDITOR_HAS_2110
 
 // ============================================================================
 // SRshipTargetRow
