@@ -376,10 +376,9 @@ void URshipNDIStreamComponent::SyncCameraSettingsToCapture()
 	SceneCapture->PostProcessSettings = CineCamera->PostProcessSettings;
 	SceneCapture->PostProcessBlendWeight = 1.0f;
 
-	// Exposure handling: Don't override the camera's exposure settings.
-	// We'll disable eye adaptation via ShowFlags below to prevent drift,
-	// which means the scene will use the base exposure from post-process volumes
-	// or camera settings without any automatic adjustment.
+	// Exposure handling depends on Config.bMatchViewportExposure:
+	// - true: Enable eye adaptation so capture drifts WITH viewport (they match)
+	// - false: Disable eye adaptation for fixed, predictable broadcast exposure
 
 	// Ensure consistent gamma/color handling
 	SceneCapture->bEnableClipPlane = false;
@@ -402,7 +401,7 @@ void URshipNDIStreamComponent::SyncCameraSettingsToCapture()
 	SceneCapture->ShowFlags.SetAntiAliasing(true);
 	SceneCapture->ShowFlags.SetMotionBlur(true);
 	SceneCapture->ShowFlags.SetBloom(true);
-	SceneCapture->ShowFlags.SetEyeAdaptation(false);  // Disable to prevent exposure drift from viewport
+	SceneCapture->ShowFlags.SetEyeAdaptation(Config.bMatchViewportExposure);  // Match viewport or use fixed exposure
 	SceneCapture->ShowFlags.SetToneCurve(true);
 	SceneCapture->ShowFlags.SetColorGrading(true);
 	SceneCapture->ShowFlags.SetTonemapper(true);
@@ -435,8 +434,9 @@ void URshipNDIStreamComponent::SyncCameraSettingsToCapture()
 	// Log initial sync (use member variable to allow logging after stream restart)
 	if (!bLoggedCameraSync)
 	{
-		UE_LOG(LogRshipNDI, Log, TEXT("SyncCameraSettingsToCapture - FOV: %.1f, PostProcess weight: %.1f, AspectRatio: %.3f, EyeAdaptation: OFF"),
-			SceneCapture->FOVAngle, SceneCapture->PostProcessBlendWeight, TargetAspect);
+		UE_LOG(LogRshipNDI, Log, TEXT("SyncCameraSettingsToCapture - FOV: %.1f, PostProcess weight: %.1f, AspectRatio: %.3f, EyeAdaptation: %s"),
+			SceneCapture->FOVAngle, SceneCapture->PostProcessBlendWeight, TargetAspect,
+			Config.bMatchViewportExposure ? TEXT("ON (matching viewport)") : TEXT("OFF (fixed exposure)"));
 		bLoggedCameraSync = true;
 	}
 }

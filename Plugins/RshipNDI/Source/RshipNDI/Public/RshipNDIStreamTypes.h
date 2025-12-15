@@ -61,6 +61,14 @@ struct RSHIPNDI_API FRshipNDIStreamConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "NDI")
 	bool bAutoStartOnBeginPlay = false;
 
+	/**
+	 * Match viewport exposure by enabling eye adaptation on capture.
+	 * When true: Scene capture uses eye adaptation like the viewport, so both drift together and match.
+	 * When false: Scene capture uses fixed exposure for predictable broadcast output (may differ from viewport).
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "NDI|Color")
+	bool bMatchViewportExposure = true;
+
 	/** Calculate total VRAM required for this configuration */
 	FORCEINLINE int64 GetVRAMUsageBytes() const
 	{
