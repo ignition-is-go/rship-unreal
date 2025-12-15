@@ -160,6 +160,9 @@ private:
 	/** Total frames dropped */
 	int64 TotalFramesDropped = 0;
 
+	/** Diagnostic frame counter (resets on Initialize) */
+	int32 DiagFrameCount = 0;
+
 	// Internal methods
 
 	/** Allocate staging buffers */

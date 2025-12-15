@@ -82,6 +82,11 @@ bool FNDIStreamRenderer::Initialize(const FConfig& InConfig)
 	return false;
 #endif
 
+	// Reset diagnostic counter so we log fresh data on each start
+	DiagFrameCount = 0;
+	TotalFramesSent = 0;
+	TotalFramesDropped = 0;
+
 	bIsInitialized = true;
 	return true;
 }
@@ -290,23 +295,26 @@ void FNDIStreamRenderer::ProcessCompletedReadback(FStagingBuffer& Staging)
 				}
 			}
 
-			// Log diagnostic info (first few frames only)
-			static int32 DiagFrameCount = 0;
-			if (DiagFrameCount < 10)
+			// Log diagnostic info (first 30 frames after each start, or always if black)
+			if (DiagFrameCount < 30 || bAllZeros)
 			{
-				UE_LOG(LogRshipNDI, Log, TEXT("NDI Frame %d: %dx%d, RowPitch=%d pixels, Stride=%d bytes, DataSize=%d, AllZeros=%s, SampleSum=%llu"),
+				UE_LOG(LogRshipNDI, Log, TEXT("NDI Frame %lld: %dx%d, RowPitch=%d pixels, Stride=%d bytes, DataSize=%d, AllZeros=%s, SampleSum=%llu"),
 					Staging.FrameNumber, Config.Width, Config.Height,
 					RowPitchInPixels, LineStrideBytes, DataSize,
 					bAllZeros ? TEXT("YES") : TEXT("NO"),
 					SampleSum);
 
-				// Log first 4 pixels
-				UE_LOG(LogRshipNDI, Log, TEXT("  First pixels: [%d,%d,%d,%d] [%d,%d,%d,%d] [%d,%d,%d,%d] [%d,%d,%d,%d]"),
+				// Log first 4 pixels (BGRA format)
+				UE_LOG(LogRshipNDI, Log, TEXT("  First pixels (BGRA): [%d,%d,%d,%d] [%d,%d,%d,%d] [%d,%d,%d,%d] [%d,%d,%d,%d]"),
 					DataPtr[0], DataPtr[1], DataPtr[2], DataPtr[3],
 					DataPtr[4], DataPtr[5], DataPtr[6], DataPtr[7],
 					DataPtr[8], DataPtr[9], DataPtr[10], DataPtr[11],
 					DataPtr[12], DataPtr[13], DataPtr[14], DataPtr[15]);
-				++DiagFrameCount;
+
+				if (DiagFrameCount < 30)
+				{
+					++DiagFrameCount;
+				}
 			}
 
 			// Create frame struct for Rust
