@@ -177,6 +177,7 @@ bool URshipNDIStreamComponent::StartStreaming()
 	FrameCounter = 0;
 	LastFrameTime = FPlatformTime::Seconds();
 	LastReceiverCount = 0;
+	bLoggedCameraSync = false;  // Reset so we log exposure settings for this stream session
 	Stats.Reset();
 
 	SetStreamState(ERshipNDIStreamState::Streaming);
@@ -375,17 +376,31 @@ void URshipNDIStreamComponent::SyncCameraSettingsToCapture()
 	SceneCapture->PostProcessSettings = CineCamera->PostProcessSettings;
 	SceneCapture->PostProcessBlendWeight = 1.0f;
 
-	// CRITICAL: Override auto-exposure to use manual settings
-	// SceneCapture has its own eye adaptation state that accumulates independently
-	// from the viewport, causing exposure differences. Force manual exposure for consistency.
-	SceneCapture->PostProcessSettings.bOverride_AutoExposureMethod = true;
-	SceneCapture->PostProcessSettings.AutoExposureMethod = EAutoExposureMethod::AEM_Manual;
+	// Exposure handling: We need to match the viewport's exposure without eye adaptation drift.
+	// SceneCapture has its own eye adaptation state that can differ from the viewport.
+	//
+	// Solution: Force a fixed exposure by constraining auto-exposure min/max to the same value.
+	// This gives consistent exposure without the complexity of manual exposure parameters.
+	// We use a moderate default exposure that works for most scenes.
 
-	// Use the camera's current exposure settings if available, otherwise use sensible defaults
-	if (!SceneCapture->PostProcessSettings.bOverride_AutoExposureBias)
+	// Check if the source camera already has exposure overrides
+	bool bSourceHasExposureSettings = CineCamera->PostProcessSettings.bOverride_AutoExposureMinBrightness ||
+	                                   CineCamera->PostProcessSettings.bOverride_AutoExposureMaxBrightness;
+
+	if (!bSourceHasExposureSettings)
 	{
+		// No explicit exposure settings - use fixed exposure to prevent drift
+		// Set min/max to the same value to lock exposure at a reasonable level
+		// EV 1.0 is a moderate exposure suitable for most indoor/outdoor scenes
+		SceneCapture->PostProcessSettings.bOverride_AutoExposureMinBrightness = true;
+		SceneCapture->PostProcessSettings.bOverride_AutoExposureMaxBrightness = true;
+		SceneCapture->PostProcessSettings.AutoExposureMinBrightness = 1.0f;
+		SceneCapture->PostProcessSettings.AutoExposureMaxBrightness = 1.0f;
+
+		// Apply a positive exposure bias to brighten the output
+		// Most game scenes need a boost to match viewport appearance
 		SceneCapture->PostProcessSettings.bOverride_AutoExposureBias = true;
-		SceneCapture->PostProcessSettings.AutoExposureBias = 0.0f;
+		SceneCapture->PostProcessSettings.AutoExposureBias = 1.0f;  // +1 EV boost
 	}
 
 	// Ensure consistent gamma/color handling
@@ -439,13 +454,17 @@ void URshipNDIStreamComponent::SyncCameraSettingsToCapture()
 	SceneCapture->ShowFlags.SetCapsuleShadows(true);
 	SceneCapture->ShowFlags.SetSubsurfaceScattering(true);
 
-	// Log initial sync
-	static bool bLoggedSync = false;
-	if (!bLoggedSync)
+	// Log initial sync (use member variable to allow logging after stream restart)
+	if (!bLoggedCameraSync)
 	{
-		UE_LOG(LogRshipNDI, Log, TEXT("SyncCameraSettingsToCapture - FOV: %.1f, PostProcess weight: %.1f, AspectRatio: %.3f, ManualExposure: ON"),
+		UE_LOG(LogRshipNDI, Log, TEXT("SyncCameraSettingsToCapture - FOV: %.1f, PostProcess weight: %.1f, AspectRatio: %.3f"),
 			SceneCapture->FOVAngle, SceneCapture->PostProcessBlendWeight, TargetAspect);
-		bLoggedSync = true;
+		UE_LOG(LogRshipNDI, Log, TEXT("  Exposure: MinBright=%.2f, MaxBright=%.2f, Bias=%.1f (source had settings=%s)"),
+			SceneCapture->PostProcessSettings.AutoExposureMinBrightness,
+			SceneCapture->PostProcessSettings.AutoExposureMaxBrightness,
+			SceneCapture->PostProcessSettings.AutoExposureBias,
+			bSourceHasExposureSettings ? TEXT("YES") : TEXT("NO"));
+		bLoggedCameraSync = true;
 	}
 }
 

@@ -186,6 +186,9 @@ private:
 	/** Last error message */
 	FString LastErrorMessage;
 
+	/** Flag to log camera sync settings once per stream start */
+	bool bLoggedCameraSync = false;
+
 	// ========================================================================
 	// Internal Methods
 	// ========================================================================
