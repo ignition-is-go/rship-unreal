@@ -214,8 +214,15 @@ void FNDIStreamRenderer::EnqueueReadback(UTextureRenderTarget2D* RenderTarget, i
 			FRHITexture* Texture = RTResource->GetRenderTargetTexture();
 			if (Texture)
 			{
+				// UE 5.7+: Ensure texture is in correct state for copy
+				// Transition from render target to copy source before readback
+				RHICmdList.Transition(FRHITransitionInfo(Texture, ERHIAccess::RTV, ERHIAccess::CopySrc));
+
 				// Enqueue copy from render target to staging buffer
 				Readback->EnqueueCopy(RHICmdList, Texture);
+
+				// Transition back to render target state for next frame
+				RHICmdList.Transition(FRHITransitionInfo(Texture, ERHIAccess::CopySrc, ERHIAccess::RTV));
 			}
 		});
 }
