@@ -296,6 +296,11 @@ bool URshipNDIStreamComponent::InitializeRenderTargets()
 		SceneCapture->TextureTarget = RenderTargets[0];
 	}
 
+	// UE 5.7+: Flush rendering commands to ensure render targets are fully initialized
+	// on the GPU before we start using them. Without this, the first frames may fail
+	// to capture properly due to uninitialized resources.
+	FlushRenderingCommands();
+
 	UE_LOG(LogRshipNDI, Log, TEXT("URshipNDIStreamComponent::InitializeRenderTargets - Created %d render targets"),
 		Config.BufferCount);
 
@@ -466,6 +471,17 @@ void URshipNDIStreamComponent::CaptureFrame()
 
 	// Trigger capture
 	SceneCapture->CaptureScene();
+
+	// Warm-up period: Skip first few frames to let the GPU pipeline fully initialize.
+	// This ensures render targets are properly allocated and scene capture is stable.
+	// Without this, the first frames may be black or corrupted on UE 5.7+.
+	constexpr int32 WarmUpFrames = 3;
+	if (FrameCounter < WarmUpFrames)
+	{
+		++FrameCounter;
+		CurrentBufferIndex = (CurrentBufferIndex + 1) % RenderTargets.Num();
+		return;
+	}
 
 	// Submit for GPU readback
 	if (Renderer->SubmitFrame(CurrentRT, FrameCounter))
