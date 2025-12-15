@@ -4,6 +4,7 @@
 #include "RshipControlRigBinding.h"
 #include "RshipSubsystem.h"
 #include "RshipPulseReceiver.h"
+#include "RshipVersion.h"
 #include "ControlRig.h"
 #include "ControlRigComponent.h"
 #include "Rigs/RigHierarchy.h"
@@ -756,7 +757,7 @@ void URshipControlRigBinding::ApplyBindingToControlRig(int32 Index)
 
     case ERshipControlRigPropertyType::Rotator:
         {
-#if ENGINE_MAJOR_VERSION > 5 || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 6)
+#if RSHIP_UE_5_6_OR_LATER
             // UE 5.6+: Store euler angles as FVector3f (pitch, yaw, roll) for rotator controls
             FVector3f EulerAngles(
                 State.CurrentRotator.Pitch,
@@ -777,7 +778,7 @@ void URshipControlRigBinding::ApplyBindingToControlRig(int32 Index)
 
     case ERshipControlRigPropertyType::Transform:
         {
-#if ENGINE_MAJOR_VERSION > 5 || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 6)
+#if RSHIP_UE_5_6_OR_LATER
             // UE 5.6+: Use hierarchy's MakeControlValueFromEulerTransform method
             FEulerTransform EulerTransform;
             EulerTransform.SetLocation(State.CurrentTransform.GetLocation());

@@ -27,4 +27,12 @@
  * - UAnimSequence::GetFrameRate() renamed to GetSamplingFrameRate()
  * - FMaterialParameterInfo replaced with FHashedMaterialParameterInfo
  * - IHotReloadInterface::GetHotReloadInterface() removed (use Live Coding)
+ *
+ * API Changes in UE 5.7:
+ * - FTexture2DRHIRef renamed to FTextureRHIRef
+ * - ULandscapeLayerInfoObject::bNoWeightBlend removed (use IsNoWeightBlend())
+ * - ULandscapeLayerInfoObject::LayerName made private (use GetLayerName())
+ * - IAutomationControllerManager::GetReports() deprecated (use GetFilteredReports() or GetEnabledReports())
+ * - FEditorViewportClient::Get/SetCameraSpeedSetting() deprecated (integer-based camera speed deprecated)
+ * - FImageUtils::CompressImageArray() deprecated (use PNGCompressImageArray() or ThumbnailCompressImageArray())
  */

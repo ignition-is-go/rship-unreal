@@ -20,7 +20,15 @@
 #include "Engine/TextureRenderTarget2D.h"
 #include "RHI.h"
 #include "RHIResources.h"
+#include "Runtime/Launch/Resources/Version.h"
 #include "Rship2110VideoCapture.generated.h"
+
+// UE 5.7+ renamed FTexture2DRHIRef to FTextureRHIRef
+#if ENGINE_MAJOR_VERSION > 5 || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 7)
+using FRship2110TextureRHIRef = FTextureRHIRef;
+#else
+using FRship2110TextureRHIRef = FTexture2DRHIRef;
+#endif
 
 class URship2110VideoSender;
 
@@ -201,7 +209,7 @@ private:
         FOnFrameCaptured Callback;
 
         // GPU resources for async readback
-        FTexture2DRHIRef StagingTexture;
+        FRship2110TextureRHIRef StagingTexture;
         void* MappedPtr = nullptr;
         bool bGPUReadbackPending = false;
     };

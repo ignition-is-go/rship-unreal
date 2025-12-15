@@ -198,7 +198,12 @@ bool FUltimateControlAutomationHandler::HandleGetTestResults(const TSharedPtr<FJ
 	ResultObj->SetBoolField(TEXT("isRunning"), bIsRunning);
 
 	// Get report
+#if ULTIMATE_CONTROL_UE_5_7_OR_LATER
+	// UE 5.7+: GetReports() deprecated, use GetFilteredReports() or GetEnabledReports()
+	TArray<TSharedPtr<IAutomationReport>> Reports = AutomationController->GetFilteredReports();
+#else
 	TArray<TSharedPtr<IAutomationReport>> Reports = AutomationController->GetReports();
+#endif
 	TArray<TSharedPtr<FJsonValue>> ReportsArray;
 
 	for (const TSharedPtr<IAutomationReport>& Report : Reports)

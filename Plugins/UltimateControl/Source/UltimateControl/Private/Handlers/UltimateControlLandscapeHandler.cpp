@@ -2,6 +2,7 @@
 
 #include "Handlers/UltimateControlLandscapeHandler.h"
 #include "UltimateControlSubsystem.h"
+#include "UltimateControlVersion.h"
 #include "Editor.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
@@ -230,9 +231,17 @@ TSharedPtr<FJsonObject> FUltimateControlLandscapeHandler::LayerInfoToJson(ULands
 		return Json;
 	}
 
+#if ULTIMATE_CONTROL_UE_5_7_OR_LATER
+	// UE 5.7+: LayerName is private, bNoWeightBlend uses getter
+	Json->SetStringField(TEXT("name"), LayerInfo->GetLayerName().ToString());
+	Json->SetStringField(TEXT("path"), LayerInfo->GetPathName());
+	Json->SetBoolField(TEXT("noWeightBlend"), LayerInfo->IsNoWeightBlend());
+#else
+	// UE 5.6 and earlier: Direct property access
 	Json->SetStringField(TEXT("name"), LayerInfo->LayerName.ToString());
 	Json->SetStringField(TEXT("path"), LayerInfo->GetPathName());
 	Json->SetBoolField(TEXT("noWeightBlend"), LayerInfo->bNoWeightBlend);
+#endif
 
 	return Json;
 }
@@ -580,7 +589,11 @@ bool FUltimateControlLandscapeHandler::HandleListLandscapeLayers(const TSharedPt
 			if (Layer.LayerInfoObj)
 			{
 				LayerJson->SetStringField(TEXT("layerInfoPath"), Layer.LayerInfoObj->GetPathName());
+#if ULTIMATE_CONTROL_UE_5_7_OR_LATER
+				LayerJson->SetBoolField(TEXT("noWeightBlend"), Layer.LayerInfoObj->IsNoWeightBlend());
+#else
 				LayerJson->SetBoolField(TEXT("noWeightBlend"), Layer.LayerInfoObj->bNoWeightBlend);
+#endif
 			}
 			LayersArray.Add(MakeShared<FJsonValueObject>(LayerJson));
 		}
@@ -624,7 +637,11 @@ bool FUltimateControlLandscapeHandler::HandleGetLayerInfo(const TSharedPtr<FJson
 			if (Layer.LayerInfoObj)
 			{
 				LayerJson->SetStringField(TEXT("layerInfoPath"), Layer.LayerInfoObj->GetPathName());
+#if ULTIMATE_CONTROL_UE_5_7_OR_LATER
+				LayerJson->SetBoolField(TEXT("noWeightBlend"), Layer.LayerInfoObj->IsNoWeightBlend());
+#else
 				LayerJson->SetBoolField(TEXT("noWeightBlend"), Layer.LayerInfoObj->bNoWeightBlend);
+#endif
 			}
 			Result = MakeShared<FJsonValueObject>(LayerJson);
 			return true;

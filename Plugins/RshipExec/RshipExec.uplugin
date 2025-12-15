@@ -33,6 +33,8 @@
 		{ "Name": "ControlRig", "Enabled": true },
 		{ "Name": "RigVM", "Enabled": true },
 		{ "Name": "LiveLink", "Enabled": true },
-		{ "Name": "ProceduralMeshComponent", "Enabled": true }
+		{ "Name": "ProceduralMeshComponent", "Enabled": true },
+		{ "Name": "RshipNDI", "Enabled": true, "Optional": true },
+		{ "Name": "Rship2110", "Enabled": true, "Optional": true }
 	]
 }

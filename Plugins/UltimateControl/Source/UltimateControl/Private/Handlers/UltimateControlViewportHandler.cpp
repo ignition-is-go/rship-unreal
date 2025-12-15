@@ -370,7 +370,10 @@ bool FUltimateControlViewportHandler::HandleGetViewportSettings(const TSharedPtr
 #endif
 	SettingsObj->SetNumberField(TEXT("exposureSettings"), ViewportClient->ExposureSettings.FixedEV100);
 	SettingsObj->SetNumberField(TEXT("farClipPlane"), ViewportClient->GetFarClipPlaneOverride());
+	// UE 5.7: Integer-based camera speed settings are deprecated but still functional
+PRAGMA_DISABLE_DEPRECATION_WARNINGS
 	SettingsObj->SetNumberField(TEXT("cameraSpeedSetting"), ViewportClient->GetCameraSpeedSetting());
+PRAGMA_ENABLE_DEPRECATION_WARNINGS
 
 	Result = MakeShared<FJsonValueObject>(SettingsObj);
 	return true;
@@ -418,7 +421,10 @@ bool FUltimateControlViewportHandler::HandleSetViewportSettings(const TSharedPtr
 
 	if (Params->HasField(TEXT("cameraSpeedSetting")))
 	{
+		// UE 5.7: Integer-based camera speed settings are deprecated but still functional
+PRAGMA_DISABLE_DEPRECATION_WARNINGS
 		ViewportClient->SetCameraSpeedSetting(FMath::RoundToInt(Params->GetNumberField(TEXT("cameraSpeedSetting"))));
+PRAGMA_ENABLE_DEPRECATION_WARNINGS
 	}
 
 	ViewportClient->Invalidate();
@@ -540,7 +546,12 @@ bool FUltimateControlViewportHandler::HandleTakeScreenshot(const TSharedPtr<FJso
 
 	// Save to file
 	TArray<uint8> CompressedBitmap;
+#if ULTIMATE_CONTROL_UE_5_7_OR_LATER
+	// UE 5.7+: CompressImageArray deprecated, use PNGCompressImageArray
+	FImageUtils::PNGCompressImageArray(Size.X, Size.Y, Bitmap, CompressedBitmap);
+#else
 	FImageUtils::CompressImageArray(Size.X, Size.Y, Bitmap, CompressedBitmap);
+#endif
 
 	if (!FFileHelper::SaveArrayToFile(CompressedBitmap, *OutputPath))
 	{
