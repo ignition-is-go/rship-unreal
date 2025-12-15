@@ -4,11 +4,14 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
-#include "RshipColorTarget.generated.h"
 
+// IMPORTANT: Include RshipColorConfig.h BEFORE generated.h
+// because it has its own generated.h and UHT requires our .generated.h to be last
 #if RSHIP_HAS_COLOR_MANAGEMENT
 #include "RshipColorConfig.h"
 #endif
+
+#include "RshipColorTarget.generated.h"
 
 class URshipTargetComponent;
 class URshipColorManagementSubsystem;
