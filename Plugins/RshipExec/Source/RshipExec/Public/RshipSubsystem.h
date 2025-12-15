@@ -229,6 +229,7 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     FTimerHandle QueueProcessTimerHandle;
     FTimerHandle ReconnectTimerHandle;
     FTimerHandle SubsystemTickTimerHandle;
+    FTimerHandle ConnectionTimeoutHandle;
     double LastTickTime;
 
     // Internal message handling
@@ -250,6 +251,7 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     void ProcessMessageQueue();
     void AttemptReconnect();
     void TickSubsystems();
+    void OnConnectionTimeout();
 
     // WebSocket event handlers
     void OnWebSocketConnected();

@@ -177,11 +177,20 @@ void URshipSubsystem::InitializeRateLimiter()
 
 void URshipSubsystem::Reconnect()
 {
-    // Don't reconnect if already connecting or backing off
-    if (ConnectionState == ERshipConnectionState::Connecting ||
-        ConnectionState == ERshipConnectionState::BackingOff)
+    // If we're backing off, cancel the timer and proceed with manual reconnect
+    if (ConnectionState == ERshipConnectionState::BackingOff)
     {
-        UE_LOG(LogRshipExec, Warning, TEXT("Reconnect called while already connecting or backing off, ignoring"));
+        UE_LOG(LogRshipExec, Log, TEXT("Manual reconnect requested during backoff - cancelling scheduled reconnect"));
+        if (auto World = GetWorld())
+        {
+            World->GetTimerManager().ClearTimer(ReconnectTimerHandle);
+        }
+        ReconnectAttempts = 0;  // Reset attempts on manual reconnect
+    }
+    // Don't reconnect if already actively connecting
+    else if (ConnectionState == ERshipConnectionState::Connecting)
+    {
+        UE_LOG(LogRshipExec, Warning, TEXT("Reconnect called while already connecting, ignoring"));
         return;
     }
 
@@ -219,6 +228,19 @@ void URshipSubsystem::Reconnect()
     }
 
     ConnectionState = ERshipConnectionState::Connecting;
+
+    // Set connection timeout (10 seconds)
+    if (auto World = GetWorld())
+    {
+        World->GetTimerManager().ClearTimer(ConnectionTimeoutHandle);
+        World->GetTimerManager().SetTimer(
+            ConnectionTimeoutHandle,
+            this,
+            &URshipSubsystem::OnConnectionTimeout,
+            10.0f,  // 10 second timeout
+            false   // Not looping
+        );
+    }
 
     FString WebSocketUrl = "ws://" + rshipHostAddress + ":" + FString::FromInt(rshipServerPort) + "/myko";
     UE_LOG(LogRshipExec, Log, TEXT("Connecting to %s (HighPerf=%d)"), *WebSocketUrl, Settings->bUseHighPerformanceWebSocket);
@@ -325,10 +347,11 @@ void URshipSubsystem::OnWebSocketConnected()
         RateLimiter->OnConnectionSuccess();
     }
 
-    // Clear any pending reconnect timer
-    if (auto world = GetWorld())
+    // Clear any pending reconnect timer and connection timeout
+    if (auto World = GetWorld())
     {
-        world->GetTimerManager().ClearTimer(ReconnectTimerHandle);
+        World->GetTimerManager().ClearTimer(ReconnectTimerHandle);
+        World->GetTimerManager().ClearTimer(ConnectionTimeoutHandle);
     }
 
     // Send registration data
@@ -340,6 +363,12 @@ void URshipSubsystem::OnWebSocketConnectionError(const FString &Error)
     UE_LOG(LogRshipExec, Warning, TEXT("WebSocket connection error: %s"), *Error);
 
     ConnectionState = ERshipConnectionState::Disconnected;
+
+    // Clear connection timeout
+    if (auto World = GetWorld())
+    {
+        World->GetTimerManager().ClearTimer(ConnectionTimeoutHandle);
+    }
 
     // Notify rate limiter
     if (RateLimiter)
@@ -426,6 +455,38 @@ void URshipSubsystem::AttemptReconnect()
     UE_LOG(LogRshipExec, Log, TEXT("Attempting reconnect..."));
     ConnectionState = ERshipConnectionState::Reconnecting;
     Reconnect();
+}
+
+void URshipSubsystem::OnConnectionTimeout()
+{
+    if (ConnectionState != ERshipConnectionState::Connecting)
+    {
+        // Already transitioned to another state (connected, error, etc.)
+        return;
+    }
+
+    UE_LOG(LogRshipExec, Warning, TEXT("Connection attempt timed out after 10 seconds"));
+
+    // Close any pending connection
+    if (WebSocket)
+    {
+        WebSocket->Close();
+        WebSocket.Reset();
+    }
+    if (HighPerfWebSocket)
+    {
+        HighPerfWebSocket->Close();
+        HighPerfWebSocket.Reset();
+    }
+
+    ConnectionState = ERshipConnectionState::Disconnected;
+
+    // Schedule reconnection if enabled
+    const URshipSettings* Settings = GetDefault<URshipSettings>();
+    if (Settings->bAutoReconnect)
+    {
+        ScheduleReconnect();
+    }
 }
 
 void URshipSubsystem::OnRateLimiterStatusChanged(bool bIsBackingOff, float BackoffSeconds)
