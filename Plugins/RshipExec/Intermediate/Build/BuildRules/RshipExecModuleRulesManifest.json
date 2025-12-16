@@ -1,0 +1,7 @@
+{
+	"SourceFiles": [
+		"/Users/nicholasfletcher/rship-unreal/Plugins/RshipExec/Source/RshipExec/RshipExec.Build.cs",
+		"/Users/nicholasfletcher/rship-unreal/Plugins/RshipExec/Source/RshipExecEditor/RshipExecEditor.Build.cs"
+	],
+	"EngineVersion": "5.7.1"
+}

@@ -1345,6 +1345,15 @@ void URshipSubsystem::SetItem(FString itemType, TSharedPtr<FJsonObject> data, ER
     // MakeSet produces the complete WSMEvent format: { event: "ws:m:event", data: { itemType, changeType, item, tx, createdAt } }
     TSharedPtr<FJsonObject> payload = MakeSet(itemType, data);
 
+    // Debug: Log registration events to help diagnose protocol issues
+    if (itemType == TEXT("Machine") || itemType == TEXT("Instance") || itemType == TEXT("Target") || itemType == TEXT("TargetStatus"))
+    {
+        FString JsonString;
+        TSharedRef<TJsonWriter<>> JsonWriter = TJsonWriterFactory<>::Create(&JsonString);
+        FJsonSerializer::Serialize(payload.ToSharedRef(), JsonWriter);
+        UE_LOG(LogRshipExec, Log, TEXT("SetItem [%s]: %s"), *itemType, *JsonString);
+    }
+
     // Determine message type for coalescing
     ERshipMessageType Type = ERshipMessageType::Registration;
     if (itemType == "Pulse")
