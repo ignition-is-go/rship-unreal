@@ -494,7 +494,7 @@ void URshipOSCBridge::ProcessIncomingMessage(const FRshipOSCMessage& Message)
                         Value = 1.0f;
                         break;
                     case ERshipOSCArgumentType::BoolFalse:
-                    case ERshipOSCArgumentType::Nil:
+                    case ERshipOSCArgumentType::NilValue:
                         Value = 0.0f;
                         break;
                     default:
@@ -766,7 +766,7 @@ bool URshipOSCBridge::ParseOSCMessage(const TArray<uint8>& Data, FRshipOSCMessag
                 break;
 
             case 'N':
-                Arg.Type = ERshipOSCArgumentType::Nil;
+                Arg.Type = ERshipOSCArgumentType::NilValue;
                 break;
 
             default:
@@ -851,7 +851,7 @@ TArray<uint8> URshipOSCBridge::SerializeOSCMessage(const FRshipOSCMessage& Messa
             case ERshipOSCArgumentType::Color: TypeTags.AppendChar('r'); break;
             case ERshipOSCArgumentType::BoolTrue: TypeTags.AppendChar('T'); break;
             case ERshipOSCArgumentType::BoolFalse: TypeTags.AppendChar('F'); break;
-            case ERshipOSCArgumentType::Nil: TypeTags.AppendChar('N'); break;
+            case ERshipOSCArgumentType::NilValue: TypeTags.AppendChar('N'); break;
             default: break;
         }
     }

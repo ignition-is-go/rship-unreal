@@ -10,8 +10,8 @@
 #include <pthread.h>
 #endif
 
-// freebsd needs this header as well
-#if defined(BSD)
+// freebsd needs this header as well (but not macOS which is also BSD-derived)
+#if defined(BSD) && !defined(__APPLE__)
 #include <pthread_np.h>
 #endif
 
@@ -78,7 +78,7 @@ namespace ix
         pthread_setname_np(pthread_self(), name.substr(0, 15).c_str());
 #elif defined(_WIN32)
         SetThreadName(-1, name.c_str());
-#elif defined(BSD)
+#elif defined(BSD) && !defined(__APPLE__)
         pthread_set_name_np(pthread_self(), name.substr(0, 15).c_str());
 #else
         // ... assert here ?

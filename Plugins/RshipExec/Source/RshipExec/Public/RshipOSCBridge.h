@@ -27,7 +27,7 @@ enum class ERshipOSCArgumentType : uint8
     Blob        UMETA(DisplayName = "Blob"),
     BoolTrue    UMETA(DisplayName = "True"),
     BoolFalse   UMETA(DisplayName = "False"),
-    Nil         UMETA(DisplayName = "Nil"),
+    NilValue    UMETA(DisplayName = "Nil"),
     Color       UMETA(DisplayName = "Color")
 };
 

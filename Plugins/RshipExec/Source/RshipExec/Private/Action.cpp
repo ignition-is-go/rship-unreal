@@ -55,7 +55,7 @@ bool Action::Take(AActor *actor, const TSharedRef<FJsonObject> data)
         void* propAddress = this->property->ContainerPtrToValuePtr<void>(this->owner);
 
         const TCHAR* result = this->property->ImportText_Direct(*argList, propAddress, this->owner, 0);
-        int32 resultLength = _tcslen(result);
+        int32 resultLength = result ? FCString::Strlen(result) : 0;
 
 
         if (resultLength == 0) {
