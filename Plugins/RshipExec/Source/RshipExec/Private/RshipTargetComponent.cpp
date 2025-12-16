@@ -115,6 +115,13 @@ void URshipTargetComponent::Register()
 
     FString outlinerName = parent->GetName();
 
+    // Default target name to actor name if not set
+    if (this->targetName.IsEmpty())
+    {
+        this->targetName = outlinerName;
+        UE_LOG(LogRshipExec, Log, TEXT("Target Id not set, defaulting to actor name: %s"), *this->targetName);
+    }
+
     UE_LOG(LogRshipExec, Log, TEXT("Registering OUTLINER: %s as %s"), *outlinerName, *this->targetName);
 
     FString fullTargetId = subsystem->GetServiceId() + ":" + this->targetName;
