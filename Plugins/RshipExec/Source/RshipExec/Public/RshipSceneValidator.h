@@ -36,7 +36,7 @@ enum class ERshipValidationCategory : uint8
 
 // Single validation issue
 USTRUCT(BlueprintType)
-struct FRshipValidationIssue
+struct RSHIPEXEC_API FRshipValidationIssue
 {
     GENERATED_BODY()
 
@@ -70,7 +70,7 @@ struct FRshipValidationIssue
 
 // Validation result for entire scene
 USTRUCT(BlueprintType)
-struct FRshipValidationResult
+struct RSHIPEXEC_API FRshipValidationResult
 {
     GENERATED_BODY()
 
@@ -107,7 +107,7 @@ struct FRshipValidationResult
 
 // Validation rule configuration
 USTRUCT(BlueprintType)
-struct FRshipValidationRule
+struct RSHIPEXEC_API FRshipValidationRule
 {
     GENERATED_BODY()
 
