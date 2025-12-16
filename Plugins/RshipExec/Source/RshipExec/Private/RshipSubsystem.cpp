@@ -1182,11 +1182,8 @@ void URshipSubsystem::SendTarget(Target *target)
 
     if (TargetComp)
     {
-        // Add category (myko protocol field for target organization)
-        if (!TargetComp->Category.IsEmpty())
-        {
-            Target->SetStringField(TEXT("category"), TargetComp->Category);
-        }
+        // Add category (myko protocol field for target organization) - REQUIRED
+        Target->SetStringField(TEXT("category"), TargetComp->Category.IsEmpty() ? TEXT("default") : *TargetComp->Category);
 
         // Add tags array
         TArray<TSharedPtr<FJsonValue>> TagsJson;
@@ -1204,6 +1201,14 @@ void URshipSubsystem::SendTarget(Target *target)
         }
         Target->SetArrayField(TEXT("groupIds"), GroupIdsJson);
     }
+    else
+    {
+        // No component, set default category - REQUIRED field
+        Target->SetStringField(TEXT("category"), TEXT("default"));
+    }
+
+    // rootLevel is REQUIRED - all Unreal targets are root level (sub-targets not yet supported)
+    Target->SetBoolField(TEXT("rootLevel"), true);
 
     // Hash for optimistic concurrency control (myko protocol requirement)
     Target->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
@@ -1216,7 +1221,8 @@ void URshipSubsystem::SendTarget(Target *target)
     TargetStatus->SetStringField(TEXT("targetId"), target->GetId());
     TargetStatus->SetStringField(TEXT("instanceId"), InstanceId);
     TargetStatus->SetStringField(TEXT("status"), TEXT("online"));
-    TargetStatus->SetStringField(TEXT("id"), InstanceId + ":" + target->GetId());
+    // TargetStatus ID should match Target ID (per TS SDK: serviceId:short_id)
+    TargetStatus->SetStringField(TEXT("id"), target->GetId());
     // Hash for optimistic concurrency control (myko protocol requirement)
     TargetStatus->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
 
@@ -1272,7 +1278,8 @@ void URshipSubsystem::SendTargetStatus(Target *target, bool online)
     TargetStatus->SetStringField(TEXT("targetId"), target->GetId());
     TargetStatus->SetStringField(TEXT("instanceId"), InstanceId);
     TargetStatus->SetStringField(TEXT("status"), online ? TEXT("online") : TEXT("offline"));
-    TargetStatus->SetStringField(TEXT("id"), InstanceId + TEXT(":") + target->GetId());
+    // TargetStatus ID should match Target ID (per TS SDK: serviceId:short_id)
+    TargetStatus->SetStringField(TEXT("id"), target->GetId());
     // Hash for optimistic concurrency control (myko protocol requirement)
     TargetStatus->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
 
@@ -1286,7 +1293,13 @@ void URshipSubsystem::SendAll()
     // Send Machine - HIGH priority, coalesce
     TSharedPtr<FJsonObject> Machine = MakeShareable(new FJsonObject);
     Machine->SetStringField(TEXT("id"), MachineId);
+    Machine->SetStringField(TEXT("name"), MachineId);
     Machine->SetStringField(TEXT("execName"), MachineId);
+    // clientId is required but filled by server - send empty string
+    Machine->SetStringField(TEXT("clientId"), TEXT(""));
+    // addresses is required - send empty array (server may populate from connection)
+    TArray<TSharedPtr<FJsonValue>> AddressesJson;
+    Machine->SetArrayField(TEXT("addresses"), AddressesJson);
     // Hash for optimistic concurrency control (myko protocol requirement)
     Machine->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
 
@@ -1355,6 +1368,14 @@ void URshipSubsystem::PulseEmitter(FString targetId, FString emitterId, TSharedP
     pulse->SetStringField("emitterId", fullEmitterId);
     pulse->SetStringField("id", fullEmitterId);
     pulse->SetObjectField("data", data);
+    // timestamp is REQUIRED - Unix timestamp in milliseconds
+    const FDateTime Now = FDateTime::UtcNow();
+    const int64 TimestampMs = Now.ToUnixTimestamp() * 1000LL + Now.GetMillisecond();
+    pulse->SetNumberField("timestamp", static_cast<double>(TimestampMs));
+    // clientId is REQUIRED but server fills it - send empty string
+    pulse->SetStringField("clientId", TEXT(""));
+    // hash for optimistic concurrency control (myko protocol requirement)
+    pulse->SetStringField("hash", FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
 
     // Emitter pulses are LOW priority and coalesce by emitter ID
     // This means rapid pulses from the same emitter will be coalesced
