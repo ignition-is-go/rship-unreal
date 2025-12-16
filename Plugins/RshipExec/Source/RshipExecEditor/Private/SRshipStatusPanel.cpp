@@ -231,7 +231,7 @@ TSharedRef<SWidget> SRshipStatusPanel::BuildConnectionSection()
                 .WidthOverride(60.0f)
                 [
                     SAssignNew(ServerPortBox, SEditableTextBox)
-                    .Text(FText::AsNumber(InitialPort))
+                    .Text(FText::FromString(FString::FromInt(InitialPort)))
                     .HintText(LOCTEXT("PortHint", "port"))
                     .OnTextCommitted(this, &SRshipStatusPanel::OnServerPortCommitted)
                 ]
