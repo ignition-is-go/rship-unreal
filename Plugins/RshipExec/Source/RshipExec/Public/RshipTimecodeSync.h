@@ -14,6 +14,17 @@ class URshipSubsystem;
 // TIMECODE TYPES
 // ============================================================================
 
+/**
+ * Timecode mode for controlling data flow direction
+ */
+UENUM(BlueprintType)
+enum class ERshipTimecodeMode : uint8
+{
+    Receive         UMETA(DisplayName = "Receive (Follow rship)"),   // UE follows rship timecode
+    Publish         UMETA(DisplayName = "Publish (UE is master)"),   // UE publishes its timecode to rship
+    Bidirectional   UMETA(DisplayName = "Bidirectional")             // Both - receive but also publish for monitoring
+};
+
 UENUM(BlueprintType)
 enum class ERshipTimecodeSource : uint8
 {
@@ -95,6 +106,10 @@ struct RSHIPEXEC_API FRshipTimecodeStatus
     /** Last sync timestamp */
     UPROPERTY(BlueprintReadOnly, Category = "Rship|Timecode")
     double LastSyncTime = 0.0;
+
+    /** Current timecode mode (Receive/Publish/Bidirectional) */
+    UPROPERTY(BlueprintReadOnly, Category = "Rship|Timecode")
+    ERshipTimecodeMode Mode = ERshipTimecodeMode::Receive;
 };
 
 /**
@@ -272,6 +287,59 @@ public:
     void SetFrameRate(FFrameRate NewFrameRate);
 
     // ========================================================================
+    // MODE CONTROL (BIDIRECTIONAL)
+    // ========================================================================
+
+    /** Set the timecode mode (Receive/Publish/Bidirectional) */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Timecode")
+    void SetTimecodeMode(ERshipTimecodeMode NewMode);
+
+    /** Get the current timecode mode */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Timecode")
+    ERshipTimecodeMode GetTimecodeMode() const { return CurrentStatus.Mode; }
+
+    /** Manually publish current timecode to rship (normally called automatically in Publish/Bidirectional mode) */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Timecode")
+    void PublishTimecodeToRship();
+
+    /** Get the emitter ID used for publishing timecode */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Timecode")
+    FString GetTimecodeEmitterId() const { return TimecodeEmitterId; }
+
+    /** Set the emitter ID used for publishing timecode */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Timecode")
+    void SetTimecodeEmitterId(const FString& NewEmitterId);
+
+    // ========================================================================
+    // RSHIP ACTIONS (Invoked from rship server)
+    // These are registered as actions on the timecode target
+    // ========================================================================
+
+    /** Action: Set timecode from rship (H:M:S:F format) */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Timecode|Actions")
+    void RS_SetTimecode(int32 Hours, int32 Minutes, int32 Seconds, int32 Frames);
+
+    /** Action: Start playback from rship */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Timecode|Actions")
+    void RS_Play();
+
+    /** Action: Pause playback from rship */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Timecode|Actions")
+    void RS_Pause();
+
+    /** Action: Stop playback from rship (reset to start) */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Timecode|Actions")
+    void RS_Stop();
+
+    /** Action: Seek to specific frame from rship */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Timecode|Actions")
+    void RS_SeekToFrame(int64 Frame);
+
+    /** Action: Set playback speed from rship */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Timecode|Actions")
+    void RS_SetPlaybackSpeed(float Speed);
+
+    // ========================================================================
     // STATUS
     // ========================================================================
 
@@ -393,6 +461,13 @@ private:
     TArray<float> RecentSyncOffsets;
     int32 MaxSyncSamples = 10;
     float SyncLostThresholdMs = 100.0f;
+
+    // Publishing (emitter) configuration
+    FString TimecodeEmitterId = TEXT("timecode");
+    FString TimecodeTargetId = TEXT("UE_Timecode");
+    float PublishRateHz = 30.0f;  // How often to publish timecode
+    float TimeSinceLastPublish = 0.0f;
+    int64 LastPublishedFrame = -1;  // Only publish when frame changes
 
     // Update methods
     void UpdateInternalTimecode(float DeltaTime);

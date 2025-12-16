@@ -11,6 +11,7 @@ void URshipTimecodeSync::Initialize(URshipSubsystem* InSubsystem)
     CurrentStatus.FrameRate = FFrameRate(30, 1);
     CurrentStatus.State = ERshipTimecodeState::Stopped;
     CurrentStatus.Source = ERshipTimecodeSource::Internal;
+    CurrentStatus.Mode = ERshipTimecodeMode::Receive;
     UE_LOG(LogRshipExec, Log, TEXT("TimecodeSync initialized"));
 }
 
@@ -42,6 +43,21 @@ void URshipTimecodeSync::Tick(float DeltaTime)
     CheckCuePoints();
     UpdateSyncStatus();
     OnTimecodeChanged.Broadcast(CurrentStatus);
+
+    // Publish timecode if in Publish or Bidirectional mode
+    if (CurrentStatus.Mode == ERshipTimecodeMode::Publish || CurrentStatus.Mode == ERshipTimecodeMode::Bidirectional)
+    {
+        TimeSinceLastPublish += DeltaTime;
+        float PublishInterval = 1.0f / PublishRateHz;
+
+        // Publish at rate limit, or immediately if frame changed
+        if (TimeSinceLastPublish >= PublishInterval || CurrentStatus.TotalFrames != LastPublishedFrame)
+        {
+            PublishTimecodeToRship();
+            TimeSinceLastPublish = 0.0f;
+            LastPublishedFrame = CurrentStatus.TotalFrames;
+        }
+    }
 }
 
 void URshipTimecodeSync::Play()
@@ -198,4 +214,103 @@ void URshipTimecodeSync::ProcessEventTrackEvent(const TSharedPtr<FJsonObject>& D
     if (Data->TryGetArrayField(TEXT("cuePoints"), Cues))
         for (const auto& V : *Cues) { auto O = V->AsObject(); if (O.IsValid()) { FRshipCuePoint C; C.Id = O->GetStringField(TEXT("id")); C.Name = O->GetStringField(TEXT("name")); O->TryGetNumberField(TEXT("frameNumber"), C.FrameNumber); AddCuePoint(C); } }
     OnEventTrackLoaded.Broadcast(LoadedTrack);
+}
+
+// ============================================================================
+// MODE CONTROL (BIDIRECTIONAL)
+// ============================================================================
+
+void URshipTimecodeSync::SetTimecodeMode(ERshipTimecodeMode NewMode)
+{
+    if (CurrentStatus.Mode == NewMode) return;
+
+    ERshipTimecodeMode OldMode = CurrentStatus.Mode;
+    CurrentStatus.Mode = NewMode;
+
+    UE_LOG(LogRshipExec, Log, TEXT("TimecodeSync: Mode changed from %d to %d"),
+           static_cast<int32>(OldMode), static_cast<int32>(NewMode));
+
+    // Reset publish state when entering publish mode
+    if (NewMode == ERshipTimecodeMode::Publish || NewMode == ERshipTimecodeMode::Bidirectional)
+    {
+        TimeSinceLastPublish = 0.0f;
+        LastPublishedFrame = -1;
+
+        // Immediately publish current state
+        PublishTimecodeToRship();
+    }
+}
+
+void URshipTimecodeSync::SetTimecodeEmitterId(const FString& NewEmitterId)
+{
+    TimecodeEmitterId = NewEmitterId;
+    UE_LOG(LogRshipExec, Log, TEXT("TimecodeSync: Emitter ID set to %s"), *TimecodeEmitterId);
+}
+
+void URshipTimecodeSync::PublishTimecodeToRship()
+{
+    if (!Subsystem) return;
+
+    // Build the timecode pulse data
+    TSharedPtr<FJsonObject> PulseData = MakeShared<FJsonObject>();
+
+    // Timecode fields
+    PulseData->SetNumberField(TEXT("hours"), CurrentStatus.Timecode.Hours);
+    PulseData->SetNumberField(TEXT("minutes"), CurrentStatus.Timecode.Minutes);
+    PulseData->SetNumberField(TEXT("seconds"), CurrentStatus.Timecode.Seconds);
+    PulseData->SetNumberField(TEXT("frames"), CurrentStatus.Timecode.Frames);
+
+    // Additional status fields
+    PulseData->SetNumberField(TEXT("totalFrames"), CurrentStatus.TotalFrames);
+    PulseData->SetNumberField(TEXT("elapsedSeconds"), CurrentStatus.ElapsedSeconds);
+    PulseData->SetNumberField(TEXT("playbackSpeed"), CurrentStatus.PlaybackSpeed);
+    PulseData->SetStringField(TEXT("state"), StaticEnum<ERshipTimecodeState>()->GetNameStringByValue(static_cast<int64>(CurrentStatus.State)));
+
+    // Frame rate info
+    PulseData->SetNumberField(TEXT("frameRateNumerator"), CurrentStatus.FrameRate.Numerator);
+    PulseData->SetNumberField(TEXT("frameRateDenominator"), CurrentStatus.FrameRate.Denominator);
+
+    // Publish via subsystem
+    Subsystem->PulseEmitter(TimecodeTargetId, TimecodeEmitterId, PulseData);
+}
+
+// ============================================================================
+// RSHIP ACTIONS
+// ============================================================================
+
+void URshipTimecodeSync::RS_SetTimecode(int32 Hours, int32 Minutes, int32 Seconds, int32 Frames)
+{
+    FTimecode TC(Hours, Minutes, Seconds, Frames, false);
+    SeekToTimecode(TC);
+    UE_LOG(LogRshipExec, Log, TEXT("TimecodeSync: RS_SetTimecode %02d:%02d:%02d:%02d"), Hours, Minutes, Seconds, Frames);
+}
+
+void URshipTimecodeSync::RS_Play()
+{
+    Play();
+    UE_LOG(LogRshipExec, Log, TEXT("TimecodeSync: RS_Play"));
+}
+
+void URshipTimecodeSync::RS_Pause()
+{
+    Pause();
+    UE_LOG(LogRshipExec, Log, TEXT("TimecodeSync: RS_Pause"));
+}
+
+void URshipTimecodeSync::RS_Stop()
+{
+    Stop();
+    UE_LOG(LogRshipExec, Log, TEXT("TimecodeSync: RS_Stop"));
+}
+
+void URshipTimecodeSync::RS_SeekToFrame(int64 Frame)
+{
+    SeekToFrame(Frame);
+    UE_LOG(LogRshipExec, Log, TEXT("TimecodeSync: RS_SeekToFrame %lld"), Frame);
+}
+
+void URshipTimecodeSync::RS_SetPlaybackSpeed(float Speed)
+{
+    SetPlaybackSpeed(Speed);
+    UE_LOG(LogRshipExec, Log, TEXT("TimecodeSync: RS_SetPlaybackSpeed %.2f"), Speed);
 }
