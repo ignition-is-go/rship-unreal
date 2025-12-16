@@ -40,6 +40,7 @@ public class RshipExecEditor : ModuleRules
 				"LiveLinkInterface", // For ILiveLinkClient in SRshipLiveLinkPanel
 				"LiveLink",          // For LiveLinkClient and LiveLink roles
 				"DesktopPlatform",   // For DesktopPlatformModule in SRshipAssetSyncPanel
+				"Json",              // For FJsonObject in SRshipTimecodePanel
 			}
 		);
 
