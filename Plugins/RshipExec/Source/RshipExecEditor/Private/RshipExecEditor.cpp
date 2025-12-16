@@ -2,6 +2,12 @@
 
 #include "RshipExecEditor.h"
 #include "SRshipStatusPanel.h"
+#include "SRshipTimecodePanel.h"
+#include "SRshipLiveLinkPanel.h"
+#include "SRshipMaterialPanel.h"
+#include "SRshipAssetSyncPanel.h"
+#include "SRshipFixturePanel.h"
+#include "SRshipTestPanel.h"
 #include "RshipStatusPanelStyle.h"
 #include "RshipStatusPanelCommands.h"
 
@@ -15,6 +21,12 @@
 #define LOCTEXT_NAMESPACE "FRshipExecEditorModule"
 
 static const FName RshipStatusPanelTabName("RshipStatusPanel");
+static const FName RshipTimecodePanelTabName("RshipTimecodePanel");
+static const FName RshipLiveLinkPanelTabName("RshipLiveLinkPanel");
+static const FName RshipMaterialPanelTabName("RshipMaterialPanel");
+static const FName RshipAssetSyncPanelTabName("RshipAssetSyncPanel");
+static const FName RshipFixturePanelTabName("RshipFixturePanel");
+static const FName RshipTestPanelTabName("RshipTestPanel");
 
 void FRshipExecEditorModule::StartupModule()
 {
@@ -27,8 +39,14 @@ void FRshipExecEditorModule::StartupModule()
 
     PluginCommands = MakeShareable(new FUICommandList);
 
-    // Register the status panel
+    // Register panels
     RegisterStatusPanel();
+    RegisterTimecodePanel();
+    RegisterLiveLinkPanel();
+    RegisterMaterialPanel();
+    RegisterAssetSyncPanel();
+    RegisterFixturePanel();
+    RegisterTestPanel();
 
     // Register menus after ToolMenus is ready
     UToolMenus::RegisterStartupCallback(FSimpleMulticastDelegate::FDelegate::CreateRaw(this, &FRshipExecEditorModule::RegisterMenus));
@@ -43,6 +61,12 @@ void FRshipExecEditorModule::ShutdownModule()
     FRshipStatusPanelStyle::Shutdown();
 
     UnregisterStatusPanel();
+    UnregisterTimecodePanel();
+    UnregisterLiveLinkPanel();
+    UnregisterMaterialPanel();
+    UnregisterAssetSyncPanel();
+    UnregisterFixturePanel();
+    UnregisterTestPanel();
 }
 
 FRshipExecEditorModule& FRshipExecEditorModule::Get()
@@ -63,6 +87,150 @@ void FRshipExecEditorModule::RegisterStatusPanel()
 void FRshipExecEditorModule::UnregisterStatusPanel()
 {
     FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(RshipStatusPanelTabName);
+}
+
+void FRshipExecEditorModule::RegisterTimecodePanel()
+{
+    FGlobalTabmanager::Get()->RegisterNomadTabSpawner(RshipTimecodePanelTabName,
+        FOnSpawnTab::CreateRaw(this, &FRshipExecEditorModule::SpawnTimecodePanelTab))
+        .SetDisplayName(LOCTEXT("RshipTimecodePanelTabTitle", "Rship Timecode"))
+        .SetTooltipText(LOCTEXT("RshipTimecodePanelTooltip", "Open Rocketship Timecode Panel"))
+        .SetGroup(WorkspaceMenu::GetMenuStructure().GetLevelEditorCategory())
+        .SetIcon(FSlateIcon(FRshipStatusPanelStyle::GetStyleSetName(), "Rship.StatusPanel.TabIcon"));
+}
+
+void FRshipExecEditorModule::UnregisterTimecodePanel()
+{
+    FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(RshipTimecodePanelTabName);
+}
+
+TSharedRef<SDockTab> FRshipExecEditorModule::SpawnTimecodePanelTab(const FSpawnTabArgs& Args)
+{
+    return SNew(SDockTab)
+        .TabRole(ETabRole::NomadTab)
+        [
+            SNew(SRshipTimecodePanel)
+        ];
+}
+
+void FRshipExecEditorModule::RegisterLiveLinkPanel()
+{
+    FGlobalTabmanager::Get()->RegisterNomadTabSpawner(RshipLiveLinkPanelTabName,
+        FOnSpawnTab::CreateRaw(this, &FRshipExecEditorModule::SpawnLiveLinkPanelTab))
+        .SetDisplayName(LOCTEXT("RshipLiveLinkPanelTabTitle", "Rship LiveLink"))
+        .SetTooltipText(LOCTEXT("RshipLiveLinkPanelTooltip", "Open Rocketship LiveLink Panel"))
+        .SetGroup(WorkspaceMenu::GetMenuStructure().GetLevelEditorCategory())
+        .SetIcon(FSlateIcon(FRshipStatusPanelStyle::GetStyleSetName(), "Rship.StatusPanel.TabIcon"));
+}
+
+void FRshipExecEditorModule::UnregisterLiveLinkPanel()
+{
+    FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(RshipLiveLinkPanelTabName);
+}
+
+TSharedRef<SDockTab> FRshipExecEditorModule::SpawnLiveLinkPanelTab(const FSpawnTabArgs& Args)
+{
+    return SNew(SDockTab)
+        .TabRole(ETabRole::NomadTab)
+        [
+            SNew(SRshipLiveLinkPanel)
+        ];
+}
+
+void FRshipExecEditorModule::RegisterMaterialPanel()
+{
+    FGlobalTabmanager::Get()->RegisterNomadTabSpawner(RshipMaterialPanelTabName,
+        FOnSpawnTab::CreateRaw(this, &FRshipExecEditorModule::SpawnMaterialPanelTab))
+        .SetDisplayName(LOCTEXT("RshipMaterialPanelTabTitle", "Rship Materials"))
+        .SetTooltipText(LOCTEXT("RshipMaterialPanelTooltip", "Open Rocketship Material Binding Panel"))
+        .SetGroup(WorkspaceMenu::GetMenuStructure().GetLevelEditorCategory())
+        .SetIcon(FSlateIcon(FRshipStatusPanelStyle::GetStyleSetName(), "Rship.StatusPanel.TabIcon"));
+}
+
+void FRshipExecEditorModule::UnregisterMaterialPanel()
+{
+    FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(RshipMaterialPanelTabName);
+}
+
+TSharedRef<SDockTab> FRshipExecEditorModule::SpawnMaterialPanelTab(const FSpawnTabArgs& Args)
+{
+    return SNew(SDockTab)
+        .TabRole(ETabRole::NomadTab)
+        [
+            SNew(SRshipMaterialPanel)
+        ];
+}
+
+void FRshipExecEditorModule::RegisterAssetSyncPanel()
+{
+    FGlobalTabmanager::Get()->RegisterNomadTabSpawner(RshipAssetSyncPanelTabName,
+        FOnSpawnTab::CreateRaw(this, &FRshipExecEditorModule::SpawnAssetSyncPanelTab))
+        .SetDisplayName(LOCTEXT("RshipAssetSyncPanelTabTitle", "Rship Assets"))
+        .SetTooltipText(LOCTEXT("RshipAssetSyncPanelTooltip", "Open Rocketship Asset Sync Panel"))
+        .SetGroup(WorkspaceMenu::GetMenuStructure().GetLevelEditorCategory())
+        .SetIcon(FSlateIcon(FRshipStatusPanelStyle::GetStyleSetName(), "Rship.StatusPanel.TabIcon"));
+}
+
+void FRshipExecEditorModule::UnregisterAssetSyncPanel()
+{
+    FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(RshipAssetSyncPanelTabName);
+}
+
+TSharedRef<SDockTab> FRshipExecEditorModule::SpawnAssetSyncPanelTab(const FSpawnTabArgs& Args)
+{
+    return SNew(SDockTab)
+        .TabRole(ETabRole::NomadTab)
+        [
+            SNew(SRshipAssetSyncPanel)
+        ];
+}
+
+void FRshipExecEditorModule::RegisterFixturePanel()
+{
+    FGlobalTabmanager::Get()->RegisterNomadTabSpawner(RshipFixturePanelTabName,
+        FOnSpawnTab::CreateRaw(this, &FRshipExecEditorModule::SpawnFixturePanelTab))
+        .SetDisplayName(LOCTEXT("RshipFixturePanelTabTitle", "Rship Fixtures"))
+        .SetTooltipText(LOCTEXT("RshipFixturePanelTooltip", "Open Rocketship Fixture Library Panel"))
+        .SetGroup(WorkspaceMenu::GetMenuStructure().GetLevelEditorCategory())
+        .SetIcon(FSlateIcon(FRshipStatusPanelStyle::GetStyleSetName(), "Rship.StatusPanel.TabIcon"));
+}
+
+void FRshipExecEditorModule::UnregisterFixturePanel()
+{
+    FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(RshipFixturePanelTabName);
+}
+
+TSharedRef<SDockTab> FRshipExecEditorModule::SpawnFixturePanelTab(const FSpawnTabArgs& Args)
+{
+    return SNew(SDockTab)
+        .TabRole(ETabRole::NomadTab)
+        [
+            SNew(SRshipFixturePanel)
+        ];
+}
+
+void FRshipExecEditorModule::RegisterTestPanel()
+{
+    FGlobalTabmanager::Get()->RegisterNomadTabSpawner(RshipTestPanelTabName,
+        FOnSpawnTab::CreateRaw(this, &FRshipExecEditorModule::SpawnTestPanelTab))
+        .SetDisplayName(LOCTEXT("RshipTestPanelTabTitle", "Rship Testing"))
+        .SetTooltipText(LOCTEXT("RshipTestPanelTooltip", "Open Rocketship Testing & Validation Panel"))
+        .SetGroup(WorkspaceMenu::GetMenuStructure().GetLevelEditorCategory())
+        .SetIcon(FSlateIcon(FRshipStatusPanelStyle::GetStyleSetName(), "Rship.StatusPanel.TabIcon"));
+}
+
+void FRshipExecEditorModule::UnregisterTestPanel()
+{
+    FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(RshipTestPanelTabName);
+}
+
+TSharedRef<SDockTab> FRshipExecEditorModule::SpawnTestPanelTab(const FSpawnTabArgs& Args)
+{
+    return SNew(SDockTab)
+        .TabRole(ETabRole::NomadTab)
+        [
+            SNew(SRshipTestPanel)
+        ];
 }
 
 TSharedRef<SDockTab> FRshipExecEditorModule::SpawnStatusPanelTab(const FSpawnTabArgs& Args)
