@@ -31,6 +31,7 @@
 #include "RshipNiagaraBinding.h"
 #include "RshipSequencerSync.h"
 #include "RshipMaterialBinding.h"
+#include "RshipSubstrateMaterialBinding.h"
 #include "RshipDMXOutput.h"
 #include "RshipOSCBridge.h"
 #include "RshipLiveLinkSource.h"
@@ -188,6 +189,10 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     // Material binding manager for reactive materials (lazy initialized)
     UPROPERTY()
     URshipMaterialManager* MaterialManager;
+
+    // Substrate material manager for UE 5.5+ Substrate materials (lazy initialized)
+    UPROPERTY()
+    URshipSubstrateMaterialManager* SubstrateMaterialManager;
 
     // DMX output for real-world fixture control (lazy initialized)
     UPROPERTY()
@@ -392,6 +397,10 @@ public:
     /** Get the material binding manager for reactive materials */
     UFUNCTION(BlueprintCallable, Category = "Rship|Materials")
     URshipMaterialManager* GetMaterialManager();
+
+    /** Get the Substrate material manager for UE 5.5+ Substrate materials */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Materials")
+    URshipSubstrateMaterialManager* GetSubstrateMaterialManager();
 
     /** Get the DMX output for real-world fixture control */
     UFUNCTION(BlueprintCallable, Category = "Rship|DMX")

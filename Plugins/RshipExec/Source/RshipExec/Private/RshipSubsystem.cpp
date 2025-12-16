@@ -57,6 +57,7 @@ void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
     NiagaraManager = nullptr;
     SequencerSync = nullptr;
     MaterialManager = nullptr;
+    SubstrateMaterialManager = nullptr;
     DMXOutput = nullptr;
     OSCBridge = nullptr;
     LiveLinkService = nullptr;
@@ -554,6 +555,12 @@ void URshipSubsystem::TickSubsystems()
         MaterialManager->Tick(DeltaTime);
     }
 
+    // Tick Substrate material manager for transitions
+    if (SubstrateMaterialManager)
+    {
+        SubstrateMaterialManager->Tick(DeltaTime);
+    }
+
     // Tick DMX output for continuous transmission
     if (DMXOutput)
     {
@@ -1043,6 +1050,13 @@ void URshipSubsystem::Deinitialize()
     {
         MaterialManager->Shutdown();
         MaterialManager = nullptr;
+    }
+
+    // Shutdown Substrate Material manager
+    if (SubstrateMaterialManager)
+    {
+        SubstrateMaterialManager->Shutdown();
+        SubstrateMaterialManager = nullptr;
     }
 
     // Shutdown DMX output
@@ -1890,6 +1904,23 @@ URshipMaterialManager* URshipSubsystem::GetMaterialManager()
         UE_LOG(LogRshipExec, Log, TEXT("MaterialManager initialized"));
     }
     return MaterialManager;
+}
+
+// ============================================================================
+// SUBSTRATE MATERIAL MANAGER
+// ============================================================================
+
+URshipSubstrateMaterialManager* URshipSubsystem::GetSubstrateMaterialManager()
+{
+    // Lazy initialization
+    if (!SubstrateMaterialManager)
+    {
+        SubstrateMaterialManager = NewObject<URshipSubstrateMaterialManager>(this);
+        SubstrateMaterialManager->Initialize(this);
+
+        UE_LOG(LogRshipExec, Log, TEXT("SubstrateMaterialManager initialized"));
+    }
+    return SubstrateMaterialManager;
 }
 
 // ============================================================================
