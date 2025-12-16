@@ -36,7 +36,10 @@ public class RshipExecEditor : ModuleRules
 				"WorkspaceMenuStructure",
 				"Projects",
 				"EditorWidgets",
-				"Sockets",    // For network interface enumeration
+				"Sockets",           // For network interface enumeration
+				"LiveLinkInterface", // For ILiveLinkClient in SRshipLiveLinkPanel
+				"LiveLink",          // For LiveLinkClient and LiveLink roles
+				"DesktopPlatform",   // For DesktopPlatformModule in SRshipAssetSyncPanel
 			}
 		);
 
