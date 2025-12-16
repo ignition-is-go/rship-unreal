@@ -76,6 +76,13 @@ void FRshipWebSocket::Close(int32 Code, const FString& Reason)
 {
     bIsConnected = false;
 
+    // Unbind delegates before closing to prevent callbacks during/after shutdown
+    OnConnected.Unbind();
+    OnConnectionError.Unbind();
+    OnClosed.Unbind();
+    OnMessage.Unbind();
+    OnMessageSent.Unbind();
+
 #if RSHIP_USE_IXWEBSOCKET
     if (IXSocket)
     {

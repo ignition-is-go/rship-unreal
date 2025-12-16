@@ -27,23 +27,31 @@ void URshipTargetComponent::OnRegister()
 
 void URshipTargetComponent::OnComponentDestroyed(bool bDestoryHierarchy)
 {
-
     for (const auto &handler : EmitterHandlers)
     {
-        handler.Value->Destroy();
+        if (handler.Value)
+        {
+            handler.Value->Destroy();
+        }
+    }
+    EmitterHandlers.Empty();
+
+    // GEngine can be null during editor shutdown - check before accessing
+    if (!GEngine)
+    {
+        return;
     }
 
     URshipSubsystem *subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
 
     if(!subsystem)
     {
-        UE_LOG(LogRshipExec, Warning, TEXT("RshipTargetComponent: Subsystem not found during destruction"));
         return;
-	}
+    }
 
-    if (!subsystem->TargetComponents) {
-        UE_LOG(LogRshipExec, Warning, TEXT("RshipTargetComponent: Subsystem TargetComponents not found during destruction"));
-		return;
+    if (!subsystem->TargetComponents)
+    {
+        return;
     }
 
     subsystem->TargetComponents->Remove(this);
