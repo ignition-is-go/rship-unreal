@@ -590,7 +590,7 @@ TSharedRef<SWidget> SRshipTestPanel::BuildConnectionSimSection()
 				.WidthOverride(80.0f)
 				[
 					SAssignNew(LatencyMsInput, SEditableTextBox)
-					.Text(TEXT("100"))
+					.Text(FText::FromString(TEXT("100")))
 				]
 			]
 

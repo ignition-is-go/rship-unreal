@@ -83,7 +83,7 @@ struct RSHIPEXEC_API FRshipDownloadProgress
 	{}
 };
 
-// Delegates
+// Dynamic delegates (for Blueprint)
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnAssetStoreConnected);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnAssetStoreDisconnected, const FString&, Reason);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnAssetStoreError, const FString&, ErrorMessage);
@@ -93,6 +93,15 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnAssetRemoved, const FString&, Obj
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnAssetDownloadComplete, const FString&, ObjectKey, const FString&, LocalPath);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnAssetDownloadFailed, const FString&, ObjectKey, const FString&, ErrorMessage);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnAssetDownloadProgress, const FRshipDownloadProgress&, Progress);
+
+// Native delegates (for C++ binding without UObject requirement)
+DECLARE_MULTICAST_DELEGATE(FOnAssetStoreConnectedNative);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnAssetStoreDisconnectedNative, const FString& /*Reason*/);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnAssetStoreErrorNative, const FString& /*ErrorMessage*/);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnAssetListReceivedNative, const TArray<FRshipAssetInfo>& /*Assets*/);
+DECLARE_MULTICAST_DELEGATE_TwoParams(FOnAssetDownloadCompleteNative, const FString& /*ObjectKey*/, const FString& /*LocalPath*/);
+DECLARE_MULTICAST_DELEGATE_TwoParams(FOnAssetDownloadFailedNative, const FString& /*ObjectKey*/, const FString& /*ErrorMessage*/);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnAssetDownloadProgressNative, const FRshipDownloadProgress& /*Progress*/);
 
 /**
  * Client for connecting to the Rocketship Asset Store
@@ -296,6 +305,15 @@ public:
 
 	UPROPERTY(BlueprintAssignable, Category = "Rship|AssetStore")
 	FOnAssetDownloadProgress OnDownloadProgress;
+
+	// Native delegates for C++ binding (Slate widgets, etc.)
+	FOnAssetStoreConnectedNative OnConnectedNative;
+	FOnAssetStoreDisconnectedNative OnDisconnectedNative;
+	FOnAssetStoreErrorNative OnErrorNative;
+	FOnAssetListReceivedNative OnAssetListReceivedNative;
+	FOnAssetDownloadCompleteNative OnDownloadCompleteNative;
+	FOnAssetDownloadFailedNative OnDownloadFailedNative;
+	FOnAssetDownloadProgressNative OnDownloadProgressNative;
 
 private:
 	// WebSocket handlers

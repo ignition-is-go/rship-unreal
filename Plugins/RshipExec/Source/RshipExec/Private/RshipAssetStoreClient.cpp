@@ -96,6 +96,7 @@ void URshipAssetStoreClient::OnWebSocketConnected()
 	ReconnectAttempts = 0;
 
 	OnConnected.Broadcast();
+	OnConnectedNative.Broadcast();
 
 	// Request initial asset list
 	RequestAssetList();
@@ -107,6 +108,7 @@ void URshipAssetStoreClient::OnWebSocketConnectionError(const FString& Error)
 	bIsConnected = false;
 
 	OnError.Broadcast(Error);
+	OnErrorNative.Broadcast(Error);
 	AttemptReconnect();
 }
 
@@ -116,6 +118,7 @@ void URshipAssetStoreClient::OnWebSocketClosed(int32 StatusCode, const FString& 
 	bIsConnected = false;
 
 	OnDisconnected.Broadcast(Reason);
+	OnDisconnectedNative.Broadcast(Reason);
 
 	if (!bWasClean)
 	{
@@ -179,6 +182,7 @@ void URshipAssetStoreClient::OnWebSocketMessage(const FString& Message)
 		if (DataObject && (*DataObject)->TryGetStringField(TEXT("message"), ErrorMessage))
 		{
 			OnError.Broadcast(ErrorMessage);
+			OnErrorNative.Broadcast(ErrorMessage);
 		}
 	}
 }
@@ -263,6 +267,7 @@ void URshipAssetStoreClient::ProcessObjectList(TSharedPtr<FJsonObject> Data)
 
 	UE_LOG(LogTemp, Log, TEXT("RshipAssetStoreClient: Received %d assets"), CachedAssets.Num());
 	OnAssetListReceived.Broadcast(CachedAssets);
+	OnAssetListReceivedNative.Broadcast(CachedAssets);
 }
 
 void URshipAssetStoreClient::ProcessObjectAdded(TSharedPtr<FJsonObject> Data)
@@ -359,6 +364,7 @@ void URshipAssetStoreClient::DownloadAsset(const FString& ObjectKey, bool bForce
 	{
 		FString LocalPath = GetCachedAssetPath(ObjectKey);
 		OnDownloadComplete.Broadcast(ObjectKey, LocalPath);
+		OnDownloadCompleteNative.Broadcast(ObjectKey, LocalPath);
 		return;
 	}
 
@@ -426,6 +432,7 @@ void URshipAssetStoreClient::OnDownloadRequestComplete(FHttpRequestPtr Request, 
 	{
 		UE_LOG(LogTemp, Error, TEXT("RshipAssetStoreClient: Download failed for %s"), *ObjectKey);
 		OnDownloadFailed.Broadcast(ObjectKey, TEXT("Request failed"));
+		OnDownloadFailedNative.Broadcast(ObjectKey, TEXT("Request failed"));
 		return;
 	}
 
@@ -433,7 +440,9 @@ void URshipAssetStoreClient::OnDownloadRequestComplete(FHttpRequestPtr Request, 
 	if (ResponseCode != 200)
 	{
 		UE_LOG(LogTemp, Error, TEXT("RshipAssetStoreClient: Download failed for %s (HTTP %d)"), *ObjectKey, ResponseCode);
-		OnDownloadFailed.Broadcast(ObjectKey, FString::Printf(TEXT("HTTP %d"), ResponseCode));
+		FString ErrorMsg = FString::Printf(TEXT("HTTP %d"), ResponseCode);
+		OnDownloadFailed.Broadcast(ObjectKey, ErrorMsg);
+		OnDownloadFailedNative.Broadcast(ObjectKey, ErrorMsg);
 		return;
 	}
 
@@ -454,11 +463,13 @@ void URshipAssetStoreClient::OnDownloadRequestComplete(FHttpRequestPtr Request, 
 	{
 		UE_LOG(LogTemp, Log, TEXT("RshipAssetStoreClient: Downloaded %s to %s"), *ObjectKey, *LocalPath);
 		OnDownloadComplete.Broadcast(ObjectKey, LocalPath);
+		OnDownloadCompleteNative.Broadcast(ObjectKey, LocalPath);
 	}
 	else
 	{
 		UE_LOG(LogTemp, Error, TEXT("RshipAssetStoreClient: Failed to save %s"), *LocalPath);
 		OnDownloadFailed.Broadcast(ObjectKey, TEXT("Failed to save file"));
+		OnDownloadFailedNative.Broadcast(ObjectKey, TEXT("Failed to save file"));
 	}
 }
 
@@ -478,6 +489,7 @@ void URshipAssetStoreClient::HandleDownloadProgress(FHttpRequestPtr Request, int
 	Progress.Progress = (TotalBytes > 0) ? (float)BytesReceived / TotalBytes : 0.0f;
 
 	OnDownloadProgress.Broadcast(Progress);
+	OnDownloadProgressNative.Broadcast(Progress);
 }
 
 // ============================================================================

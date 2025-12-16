@@ -610,14 +610,14 @@ FReply SRshipAssetSyncPanel::OnConnectClicked()
 			AssetStoreClient = NewObject<URshipAssetStoreClient>();
 			AssetStoreClient->AddToRoot(); // Prevent GC
 
-			// Bind event handlers
-			AssetStoreClient->OnConnected.AddDynamic(this, &SRshipAssetSyncPanel::OnAssetStoreConnected);
-			AssetStoreClient->OnDisconnected.AddDynamic(this, &SRshipAssetSyncPanel::OnAssetStoreDisconnected);
-			AssetStoreClient->OnError.AddDynamic(this, &SRshipAssetSyncPanel::OnAssetStoreError);
-			AssetStoreClient->OnAssetListReceived.AddDynamic(this, &SRshipAssetSyncPanel::OnAssetListReceived);
-			AssetStoreClient->OnDownloadComplete.AddDynamic(this, &SRshipAssetSyncPanel::OnAssetDownloadComplete);
-			AssetStoreClient->OnDownloadFailed.AddDynamic(this, &SRshipAssetSyncPanel::OnAssetDownloadFailed);
-			AssetStoreClient->OnDownloadProgress.AddDynamic(this, &SRshipAssetSyncPanel::OnAssetDownloadProgressUpdate);
+			// Bind event handlers using native delegates (Slate widgets aren't UObjects)
+			AssetStoreClient->OnConnectedNative.AddRaw(this, &SRshipAssetSyncPanel::OnAssetStoreConnected);
+			AssetStoreClient->OnDisconnectedNative.AddRaw(this, &SRshipAssetSyncPanel::OnAssetStoreDisconnected);
+			AssetStoreClient->OnErrorNative.AddRaw(this, &SRshipAssetSyncPanel::OnAssetStoreError);
+			AssetStoreClient->OnAssetListReceivedNative.AddRaw(this, &SRshipAssetSyncPanel::OnAssetListReceived);
+			AssetStoreClient->OnDownloadCompleteNative.AddRaw(this, &SRshipAssetSyncPanel::OnAssetDownloadComplete);
+			AssetStoreClient->OnDownloadFailedNative.AddRaw(this, &SRshipAssetSyncPanel::OnAssetDownloadFailed);
+			AssetStoreClient->OnDownloadProgressNative.AddRaw(this, &SRshipAssetSyncPanel::OnAssetDownloadProgressUpdate);
 		}
 
 		if (ConnectionStatusText.IsValid())
