@@ -10,6 +10,12 @@
 #include "UObject/ConstructorHelpers.h"
 #include "ProceduralMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "GameFramework/PlayerController.h"
+#include "Camera/PlayerCameraManager.h"
+#if WITH_EDITOR
+#include "Editor.h"
+#include "LevelEditorViewport.h"
+#endif
 
 // ============================================================================
 // FIXTURE VISUALIZER COMPONENT
@@ -107,6 +113,16 @@ void URshipFixtureVisualizer::TickComponent(float DeltaTime, ELevelTick TickType
         return;
     }
 
+    // Update LOD based on camera distance
+    UpdateLOD();
+
+    // Check if we should be culled based on LOD level
+    if (CurrentLODLevel >= 3)
+    {
+        SetVisualizationVisible(false);
+        return;
+    }
+
     SetVisualizationVisible(true);
 
     // Update from linked applicator if available
@@ -114,6 +130,12 @@ void URshipFixtureVisualizer::TickComponent(float DeltaTime, ELevelTick TickType
     {
         CurrentIntensity = LinkedApplicator->GetCurrentIntensity() / LinkedApplicator->MaxIntensity;
         CurrentColor = LinkedApplicator->GetCurrentColor();
+    }
+
+    // Apply color temperature if enabled
+    if (bUseColorTemperature && !bManualColorTemperature)
+    {
+        CurrentColor = FRshipColorTemperature::KelvinToRGB(CurrentColorTemperature);
     }
 
     // Rebuild geometry if needed
@@ -125,6 +147,8 @@ void URshipFixtureVisualizer::TickComponent(float DeltaTime, ELevelTick TickType
 
     // Update material parameters every tick
     UpdateMaterialParameters();
+    UpdateGoboTexture();
+    UpdateIESVisualization();
     UpdateSymbol();
 }
 
@@ -336,7 +360,8 @@ void URshipFixtureVisualizer::UpdateBeamGeometry()
         return;
     }
 
-    int32 Segments = GetSegmentCount();
+    // Use LOD-adjusted segment count for performance
+    int32 Segments = GetSegmentCountForLOD(CurrentLODLevel);
 
     // Generate outer cone
     TArray<FVector> OuterVerts, OuterNormals;
@@ -563,6 +588,7 @@ void URshipFixtureVisualizer::ResetToAutomatic()
 {
     bManualIntensity = false;
     bManualColor = false;
+    bManualColorTemperature = false;
     bManualAngle = false;
     bManualPanTilt = false;
     bManualGobo = false;
@@ -591,6 +617,240 @@ void URshipFixtureVisualizer::SetVisualizationVisible(bool bVisible)
     if (BeamMesh) BeamMesh->SetVisibility(bVisible);
     if (InnerBeamMesh) InnerBeamMesh->SetVisibility(bVisible);
     if (SymbolMesh) SymbolMesh->SetVisibility(bVisible);
+}
+
+void URshipFixtureVisualizer::SetColorTemperature(float Kelvin)
+{
+    CurrentColorTemperature = FMath::Clamp(Kelvin, 1000.0f, 40000.0f);
+    CurrentColor = FRshipColorTemperature::KelvinToRGB(CurrentColorTemperature);
+    bManualColorTemperature = true;
+    bManualColor = true;
+}
+
+int32 URshipFixtureVisualizer::GetSegmentCountForLOD(int32 LODLevel) const
+{
+    int32 BaseSegments = GetSegmentCount();
+
+    switch (LODLevel)
+    {
+        case 0: return BaseSegments;           // Full quality
+        case 1: return FMath::Max(8, BaseSegments / 2);   // Half segments
+        case 2: return FMath::Max(6, BaseSegments / 4);   // Quarter segments
+        default: return 6;                     // Minimum
+    }
+}
+
+void URshipFixtureVisualizer::UpdateLOD()
+{
+    if (LODSettings.Mode == ERshipLODMode::Off)
+    {
+        CurrentLODLevel = 0;
+        return;
+    }
+
+    if (LODSettings.Mode == ERshipLODMode::Forced)
+    {
+        CurrentLODLevel = LODSettings.ForcedLODLevel;
+        return;
+    }
+
+    // Auto LOD based on distance
+    CachedCameraDistance = CalculateCameraDistance();
+
+    int32 PreviousLOD = CurrentLODLevel;
+
+    if (CachedCameraDistance > LODSettings.CullDistance)
+    {
+        CurrentLODLevel = 3;  // Culled
+    }
+    else if (CachedCameraDistance > LODSettings.LOD2Distance)
+    {
+        CurrentLODLevel = 2;
+    }
+    else if (CachedCameraDistance > LODSettings.LOD1Distance)
+    {
+        CurrentLODLevel = 1;
+    }
+    else
+    {
+        CurrentLODLevel = 0;
+    }
+
+    // Trigger rebuild if LOD changed
+    if (PreviousLOD != CurrentLODLevel)
+    {
+        bNeedsRebuild = true;
+    }
+}
+
+float URshipFixtureVisualizer::CalculateCameraDistance() const
+{
+    AActor* Owner = GetOwner();
+    if (!Owner)
+    {
+        return 0.0f;
+    }
+
+    FVector VisualizerLocation = Owner->GetActorLocation();
+
+#if WITH_EDITOR
+    // In editor, use the editor viewport camera
+    if (!GWorld || !GWorld->IsPlayInEditor())
+    {
+        if (GEditor && GEditor->GetActiveViewport())
+        {
+            FEditorViewportClient* ViewportClient = static_cast<FEditorViewportClient*>(GEditor->GetActiveViewport()->GetClient());
+            if (ViewportClient)
+            {
+                FVector CameraLocation = ViewportClient->GetViewLocation();
+                return FVector::Dist(VisualizerLocation, CameraLocation);
+            }
+        }
+    }
+#endif
+
+    // At runtime, use player camera
+    if (GEngine && GetWorld())
+    {
+        APlayerController* PC = GEngine->GetFirstLocalPlayerController(GetWorld());
+        if (PC && PC->PlayerCameraManager)
+        {
+            FVector CameraLocation = PC->PlayerCameraManager->GetCameraLocation();
+            return FVector::Dist(VisualizerLocation, CameraLocation);
+        }
+    }
+
+    return 0.0f;
+}
+
+void URshipFixtureVisualizer::UpdateGoboTexture()
+{
+    if (!GoboSettings.bEnableGobo || !BeamMaterial)
+    {
+        return;
+    }
+
+    // Select gobo texture based on current index
+    UTexture2D* GoboTexture = nullptr;
+    if (CurrentGobo > 0 && CurrentGobo <= GoboSettings.GoboTextures.Num())
+    {
+        GoboTexture = GoboSettings.GoboTextures[CurrentGobo - 1];
+    }
+
+    if (GoboTexture)
+    {
+        BeamMaterial->SetTextureParameterValue(TEXT("GoboTexture"), GoboTexture);
+        BeamMaterial->SetScalarParameterValue(TEXT("GoboRotation"), CurrentGoboRotation * GoboSettings.RotationSpeedMultiplier);
+        BeamMaterial->SetScalarParameterValue(TEXT("GoboSharpness"), GoboSettings.ProjectionSharpness);
+        BeamMaterial->SetScalarParameterValue(TEXT("GoboEnabled"), 1.0f);
+    }
+    else
+    {
+        BeamMaterial->SetScalarParameterValue(TEXT("GoboEnabled"), 0.0f);
+    }
+}
+
+void URshipFixtureVisualizer::UpdateIESVisualization()
+{
+    if (!IESSettings.bEnableIES || !BeamMaterial)
+    {
+        return;
+    }
+
+    if (IESSettings.IESTexture)
+    {
+        BeamMaterial->SetTextureParameterValue(TEXT("IESProfile"), IESSettings.IESTexture);
+        BeamMaterial->SetScalarParameterValue(TEXT("IESIntensity"), IESSettings.IESIntensityMultiplier);
+        BeamMaterial->SetScalarParameterValue(TEXT("IESEnabled"), 1.0f);
+    }
+    else
+    {
+        BeamMaterial->SetScalarParameterValue(TEXT("IESEnabled"), 0.0f);
+    }
+}
+
+// ============================================================================
+// COLOR TEMPERATURE UTILITIES
+// ============================================================================
+
+FLinearColor FRshipColorTemperature::KelvinToRGB(float Kelvin)
+{
+    // Tanner Helland's algorithm for accurate color temperature
+    // Based on black body radiation approximation
+    Kelvin = FMath::Clamp(Kelvin, 1000.0f, 40000.0f);
+    float Temp = Kelvin / 100.0f;
+
+    float Red, Green, Blue;
+
+    // Calculate Red
+    if (Temp <= 66.0f)
+    {
+        Red = 255.0f;
+    }
+    else
+    {
+        Red = Temp - 60.0f;
+        Red = 329.698727446f * FMath::Pow(Red, -0.1332047592f);
+        Red = FMath::Clamp(Red, 0.0f, 255.0f);
+    }
+
+    // Calculate Green
+    if (Temp <= 66.0f)
+    {
+        Green = Temp;
+        Green = 99.4708025861f * FMath::Loge(Green) - 161.1195681661f;
+        Green = FMath::Clamp(Green, 0.0f, 255.0f);
+    }
+    else
+    {
+        Green = Temp - 60.0f;
+        Green = 288.1221695283f * FMath::Pow(Green, -0.0755148492f);
+        Green = FMath::Clamp(Green, 0.0f, 255.0f);
+    }
+
+    // Calculate Blue
+    if (Temp >= 66.0f)
+    {
+        Blue = 255.0f;
+    }
+    else if (Temp <= 19.0f)
+    {
+        Blue = 0.0f;
+    }
+    else
+    {
+        Blue = Temp - 10.0f;
+        Blue = 138.5177312231f * FMath::Loge(Blue) - 305.0447927307f;
+        Blue = FMath::Clamp(Blue, 0.0f, 255.0f);
+    }
+
+    // Convert from 0-255 to 0-1 linear
+    return FLinearColor(Red / 255.0f, Green / 255.0f, Blue / 255.0f, 1.0f);
+}
+
+float FRshipColorTemperature::RGBToKelvin(const FLinearColor& Color)
+{
+    // Approximate inverse - not perfectly accurate but useful for estimation
+    // Based on McCamy's formula for correlated color temperature
+    float X = Color.R;
+    float Y = Color.G;
+    float Z = Color.B;
+
+    // Simplified chromaticity calculation
+    float Sum = X + Y + Z;
+    if (Sum < 0.001f)
+    {
+        return 6500.0f; // Default to daylight
+    }
+
+    float x = X / Sum;
+    float y = Y / Sum;
+
+    // McCamy's CCT formula (approximation)
+    float n = (x - 0.3320f) / (0.1858f - y);
+    float CCT = 449.0f * FMath::Pow(n, 3.0f) + 3525.0f * FMath::Pow(n, 2.0f) + 6823.3f * n + 5520.33f;
+
+    return FMath::Clamp(CCT, 1000.0f, 40000.0f);
 }
 
 // ============================================================================

@@ -7,6 +7,8 @@
 #include "Components/ActorComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "ProceduralMeshComponent.h"
+#include "Engine/Texture2D.h"
+#include "Engine/TextureLightProfile.h"
 #include "RshipPulseReceiver.h"
 #include "RshipFixtureVisualizer.generated.h"
 
@@ -36,6 +38,137 @@ enum class ERshipBeamQuality : uint8
     Medium          UMETA(DisplayName = "Medium (32 segments)"),
     High            UMETA(DisplayName = "High (64 segments)"),
     Ultra           UMETA(DisplayName = "Ultra (128 segments)")
+};
+
+UENUM(BlueprintType)
+enum class ERshipLODMode : uint8
+{
+    Off             UMETA(DisplayName = "Off (Always Full Quality)"),
+    Auto            UMETA(DisplayName = "Auto (Distance-Based)"),
+    Forced          UMETA(DisplayName = "Forced LOD Level")
+};
+
+// ============================================================================
+// COLOR TEMPERATURE UTILITIES
+// ============================================================================
+
+/**
+ * Utility functions for color temperature (Kelvin) conversion.
+ * Based on CIE 1931 2-degree standard observer.
+ */
+struct RSHIPEXEC_API FRshipColorTemperature
+{
+    /**
+     * Convert Kelvin temperature to linear RGB color.
+     * @param Kelvin Color temperature in Kelvin (1000-40000)
+     * @return Linear RGB color
+     */
+    static FLinearColor KelvinToRGB(float Kelvin);
+
+    /**
+     * Estimate Kelvin from RGB color (approximate).
+     * @param Color Linear RGB color
+     * @return Estimated Kelvin temperature
+     */
+    static float RGBToKelvin(const FLinearColor& Color);
+
+    /**
+     * Common color temperature presets (in Kelvin)
+     */
+    static constexpr float Candle = 1850.0f;
+    static constexpr float Tungsten40W = 2600.0f;
+    static constexpr float Tungsten100W = 2850.0f;
+    static constexpr float Halogen = 3200.0f;
+    static constexpr float CarbonArc = 5200.0f;
+    static constexpr float Daylight = 5600.0f;
+    static constexpr float Overcast = 6500.0f;
+    static constexpr float BlueSky = 10000.0f;
+};
+
+// ============================================================================
+// LOD SETTINGS
+// ============================================================================
+
+USTRUCT(BlueprintType)
+struct RSHIPEXEC_API FRshipVisualizationLOD
+{
+    GENERATED_BODY()
+
+    /** LOD mode */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Visualization|LOD")
+    ERshipLODMode Mode = ERshipLODMode::Auto;
+
+    /** Distance for LOD0 (full quality) in units */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Visualization|LOD", meta = (EditCondition = "Mode == ERshipLODMode::Auto"))
+    float LOD0Distance = 1000.0f;
+
+    /** Distance for LOD1 (medium quality) in units */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Visualization|LOD", meta = (EditCondition = "Mode == ERshipLODMode::Auto"))
+    float LOD1Distance = 3000.0f;
+
+    /** Distance for LOD2 (low quality) in units */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Visualization|LOD", meta = (EditCondition = "Mode == ERshipLODMode::Auto"))
+    float LOD2Distance = 6000.0f;
+
+    /** Distance beyond which visualization is hidden */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Visualization|LOD", meta = (EditCondition = "Mode == ERshipLODMode::Auto"))
+    float CullDistance = 15000.0f;
+
+    /** Forced LOD level (0=best, 3=worst) when Mode is Forced */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Visualization|LOD", meta = (EditCondition = "Mode == ERshipLODMode::Forced", ClampMin = "0", ClampMax = "3"))
+    int32 ForcedLODLevel = 0;
+};
+
+// ============================================================================
+// IES PROFILE SETTINGS
+// ============================================================================
+
+USTRUCT(BlueprintType)
+struct RSHIPEXEC_API FRshipIESSettings
+{
+    GENERATED_BODY()
+
+    /** Enable IES profile visualization */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Visualization|IES")
+    bool bEnableIES = true;
+
+    /** IES profile texture (auto-loaded from fixture library if available) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Visualization|IES")
+    UTextureLightProfile* IESTexture = nullptr;
+
+    /** Intensity multiplier for IES visualization */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Visualization|IES", meta = (ClampMin = "0.1", ClampMax = "10.0"))
+    float IESIntensityMultiplier = 1.0f;
+
+    /** Show IES distribution preview in editor */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Visualization|IES")
+    bool bShowIESPreview = false;
+};
+
+// ============================================================================
+// GOBO SETTINGS
+// ============================================================================
+
+USTRUCT(BlueprintType)
+struct RSHIPEXEC_API FRshipGoboSettings
+{
+    GENERATED_BODY()
+
+    /** Enable gobo projection visualization */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Visualization|Gobo")
+    bool bEnableGobo = true;
+
+    /** Array of gobo textures (index 0 = open, 1+ = gobos) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Visualization|Gobo")
+    TArray<UTexture2D*> GoboTextures;
+
+    /** Gobo rotation speed multiplier */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Visualization|Gobo", meta = (ClampMin = "0.0", ClampMax = "10.0"))
+    float RotationSpeedMultiplier = 1.0f;
+
+    /** Gobo projection sharpness */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Visualization|Gobo", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+    float ProjectionSharpness = 0.8f;
 };
 
 // ============================================================================
@@ -166,6 +299,26 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Visualization")
     URshipPulseApplicator* LinkedApplicator;
 
+    /** LOD settings for distance-based quality reduction */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Visualization|LOD")
+    FRshipVisualizationLOD LODSettings;
+
+    /** IES profile visualization settings */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Visualization|IES")
+    FRshipIESSettings IESSettings;
+
+    /** Gobo projection settings */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Visualization|Gobo")
+    FRshipGoboSettings GoboSettings;
+
+    /** Use color temperature (Kelvin) instead of RGB */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Visualization|Color")
+    bool bUseColorTemperature = false;
+
+    /** Default color temperature in Kelvin (used when bUseColorTemperature is true) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Visualization|Color", meta = (EditCondition = "bUseColorTemperature", ClampMin = "1000", ClampMax = "40000"))
+    float DefaultColorTemperature = 5600.0f;
+
     // ========================================================================
     // MANUAL STATE CONTROL
     // ========================================================================
@@ -209,6 +362,22 @@ public:
     /** Get current beam angles */
     UFUNCTION(BlueprintCallable, Category = "Rship|Visualization")
     void GetBeamAngles(float& OuterAngle, float& InnerAngle) const;
+
+    /** Manually set color temperature in Kelvin */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Visualization")
+    void SetColorTemperature(float Kelvin);
+
+    /** Get current color temperature in Kelvin */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Visualization")
+    float GetColorTemperature() const { return CurrentColorTemperature; }
+
+    /** Get current LOD level (0=best, 3=worst/culled) */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Visualization")
+    int32 GetCurrentLODLevel() const { return CurrentLODLevel; }
+
+    /** Get distance to active camera (for LOD calculation) */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Visualization")
+    float GetDistanceToCamera() const { return CachedCameraDistance; }
 
     // ========================================================================
     // VISIBILITY
@@ -262,6 +431,7 @@ private:
     // Current state
     float CurrentIntensity = 0.0f;
     FLinearColor CurrentColor = FLinearColor::White;
+    float CurrentColorTemperature = 5600.0f;
     float CurrentOuterAngle = 30.0f;
     float CurrentInnerAngle = 20.0f;
     float CurrentPan = 0.0f;
@@ -269,9 +439,14 @@ private:
     int32 CurrentGobo = 0;
     float CurrentGoboRotation = 0.0f;
 
+    // LOD state
+    int32 CurrentLODLevel = 0;
+    float CachedCameraDistance = 0.0f;
+
     // Manual override flags
     bool bManualIntensity = false;
     bool bManualColor = false;
+    bool bManualColorTemperature = false;
     bool bManualAngle = false;
     bool bManualPanTilt = false;
     bool bManualGobo = false;
@@ -307,8 +482,23 @@ private:
     // Get segment count from quality setting
     int32 GetSegmentCount() const;
 
+    // Get segment count adjusted for LOD level
+    int32 GetSegmentCountForLOD(int32 LODLevel) const;
+
     // Find linked applicator automatically
     void FindLinkedApplicator();
+
+    // Calculate LOD level based on camera distance
+    void UpdateLOD();
+
+    // Calculate distance to active camera
+    float CalculateCameraDistance() const;
+
+    // Apply gobo texture to beam material
+    void UpdateGoboTexture();
+
+    // Apply IES profile to visualization
+    void UpdateIESVisualization();
 };
 
 // ============================================================================
