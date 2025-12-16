@@ -11,7 +11,7 @@ class URshipTestUtilities;
 
 /**
  * Validation issue item for the panel UI
- * (Wraps FRshipValidationResult for display)
+ * (Wraps FRshipTestIssue for display)
  * Named differently from FRshipValidationIssue in RshipSceneValidator.h to avoid ODR violations
  */
 struct FRshipTestPanelIssue
@@ -24,13 +24,13 @@ struct FRshipTestPanelIssue
 
 	FRshipTestPanelIssue() = default;
 
-	// Convert from validation result
-	FRshipTestPanelIssue(const FRshipValidationResult& Result)
-		: Severity(Result.Severity)
-		, Category(Result.Category)
-		, Message(Result.Message)
-		, Details(Result.Details)
-		, FixSuggestion(Result.SuggestedFix)
+	// Convert from test issue
+	FRshipTestPanelIssue(const FRshipTestIssue& Issue)
+		: Severity(Issue.Severity)
+		, Category(Issue.Category)
+		, Message(Issue.Message)
+		, Details(Issue.Details)
+		, FixSuggestion(Issue.SuggestedFix)
 	{}
 
 	FString GetSeverityString() const

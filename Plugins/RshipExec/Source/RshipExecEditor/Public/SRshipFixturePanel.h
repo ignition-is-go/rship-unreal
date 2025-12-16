@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Widgets/SCompoundWidget.h"
 #include "Widgets/Views/STreeView.h"
+#include "Widgets/Input/SSlider.h"
 
 /**
  * Fixture item for the library tree

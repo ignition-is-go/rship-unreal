@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Widgets/SCompoundWidget.h"
 #include "Widgets/Views/SListView.h"
+#include "Widgets/Notifications/SProgressBar.h"
 #include "RshipAssetStoreClient.h"  // For ERshipAssetType and URshipAssetStoreClient
 
 // Note: ERshipAssetType is defined in RshipAssetStoreClient.h as a UENUM
