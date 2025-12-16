@@ -2,7 +2,6 @@
 	"FileVersion": 3,
 	"Version": 1,
 	"VersionName": "1.0.0",
-	"EngineVersion": "5.7.0",
 	"FriendlyName": "Rship Executor",
 	"Description": "Core Rocketship executor for Unreal Engine - WebSocket client, targets, emitters, actions, fixture control, material/Niagara bindings, and sequencer sync",
 	"Category": "Rocketship",

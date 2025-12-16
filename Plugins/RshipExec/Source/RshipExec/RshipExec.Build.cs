@@ -14,8 +14,10 @@ public class RshipExec : ModuleRules
 		PrecompileForTargets = PrecompileTargetsType.Any;
 
 		// Memory optimization: Use unity builds to reduce parallel compile memory pressure
+		// Higher grouping = fewer parallel compiles = less memory needed
 		bUseUnity = true;
-		MinSourceFilesForUnityBuildOverride = 8; // Group more files to reduce memory (RshipExec has many files)
+		MinSourceFilesForUnityBuildOverride = 16; // Group more files to reduce memory (RshipExec has many files)
+		NumIncludedBytesPerUnityCPPOverride = 1048576; // 1MB per unity file
 
 		// Check if IXWebSocket is available (bundled as submodule)
 		string IXWebSocketPath = Path.Combine(ModuleDirectory, "ThirdParty", "IXWebSocket", "ixwebsocket");
