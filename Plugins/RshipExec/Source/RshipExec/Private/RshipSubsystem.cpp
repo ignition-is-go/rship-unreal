@@ -690,7 +690,7 @@ void URshipSubsystem::ProcessMessage(const FString &message)
     TSharedRef<FJsonObject> objRef = obj.ToSharedRef();
 
     FString type = objRef->GetStringField(TEXT("event"));
-    UE_LOG(LogRshipExec, Verbose, TEXT("Received Event %s"), *type);
+    UE_LOG(LogRshipExec, Log, TEXT("Received message: event=%s"), *type);
 
     if (type == "ws:m:command")
     {
@@ -765,16 +765,19 @@ void URshipSubsystem::ProcessMessage(const FString &message)
         }
         obj.Reset();
     }
-    else if (type == "ws:m:set" || type == "ws:m:del")
+    else if (type == "ws:m:event")
     {
         // Entity event - route to appropriate manager
-        bool bIsDelete = (type == "ws:m:del");
+        // Myko protocol: { event: "ws:m:event", data: { changeType: "SET"|"DEL", itemType, item, tx, createdAt } }
         TSharedPtr<FJsonObject> data = obj->GetObjectField(TEXT("data"));
 
         if (!data.IsValid())
         {
             return;
         }
+
+        FString changeType = data->GetStringField(TEXT("changeType"));
+        bool bIsDelete = (changeType == TEXT("DEL"));
 
         FString itemType = data->GetStringField(TEXT("itemType"));
         TSharedPtr<FJsonObject> item = data->GetObjectField(TEXT("item"));
@@ -784,7 +787,7 @@ void URshipSubsystem::ProcessMessage(const FString &message)
             return;
         }
 
-        UE_LOG(LogRshipExec, Verbose, TEXT("Entity event: %s %s"), *type, *itemType);
+        UE_LOG(LogRshipExec, Log, TEXT("Entity event: %s %s"), *changeType, *itemType);
 
         // Route to fixture manager
         if (itemType == TEXT("Fixture"))
