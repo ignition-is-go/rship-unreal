@@ -17,6 +17,21 @@ class URshipSubsystem;
 class URshipPulseReceiver;
 
 // ============================================================================
+// LIVE LINK MODE
+// ============================================================================
+
+/**
+ * Mode for LiveLink service data flow direction
+ */
+UENUM(BlueprintType)
+enum class ERshipLiveLinkMode : uint8
+{
+    Consume         UMETA(DisplayName = "Consume (rship -> LiveLink)"),    // rship pulses become LiveLink subjects (current)
+    Publish         UMETA(DisplayName = "Publish (LiveLink -> rship)"),    // LiveLink subjects become rship emitters (new)
+    Bidirectional   UMETA(DisplayName = "Bidirectional")                   // Both directions
+};
+
+// ============================================================================
 // LIVE LINK SUBJECT TYPES
 // ============================================================================
 
@@ -219,11 +234,53 @@ struct RSHIPEXEC_API FRshipLiveLinkAnimationConfig
 };
 
 // ============================================================================
+// EMITTER MAPPING (LiveLink -> rship)
+// ============================================================================
+
+/**
+ * Configuration for publishing a LiveLink subject to rship as an emitter
+ */
+USTRUCT(BlueprintType)
+struct RSHIPEXEC_API FRshipLiveLinkEmitterMapping
+{
+    GENERATED_BODY()
+
+    /** LiveLink subject name to subscribe to */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|LiveLink")
+    FName SubjectName;
+
+    /** rship Target ID to publish under */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|LiveLink")
+    FString TargetId = TEXT("UE_LiveLink");
+
+    /** rship Emitter ID (will be SubjectName if empty) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|LiveLink")
+    FString EmitterId;
+
+    /** Publish rate limit (Hz, 0 = every frame) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|LiveLink", meta = (ClampMin = "0.0", ClampMax = "120.0"))
+    float PublishRateHz = 30.0f;
+
+    /** Whether this mapping is enabled */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|LiveLink")
+    bool bEnabled = true;
+
+    // Runtime state
+    double LastPublishTime = 0.0;
+
+    FString GetEffectiveEmitterId() const
+    {
+        return EmitterId.IsEmpty() ? SubjectName.ToString() : EmitterId;
+    }
+};
+
+// ============================================================================
 // DELEGATES
 // ============================================================================
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnLiveLinkSubjectUpdated, FName, SubjectName, FTransform, Transform);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnLiveLinkSourceError, const FString&, ErrorMessage);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnLiveLinkEmitterPublished, FName, SubjectName, const FString&, EmitterId);
 
 // ============================================================================
 // LIVE LINK SOURCE (Internal)
@@ -370,6 +427,46 @@ public:
     void UpdateLight(FName SubjectName, FTransform Transform, float Intensity, FLinearColor Color);
 
     // ========================================================================
+    // MODE CONTROL (BIDIRECTIONAL)
+    // ========================================================================
+
+    /** Set the LiveLink mode (Consume/Publish/Bidirectional) */
+    UFUNCTION(BlueprintCallable, Category = "Rship|LiveLink")
+    void SetMode(ERshipLiveLinkMode NewMode);
+
+    /** Get the current mode */
+    UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Rship|LiveLink")
+    ERshipLiveLinkMode GetMode() const { return CurrentMode; }
+
+    // ========================================================================
+    // EMITTER PUBLISHING (LiveLink -> rship)
+    // ========================================================================
+
+    /** Add a subject-to-emitter mapping (publish LiveLink subject to rship) */
+    UFUNCTION(BlueprintCallable, Category = "Rship|LiveLink")
+    void AddEmitterMapping(const FRshipLiveLinkEmitterMapping& Mapping);
+
+    /** Remove an emitter mapping by subject name */
+    UFUNCTION(BlueprintCallable, Category = "Rship|LiveLink")
+    void RemoveEmitterMapping(FName SubjectName);
+
+    /** Get all emitter mappings */
+    UFUNCTION(BlueprintCallable, Category = "Rship|LiveLink")
+    TArray<FRshipLiveLinkEmitterMapping> GetAllEmitterMappings() const;
+
+    /** Clear all emitter mappings */
+    UFUNCTION(BlueprintCallable, Category = "Rship|LiveLink")
+    void ClearAllEmitterMappings();
+
+    /** Get available LiveLink subjects (for UI population) */
+    UFUNCTION(BlueprintCallable, Category = "Rship|LiveLink")
+    TArray<FName> GetAvailableLiveLinkSubjects() const;
+
+    /** Auto-create emitter mappings for all available subjects */
+    UFUNCTION(BlueprintCallable, Category = "Rship|LiveLink")
+    int32 CreateEmitterMappingsForAllSubjects();
+
+    // ========================================================================
     // EVENTS
     // ========================================================================
 
@@ -379,6 +476,9 @@ public:
     UPROPERTY(BlueprintAssignable, Category = "Rship|LiveLink")
     FOnLiveLinkSourceError OnError;
 
+    UPROPERTY(BlueprintAssignable, Category = "Rship|LiveLink")
+    FOnLiveLinkEmitterPublished OnEmitterPublished;
+
 private:
     UPROPERTY()
     URshipSubsystem* Subsystem;
@@ -387,6 +487,10 @@ private:
 
     TMap<FName, FRshipLiveLinkSubjectConfig> SubjectConfigs;
     TMap<FName, FRshipLiveLinkAnimationConfig> AnimationConfigs;
+
+    // Mode and emitter publishing
+    ERshipLiveLinkMode CurrentMode = ERshipLiveLinkMode::Consume;
+    TMap<FName, FRshipLiveLinkEmitterMapping> EmitterMappings;
 
     FDelegateHandle PulseHandle;
 
@@ -400,4 +504,8 @@ private:
 
     void UpdateSubjectFromPulse(FRshipLiveLinkSubjectConfig& Config, TSharedPtr<FJsonObject> Data);
     void ApplySmoothing(FRshipLiveLinkSubjectConfig& Config, float DeltaTime);
+
+    // Emitter publishing
+    void PublishEmitterMappings();
+    void PublishSubjectToRship(FRshipLiveLinkEmitterMapping& Mapping);
 };

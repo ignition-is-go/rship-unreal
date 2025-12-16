@@ -232,13 +232,22 @@ void URshipLiveLinkService::Shutdown()
 
 void URshipLiveLinkService::Tick(float DeltaTime)
 {
-    // Apply smoothing to all subjects
-    for (auto& Pair : SubjectConfigs)
+    // Apply smoothing to all subjects (Consume mode)
+    if (CurrentMode == ERshipLiveLinkMode::Consume || CurrentMode == ERshipLiveLinkMode::Bidirectional)
     {
-        if (Pair.Value.bEnabled && Pair.Value.Smoothing > 0.0f)
+        for (auto& Pair : SubjectConfigs)
         {
-            ApplySmoothing(Pair.Value, DeltaTime);
+            if (Pair.Value.bEnabled && Pair.Value.Smoothing > 0.0f)
+            {
+                ApplySmoothing(Pair.Value, DeltaTime);
+            }
         }
+    }
+
+    // Publish LiveLink subjects to rship (Publish mode)
+    if (CurrentMode == ERshipLiveLinkMode::Publish || CurrentMode == ERshipLiveLinkMode::Bidirectional)
+    {
+        PublishEmitterMappings();
     }
 }
 
@@ -766,4 +775,247 @@ void URshipLiveLinkService::UpdateLight(FName SubjectName, FTransform Transform,
     {
         Source->UpdateLightSubject(SubjectName, Transform, Intensity, Color, 6500.0f, FPlatformTime::Seconds());
     }
+}
+
+// ============================================================================
+// MODE CONTROL (BIDIRECTIONAL)
+// ============================================================================
+
+void URshipLiveLinkService::SetMode(ERshipLiveLinkMode NewMode)
+{
+    if (CurrentMode == NewMode) return;
+
+    ERshipLiveLinkMode OldMode = CurrentMode;
+    CurrentMode = NewMode;
+
+    UE_LOG(LogRshipLiveLink, Log, TEXT("LiveLink mode changed from %d to %d"),
+           static_cast<int32>(OldMode), static_cast<int32>(NewMode));
+
+    // If switching to Consume mode, make sure we're bound to pulse receiver
+    if (NewMode == ERshipLiveLinkMode::Consume || NewMode == ERshipLiveLinkMode::Bidirectional)
+    {
+        if (IsSourceActive())
+        {
+            BindToPulseReceiver();
+        }
+    }
+}
+
+// ============================================================================
+// EMITTER PUBLISHING (LiveLink -> rship)
+// ============================================================================
+
+void URshipLiveLinkService::AddEmitterMapping(const FRshipLiveLinkEmitterMapping& Mapping)
+{
+    EmitterMappings.Add(Mapping.SubjectName, Mapping);
+    UE_LOG(LogRshipLiveLink, Log, TEXT("Added emitter mapping: %s -> %s/%s"),
+           *Mapping.SubjectName.ToString(), *Mapping.TargetId, *Mapping.GetEffectiveEmitterId());
+}
+
+void URshipLiveLinkService::RemoveEmitterMapping(FName SubjectName)
+{
+    EmitterMappings.Remove(SubjectName);
+    UE_LOG(LogRshipLiveLink, Log, TEXT("Removed emitter mapping: %s"), *SubjectName.ToString());
+}
+
+TArray<FRshipLiveLinkEmitterMapping> URshipLiveLinkService::GetAllEmitterMappings() const
+{
+    TArray<FRshipLiveLinkEmitterMapping> Result;
+    for (const auto& Pair : EmitterMappings)
+    {
+        Result.Add(Pair.Value);
+    }
+    return Result;
+}
+
+void URshipLiveLinkService::ClearAllEmitterMappings()
+{
+    EmitterMappings.Empty();
+    UE_LOG(LogRshipLiveLink, Log, TEXT("Cleared all emitter mappings"));
+}
+
+TArray<FName> URshipLiveLinkService::GetAvailableLiveLinkSubjects() const
+{
+    TArray<FName> Result;
+
+    IModularFeatures& ModularFeatures = IModularFeatures::Get();
+    if (!ModularFeatures.IsModularFeatureAvailable(ILiveLinkClient::ModularFeatureName))
+    {
+        return Result;
+    }
+
+    ILiveLinkClient& Client = ModularFeatures.GetModularFeature<ILiveLinkClient>(ILiveLinkClient::ModularFeatureName);
+
+    TArray<FLiveLinkSubjectKey> SubjectKeys = Client.GetSubjects(true, true);
+    for (const FLiveLinkSubjectKey& Key : SubjectKeys)
+    {
+        Result.Add(Key.SubjectName);
+    }
+
+    return Result;
+}
+
+int32 URshipLiveLinkService::CreateEmitterMappingsForAllSubjects()
+{
+    TArray<FName> Subjects = GetAvailableLiveLinkSubjects();
+    int32 Count = 0;
+
+    for (const FName& SubjectName : Subjects)
+    {
+        if (!EmitterMappings.Contains(SubjectName))
+        {
+            FRshipLiveLinkEmitterMapping Mapping;
+            Mapping.SubjectName = SubjectName;
+            Mapping.TargetId = TEXT("UE_LiveLink");
+            Mapping.EmitterId = SubjectName.ToString();
+            Mapping.PublishRateHz = 30.0f;
+            Mapping.bEnabled = true;
+
+            AddEmitterMapping(Mapping);
+            Count++;
+        }
+    }
+
+    UE_LOG(LogRshipLiveLink, Log, TEXT("Created %d emitter mappings from available subjects"), Count);
+    return Count;
+}
+
+void URshipLiveLinkService::PublishEmitterMappings()
+{
+    if (!Subsystem) return;
+
+    for (auto& Pair : EmitterMappings)
+    {
+        FRshipLiveLinkEmitterMapping& Mapping = Pair.Value;
+        if (!Mapping.bEnabled) continue;
+
+        // Rate limiting
+        double Now = FPlatformTime::Seconds();
+        if (Mapping.PublishRateHz > 0.0f)
+        {
+            double MinInterval = 1.0 / Mapping.PublishRateHz;
+            if (Now - Mapping.LastPublishTime < MinInterval)
+            {
+                continue;
+            }
+        }
+
+        PublishSubjectToRship(Mapping);
+        Mapping.LastPublishTime = Now;
+    }
+}
+
+void URshipLiveLinkService::PublishSubjectToRship(FRshipLiveLinkEmitterMapping& Mapping)
+{
+    IModularFeatures& ModularFeatures = IModularFeatures::Get();
+    if (!ModularFeatures.IsModularFeatureAvailable(ILiveLinkClient::ModularFeatureName))
+    {
+        return;
+    }
+
+    ILiveLinkClient& Client = ModularFeatures.GetModularFeature<ILiveLinkClient>(ILiveLinkClient::ModularFeatureName);
+
+    // Get the subject data
+    FLiveLinkSubjectFrameData FrameData;
+    if (!Client.EvaluateFrame_AnyThread(Mapping.SubjectName, ULiveLinkTransformRole::StaticClass(), FrameData))
+    {
+        // Try camera role
+        if (!Client.EvaluateFrame_AnyThread(Mapping.SubjectName, ULiveLinkCameraRole::StaticClass(), FrameData))
+        {
+            // Try light role
+            if (!Client.EvaluateFrame_AnyThread(Mapping.SubjectName, ULiveLinkLightRole::StaticClass(), FrameData))
+            {
+                return; // No valid data
+            }
+        }
+    }
+
+    // Build pulse data from frame data
+    TSharedPtr<FJsonObject> PulseData = MakeShared<FJsonObject>();
+
+    // Extract transform if available
+    if (FrameData.FrameData.IsValid())
+    {
+        FLiveLinkBaseFrameData* BaseData = FrameData.FrameData.GetBaseData();
+        if (BaseData)
+        {
+            // Try to get transform data
+            if (FLiveLinkTransformFrameData* TransformData = FrameData.FrameData.Cast<FLiveLinkTransformFrameData>())
+            {
+                FVector Location = TransformData->Transform.GetLocation();
+                FRotator Rotation = TransformData->Transform.Rotator();
+                FVector Scale = TransformData->Transform.GetScale3D();
+
+                TSharedPtr<FJsonObject> PositionObj = MakeShared<FJsonObject>();
+                PositionObj->SetNumberField(TEXT("x"), Location.X);
+                PositionObj->SetNumberField(TEXT("y"), Location.Y);
+                PositionObj->SetNumberField(TEXT("z"), Location.Z);
+                PulseData->SetObjectField(TEXT("position"), PositionObj);
+
+                TSharedPtr<FJsonObject> RotationObj = MakeShared<FJsonObject>();
+                RotationObj->SetNumberField(TEXT("pitch"), Rotation.Pitch);
+                RotationObj->SetNumberField(TEXT("yaw"), Rotation.Yaw);
+                RotationObj->SetNumberField(TEXT("roll"), Rotation.Roll);
+                PulseData->SetObjectField(TEXT("rotation"), RotationObj);
+
+                TSharedPtr<FJsonObject> ScaleObj = MakeShared<FJsonObject>();
+                ScaleObj->SetNumberField(TEXT("x"), Scale.X);
+                ScaleObj->SetNumberField(TEXT("y"), Scale.Y);
+                ScaleObj->SetNumberField(TEXT("z"), Scale.Z);
+                PulseData->SetObjectField(TEXT("scale"), ScaleObj);
+            }
+            else if (FLiveLinkCameraFrameData* CameraData = FrameData.FrameData.Cast<FLiveLinkCameraFrameData>())
+            {
+                FVector Location = CameraData->Transform.GetLocation();
+                FRotator Rotation = CameraData->Transform.Rotator();
+
+                TSharedPtr<FJsonObject> PositionObj = MakeShared<FJsonObject>();
+                PositionObj->SetNumberField(TEXT("x"), Location.X);
+                PositionObj->SetNumberField(TEXT("y"), Location.Y);
+                PositionObj->SetNumberField(TEXT("z"), Location.Z);
+                PulseData->SetObjectField(TEXT("position"), PositionObj);
+
+                TSharedPtr<FJsonObject> RotationObj = MakeShared<FJsonObject>();
+                RotationObj->SetNumberField(TEXT("pitch"), Rotation.Pitch);
+                RotationObj->SetNumberField(TEXT("yaw"), Rotation.Yaw);
+                RotationObj->SetNumberField(TEXT("roll"), Rotation.Roll);
+                PulseData->SetObjectField(TEXT("rotation"), RotationObj);
+
+                PulseData->SetNumberField(TEXT("fov"), CameraData->FieldOfView);
+                PulseData->SetNumberField(TEXT("focusDistance"), CameraData->FocusDistance);
+                PulseData->SetNumberField(TEXT("aperture"), CameraData->Aperture);
+            }
+            else if (FLiveLinkLightFrameData* LightData = FrameData.FrameData.Cast<FLiveLinkLightFrameData>())
+            {
+                FVector Location = LightData->Transform.GetLocation();
+                FRotator Rotation = LightData->Transform.Rotator();
+
+                TSharedPtr<FJsonObject> PositionObj = MakeShared<FJsonObject>();
+                PositionObj->SetNumberField(TEXT("x"), Location.X);
+                PositionObj->SetNumberField(TEXT("y"), Location.Y);
+                PositionObj->SetNumberField(TEXT("z"), Location.Z);
+                PulseData->SetObjectField(TEXT("position"), PositionObj);
+
+                TSharedPtr<FJsonObject> RotationObj = MakeShared<FJsonObject>();
+                RotationObj->SetNumberField(TEXT("pitch"), Rotation.Pitch);
+                RotationObj->SetNumberField(TEXT("yaw"), Rotation.Yaw);
+                RotationObj->SetNumberField(TEXT("roll"), Rotation.Roll);
+                PulseData->SetObjectField(TEXT("rotation"), RotationObj);
+
+                PulseData->SetNumberField(TEXT("intensity"), LightData->Intensity);
+                PulseData->SetNumberField(TEXT("temperature"), LightData->Temperature);
+
+                TSharedPtr<FJsonObject> ColorObj = MakeShared<FJsonObject>();
+                FLinearColor LinearColor(LightData->LightColor);
+                ColorObj->SetNumberField(TEXT("r"), LinearColor.R);
+                ColorObj->SetNumberField(TEXT("g"), LinearColor.G);
+                ColorObj->SetNumberField(TEXT("b"), LinearColor.B);
+                PulseData->SetObjectField(TEXT("color"), ColorObj);
+            }
+        }
+    }
+
+    // Publish via subsystem
+    Subsystem->PulseEmitter(Mapping.TargetId, Mapping.GetEffectiveEmitterId(), PulseData);
+    OnEmitterPublished.Broadcast(Mapping.SubjectName, Mapping.GetEffectiveEmitterId());
 }
