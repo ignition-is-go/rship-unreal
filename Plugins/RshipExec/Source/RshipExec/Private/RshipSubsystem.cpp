@@ -1329,8 +1329,7 @@ void URshipSubsystem::SendJson(TSharedPtr<FJsonObject> Payload)
 
 void URshipSubsystem::SetItem(FString itemType, TSharedPtr<FJsonObject> data, ERshipMessagePriority Priority, const FString& CoalesceKey)
 {
-    // MakeSet already produces the complete event format with event: "ws:m:event"
-    // Do NOT double-wrap with WrapWSEvent
+    // MakeSet produces the complete WSMEvent format: { event: "ws:m:event", data: { itemType, changeType, item, tx, createdAt } }
     TSharedPtr<FJsonObject> payload = MakeSet(itemType, data);
 
     // Determine message type for coalescing

@@ -21,34 +21,36 @@ FString GetIso8601Timestamp()
 
 TSharedPtr<FJsonObject> MakeSet(FString itemType, TSharedPtr<FJsonObject> data)
 {
+    // Inner event data object (matches myko MEvent structure)
+    TSharedPtr<FJsonObject> eventData = MakeShareable(new FJsonObject);
+    eventData->SetStringField(TEXT("changeType"), TEXT("SET"));
+    eventData->SetStringField(TEXT("itemType"), itemType);
+    eventData->SetObjectField(TEXT("item"), data);
+    eventData->SetStringField(TEXT("tx"), GenerateTransactionId());
+    eventData->SetStringField(TEXT("createdAt"), GetIso8601Timestamp());
+
+    // Outer wrapper (matches myko WSMEvent structure: { event: "ws:m:event", data: MEvent })
     TSharedPtr<FJsonObject> payload = MakeShareable(new FJsonObject);
     payload->SetStringField(TEXT("event"), TEXT("ws:m:event"));
-    payload->SetStringField(TEXT("changeType"), TEXT("SET"));
-    payload->SetStringField(TEXT("itemType"), itemType);
-    payload->SetObjectField(TEXT("item"), data);
-
-    // Add transaction ID for event tracking/deduplication (myko protocol requirement)
-    payload->SetStringField(TEXT("tx"), GenerateTransactionId());
-
-    // Add timestamp for event ordering (myko protocol requirement)
-    payload->SetStringField(TEXT("createdAt"), GetIso8601Timestamp());
+    payload->SetObjectField(TEXT("data"), eventData);
 
     return payload;
 }
 
 TSharedPtr<FJsonObject> MakeDel(FString itemType, TSharedPtr<FJsonObject> data)
 {
+    // Inner event data object (matches myko MEvent structure)
+    TSharedPtr<FJsonObject> eventData = MakeShareable(new FJsonObject);
+    eventData->SetStringField(TEXT("changeType"), TEXT("DEL"));
+    eventData->SetStringField(TEXT("itemType"), itemType);
+    eventData->SetObjectField(TEXT("item"), data);
+    eventData->SetStringField(TEXT("tx"), GenerateTransactionId());
+    eventData->SetStringField(TEXT("createdAt"), GetIso8601Timestamp());
+
+    // Outer wrapper (matches myko WSMEvent structure: { event: "ws:m:event", data: MEvent })
     TSharedPtr<FJsonObject> payload = MakeShareable(new FJsonObject);
     payload->SetStringField(TEXT("event"), TEXT("ws:m:event"));
-    payload->SetStringField(TEXT("changeType"), TEXT("DEL"));
-    payload->SetStringField(TEXT("itemType"), itemType);
-    payload->SetObjectField(TEXT("item"), data);
-
-    // Add transaction ID for event tracking/deduplication (myko protocol requirement)
-    payload->SetStringField(TEXT("tx"), GenerateTransactionId());
-
-    // Add timestamp for event ordering (myko protocol requirement)
-    payload->SetStringField(TEXT("createdAt"), GetIso8601Timestamp());
+    payload->SetObjectField(TEXT("data"), eventData);
 
     return payload;
 }
