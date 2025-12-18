@@ -163,67 +163,79 @@ void URshipTargetComponent::Register()
         }
     }
 
-    for (TFieldIterator<FMulticastInlineDelegateProperty> It(ownerClass, EFieldIteratorFlags::ExcludeSuper); It; ++It)
-    {
-        FMulticastInlineDelegateProperty *EmitterProp = *It;
-        FString EmitterName = EmitterProp->GetName();
-        FName EmitterType = EmitterProp->GetClass()->GetFName();
-
-        UE_LOG(LogRshipExec, Log, TEXT("Emitter: %s, Type: %s"), *EmitterName, *EmitterType.ToString());
-
-        if (!EmitterName.StartsWith("RS_"))
+    // Helper lambda to register emitters from a class/object pair
+    auto RegisterEmittersFromObject = [&](UClass* targetClass, UObject* targetObject) {
+        for (TFieldIterator<FMulticastInlineDelegateProperty> It(targetClass, EFieldIteratorFlags::ExcludeSuper); It; ++It)
         {
-            continue;
-        }
+            FMulticastInlineDelegateProperty *EmitterProp = *It;
+            FString EmitterName = EmitterProp->GetName();
+            FName EmitterType = EmitterProp->GetClass()->GetFName();
 
-        auto emitters = this->TargetData->GetEmitters();
+            UE_LOG(LogRshipExec, Log, TEXT("Emitter: %s, Type: %s"), *EmitterName, *EmitterType.ToString());
 
-        FString fullEmitterId = fullTargetId + ":" + EmitterName;
+            if (!EmitterName.StartsWith("RS_"))
+            {
+                continue;
+            }
 
-        auto emitter = new EmitterContainer(fullEmitterId, EmitterName, EmitterProp);
-        this->TargetData->AddEmitter(emitter);
+            auto emitters = this->TargetData->GetEmitters();
 
-        FMulticastScriptDelegate EmitterDelegate = EmitterProp->GetPropertyValue_InContainer(parent);
+            FString fullEmitterId = fullTargetId + ":" + EmitterName;
 
-        TScriptDelegate localDelegate;
+            auto emitter = new EmitterContainer(fullEmitterId, EmitterName, EmitterProp);
+            this->TargetData->AddEmitter(emitter);
 
-        auto world = GetWorld();
+            FMulticastScriptDelegate EmitterDelegate = EmitterProp->GetPropertyValue_InContainer(targetObject);
 
-        if (!world)
-        {
-            UE_LOG(LogRshipExec, Warning, TEXT("World Not Found"));
-            return;
-        }
+            TScriptDelegate localDelegate;
 
-        FActorSpawnParameters spawnInfo;
-        spawnInfo.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-        spawnInfo.Owner = parent;
-        spawnInfo.bNoFail = true;
-        spawnInfo.bDeferConstruction = false;
-        spawnInfo.bAllowDuringConstructionScript = true;
+            auto world = GetWorld();
 
-        if (this->EmitterHandlers.Contains(EmitterName))
-        {
-            return;
-        }
+            if (!world)
+            {
+                UE_LOG(LogRshipExec, Warning, TEXT("World Not Found"));
+                return;
+            }
 
-        AEmitterHandler *handler = world->SpawnActor<AEmitterHandler>(spawnInfo);
+            FActorSpawnParameters spawnInfo;
+            spawnInfo.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+            spawnInfo.Owner = parent;
+            spawnInfo.bNoFail = true;
+            spawnInfo.bDeferConstruction = false;
+            spawnInfo.bAllowDuringConstructionScript = true;
+
+            if (this->EmitterHandlers.Contains(EmitterName))
+            {
+                return;
+            }
+
+            AEmitterHandler *handler = world->SpawnActor<AEmitterHandler>(spawnInfo);
 #if WITH_EDITOR
-        handler->SetActorLabel(parent->GetActorLabel() + " " + EmitterName + " Handler");
+            handler->SetActorLabel(parent->GetActorLabel() + " " + EmitterName + " Handler");
 #endif
 
-        handler->SetServiceId(subsystem->GetServiceId());
-        handler->SetTargetId(fullTargetId);
-        handler->SetEmitterId(EmitterName);
-        handler->SetDelegate(&localDelegate);
+            handler->SetServiceId(subsystem->GetServiceId());
+            handler->SetTargetId(fullTargetId);
+            handler->SetEmitterId(EmitterName);
+            handler->SetDelegate(&localDelegate);
 
-        localDelegate.BindUFunction(handler, TEXT("ProcessEmitter"));
+            localDelegate.BindUFunction(handler, TEXT("ProcessEmitter"));
 
-        EmitterDelegate.Add(localDelegate);
+            EmitterDelegate.Add(localDelegate);
 
-        EmitterProp->SetPropertyValue_InContainer(parent, EmitterDelegate);
+            EmitterProp->SetPropertyValue_InContainer(targetObject, EmitterDelegate);
 
-        this->EmitterHandlers.Add(EmitterName, handler);
+            this->EmitterHandlers.Add(EmitterName, handler);
+        }
+    };
+
+    // Register emitters from owner actor
+    RegisterEmittersFromObject(ownerClass, parent);
+
+    // Register emitters from sibling components
+    for (UActorComponent* sibling : siblingComponents) {
+        UClass* siblingClass = sibling->GetClass();
+        RegisterEmittersFromObject(siblingClass, sibling);
     }
 
     subsystem->SendAll();
