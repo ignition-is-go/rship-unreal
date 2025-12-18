@@ -209,6 +209,8 @@ int32 FRshipWebSocket::GetPendingSendCount() const
 
 void FRshipWebSocket::SetupIXWebSocket(const FRshipWebSocketConfig& Config)
 {
+    UE_LOG(LogRshipExec, Log, TEXT("RshipWebSocket: Setting up IXWebSocket for %s"), *CurrentUrl);
+
     IXSocket = MakeUnique<ix::WebSocket>();
 
     // Configure URL
@@ -218,12 +220,14 @@ void FRshipWebSocket::SetupIXWebSocket(const FRshipWebSocketConfig& Config)
     // Disable compression for low latency
     if (Config.bDisableCompression)
     {
+        UE_LOG(LogRshipExec, Log, TEXT("RshipWebSocket: Disabling perMessageDeflate compression"));
         IXSocket->disablePerMessageDeflate();
     }
 
     // Set ping interval
     if (Config.PingIntervalSeconds > 0)
     {
+        UE_LOG(LogRshipExec, Log, TEXT("RshipWebSocket: Setting ping interval to %d seconds"), Config.PingIntervalSeconds);
         IXSocket->setPingInterval(Config.PingIntervalSeconds);
     }
 
@@ -241,6 +245,8 @@ void FRshipWebSocket::SetupIXWebSocket(const FRshipWebSocketConfig& Config)
 
     // Set handshake timeout
     IXSocket->setHandshakeTimeout(Config.HandshakeTimeoutSeconds);
+    UE_LOG(LogRshipExec, Log, TEXT("RshipWebSocket: Configuration complete (compression=%d, ping=%ds, autoReconnect=%d)"),
+        !Config.bDisableCompression, Config.PingIntervalSeconds, Config.bAutoReconnect);
 
     // Set message callback
     IXSocket->setOnMessageCallback([this](const ix::WebSocketMessagePtr& msg)
@@ -249,9 +255,11 @@ void FRshipWebSocket::SetupIXWebSocket(const FRshipWebSocketConfig& Config)
         {
         case ix::WebSocketMessageType::Open:
             bIsConnected = true;
-            UE_LOG(LogRshipExec, Log, TEXT("RshipWebSocket: Connected"));
+            UE_LOG(LogRshipExec, Log, TEXT("RshipWebSocket: Connected (IXWebSocket Open event received, readyState=%d)"),
+                (int)IXSocket->getReadyState());
             AsyncTask(ENamedThreads::GameThread, [this]()
             {
+                UE_LOG(LogRshipExec, Log, TEXT("RshipWebSocket: Firing OnConnected delegate on game thread"));
                 OnConnected.ExecuteIfBound();
             });
             break;
@@ -287,6 +295,7 @@ void FRshipWebSocket::SetupIXWebSocket(const FRshipWebSocketConfig& Config)
         case ix::WebSocketMessageType::Message:
             {
                 FString Message = UTF8_TO_TCHAR(msg->str.c_str());
+                UE_LOG(LogRshipExec, Log, TEXT("RshipWebSocket: Received message (%d bytes)"), Message.Len());
 
                 AsyncTask(ENamedThreads::GameThread, [this, Message]()
                 {
@@ -296,7 +305,11 @@ void FRshipWebSocket::SetupIXWebSocket(const FRshipWebSocketConfig& Config)
             break;
 
         case ix::WebSocketMessageType::Ping:
+            UE_LOG(LogRshipExec, Verbose, TEXT("RshipWebSocket: Ping received"));
+            break;
         case ix::WebSocketMessageType::Pong:
+            UE_LOG(LogRshipExec, Verbose, TEXT("RshipWebSocket: Pong received"));
+            break;
         case ix::WebSocketMessageType::Fragment:
             // Handled automatically
             break;
@@ -304,7 +317,9 @@ void FRshipWebSocket::SetupIXWebSocket(const FRshipWebSocketConfig& Config)
     });
 
     // Start connection
+    UE_LOG(LogRshipExec, Log, TEXT("RshipWebSocket: Calling IXSocket->start() to begin connection..."));
     IXSocket->start();
+    UE_LOG(LogRshipExec, Log, TEXT("RshipWebSocket: IXSocket->start() returned (connection initiated asynchronously)"));
 }
 
 #else

@@ -91,6 +91,7 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     TSharedPtr<IWebSocket> WebSocket;                    // Standard UE WebSocket
     TSharedPtr<FRshipWebSocket> HighPerfWebSocket;       // High-performance WebSocket
     bool bUsingHighPerfWebSocket;                        // Which one is active
+    bool bPingResponseReceived = false;                  // Diagnostic: tracks if ping response came back
 
     FString InstanceId;
     FString ServiceId;

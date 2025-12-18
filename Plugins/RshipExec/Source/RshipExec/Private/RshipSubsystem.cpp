@@ -355,6 +355,36 @@ void URshipSubsystem::OnWebSocketConnected()
         World->GetTimerManager().ClearTimer(ConnectionTimeoutHandle);
     }
 
+    // DIAGNOSTIC: Send a ping immediately to verify WebSocket send path works
+    // The server will echo this back as ws:m:ping - if we receive it, send/receive is working
+    bPingResponseReceived = false;
+    {
+        int64 Timestamp = FDateTime::UtcNow().ToUnixTimestamp() * 1000 + FDateTime::UtcNow().GetMillisecond();
+
+        TSharedPtr<FJsonObject> PingData = MakeShareable(new FJsonObject);
+        PingData->SetNumberField(TEXT("timestamp"), (double)Timestamp);
+
+        TSharedPtr<FJsonObject> PingPayload = MakeShareable(new FJsonObject);
+        PingPayload->SetStringField(TEXT("event"), TEXT("ws:m:ping"));
+        PingPayload->SetObjectField(TEXT("data"), PingData);
+
+        FString PingJson;
+        TSharedRef<TJsonWriter<>> JsonWriter = TJsonWriterFactory<>::Create(&PingJson);
+        FJsonSerializer::Serialize(PingPayload.ToSharedRef(), JsonWriter);
+
+        UE_LOG(LogRshipExec, Log, TEXT("*** SENDING DIAGNOSTIC PING *** %s"), *PingJson);
+
+        // Send directly to bypass rate limiter for diagnostic
+        if (bUsingHighPerfWebSocket && HighPerfWebSocket.IsValid())
+        {
+            HighPerfWebSocket->Send(PingJson);
+        }
+        else if (WebSocket.IsValid())
+        {
+            WebSocket->Send(PingJson);
+        }
+    }
+
     // Send registration data
     SendAll();
 }
@@ -691,6 +721,21 @@ void URshipSubsystem::ProcessMessage(const FString &message)
 
     FString type = objRef->GetStringField(TEXT("event"));
     UE_LOG(LogRshipExec, Log, TEXT("Received message: event=%s"), *type);
+
+    // Handle ping response - diagnostic for verifying WebSocket send/receive path
+    if (type == "ws:m:ping")
+    {
+        TSharedPtr<FJsonObject> data = obj->GetObjectField(TEXT("data"));
+        if (data.IsValid())
+        {
+            int64 SentTimestamp = (int64)data->GetNumberField(TEXT("timestamp"));
+            int64 NowTimestamp = FDateTime::UtcNow().ToUnixTimestamp() * 1000 + FDateTime::UtcNow().GetMillisecond();
+            int64 RoundTripMs = NowTimestamp - SentTimestamp;
+            UE_LOG(LogRshipExec, Log, TEXT("*** PING RESPONSE RECEIVED *** Round-trip: %lldms - WebSocket send/receive verified!"), RoundTripMs);
+            bPingResponseReceived = true;
+        }
+        return;
+    }
 
     if (type == "ws:m:command")
     {
