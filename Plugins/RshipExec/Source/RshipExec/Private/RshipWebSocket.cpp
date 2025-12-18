@@ -106,6 +106,7 @@ bool FRshipWebSocket::Send(const FString& Message)
 {
     if (!bIsConnected)
     {
+        UE_LOG(LogRshipExec, Warning, TEXT("RshipWebSocket::Send called but not connected"));
         return false;
     }
 
@@ -113,7 +114,13 @@ bool FRshipWebSocket::Send(const FString& Message)
     if (IXSocket)
     {
         std::string StdMsg = TCHAR_TO_UTF8(*Message);
+        UE_LOG(LogRshipExec, Log, TEXT("RshipWebSocket::Send IXWebSocket sending %d bytes, readyState=%d"),
+            StdMsg.length(), (int)IXSocket->getReadyState());
+
         ix::WebSocketSendInfo info = IXSocket->send(StdMsg);
+
+        UE_LOG(LogRshipExec, Log, TEXT("RshipWebSocket::Send result: success=%d, payloadSize=%d, wireSize=%d, compressionError=%d"),
+            info.success, (int)info.payloadSize, (int)info.wireSize, info.compressionError);
 
         if (info.success && OnMessageSent.IsBound())
         {
@@ -129,17 +136,23 @@ bool FRshipWebSocket::Send(const FString& Message)
     // Queue for background thread to send
     if (SocketThread)
     {
+        UE_LOG(LogRshipExec, Log, TEXT("RshipWebSocket::Send UE queuing %d bytes to background thread"), Message.Len());
         SocketThread->QueueSend(Message);
         return true;
     }
     else if (UEWebSocket && UEWebSocket->IsConnected())
     {
+        UE_LOG(LogRshipExec, Log, TEXT("RshipWebSocket::Send UE direct sending %d bytes"), Message.Len());
         UEWebSocket->Send(Message);
         if (OnMessageSent.IsBound())
         {
             OnMessageSent.Execute(Message);
         }
         return true;
+    }
+    else
+    {
+        UE_LOG(LogRshipExec, Warning, TEXT("RshipWebSocket::Send UE no socket available"));
     }
 #endif
 
