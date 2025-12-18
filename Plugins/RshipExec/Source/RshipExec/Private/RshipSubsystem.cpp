@@ -387,6 +387,11 @@ void URshipSubsystem::OnWebSocketConnected()
 
     // Send registration data
     SendAll();
+
+    // Force immediate queue processing - the timer may not be running yet
+    // (world timer manager may not be ready at subsystem init time)
+    UE_LOG(LogRshipExec, Log, TEXT("Forcing immediate queue processing after SendAll"));
+    ProcessMessageQueue();
 }
 
 void URshipSubsystem::OnWebSocketConnectionError(const FString &Error)
