@@ -392,6 +392,23 @@ void URshipSubsystem::OnWebSocketConnected()
     // (world timer manager may not be ready at subsystem init time)
     UE_LOG(LogRshipExec, Log, TEXT("Forcing immediate queue processing after SendAll"));
     ProcessMessageQueue();
+
+    // Ensure queue processing timer is running (may have failed during early init)
+    const URshipSettings* Settings = GetDefault<URshipSettings>();
+    if (Settings->bEnableRateLimiting && !QueueProcessTimerHandle.IsValid())
+    {
+        if (UWorld* World = GetWorld())
+        {
+            UE_LOG(LogRshipExec, Log, TEXT("Starting queue processing timer (was not running)"));
+            World->GetTimerManager().SetTimer(
+                QueueProcessTimerHandle,
+                this,
+                &URshipSubsystem::ProcessMessageQueue,
+                Settings->QueueProcessInterval,
+                true  // Looping
+            );
+        }
+    }
 }
 
 void URshipSubsystem::OnWebSocketConnectionError(const FString &Error)
