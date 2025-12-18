@@ -539,7 +539,18 @@ void URshipSubsystem::ProcessMessageQueue()
         return;
     }
 
-    RateLimiter->ProcessQueue();
+    int32 QueueSize = RateLimiter->GetQueueLength();
+    if (QueueSize > 0)
+    {
+        UE_LOG(LogRshipExec, Log, TEXT("ProcessMessageQueue: Queue has %d messages, processing..."), QueueSize);
+    }
+
+    int32 Sent = RateLimiter->ProcessQueue();
+
+    if (Sent > 0 || QueueSize > 0)
+    {
+        UE_LOG(LogRshipExec, Log, TEXT("ProcessMessageQueue: Sent %d messages, %d remaining"), Sent, RateLimiter->GetQueueLength());
+    }
 }
 
 void URshipSubsystem::TickSubsystems()
@@ -645,6 +656,10 @@ void URshipSubsystem::QueueMessage(TSharedPtr<FJsonObject> Payload, ERshipMessag
     if (!RateLimiter->EnqueueMessage(Payload, Priority, Type, CoalesceKey))
     {
         UE_LOG(LogRshipExec, Warning, TEXT("Failed to enqueue message (queue full)"));
+    }
+    else
+    {
+        UE_LOG(LogRshipExec, Log, TEXT("Enqueued message (Key=%s, QueueLen=%d)"), *CoalesceKey, RateLimiter->GetQueueLength());
     }
 }
 
