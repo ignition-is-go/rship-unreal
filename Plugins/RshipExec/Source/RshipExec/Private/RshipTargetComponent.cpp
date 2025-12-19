@@ -152,13 +152,25 @@ void URshipTargetComponent::Register()
 
     parent->GetComponents(siblingComponents);
 
+    UE_LOG(LogRshipExec, Log, TEXT("Scanning %d sibling components for RS_ members"), siblingComponents.Num());
+
     for (UActorComponent* sibling : siblingComponents) {
         UClass* siblingClass = sibling->GetClass();
+        UE_LOG(LogRshipExec, Log, TEXT("  Sibling: %s (Class: %s)"), *sibling->GetName(), *siblingClass->GetName());
+
         for (TFieldIterator<UFunction> siblingFunc(siblingClass, EFieldIteratorFlags::ExcludeSuper); siblingFunc; ++siblingFunc) {
+            FString funcName = (*siblingFunc)->GetName();
+            if (funcName.StartsWith("RS_")) {
+                UE_LOG(LogRshipExec, Log, TEXT("    Found RS_ function: %s"), *funcName);
+            }
             this->RegisterFunction(sibling, *siblingFunc, &fullTargetId);
         }
 
         for (TFieldIterator<FProperty> siblingProp(siblingClass, EFieldIteratorFlags::ExcludeSuper); siblingProp; ++siblingProp) {
+            FString propName = (*siblingProp)->GetName();
+            if (propName.StartsWith("RS_")) {
+                UE_LOG(LogRshipExec, Log, TEXT("    Found RS_ property: %s"), *propName);
+            }
             this->RegisterProperty(sibling, *siblingProp, &fullTargetId);
         }
     }
@@ -235,8 +247,14 @@ void URshipTargetComponent::Register()
     // Register emitters from sibling components
     for (UActorComponent* sibling : siblingComponents) {
         UClass* siblingClass = sibling->GetClass();
+        UE_LOG(LogRshipExec, Log, TEXT("  Scanning sibling %s for emitters"), *siblingClass->GetName());
         RegisterEmittersFromObject(siblingClass, sibling);
     }
+
+    UE_LOG(LogRshipExec, Log, TEXT("Target %s: %d emitters, %d actions registered"),
+        *fullTargetId,
+        this->TargetData->GetEmitters().Num(),
+        this->TargetData->GetActions().Num());
 
     subsystem->SendAll();
 
