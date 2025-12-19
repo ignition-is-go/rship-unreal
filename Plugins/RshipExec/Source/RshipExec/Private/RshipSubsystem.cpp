@@ -1225,17 +1225,24 @@ void URshipSubsystem::Deinitialize()
 
 void URshipSubsystem::SendTarget(Target *target)
 {
+    UE_LOG(LogRshipExec, Log, TEXT("SendTarget: %s - %d actions, %d emitters"),
+        *target->GetId(),
+        target->GetActions().Num(),
+        target->GetEmitters().Num());
+
     TArray<TSharedPtr<FJsonValue>> EmitterIdsJson;
     TArray<TSharedPtr<FJsonValue>> ActionIdsJson;
 
     for (auto &Elem : target->GetActions())
     {
+        UE_LOG(LogRshipExec, Log, TEXT("  Action: %s"), *Elem.Key);
         ActionIdsJson.Push(MakeShareable(new FJsonValueString(Elem.Key)));
         SendAction(Elem.Value, target->GetId());
     }
 
     for (auto &Elem : target->GetEmitters())
     {
+        UE_LOG(LogRshipExec, Log, TEXT("  Emitter: %s"), *Elem.Key);
         EmitterIdsJson.Push(MakeShareable(new FJsonValueString(Elem.Key)));
         SendEmitter(Elem.Value, target->GetId());
     }
@@ -1375,6 +1382,10 @@ void URshipSubsystem::SendTargetStatus(Target *target, bool online)
 
 void URshipSubsystem::SendAll()
 {
+    UE_LOG(LogRshipExec, Log, TEXT("SendAll: MachineId=%s, ServiceId=%s, InstanceId=%s, ClusterId=%s, ClientId=%s"),
+        *MachineId, *ServiceId, *InstanceId, *ClusterId, *ClientId);
+    UE_LOG(LogRshipExec, Log, TEXT("SendAll: %d TargetComponents registered"), TargetComponents ? TargetComponents->Num() : 0);
+
     // Send Machine - HIGH priority, coalesce
     TSharedPtr<FJsonObject> Machine = MakeShareable(new FJsonObject);
     Machine->SetStringField(TEXT("id"), MachineId);
