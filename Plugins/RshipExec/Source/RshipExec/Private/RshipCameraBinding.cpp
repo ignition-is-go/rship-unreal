@@ -2,100 +2,57 @@
 
 #include "RshipCameraBinding.h"
 #include "RshipSubsystem.h"
-#include "RshipPulseReceiver.h"
 #include "Logs.h"
 #include "Engine/Engine.h"
+#include "Engine/World.h"
 #include "CineCameraActor.h"
 #include "CineCameraComponent.h"
+#include "Kismet/KismetMathLibrary.h"
+#include "Kismet/GameplayStatics.h"
 #include "Dom/JsonObject.h"
-
-// ============================================================================
-// CAMERA BINDING COMPONENT
-// ============================================================================
+#include "Serialization/JsonSerializer.h"
 
 URshipCameraBinding::URshipCameraBinding()
 {
 	PrimaryComponentTick.bCanEverTick = true;
-	PrimaryComponentTick.TickInterval = 0.016f; // ~60Hz for smooth camera updates
+	PrimaryComponentTick.TickInterval = 0.016f; // ~60Hz
 }
 
 void URshipCameraBinding::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// Get subsystem
 	if (GEngine)
 	{
 		Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
 	}
 
-	// Auto-find CineCamera component if not set
+	// Auto-find CineCamera component
 	if (!CameraComponent)
 	{
-		// First try to get from CineCameraActor
 		if (ACineCameraActor* CineActor = Cast<ACineCameraActor>(GetOwner()))
 		{
 			CameraComponent = CineActor->GetCineCameraComponent();
 		}
 		else
 		{
-			// Fallback to finding any CineCameraComponent
 			CameraComponent = GetOwner()->FindComponentByClass<UCineCameraComponent>();
 		}
 	}
 
 	if (!CameraComponent)
 	{
-		UE_LOG(LogRshipExec, Warning, TEXT("RshipCameraBinding: No CineCameraComponent found on %s"),
-			*GetOwner()->GetName());
+		UE_LOG(LogRshipExec, Warning, TEXT("RshipCameraBinding: No CineCameraComponent found on %s"), *GetOwner()->GetName());
 		return;
 	}
 
-	// Setup default bindings if enabled
-	if (bUseDefaultBindings && ParameterBindings.Num() == 0)
-	{
-		SetupDefaultBindings();
-	}
-
-	// Calculate publish interval
 	PublishInterval = 1.0 / FMath::Max(1, PublishRateHz);
 
-	// Subscribe to pulse events for receiving
-	if (Subsystem && (BindingMode == ERshipCameraBindingMode::Receive || BindingMode == ERshipCameraBindingMode::Bidirectional))
-	{
-		URshipPulseReceiver* Receiver = Subsystem->GetPulseReceiver();
-		if (Receiver && !ReceiveEmitterId.IsEmpty())
-		{
-			PulseReceivedHandle = Receiver->OnEmitterPulseReceived.AddLambda(
-				[this](const FString& InEmitterId, float Intensity, FLinearColor Color, TSharedPtr<FJsonObject> Data)
-				{
-					if (InEmitterId == ReceiveEmitterId)
-					{
-						OnPulseReceivedInternal(InEmitterId, Intensity, Color, Data);
-					}
-				});
-		}
-	}
-
-	// Read initial state from camera
-	ReadFromCameraComponent();
-
-	UE_LOG(LogRshipExec, Log, TEXT("RshipCameraBinding: Initialized on %s (Mode=%d, Bindings=%d)"),
-		*GetOwner()->GetName(), (int32)BindingMode, ParameterBindings.Num());
+	UE_LOG(LogRshipExec, Log, TEXT("RshipCameraBinding: Initialized on %s"), *GetOwner()->GetName());
 }
 
 void URshipCameraBinding::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-	// Unsubscribe from pulse events
-	if (Subsystem && PulseReceivedHandle.IsValid())
-	{
-		URshipPulseReceiver* Receiver = Subsystem->GetPulseReceiver();
-		if (Receiver)
-		{
-			Receiver->OnEmitterPulseReceived.Remove(PulseReceivedHandle);
-		}
-	}
-
 	Super::EndPlay(EndPlayReason);
 }
 
@@ -105,462 +62,512 @@ void URshipCameraBinding::TickComponent(float DeltaTime, ELevelTick TickType, FA
 
 	if (!CameraComponent) return;
 
-	// Update smoothed values for receiving mode
-	if (BindingMode == ERshipCameraBindingMode::Receive || BindingMode == ERshipCameraBindingMode::Bidirectional)
+	double CurrentTime = FPlatformTime::Seconds();
+	if (CurrentTime - LastPublishTime >= PublishInterval)
 	{
-		UpdateSmoothedValues(DeltaTime);
-		ApplyToCameraComponent();
-	}
-
-	// Publish camera state for publishing mode
-	if (BindingMode == ERshipCameraBindingMode::Publish || BindingMode == ERshipCameraBindingMode::Bidirectional)
-	{
-		double CurrentTime = FPlatformTime::Seconds();
-		if (CurrentTime - LastPublishTime >= PublishInterval)
-		{
-			ReadFromCameraComponent();
-			PublishCameraState();
-			LastPublishTime = CurrentTime;
-		}
+		ReadAndPublishState();
+		LastPublishTime = CurrentTime;
 	}
 }
 
-void URshipCameraBinding::SetupDefaultBindings()
-{
-	// Create default bindings for common CineCamera parameters
-	ParameterBindings.Empty();
-
-	// Focal Length
-	{
-		FRshipCameraParameterBinding Binding;
-		Binding.ParameterName = FName("FocalLength");
-		Binding.PulseField = TEXT("focalLength");
-		Binding.bReceive = true;
-		Binding.bPublish = true;
-		Binding.ReceiveScale = 1.0f;
-		Binding.PublishScale = 1.0f;
-		Binding.Smoothing = 0.5f;  // Smooth focal length changes
-		ParameterBindings.Add(Binding);
-	}
-
-	// Aperture (F-Stop)
-	{
-		FRshipCameraParameterBinding Binding;
-		Binding.ParameterName = FName("Aperture");
-		Binding.PulseField = TEXT("aperture");
-		Binding.bReceive = true;
-		Binding.bPublish = true;
-		Binding.Smoothing = 0.3f;
-		ParameterBindings.Add(Binding);
-	}
-
-	// Focus Distance
-	{
-		FRshipCameraParameterBinding Binding;
-		Binding.ParameterName = FName("FocusDistance");
-		Binding.PulseField = TEXT("focusDistance");
-		Binding.bReceive = true;
-		Binding.bPublish = true;
-		Binding.Smoothing = 0.7f;  // Smooth focus pulls
-		ParameterBindings.Add(Binding);
-	}
-
-	// Sensor Width
-	{
-		FRshipCameraParameterBinding Binding;
-		Binding.ParameterName = FName("SensorWidth");
-		Binding.PulseField = TEXT("sensorWidth");
-		Binding.bReceive = true;
-		Binding.bPublish = true;
-		Binding.Smoothing = 0.0f;  // Sensor size changes are usually instant
-		ParameterBindings.Add(Binding);
-	}
-
-	// Sensor Height
-	{
-		FRshipCameraParameterBinding Binding;
-		Binding.ParameterName = FName("SensorHeight");
-		Binding.PulseField = TEXT("sensorHeight");
-		Binding.bReceive = true;
-		Binding.bPublish = true;
-		Binding.Smoothing = 0.0f;
-		ParameterBindings.Add(Binding);
-	}
-
-	UE_LOG(LogRshipExec, Log, TEXT("RshipCameraBinding: Created %d default bindings"), ParameterBindings.Num());
-}
-
-void URshipCameraBinding::OnPulseReceivedInternal(const FString& InEmitterId, float Intensity, FLinearColor Color, TSharedPtr<FJsonObject> Data)
+void URshipCameraBinding::ReadAndPublishState()
 {
 	if (!CameraComponent) return;
 
-	LastPulseTime = FPlatformTime::Seconds();
-	bIsReceivingPulses = true;
+	AActor* Owner = GetOwner();
+	if (!Owner) return;
 
-	// Apply received bindings
-	ApplyReceivedBindings(Data);
+	// Read current values
+	float CurrentFocalLength = CameraComponent->CurrentFocalLength;
+	float CurrentAperture = CameraComponent->CurrentAperture;
+	float CurrentSqueezeFactor = CameraComponent->LensSettings.SqueezeFactor;
+	float CurrentSensorWidth = CameraComponent->Filmback.SensorWidth;
+	float CurrentSensorHeight = CameraComponent->Filmback.SensorHeight;
+	float CurrentSensorAspectRatio = CameraComponent->Filmback.SensorAspectRatio;
+	float CurrentFocusDistance = CameraComponent->CurrentFocusDistance;
+	int32 CurrentFocusMethod = (int32)CameraComponent->FocusSettings.FocusMethod;
+	float CurrentHFOV = CameraComponent->GetHorizontalFieldOfView();
+	float CurrentVFOV = CameraComponent->GetVerticalFieldOfView();
+	FVector CurrentLocation = Owner->GetActorLocation();
+	FRotator CurrentRotation = Owner->GetActorRotation();
 
-	// Fire event
-	OnPulseReceived.Broadcast(InEmitterId, TEXT(""));
-}
-
-void URshipCameraBinding::ApplyReceivedBindings(TSharedPtr<FJsonObject> Data)
-{
-	if (!Data.IsValid()) return;
-
-	for (FRshipCameraParameterBinding& Binding : ParameterBindings)
+	// Publish changes
+	if (!bOnlyPublishOnChange || HasValueChanged(LastFocalLength, CurrentFocalLength))
 	{
-		if (!Binding.bEnabled || !Binding.bReceive) continue;
+		RS_OnFocalLengthChanged.Broadcast(CurrentFocalLength);
+		LastFocalLength = CurrentFocalLength;
+	}
 
-		float RawValue = GetFloatFromJson(Data, Binding.PulseField);
-		float ScaledValue = RawValue * Binding.ReceiveScale;
-		Binding.TargetValue = ScaledValue;
+	if (!bOnlyPublishOnChange || HasValueChanged(LastAperture, CurrentAperture))
+	{
+		RS_OnApertureChanged.Broadcast(CurrentAperture);
+		LastAperture = CurrentAperture;
+	}
 
-		// If no smoothing, apply immediately
-		if (Binding.Smoothing <= 0.0f)
-		{
-			Binding.SmoothedValue = ScaledValue;
-		}
+	if (!bOnlyPublishOnChange || HasValueChanged(LastSqueezeFactor, CurrentSqueezeFactor))
+	{
+		RS_OnSqueezeFactorChanged.Broadcast(CurrentSqueezeFactor);
+		LastSqueezeFactor = CurrentSqueezeFactor;
+	}
+
+	if (!bOnlyPublishOnChange || HasValueChanged(LastSensorWidth, CurrentSensorWidth))
+	{
+		RS_OnSensorWidthChanged.Broadcast(CurrentSensorWidth);
+		LastSensorWidth = CurrentSensorWidth;
+	}
+
+	if (!bOnlyPublishOnChange || HasValueChanged(LastSensorHeight, CurrentSensorHeight))
+	{
+		RS_OnSensorHeightChanged.Broadcast(CurrentSensorHeight);
+		LastSensorHeight = CurrentSensorHeight;
+	}
+
+	if (!bOnlyPublishOnChange || HasValueChanged(LastSensorAspectRatio, CurrentSensorAspectRatio))
+	{
+		RS_OnSensorAspectRatioChanged.Broadcast(CurrentSensorAspectRatio);
+		LastSensorAspectRatio = CurrentSensorAspectRatio;
+	}
+
+	if (!bOnlyPublishOnChange || HasValueChanged(LastFocusDistance, CurrentFocusDistance, 1.0f))
+	{
+		RS_OnFocusDistanceChanged.Broadcast(CurrentFocusDistance);
+		LastFocusDistance = CurrentFocusDistance;
+	}
+
+	if (!bOnlyPublishOnChange || LastFocusMethod != CurrentFocusMethod)
+	{
+		RS_OnFocusMethodChanged.Broadcast(CurrentFocusMethod);
+		LastFocusMethod = CurrentFocusMethod;
+	}
+
+	if (!bOnlyPublishOnChange || HasValueChanged(LastHFOV, CurrentHFOV, 0.1f))
+	{
+		RS_OnHorizontalFOVChanged.Broadcast(CurrentHFOV);
+		LastHFOV = CurrentHFOV;
+	}
+
+	if (!bOnlyPublishOnChange || HasValueChanged(LastVFOV, CurrentVFOV, 0.1f))
+	{
+		RS_OnVerticalFOVChanged.Broadcast(CurrentVFOV);
+		LastVFOV = CurrentVFOV;
+	}
+
+	if (!bOnlyPublishOnChange || !CurrentLocation.Equals(LastLocation, 0.1f))
+	{
+		RS_OnLocationChanged.Broadcast(CurrentLocation.X, CurrentLocation.Y, CurrentLocation.Z);
+		LastLocation = CurrentLocation;
+	}
+
+	if (!bOnlyPublishOnChange || !CurrentRotation.Equals(LastRotation, 0.1f))
+	{
+		RS_OnRotationChanged.Broadcast(CurrentRotation.Pitch, CurrentRotation.Yaw, CurrentRotation.Roll);
+		LastRotation = CurrentRotation;
 	}
 }
 
-void URshipCameraBinding::UpdateSmoothedValues(float DeltaTime)
+bool URshipCameraBinding::HasValueChanged(float OldValue, float NewValue, float Threshold) const
 {
-	for (FRshipCameraParameterBinding& Binding : ParameterBindings)
-	{
-		if (!Binding.bEnabled || !Binding.bReceive) continue;
-
-		if (Binding.Smoothing > 0.0f)
-		{
-			// Apply exponential smoothing
-			float Alpha = 1.0f - FMath::Pow(Binding.Smoothing, DeltaTime * 60.0f);
-			Binding.SmoothedValue = FMath::Lerp(Binding.SmoothedValue, Binding.TargetValue, Alpha);
-		}
-	}
-}
-
-void URshipCameraBinding::ApplyToCameraComponent()
-{
-	if (!CameraComponent) return;
-
-	for (FRshipCameraParameterBinding& Binding : ParameterBindings)
-	{
-		if (!Binding.bEnabled || !Binding.bReceive) continue;
-
-		float Value = Binding.SmoothedValue;
-
-		if (Binding.ParameterName == FName("FocalLength"))
-		{
-			CameraComponent->CurrentFocalLength = Value;
-		}
-		else if (Binding.ParameterName == FName("Aperture"))
-		{
-			CameraComponent->CurrentAperture = Value;
-		}
-		else if (Binding.ParameterName == FName("FocusDistance"))
-		{
-			CameraComponent->FocusSettings.ManualFocusDistance = Value;
-		}
-		else if (Binding.ParameterName == FName("SensorWidth"))
-		{
-			CameraComponent->Filmback.SensorWidth = Value;
-		}
-		else if (Binding.ParameterName == FName("SensorHeight"))
-		{
-			CameraComponent->Filmback.SensorHeight = Value;
-		}
-	}
-}
-
-void URshipCameraBinding::ReadFromCameraComponent()
-{
-	if (!CameraComponent) return;
-
-	CurrentFocalLength = CameraComponent->CurrentFocalLength;
-	CurrentAperture = CameraComponent->CurrentAperture;
-	CurrentFocusDistance = CameraComponent->FocusSettings.ManualFocusDistance;
-	CurrentSensorWidth = CameraComponent->Filmback.SensorWidth;
-	CurrentSensorHeight = CameraComponent->Filmback.SensorHeight;
-
-	// Update binding values for publishing
-	for (FRshipCameraParameterBinding& Binding : ParameterBindings)
-	{
-		if (!Binding.bEnabled) continue;
-
-		float Value = 0.0f;
-		if (Binding.ParameterName == FName("FocalLength"))
-		{
-			Value = CurrentFocalLength;
-		}
-		else if (Binding.ParameterName == FName("Aperture"))
-		{
-			Value = CurrentAperture;
-		}
-		else if (Binding.ParameterName == FName("FocusDistance"))
-		{
-			Value = CurrentFocusDistance;
-		}
-		else if (Binding.ParameterName == FName("SensorWidth"))
-		{
-			Value = CurrentSensorWidth;
-		}
-		else if (Binding.ParameterName == FName("SensorHeight"))
-		{
-			Value = CurrentSensorHeight;
-		}
-
-		// Set smoothed value if not receiving
-		if (!Binding.bReceive || BindingMode == ERshipCameraBindingMode::Publish)
-		{
-			Binding.SmoothedValue = Value;
-		}
-	}
-}
-
-void URshipCameraBinding::PublishCameraState()
-{
-	if (!Subsystem) return;
-
-	bool bAnyChanged = false;
-
-	// Check for changes and broadcast RS_ emitters
-	for (FRshipCameraParameterBinding& Binding : ParameterBindings)
-	{
-		if (!Binding.bEnabled || !Binding.bPublish) continue;
-
-		float CurrentValue = Binding.SmoothedValue * Binding.PublishScale;
-
-		if (!bOnlyPublishOnChange || HasValueChanged(Binding.LastPublishedValue, CurrentValue))
-		{
-			bAnyChanged = true;
-			Binding.LastPublishedValue = CurrentValue;
-
-			// Broadcast the RS_ emitter delegate
-			if (Binding.ParameterName == FName("FocalLength"))
-			{
-				RS_OnFocalLengthChanged.Broadcast(CurrentValue);
-				OnParameterChanged.Broadcast(TEXT("FocalLength"), CurrentValue);
-			}
-			else if (Binding.ParameterName == FName("Aperture"))
-			{
-				RS_OnApertureChanged.Broadcast(CurrentValue);
-				OnParameterChanged.Broadcast(TEXT("Aperture"), CurrentValue);
-			}
-			else if (Binding.ParameterName == FName("FocusDistance"))
-			{
-				RS_OnFocusDistanceChanged.Broadcast(CurrentValue);
-				OnParameterChanged.Broadcast(TEXT("FocusDistance"), CurrentValue);
-			}
-			else if (Binding.ParameterName == FName("SensorWidth"))
-			{
-				RS_OnSensorWidthChanged.Broadcast(CurrentValue);
-				OnParameterChanged.Broadcast(TEXT("SensorWidth"), CurrentValue);
-			}
-			else if (Binding.ParameterName == FName("SensorHeight"))
-			{
-				RS_OnSensorHeightChanged.Broadcast(CurrentValue);
-				OnParameterChanged.Broadcast(TEXT("SensorHeight"), CurrentValue);
-			}
-		}
-	}
-}
-
-float URshipCameraBinding::GetFloatFromJson(TSharedPtr<FJsonObject> Data, const FString& FieldPath)
-{
-	if (!Data.IsValid()) return 0.0f;
-
-	// Handle nested paths like "camera.focalLength"
-	TArray<FString> Parts;
-	FieldPath.ParseIntoArray(Parts, TEXT("."));
-
-	TSharedPtr<FJsonObject> Current = Data;
-	for (int32 i = 0; i < Parts.Num() - 1; i++)
-	{
-		const TSharedPtr<FJsonObject>* NextObj;
-		if (!Current->TryGetObjectField(Parts[i], NextObj))
-		{
-			return 0.0f;
-		}
-		Current = *NextObj;
-	}
-
-	double Value = 0.0;
-	Current->TryGetNumberField(Parts.Last(), Value);
-	return (float)Value;
-}
-
-bool URshipCameraBinding::HasValueChanged(float OldValue, float NewValue) const
-{
-	return FMath::Abs(NewValue - OldValue) > ChangeThreshold;
+	return FMath::Abs(NewValue - OldValue) > Threshold;
 }
 
 // ============================================================================
-// RS_ ACTIONS
+// RS_ ACTIONS - Lens Controls
 // ============================================================================
 
-void URshipCameraBinding::RS_SetFocalLength(float FocalLength)
+void URshipCameraBinding::RS_SetFocalLength(float FocalLengthMM)
 {
 	if (!CameraComponent) return;
-
-	CurrentFocalLength = FocalLength;
-	CameraComponent->CurrentFocalLength = FocalLength;
-
-	UE_LOG(LogRshipExec, Verbose, TEXT("RshipCameraBinding: Set FocalLength to %.1fmm"), FocalLength);
+	CameraComponent->SetCurrentFocalLength(FocalLengthMM);
 }
 
-void URshipCameraBinding::RS_SetAperture(float Aperture)
+void URshipCameraBinding::RS_SetAperture(float FStop)
 {
 	if (!CameraComponent) return;
-
-	CurrentAperture = Aperture;
-	CameraComponent->CurrentAperture = Aperture;
-
-	UE_LOG(LogRshipExec, Verbose, TEXT("RshipCameraBinding: Set Aperture to f/%.1f"), Aperture);
+	CameraComponent->SetCurrentAperture(FStop);
 }
 
-void URshipCameraBinding::RS_SetFocusDistance(float FocusDistance)
+void URshipCameraBinding::RS_SetFocalLengthRange(float MinMM, float MaxMM)
 {
 	if (!CameraComponent) return;
-
-	CurrentFocusDistance = FocusDistance;
-	CameraComponent->FocusSettings.ManualFocusDistance = FocusDistance;
-
-	UE_LOG(LogRshipExec, Verbose, TEXT("RshipCameraBinding: Set FocusDistance to %.1fcm"), FocusDistance);
+	CameraComponent->LensSettings.MinFocalLength = MinMM;
+	CameraComponent->LensSettings.MaxFocalLength = MaxMM;
 }
 
-void URshipCameraBinding::RS_SetSensorSize(float Width, float Height)
+void URshipCameraBinding::RS_SetApertureRange(float MinFStop, float MaxFStop)
 {
 	if (!CameraComponent) return;
-
-	CurrentSensorWidth = Width;
-	CurrentSensorHeight = Height;
-	CameraComponent->Filmback.SensorWidth = Width;
-	CameraComponent->Filmback.SensorHeight = Height;
-
-	UE_LOG(LogRshipExec, Verbose, TEXT("RshipCameraBinding: Set SensorSize to %.1fx%.1fmm"), Width, Height);
+	CameraComponent->LensSettings.MinFStop = MinFStop;
+	CameraComponent->LensSettings.MaxFStop = MaxFStop;
 }
 
-void URshipCameraBinding::RS_SetManualFocusEnabled(bool bEnabled)
+void URshipCameraBinding::RS_SetMinimumFocusDistance(float DistanceCM)
 {
 	if (!CameraComponent) return;
+	// LensSettings stores MinimumFocusDistance in mm
+	CameraComponent->LensSettings.MinimumFocusDistance = DistanceCM * 10.0f;
+}
 
-	if (bEnabled)
-	{
-		CameraComponent->FocusSettings.FocusMethod = ECameraFocusMethod::Manual;
-	}
-	else
-	{
-		CameraComponent->FocusSettings.FocusMethod = ECameraFocusMethod::DoNotOverride;
-	}
+void URshipCameraBinding::RS_SetSqueezeFactor(float Squeeze)
+{
+	if (!CameraComponent) return;
+	CameraComponent->LensSettings.SqueezeFactor = FMath::Clamp(Squeeze, 1.0f, 2.0f);
+}
 
-	UE_LOG(LogRshipExec, Verbose, TEXT("RshipCameraBinding: Set ManualFocus to %s"), bEnabled ? TEXT("Enabled") : TEXT("Disabled"));
+void URshipCameraBinding::RS_SetDiaphragmBladeCount(int32 BladeCount)
+{
+	if (!CameraComponent) return;
+	CameraComponent->LensSettings.DiaphragmBladeCount = FMath::Clamp(BladeCount, 4, 16);
+}
+
+void URshipCameraBinding::RS_SetLensPreset(const FString& PresetName)
+{
+	if (!CameraComponent) return;
+	CameraComponent->SetLensPresetByName(PresetName);
+}
+
+// ============================================================================
+// RS_ ACTIONS - Sensor/Filmback Controls
+// ============================================================================
+
+void URshipCameraBinding::RS_SetSensorSize(float WidthMM, float HeightMM)
+{
+	if (!CameraComponent) return;
+	FCameraFilmbackSettings NewFilmback = CameraComponent->Filmback;
+	NewFilmback.SensorWidth = WidthMM;
+	NewFilmback.SensorHeight = HeightMM;
+	NewFilmback.RecalcSensorAspectRatio();
+	CameraComponent->SetFilmback(NewFilmback);
+}
+
+void URshipCameraBinding::RS_SetSensorOffset(float HorizontalMM, float VerticalMM)
+{
+	if (!CameraComponent) return;
+	FCameraFilmbackSettings NewFilmback = CameraComponent->Filmback;
+	NewFilmback.SensorHorizontalOffset = HorizontalMM;
+	NewFilmback.SensorVerticalOffset = VerticalMM;
+	CameraComponent->SetFilmback(NewFilmback);
+}
+
+void URshipCameraBinding::RS_SetFilmbackPreset(const FString& PresetName)
+{
+	if (!CameraComponent) return;
+	CameraComponent->SetFilmbackPresetByName(PresetName);
+}
+
+// ============================================================================
+// RS_ ACTIONS - Focus Controls
+// ============================================================================
+
+void URshipCameraBinding::RS_SetFocusDistance(float DistanceCM)
+{
+	if (!CameraComponent) return;
+	FCameraFocusSettings NewFocus = CameraComponent->FocusSettings;
+	NewFocus.ManualFocusDistance = DistanceCM;
+	CameraComponent->SetFocusSettings(NewFocus);
 }
 
 void URshipCameraBinding::RS_SetFocusMethod(int32 Method)
 {
 	if (!CameraComponent) return;
-
-	ECameraFocusMethod FocusMethod = ECameraFocusMethod::DoNotOverride;
+	FCameraFocusSettings NewFocus = CameraComponent->FocusSettings;
 	switch (Method)
 	{
-		case 0: FocusMethod = ECameraFocusMethod::DoNotOverride; break;
-		case 1: FocusMethod = ECameraFocusMethod::Manual; break;
-		case 2: FocusMethod = ECameraFocusMethod::Tracking; break;
+		case 0: NewFocus.FocusMethod = ECameraFocusMethod::DoNotOverride; break;
+		case 1: NewFocus.FocusMethod = ECameraFocusMethod::Manual; break;
+		case 2: NewFocus.FocusMethod = ECameraFocusMethod::Tracking; break;
+		case 3: NewFocus.FocusMethod = ECameraFocusMethod::Disable; break;
+		default: NewFocus.FocusMethod = ECameraFocusMethod::Manual; break;
+	}
+	CameraComponent->SetFocusSettings(NewFocus);
+}
+
+void URshipCameraBinding::RS_SetFocusOffset(float OffsetCM)
+{
+	if (!CameraComponent) return;
+	FCameraFocusSettings NewFocus = CameraComponent->FocusSettings;
+	NewFocus.FocusOffset = OffsetCM;
+	CameraComponent->SetFocusSettings(NewFocus);
+}
+
+void URshipCameraBinding::RS_SetSmoothFocus(bool bEnabled, float InterpSpeed)
+{
+	if (!CameraComponent) return;
+	FCameraFocusSettings NewFocus = CameraComponent->FocusSettings;
+	NewFocus.bSmoothFocusChanges = bEnabled;
+	NewFocus.FocusSmoothingInterpSpeed = InterpSpeed;
+	CameraComponent->SetFocusSettings(NewFocus);
+}
+
+// ============================================================================
+// RS_ ACTIONS - Crop/Masking Controls
+// ============================================================================
+
+void URshipCameraBinding::RS_SetCropAspectRatio(float AspectRatio)
+{
+	if (!CameraComponent) return;
+	FPlateCropSettings NewCrop;
+	NewCrop.AspectRatio = AspectRatio;
+	CameraComponent->SetCropSettings(NewCrop);
+}
+
+void URshipCameraBinding::RS_SetCropPreset(const FString& PresetName)
+{
+	if (!CameraComponent) return;
+	CameraComponent->SetCropPresetByName(PresetName);
+}
+
+// ============================================================================
+// RS_ ACTIONS - Transform Controls
+// ============================================================================
+
+void URshipCameraBinding::RS_SetLocation(float X, float Y, float Z)
+{
+	AActor* Owner = GetOwner();
+	if (!Owner) return;
+	Owner->SetActorLocation(FVector(X, Y, Z));
+}
+
+void URshipCameraBinding::RS_SetRotation(float Pitch, float Yaw, float Roll)
+{
+	AActor* Owner = GetOwner();
+	if (!Owner) return;
+	Owner->SetActorRotation(FRotator(Pitch, Yaw, Roll));
+}
+
+void URshipCameraBinding::RS_AddLocation(float DeltaX, float DeltaY, float DeltaZ)
+{
+	AActor* Owner = GetOwner();
+	if (!Owner) return;
+	FVector CurrentLocation = Owner->GetActorLocation();
+	Owner->SetActorLocation(CurrentLocation + FVector(DeltaX, DeltaY, DeltaZ));
+}
+
+void URshipCameraBinding::RS_AddRotation(float DeltaPitch, float DeltaYaw, float DeltaRoll)
+{
+	AActor* Owner = GetOwner();
+	if (!Owner) return;
+	FRotator CurrentRotation = Owner->GetActorRotation();
+	Owner->SetActorRotation(CurrentRotation + FRotator(DeltaPitch, DeltaYaw, DeltaRoll));
+}
+
+void URshipCameraBinding::RS_LookAt(float TargetX, float TargetY, float TargetZ)
+{
+	AActor* Owner = GetOwner();
+	if (!Owner) return;
+
+	FVector TargetLocation(TargetX, TargetY, TargetZ);
+	FVector CameraLocation = Owner->GetActorLocation();
+	FRotator LookAtRotation = UKismetMathLibrary::FindLookAtRotation(CameraLocation, TargetLocation);
+	Owner->SetActorRotation(LookAtRotation);
+}
+
+// ============================================================================
+// RS_ ACTIONS - Exposure Controls
+// ============================================================================
+
+void URshipCameraBinding::RS_SetExposureMethod(int32 Method)
+{
+	if (!CameraComponent) return;
+	switch (Method)
+	{
+		case 0: CameraComponent->ExposureMethod = ECameraExposureMethod::DoNotOverride; break;
+		case 1: CameraComponent->ExposureMethod = ECameraExposureMethod::Enabled; break;
+		default: CameraComponent->ExposureMethod = ECameraExposureMethod::DoNotOverride; break;
+	}
+}
+
+void URshipCameraBinding::RS_SetNearClipPlane(float DistanceCM)
+{
+	if (!CameraComponent) return;
+	if (DistanceCM > 0.0f)
+	{
+		CameraComponent->bOverride_CustomNearClippingPlane = true;
+		CameraComponent->SetCustomNearClippingPlane(DistanceCM);
+	}
+	else
+	{
+		CameraComponent->bOverride_CustomNearClippingPlane = false;
+	}
+}
+
+// ============================================================================
+// RS_ ACTIONS - Utility
+// ============================================================================
+
+void URshipCameraBinding::RS_ResetToDefaults()
+{
+	if (!CameraComponent) return;
+
+	// Reset lens
+	CameraComponent->SetCurrentFocalLength(35.0f);
+	CameraComponent->SetCurrentAperture(2.8f);
+	CameraComponent->LensSettings.SqueezeFactor = 1.0f;
+	CameraComponent->LensSettings.DiaphragmBladeCount = 8;
+
+	// Reset filmback to Super 35mm
+	FCameraFilmbackSettings DefaultFilmback;
+	DefaultFilmback.SensorWidth = 24.89f;
+	DefaultFilmback.SensorHeight = 18.67f;
+	DefaultFilmback.SensorHorizontalOffset = 0.0f;
+	DefaultFilmback.SensorVerticalOffset = 0.0f;
+	DefaultFilmback.RecalcSensorAspectRatio();
+	CameraComponent->SetFilmback(DefaultFilmback);
+
+	// Reset focus
+	FCameraFocusSettings DefaultFocus;
+	DefaultFocus.FocusMethod = ECameraFocusMethod::Manual;
+	DefaultFocus.ManualFocusDistance = 100000.0f;
+	DefaultFocus.FocusOffset = 0.0f;
+	DefaultFocus.bSmoothFocusChanges = false;
+	CameraComponent->SetFocusSettings(DefaultFocus);
+
+	// Reset crop
+	FPlateCropSettings DefaultCrop;
+	DefaultCrop.AspectRatio = 0.0f;
+	CameraComponent->SetCropSettings(DefaultCrop);
+
+	// Reset exposure
+	CameraComponent->ExposureMethod = ECameraExposureMethod::DoNotOverride;
+	CameraComponent->bOverride_CustomNearClippingPlane = false;
+}
+
+void URshipCameraBinding::RS_CopyFromCamera(const FString& CameraActorName)
+{
+	if (!CameraComponent) return;
+
+	UWorld* World = GetWorld();
+	if (!World) return;
+
+	// Find the source camera
+	TArray<AActor*> FoundActors;
+	UGameplayStatics::GetAllActorsOfClass(World, ACineCameraActor::StaticClass(), FoundActors);
+
+	for (AActor* Actor : FoundActors)
+	{
+		if (Actor->GetName() == CameraActorName || Actor->GetActorLabel() == CameraActorName)
+		{
+			ACineCameraActor* SourceCamera = Cast<ACineCameraActor>(Actor);
+			if (SourceCamera)
+			{
+				UCineCameraComponent* SourceComp = SourceCamera->GetCineCameraComponent();
+				if (SourceComp)
+				{
+					// Copy all settings
+					CameraComponent->SetCurrentFocalLength(SourceComp->CurrentFocalLength);
+					CameraComponent->SetCurrentAperture(SourceComp->CurrentAperture);
+					CameraComponent->SetFilmback(SourceComp->Filmback);
+					CameraComponent->SetLensSettings(SourceComp->LensSettings);
+					CameraComponent->SetFocusSettings(SourceComp->FocusSettings);
+					CameraComponent->SetCropSettings(SourceComp->CropSettings);
+					CameraComponent->ExposureMethod = SourceComp->ExposureMethod;
+
+					UE_LOG(LogRshipExec, Log, TEXT("RshipCameraBinding: Copied settings from %s"), *CameraActorName);
+					return;
+				}
+			}
+		}
 	}
 
-	CameraComponent->FocusSettings.FocusMethod = FocusMethod;
-
-	UE_LOG(LogRshipExec, Verbose, TEXT("RshipCameraBinding: Set FocusMethod to %d"), Method);
+	UE_LOG(LogRshipExec, Warning, TEXT("RshipCameraBinding: Could not find camera named %s"), *CameraActorName);
 }
 
 // ============================================================================
 // PUBLIC METHODS
 // ============================================================================
 
-void URshipCameraBinding::SetCameraParameter(FName ParameterName, float Value)
-{
-	if (ParameterName == FName("FocalLength"))
-	{
-		RS_SetFocalLength(Value);
-	}
-	else if (ParameterName == FName("Aperture"))
-	{
-		RS_SetAperture(Value);
-	}
-	else if (ParameterName == FName("FocusDistance"))
-	{
-		RS_SetFocusDistance(Value);
-	}
-	else if (ParameterName == FName("SensorWidth"))
-	{
-		if (CameraComponent)
-		{
-			CurrentSensorWidth = Value;
-			CameraComponent->Filmback.SensorWidth = Value;
-		}
-	}
-	else if (ParameterName == FName("SensorHeight"))
-	{
-		if (CameraComponent)
-		{
-			CurrentSensorHeight = Value;
-			CameraComponent->Filmback.SensorHeight = Value;
-		}
-	}
-}
-
-float URshipCameraBinding::GetCameraParameter(FName ParameterName) const
-{
-	if (ParameterName == FName("FocalLength"))
-	{
-		return CurrentFocalLength;
-	}
-	else if (ParameterName == FName("Aperture"))
-	{
-		return CurrentAperture;
-	}
-	else if (ParameterName == FName("FocusDistance"))
-	{
-		return CurrentFocusDistance;
-	}
-	else if (ParameterName == FName("SensorWidth"))
-	{
-		return CurrentSensorWidth;
-	}
-	else if (ParameterName == FName("SensorHeight"))
-	{
-		return CurrentSensorHeight;
-	}
-
-	return 0.0f;
-}
-
 void URshipCameraBinding::ForcePublish()
 {
-	ReadFromCameraComponent();
+	// Reset all cached values to force publishing
+	LastFocalLength = -1.0f;
+	LastAperture = -1.0f;
+	LastSqueezeFactor = -1.0f;
+	LastSensorWidth = -1.0f;
+	LastSensorHeight = -1.0f;
+	LastSensorAspectRatio = -1.0f;
+	LastFocusDistance = -1.0f;
+	LastFocusMethod = -1;
+	LastHFOV = -1.0f;
+	LastVFOV = -1.0f;
+	LastLocation = FVector(TNumericLimits<float>::Max());
+	LastRotation = FRotator(TNumericLimits<float>::Max(), 0, 0);
 
-	// Force publish all values by resetting LastPublishedValue
-	for (FRshipCameraParameterBinding& Binding : ParameterBindings)
-	{
-		Binding.LastPublishedValue = TNumericLimits<float>::Max();
-	}
-
-	PublishCameraState();
+	ReadAndPublishState();
 }
 
-void URshipCameraBinding::SetBindingsEnabled(bool bEnabled)
+FString URshipCameraBinding::GetCameraStateJson() const
 {
-	for (FRshipCameraParameterBinding& Binding : ParameterBindings)
-	{
-		Binding.bEnabled = bEnabled;
-	}
-}
+	if (!CameraComponent) return TEXT("{}");
 
-void URshipCameraBinding::ResetToDefaults()
-{
-	RS_SetFocalLength(35.0f);
-	RS_SetAperture(2.8f);
-	RS_SetFocusDistance(100000.0f);
-	RS_SetSensorSize(36.0f, 24.0f);
-	RS_SetFocusMethod(0);
+	AActor* Owner = GetOwner();
+
+	TSharedPtr<FJsonObject> Json = MakeShareable(new FJsonObject);
+
+	// Lens
+	TSharedPtr<FJsonObject> Lens = MakeShareable(new FJsonObject);
+	Lens->SetNumberField(TEXT("focalLength"), CameraComponent->CurrentFocalLength);
+	Lens->SetNumberField(TEXT("aperture"), CameraComponent->CurrentAperture);
+	Lens->SetNumberField(TEXT("minFocalLength"), CameraComponent->LensSettings.MinFocalLength);
+	Lens->SetNumberField(TEXT("maxFocalLength"), CameraComponent->LensSettings.MaxFocalLength);
+	Lens->SetNumberField(TEXT("minFStop"), CameraComponent->LensSettings.MinFStop);
+	Lens->SetNumberField(TEXT("maxFStop"), CameraComponent->LensSettings.MaxFStop);
+	Lens->SetNumberField(TEXT("squeezeFactor"), CameraComponent->LensSettings.SqueezeFactor);
+	Lens->SetNumberField(TEXT("diaphragmBladeCount"), CameraComponent->LensSettings.DiaphragmBladeCount);
+	Json->SetObjectField(TEXT("lens"), Lens);
+
+	// Sensor
+	TSharedPtr<FJsonObject> Sensor = MakeShareable(new FJsonObject);
+	Sensor->SetNumberField(TEXT("width"), CameraComponent->Filmback.SensorWidth);
+	Sensor->SetNumberField(TEXT("height"), CameraComponent->Filmback.SensorHeight);
+	Sensor->SetNumberField(TEXT("horizontalOffset"), CameraComponent->Filmback.SensorHorizontalOffset);
+	Sensor->SetNumberField(TEXT("verticalOffset"), CameraComponent->Filmback.SensorVerticalOffset);
+	Sensor->SetNumberField(TEXT("aspectRatio"), CameraComponent->Filmback.SensorAspectRatio);
+	Json->SetObjectField(TEXT("sensor"), Sensor);
+
+	// Focus
+	TSharedPtr<FJsonObject> Focus = MakeShareable(new FJsonObject);
+	Focus->SetNumberField(TEXT("method"), (int32)CameraComponent->FocusSettings.FocusMethod);
+	Focus->SetNumberField(TEXT("distance"), CameraComponent->CurrentFocusDistance);
+	Focus->SetNumberField(TEXT("manualDistance"), CameraComponent->FocusSettings.ManualFocusDistance);
+	Focus->SetNumberField(TEXT("offset"), CameraComponent->FocusSettings.FocusOffset);
+	Focus->SetBoolField(TEXT("smoothChanges"), CameraComponent->FocusSettings.bSmoothFocusChanges);
+	Focus->SetNumberField(TEXT("smoothSpeed"), CameraComponent->FocusSettings.FocusSmoothingInterpSpeed);
+	Json->SetObjectField(TEXT("focus"), Focus);
+
+	// FOV
+	TSharedPtr<FJsonObject> Fov = MakeShareable(new FJsonObject);
+	Fov->SetNumberField(TEXT("horizontal"), CameraComponent->GetHorizontalFieldOfView());
+	Fov->SetNumberField(TEXT("vertical"), CameraComponent->GetVerticalFieldOfView());
+	Json->SetObjectField(TEXT("fov"), Fov);
+
+	// Crop
+	TSharedPtr<FJsonObject> Crop = MakeShareable(new FJsonObject);
+	Crop->SetNumberField(TEXT("aspectRatio"), CameraComponent->CropSettings.AspectRatio);
+	Json->SetObjectField(TEXT("crop"), Crop);
+
+	// Transform
+	if (Owner)
+	{
+		FVector Location = Owner->GetActorLocation();
+		FRotator Rotation = Owner->GetActorRotation();
+
+		TSharedPtr<FJsonObject> Transform = MakeShareable(new FJsonObject);
+		TSharedPtr<FJsonObject> Loc = MakeShareable(new FJsonObject);
+		Loc->SetNumberField(TEXT("x"), Location.X);
+		Loc->SetNumberField(TEXT("y"), Location.Y);
+		Loc->SetNumberField(TEXT("z"), Location.Z);
+		Transform->SetObjectField(TEXT("location"), Loc);
+
+		TSharedPtr<FJsonObject> Rot = MakeShareable(new FJsonObject);
+		Rot->SetNumberField(TEXT("pitch"), Rotation.Pitch);
+		Rot->SetNumberField(TEXT("yaw"), Rotation.Yaw);
+		Rot->SetNumberField(TEXT("roll"), Rotation.Roll);
+		Transform->SetObjectField(TEXT("rotation"), Rot);
+
+		Json->SetObjectField(TEXT("transform"), Transform);
+	}
+
+	FString OutputString;
+	TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutputString);
+	FJsonSerializer::Serialize(Json.ToSharedRef(), Writer);
+	return OutputString;
 }
