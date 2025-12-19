@@ -86,6 +86,11 @@ void URshipTargetComponent::RegisterFunction(UObject* owner, UFunction* func, FS
         return;
     }
 
+    // Skip auto-generated delegate signature functions (e.g., RS_FocalLengthEmitter__DelegateSignature)
+    if (name.Contains("__DelegateSignature")) {
+        return;
+    }
+
     FString fullActionId = *targetId + ":" + name;
 
     auto action = new Action(fullActionId, name, func, owner);
@@ -93,11 +98,15 @@ void URshipTargetComponent::RegisterFunction(UObject* owner, UFunction* func, FS
 }
 
 void URshipTargetComponent::RegisterProperty(UObject* owner, FProperty* prop, FString* targetId) {
-
-
     FString name = prop->GetName();
     UE_LOG(LogRshipExec, Verbose, TEXT("RshipTargetComponent: Processing Property [%s]"), *name);
+
     if (!name.StartsWith("RS_")) {
+        return;
+    }
+
+    // Skip delegate properties - they are registered as emitters, not actions
+    if (prop->IsA<FMulticastDelegateProperty>()) {
         return;
     }
 
