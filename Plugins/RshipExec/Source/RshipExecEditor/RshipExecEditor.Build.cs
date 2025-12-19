@@ -60,5 +60,21 @@ public class RshipExecEditor : ModuleRules
 			PublicDefinitions.Add("RSHIP_EDITOR_HAS_2110=0");
 			System.Console.WriteLine("RshipExecEditor: Rship2110 plugin not found, 2110 status display disabled");
 		}
+
+		// RshipNDI plugin for NDI streaming panel (optional)
+		string RshipNDIPluginPath = Path.Combine(ModuleDirectory, "..", "..", "..", "..", "RshipNDI");
+		bool bHasRshipNDI = Directory.Exists(RshipNDIPluginPath);
+
+		if (bHasRshipNDI)
+		{
+			PrivateDependencyModuleNames.Add("RshipNDI");
+			PublicDefinitions.Add("RSHIP_EDITOR_HAS_NDI=1");
+			System.Console.WriteLine("RshipExecEditor: RshipNDI plugin found, NDI streaming panel enabled");
+		}
+		else
+		{
+			PublicDefinitions.Add("RSHIP_EDITOR_HAS_NDI=0");
+			System.Console.WriteLine("RshipExecEditor: RshipNDI plugin not found, NDI streaming panel disabled");
+		}
 	}
 }

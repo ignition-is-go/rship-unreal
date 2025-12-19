@@ -8,6 +8,7 @@
 #include "SRshipAssetSyncPanel.h"
 #include "SRshipFixturePanel.h"
 #include "SRshipTestPanel.h"
+#include "SRshipNDIPanel.h"
 #include "RshipStatusPanelStyle.h"
 #include "RshipStatusPanelCommands.h"
 
@@ -27,6 +28,7 @@ static const FName RshipMaterialPanelTabName("RshipMaterialPanel");
 static const FName RshipAssetSyncPanelTabName("RshipAssetSyncPanel");
 static const FName RshipFixturePanelTabName("RshipFixturePanel");
 static const FName RshipTestPanelTabName("RshipTestPanel");
+static const FName RshipNDIPanelTabName("RshipNDIPanel");
 
 void FRshipExecEditorModule::StartupModule()
 {
@@ -47,6 +49,7 @@ void FRshipExecEditorModule::StartupModule()
     RegisterAssetSyncPanel();
     RegisterFixturePanel();
     RegisterTestPanel();
+    RegisterNDIPanel();
 
     // Register menus after ToolMenus is ready
     UToolMenus::RegisterStartupCallback(FSimpleMulticastDelegate::FDelegate::CreateRaw(this, &FRshipExecEditorModule::RegisterMenus));
@@ -67,6 +70,7 @@ void FRshipExecEditorModule::ShutdownModule()
     UnregisterAssetSyncPanel();
     UnregisterFixturePanel();
     UnregisterTestPanel();
+    UnregisterNDIPanel();
 }
 
 FRshipExecEditorModule& FRshipExecEditorModule::Get()
@@ -230,6 +234,30 @@ TSharedRef<SDockTab> FRshipExecEditorModule::SpawnTestPanelTab(const FSpawnTabAr
         .TabRole(ETabRole::NomadTab)
         [
             SNew(SRshipTestPanel)
+        ];
+}
+
+void FRshipExecEditorModule::RegisterNDIPanel()
+{
+    FGlobalTabmanager::Get()->RegisterNomadTabSpawner(RshipNDIPanelTabName,
+        FOnSpawnTab::CreateRaw(this, &FRshipExecEditorModule::SpawnNDIPanelTab))
+        .SetDisplayName(LOCTEXT("RshipNDIPanelTabTitle", "Rship NDI"))
+        .SetTooltipText(LOCTEXT("RshipNDIPanelTooltip", "Open Rocketship NDI Streaming Panel"))
+        .SetGroup(WorkspaceMenu::GetMenuStructure().GetLevelEditorCategory())
+        .SetIcon(FSlateIcon(FRshipStatusPanelStyle::GetStyleSetName(), "Rship.StatusPanel.TabIcon"));
+}
+
+void FRshipExecEditorModule::UnregisterNDIPanel()
+{
+    FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(RshipNDIPanelTabName);
+}
+
+TSharedRef<SDockTab> FRshipExecEditorModule::SpawnNDIPanelTab(const FSpawnTabArgs& Args)
+{
+    return SNew(SDockTab)
+        .TabRole(ETabRole::NomadTab)
+        [
+            SNew(SRshipNDIPanel)
         ];
 }
 

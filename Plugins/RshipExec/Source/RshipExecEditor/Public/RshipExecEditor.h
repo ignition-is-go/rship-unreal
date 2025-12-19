@@ -56,6 +56,12 @@ public:
     /** Unregister the Test panel tab spawner */
     void UnregisterTestPanel();
 
+    /** Register the NDI panel tab spawner */
+    void RegisterNDIPanel();
+
+    /** Unregister the NDI panel tab spawner */
+    void UnregisterNDIPanel();
+
 private:
     /** Handle for the status panel tab spawner */
     TSharedPtr<class FUICommandList> PluginCommands;
@@ -80,6 +86,9 @@ private:
 
     /** Spawn the Test panel tab */
     TSharedRef<class SDockTab> SpawnTestPanelTab(const class FSpawnTabArgs& Args);
+
+    /** Spawn the NDI panel tab */
+    TSharedRef<class SDockTab> SpawnNDIPanelTab(const class FSpawnTabArgs& Args);
 
     /** Register menu extensions */
     void RegisterMenus();
