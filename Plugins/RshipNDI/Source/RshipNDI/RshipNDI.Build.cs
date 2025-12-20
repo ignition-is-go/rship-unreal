@@ -41,9 +41,14 @@ public class RshipNDI : ModuleRules
 			BuildScript = Path.Combine(RustLibPath, "build.sh");
 		}
 
+		// Debug: Always show what path we're checking
+		System.Console.WriteLine("RshipNDI: Checking for Rust library at: " + RustLibFile);
+		System.Console.WriteLine("RshipNDI: File exists: " + File.Exists(RustLibFile));
+
 		if (File.Exists(RustLibFile))
 		{
 			bHasRustNDISender = true;
+			System.Console.WriteLine("RshipNDI: SUCCESS - Rust NDI sender library FOUND");
 		}
 		else
 		{
@@ -51,6 +56,7 @@ public class RshipNDI : ModuleRules
 			System.Console.WriteLine("");
 			System.Console.WriteLine("================================================================================");
 			System.Console.WriteLine("  RshipNDI: Rust NDI sender library NOT found - NDI streaming DISABLED");
+			System.Console.WriteLine("  Expected at: " + RustLibFile);
 			System.Console.WriteLine("");
 			System.Console.WriteLine("  To enable NDI streaming, run the build script:");
 			System.Console.WriteLine("    " + BuildScript);
