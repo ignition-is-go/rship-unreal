@@ -365,9 +365,9 @@ void URshipCameraBinding::RS_LookAt(float TargetX, float TargetY, float TargetZ)
 // RS_ ACTIONS - Exposure Controls
 // ============================================================================
 
-#if ENGINE_MAJOR_VERSION < 5 || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION < 6)
 void URshipCameraBinding::RS_SetExposureMethod(int32 Method)
 {
+#if ENGINE_MAJOR_VERSION < 5 || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION < 6)
 	if (!CameraComponent) return;
 	switch (Method)
 	{
@@ -375,8 +375,11 @@ void URshipCameraBinding::RS_SetExposureMethod(int32 Method)
 		case 1: CameraComponent->ExposureMethod = ECameraExposureMethod::Enabled; break;
 		default: CameraComponent->ExposureMethod = ECameraExposureMethod::DoNotOverride; break;
 	}
-}
+#else
+	// ExposureMethod was removed in UE 5.6 - this function is now a no-op
+	(void)Method;
 #endif
+}
 
 void URshipCameraBinding::RS_SetNearClipPlane(float DistanceCM)
 {

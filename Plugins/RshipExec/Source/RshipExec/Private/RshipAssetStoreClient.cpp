@@ -73,10 +73,13 @@ void URshipAssetStoreClient::Disconnect()
 	bIsConnected = false;
 	CancelAllDownloads();
 
-	// Clear reconnect timer
-	if (UWorld* World = GEngine->GetCurrentPlayWorld())
+	// Clear reconnect timer (GEngine may be null during shutdown)
+	if (GEngine)
 	{
-		World->GetTimerManager().ClearTimer(ReconnectTimerHandle);
+		if (UWorld* World = GEngine->GetCurrentPlayWorld())
+		{
+			World->GetTimerManager().ClearTimer(ReconnectTimerHandle);
+		}
 	}
 }
 
