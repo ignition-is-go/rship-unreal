@@ -76,11 +76,6 @@ bool FNDIStreamRenderer::Initialize(const FConfig& InConfig)
 
 	UE_LOG(LogRshipNDI, Log, TEXT("FNDIStreamRenderer::Initialize - NDI sender created: %s @ %dx%d @ %d fps"),
 		*Config.StreamName, Config.Width, Config.Height, Config.FrameRate);
-#else
-	UE_LOG(LogRshipNDI, Error, TEXT("FNDIStreamRenderer::Initialize - NDI sender library not available"));
-	FreeStagingBuffers();
-	return false;
-#endif
 
 	// Reset diagnostic counter so we log fresh data on each start
 	DiagFrameCount = 0;
@@ -89,6 +84,11 @@ bool FNDIStreamRenderer::Initialize(const FConfig& InConfig)
 
 	bIsInitialized = true;
 	return true;
+#else
+	UE_LOG(LogRshipNDI, Error, TEXT("FNDIStreamRenderer::Initialize - NDI sender library not available"));
+	FreeStagingBuffers();
+	return false;
+#endif
 }
 
 void FNDIStreamRenderer::Shutdown()
