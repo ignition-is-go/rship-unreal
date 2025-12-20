@@ -2,6 +2,7 @@
 
 #include "RshipCameraBinding.h"
 #include "RshipSubsystem.h"
+#include "RshipTargetComponent.h"
 #include "Logs.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
@@ -49,6 +50,12 @@ void URshipCameraBinding::BeginPlay()
 	PublishInterval = 1.0 / FMath::Max(1, PublishRateHz);
 
 	UE_LOG(LogRshipExec, Log, TEXT("RshipCameraBinding: Initialized on %s"), *GetOwner()->GetName());
+
+	// Trigger rescan on RshipTargetComponent so our RS_ members are registered
+	if (URshipTargetComponent* TargetComp = GetOwner()->FindComponentByClass<URshipTargetComponent>())
+	{
+		TargetComp->RescanSiblingComponents();
+	}
 }
 
 void URshipCameraBinding::EndPlay(const EEndPlayReason::Type EndPlayReason)

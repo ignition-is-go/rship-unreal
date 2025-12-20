@@ -289,3 +289,151 @@ bool URshipTargetComponent::HasTag(const FString& Tag) const
     }
     return false;
 }
+
+void URshipTargetComponent::RescanSiblingComponents()
+{
+    if (!GEngine)
+    {
+        return;
+    }
+
+    URshipSubsystem* subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+    if (!subsystem)
+    {
+        return;
+    }
+
+    AActor* parent = GetOwner();
+    if (!parent)
+    {
+        return;
+    }
+
+    if (!TargetData)
+    {
+        UE_LOG(LogRshipExec, Warning, TEXT("RescanSiblingComponents called before Register() - calling Register() first"));
+        Register();
+        return;
+    }
+
+    FString fullTargetId = subsystem->GetServiceId() + ":" + this->targetName;
+
+    TArray<UActorComponent*> siblingComponents;
+    parent->GetComponents(siblingComponents);
+
+    UE_LOG(LogRshipExec, Log, TEXT("Rescanning %d sibling components for new RS_ members"), siblingComponents.Num());
+
+    int32 newActionsCount = 0;
+    int32 newEmittersCount = 0;
+
+    for (UActorComponent* sibling : siblingComponents)
+    {
+        UClass* siblingClass = sibling->GetClass();
+
+        // Scan for new RS_ functions (Actions)
+        for (TFieldIterator<UFunction> siblingFunc(siblingClass, EFieldIteratorFlags::ExcludeSuper); siblingFunc; ++siblingFunc)
+        {
+            FString funcName = (*siblingFunc)->GetName();
+            if (funcName.StartsWith("RS_"))
+            {
+                FString fullActionId = fullTargetId + ":" + funcName;
+                // Check if this action is already registered
+                if (!TargetData->GetActions().Contains(fullActionId))
+                {
+                    this->RegisterFunction(sibling, *siblingFunc, &fullTargetId);
+                    UE_LOG(LogRshipExec, Log, TEXT("  New action found: %s"), *funcName);
+                    newActionsCount++;
+                }
+            }
+        }
+
+        // Scan for new RS_ properties (Actions)
+        for (TFieldIterator<FProperty> siblingProp(siblingClass, EFieldIteratorFlags::ExcludeSuper); siblingProp; ++siblingProp)
+        {
+            FString propName = (*siblingProp)->GetName();
+            if (propName.StartsWith("RS_") && !(*siblingProp)->IsA<FMulticastDelegateProperty>())
+            {
+                FString fullActionId = fullTargetId + ":" + propName;
+                // Check if this action is already registered
+                if (!TargetData->GetActions().Contains(fullActionId))
+                {
+                    this->RegisterProperty(sibling, *siblingProp, &fullTargetId);
+                    UE_LOG(LogRshipExec, Log, TEXT("  New property action found: %s"), *propName);
+                    newActionsCount++;
+                }
+            }
+        }
+
+        // Scan for new RS_ emitters
+        for (TFieldIterator<FMulticastInlineDelegateProperty> It(siblingClass, EFieldIteratorFlags::ExcludeSuper); It; ++It)
+        {
+            FMulticastInlineDelegateProperty* EmitterProp = *It;
+            FString EmitterName = EmitterProp->GetName();
+
+            if (!EmitterName.StartsWith("RS_"))
+            {
+                continue;
+            }
+
+            // Check if this emitter is already registered
+            if (EmitterHandlers.Contains(EmitterName))
+            {
+                continue;
+            }
+
+            FString fullEmitterId = fullTargetId + ":" + EmitterName;
+
+            auto emitter = new EmitterContainer(fullEmitterId, EmitterName, EmitterProp);
+            this->TargetData->AddEmitter(emitter);
+
+            FMulticastScriptDelegate EmitterDelegate = EmitterProp->GetPropertyValue_InContainer(sibling);
+
+            TScriptDelegate localDelegate;
+
+            auto world = GetWorld();
+            if (!world)
+            {
+                UE_LOG(LogRshipExec, Warning, TEXT("World Not Found during rescan"));
+                continue;
+            }
+
+            FActorSpawnParameters spawnInfo;
+            spawnInfo.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+            spawnInfo.Owner = parent;
+            spawnInfo.bNoFail = true;
+            spawnInfo.bDeferConstruction = false;
+            spawnInfo.bAllowDuringConstructionScript = true;
+
+            AEmitterHandler* handler = world->SpawnActor<AEmitterHandler>(spawnInfo);
+#if WITH_EDITOR
+            handler->SetActorLabel(parent->GetActorLabel() + " " + EmitterName + " Handler");
+#endif
+
+            handler->SetServiceId(subsystem->GetServiceId());
+            handler->SetTargetId(fullTargetId);
+            handler->SetEmitterId(EmitterName);
+            handler->SetDelegate(&localDelegate);
+
+            localDelegate.BindUFunction(handler, TEXT("ProcessEmitter"));
+
+            EmitterDelegate.Add(localDelegate);
+
+            EmitterProp->SetPropertyValue_InContainer(sibling, EmitterDelegate);
+
+            this->EmitterHandlers.Add(EmitterName, handler);
+
+            UE_LOG(LogRshipExec, Log, TEXT("  New emitter found: %s"), *EmitterName);
+            newEmittersCount++;
+        }
+    }
+
+    if (newActionsCount > 0 || newEmittersCount > 0)
+    {
+        UE_LOG(LogRshipExec, Log, TEXT("Rescan complete: %d new actions, %d new emitters. Sending update to server."), newActionsCount, newEmittersCount);
+        subsystem->SendAll();
+    }
+    else
+    {
+        UE_LOG(LogRshipExec, Log, TEXT("Rescan complete: no new RS_ members found"));
+    }
+}

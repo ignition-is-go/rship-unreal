@@ -34,6 +34,11 @@ public:
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "RshipTarget")
 	void Register();
 
+	/** Re-scan sibling components for RS_ members and update registration.
+	 *  Call this when a new component with RS_ members is added at runtime. */
+	UFUNCTION(BlueprintCallable, Category = "RshipTarget")
+	void RescanSiblingComponents();
+
 	UPROPERTY(EditAnywhere, config, Category = "RshipTarget", meta = (DisplayName = "Target Id"))
 	FString targetName;
 

@@ -3,6 +3,7 @@
 #include "RshipSubstrateMaterialBinding.h"
 #include "RshipSubsystem.h"
 #include "RshipPulseReceiver.h"
+#include "RshipTargetComponent.h"
 
 #include "Engine/Engine.h"
 #include "Engine/World.h"
@@ -193,6 +194,12 @@ void URshipSubstrateMaterialBinding::BeginPlay()
 	SetupMaterials();
 	BindToPulseReceiver();
 	ApplyStateToMaterials(CurrentState);
+
+	// Trigger rescan on RshipTargetComponent so our RS_ members are registered
+	if (URshipTargetComponent* TargetComp = GetOwner()->FindComponentByClass<URshipTargetComponent>())
+	{
+		TargetComp->RescanSiblingComponents();
+	}
 }
 
 void URshipSubstrateMaterialBinding::EndPlay(const EEndPlayReason::Type EndPlayReason)

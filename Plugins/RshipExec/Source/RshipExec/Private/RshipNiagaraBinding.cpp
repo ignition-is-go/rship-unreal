@@ -3,6 +3,7 @@
 #include "RshipNiagaraBinding.h"
 #include "RshipSubsystem.h"
 #include "RshipPulseReceiver.h"
+#include "RshipTargetComponent.h"
 #include "Logs.h"
 #include "Engine/Engine.h"
 #include "NiagaraComponent.h"
@@ -69,6 +70,12 @@ void URshipNiagaraBinding::BeginPlay()
 
     UE_LOG(LogRshipExec, Log, TEXT("RshipNiagaraBinding: Initialized for %s on %s"),
         *GetFullEmitterId(), *GetOwner()->GetName());
+
+    // Trigger rescan on RshipTargetComponent so our RS_ members are registered
+    if (URshipTargetComponent* TargetComp = GetOwner()->FindComponentByClass<URshipTargetComponent>())
+    {
+        TargetComp->RescanSiblingComponents();
+    }
 }
 
 void URshipNiagaraBinding::EndPlay(const EEndPlayReason::Type EndPlayReason)
