@@ -71,7 +71,6 @@ public class RshipNDI : ModuleRules
 		{
 			// Add runtime dependency path for deployment
 			RuntimeDependencies.Add(Path.Combine(NDIRuntimePath, "*"));
-			Log.TraceInformation("RshipNDI: Bundled NDI runtime found at " + NDIRuntimePath);
 		}
 
 		// Define whether Rust NDI sender is available
@@ -175,7 +174,6 @@ public class RshipNDI : ModuleRules
 				PublicIncludePaths.Add(IncludePath);
 				PrivateDependencyModuleNames.Add("CineCameraSceneCapture");
 				bFoundCineCapture = true;
-				Log.TraceInformation("RshipNDI: CineCameraSceneCapture found at: " + IncludePath);
 				break;
 			}
 		}
@@ -188,12 +186,6 @@ public class RshipNDI : ModuleRules
 		else
 		{
 			PublicDefinitions.Add("RSHIP_HAS_CINE_CAPTURE=0");
-			Log.TraceInformation("RshipNDI: ==================================================");
-			Log.TraceInformation("RshipNDI: CineCameraSceneCapture plugin NOT found.");
-			Log.TraceInformation("RshipNDI: Using standard USceneCaptureComponent2D instead.");
-			Log.TraceInformation("RshipNDI: For exact CineCamera DOF/lens matching, install");
-			Log.TraceInformation("RshipNDI: the CineCameraSceneCapture plugin.");
-			Log.TraceInformation("RshipNDI: ==================================================");
 		}
 
 		// Editor-only dependencies
