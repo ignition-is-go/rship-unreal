@@ -655,6 +655,9 @@ void URshipSubsystem::TickSubsystems()
         PCGManager->Tick(DeltaTime);
     }
 #endif
+
+    // Process message queue every tick to ensure messages are sent
+    ProcessMessageQueue();
 }
 
 void URshipSubsystem::QueueMessage(TSharedPtr<FJsonObject> Payload, ERshipMessagePriority Priority,
