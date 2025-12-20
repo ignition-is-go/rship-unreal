@@ -15,11 +15,9 @@
 #include "Components/ExponentialHeightFogComponent.h"
 #include "Engine/ExponentialHeightFog.h"
 
-// Color management integration (optional)
-#if ULTIMATE_CONTROL_HAS_COLOR_MANAGEMENT
+// Color management integration
 #include "RshipColorManagementSubsystem.h"
 #include "RshipColorConfig.h"
-#endif
 
 FUltimateControlRenderHandler::FUltimateControlRenderHandler(UUltimateControlSubsystem* InSubsystem)
 	: FUltimateControlHandlerBase(InSubsystem)
@@ -116,8 +114,7 @@ FUltimateControlRenderHandler::FUltimateControlRenderHandler(UUltimateControlSub
 	RegisterMethod(TEXT("render.setFogSettings"), TEXT("Set fog settings"), TEXT("Render"),
 		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetFogSettings));
 
-	// Color Management (RshipColorManagement integration) - optional
-#if ULTIMATE_CONTROL_HAS_COLOR_MANAGEMENT
+	// Color Management (RshipColorManagement integration)
 	RegisterMethod(TEXT("color.getConfig"), TEXT("Get color management configuration"), TEXT("Color"),
 		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleGetColorConfig));
 	RegisterMethod(TEXT("color.setConfig"), TEXT("Set color management configuration"), TEXT("Color"),
@@ -126,7 +123,6 @@ FUltimateControlRenderHandler::FUltimateControlRenderHandler(UUltimateControlSub
 		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleSetExposureMode));
 	RegisterMethod(TEXT("color.applyToViewport"), TEXT("Apply color config to viewport"), TEXT("Color"),
 		FJsonRpcMethodHandler::CreateRaw(this, &FUltimateControlRenderHandler::HandleApplyColorToViewport));
-#endif
 }
 
 TSharedPtr<FJsonObject> FUltimateControlRenderHandler::PostProcessVolumeToJson(APostProcessVolume* Volume)
@@ -1136,10 +1132,8 @@ bool FUltimateControlRenderHandler::HandleSetFogSettings(const TSharedPtr<FJsonO
 }
 
 // ============================================================================
-// Color Management Handlers (optional - requires RshipColorManagement plugin)
+// Color Management Handlers
 // ============================================================================
-
-#if ULTIMATE_CONTROL_HAS_COLOR_MANAGEMENT
 
 TSharedPtr<FJsonObject> FUltimateControlRenderHandler::ColorConfigToJson(const FRshipColorConfig& Config)
 {
@@ -1378,5 +1372,3 @@ bool FUltimateControlRenderHandler::HandleApplyColorToViewport(const TSharedPtr<
 	Result = MakeShared<FJsonValueObject>(ResultJson);
 	return true;
 }
-
-#endif // ULTIMATE_CONTROL_HAS_COLOR_MANAGEMENT

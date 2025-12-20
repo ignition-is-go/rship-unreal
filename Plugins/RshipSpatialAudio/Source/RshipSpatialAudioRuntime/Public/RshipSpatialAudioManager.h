@@ -14,9 +14,7 @@
 #include "RshipSpatialAudioManager.generated.h"
 
 // Forward declarations
-#if RSHIP_SPATIAL_AUDIO_HAS_EXEC
 class URshipSubsystem;
-#endif
 class FSpatialAudioProcessor;
 class FSpatialRenderingEngine;
 class IExternalSpatialProcessor;
@@ -50,7 +48,6 @@ class RSHIPSPATIALAUDIORUNTIME_API URshipSpatialAudioManager : public UObject
 public:
 	URshipSpatialAudioManager();
 
-#if RSHIP_SPATIAL_AUDIO_HAS_EXEC
 	/**
 	 * Initialize the manager with the parent subsystem.
 	 * This is exposed as a UFUNCTION to enable reflection-based initialization
@@ -59,12 +56,6 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Rship|SpatialAudio|Internal")
 	void Initialize(URshipSubsystem* InSubsystem);
-#else
-	/**
-	 * Initialize the manager standalone (without rShip/Myko integration).
-	 */
-	void Initialize();
-#endif
 
 	/**
 	 * Shutdown and cleanup the manager.
@@ -860,11 +851,9 @@ public:
 	TArray<FString> ValidateConfiguration() const;
 
 private:
-#if RSHIP_SPATIAL_AUDIO_HAS_EXEC
 	// Parent subsystem reference
 	UPROPERTY()
 	URshipSubsystem* Subsystem;
-#endif
 
 	// Venue configuration
 	FSpatialVenue Venue;
@@ -931,7 +920,6 @@ private:
 	/** Update scene interpolation progress */
 	void UpdateSceneInterpolation(float DeltaTime);
 
-#if RSHIP_SPATIAL_AUDIO_HAS_EXEC
 	// ========================================================================
 	// rShip/Myko Integration
 	// ========================================================================
@@ -981,7 +969,6 @@ private:
 
 	/** Process object-specific action */
 	void ProcessObjectAction(const FGuid& ObjectId, const FString& ActionId, const TSharedPtr<FJsonObject>& Data);
-#endif // RSHIP_SPATIAL_AUDIO_HAS_EXEC
 
 	// ========================================================================
 	// Audio Engine Integration

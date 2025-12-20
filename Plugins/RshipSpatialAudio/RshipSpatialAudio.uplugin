@@ -41,8 +41,7 @@
 	"Plugins": [
 		{
 			"Name": "RshipExec",
-			"Enabled": true,
-			"Optional": true
+			"Enabled": true
 		}
 	]
 }
