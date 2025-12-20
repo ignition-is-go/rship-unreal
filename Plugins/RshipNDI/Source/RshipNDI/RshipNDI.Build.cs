@@ -308,35 +308,72 @@ public class RshipNDI : ModuleRules
 				p.WaitForExit(5000);
 				if (p.ExitCode == 0)
 				{
+					System.Console.WriteLine("RshipNDI: Found cargo in PATH");
 					return cargoName; // Found in PATH
 				}
 			}
 		}
-		catch { }
+		catch (System.Exception ex)
+		{
+			System.Console.WriteLine("RshipNDI: cargo not in PATH: " + ex.Message);
+		}
 
 		// Check common installation locations
 		string userProfile = System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile);
-		string[] possiblePaths = new string[]
+
+		// Fallback to environment variables (more reliable in UE build context)
+		if (string.IsNullOrEmpty(userProfile))
+		{
+			// Windows
+			userProfile = System.Environment.GetEnvironmentVariable("USERPROFILE");
+		}
+		if (string.IsNullOrEmpty(userProfile))
+		{
+			// macOS/Linux
+			userProfile = System.Environment.GetEnvironmentVariable("HOME");
+		}
+
+		System.Console.WriteLine("RshipNDI: User profile path: " + (userProfile ?? "(null)"));
+
+		// Build list of possible paths
+		var possiblePathsList = new System.Collections.Generic.List<string>();
+
+		if (!string.IsNullOrEmpty(userProfile))
 		{
 			// Windows rustup default
-			Path.Combine(userProfile, ".cargo", "bin", "cargo.exe"),
-			// Windows alternative
-			Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData), "cargo", "bin", "cargo.exe"),
+			possiblePathsList.Add(Path.Combine(userProfile, ".cargo", "bin", "cargo.exe"));
 			// macOS/Linux rustup default
-			Path.Combine(userProfile, ".cargo", "bin", "cargo"),
-			// Homebrew on macOS
-			"/opt/homebrew/bin/cargo",
-			"/usr/local/bin/cargo",
-			// Linux system install
-			"/usr/bin/cargo",
-		};
+			possiblePathsList.Add(Path.Combine(userProfile, ".cargo", "bin", "cargo"));
+		}
+
+		// Windows alternative
+		string localAppData = System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData);
+		if (!string.IsNullOrEmpty(localAppData))
+		{
+			possiblePathsList.Add(Path.Combine(localAppData, "cargo", "bin", "cargo.exe"));
+		}
+
+		// Homebrew on macOS
+		possiblePathsList.Add("/opt/homebrew/bin/cargo");
+		possiblePathsList.Add("/usr/local/bin/cargo");
+		// Linux system install
+		possiblePathsList.Add("/usr/bin/cargo");
+
+		string[] possiblePaths = possiblePathsList.ToArray();
 
 		foreach (string path in possiblePaths)
 		{
 			if (File.Exists(path))
 			{
+				System.Console.WriteLine("RshipNDI: Found cargo at: " + path);
 				return path;
 			}
+		}
+
+		System.Console.WriteLine("RshipNDI: cargo not found in any of these locations:");
+		foreach (string path in possiblePaths)
+		{
+			System.Console.WriteLine("RshipNDI:   - " + path);
 		}
 
 		return null;
