@@ -41,6 +41,10 @@ public class RshipNDI : ModuleRules
 			RustLibFile = Path.Combine(RustLibRelease, "librship_ndi_sender.a");
 		}
 
+		// Debug: Show the path we're checking
+		System.Console.WriteLine("RshipNDI: ModuleDirectory = " + ModuleDirectory);
+		System.Console.WriteLine("RshipNDI: Looking for library at: " + RustLibFile);
+
 		// Auto-build Rust library if missing and enabled
 		if (!File.Exists(RustLibFile) && bAutoBuildRust && Directory.Exists(RustLibPath))
 		{
