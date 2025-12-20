@@ -3,6 +3,7 @@
 using UnrealBuildTool;
 using System.IO;
 using System.Diagnostics;
+using EpicGames.Core;
 
 public class RshipNDI : ModuleRules
 {
@@ -42,34 +43,34 @@ public class RshipNDI : ModuleRules
 		}
 
 		// Debug: Show the path we're checking
-		System.Console.WriteLine("RshipNDI: ModuleDirectory = " + ModuleDirectory);
-		System.Console.WriteLine("RshipNDI: Looking for library at: " + RustLibFile);
+		Log.TraceInformation("RshipNDI: ModuleDirectory = " + ModuleDirectory);
+		Log.TraceInformation("RshipNDI: Looking for library at: " + RustLibFile);
 
 		// Auto-build Rust library if missing and enabled
 		if (!File.Exists(RustLibFile) && bAutoBuildRust && Directory.Exists(RustLibPath))
 		{
-			System.Console.WriteLine("RshipNDI: Rust library not found, attempting auto-build...");
+			Log.TraceInformation("RshipNDI: Rust library not found, attempting auto-build...");
 			TryBuildRustLibrary(RustLibPath);
 		}
 
 		if (File.Exists(RustLibFile))
 		{
 			bHasRustNDISender = true;
-			System.Console.WriteLine("RshipNDI: Rust NDI sender library found at " + RustLibFile);
+			Log.TraceInformation("RshipNDI: Rust NDI sender library found at " + RustLibFile);
 		}
 		else
 		{
-			System.Console.WriteLine("RshipNDI: ==================================================");
-			System.Console.WriteLine("RshipNDI: Rust NDI sender library NOT found.");
-			System.Console.WriteLine("RshipNDI: NDI streaming will be DISABLED.");
-			System.Console.WriteLine("RshipNDI: ");
-			System.Console.WriteLine("RshipNDI: To enable NDI streaming, build the Rust library:");
-			System.Console.WriteLine("RshipNDI:   cd " + RustLibPath);
-			System.Console.WriteLine("RshipNDI:   cargo build --release");
-			System.Console.WriteLine("RshipNDI: ");
-			System.Console.WriteLine("RshipNDI: NOTE: At runtime, NDI Tools must be installed:");
-			System.Console.WriteLine("RshipNDI:   https://ndi.video/tools/");
-			System.Console.WriteLine("RshipNDI: ==================================================");
+			Log.TraceInformation("RshipNDI: ==================================================");
+			Log.TraceInformation("RshipNDI: Rust NDI sender library NOT found.");
+			Log.TraceInformation("RshipNDI: NDI streaming will be DISABLED.");
+			Log.TraceInformation("RshipNDI: ");
+			Log.TraceInformation("RshipNDI: To enable NDI streaming, build the Rust library:");
+			Log.TraceInformation("RshipNDI:   cd " + RustLibPath);
+			Log.TraceInformation("RshipNDI:   cargo build --release");
+			Log.TraceInformation("RshipNDI: ");
+			Log.TraceInformation("RshipNDI: NOTE: At runtime, NDI Tools must be installed:");
+			Log.TraceInformation("RshipNDI:   https://ndi.video/tools/");
+			Log.TraceInformation("RshipNDI: ==================================================");
 		}
 
 		// Check for bundled NDI runtime (optional - for redistribution)
@@ -78,7 +79,7 @@ public class RshipNDI : ModuleRules
 		{
 			// Add runtime dependency path for deployment
 			RuntimeDependencies.Add(Path.Combine(NDIRuntimePath, "*"));
-			System.Console.WriteLine("RshipNDI: Bundled NDI runtime found at " + NDIRuntimePath);
+			Log.TraceInformation("RshipNDI: Bundled NDI runtime found at " + NDIRuntimePath);
 		}
 
 		// Define whether Rust NDI sender is available
@@ -182,7 +183,7 @@ public class RshipNDI : ModuleRules
 				PublicIncludePaths.Add(IncludePath);
 				PrivateDependencyModuleNames.Add("CineCameraSceneCapture");
 				bFoundCineCapture = true;
-				System.Console.WriteLine("RshipNDI: CineCameraSceneCapture found at: " + IncludePath);
+				Log.TraceInformation("RshipNDI: CineCameraSceneCapture found at: " + IncludePath);
 				break;
 			}
 		}
@@ -195,12 +196,12 @@ public class RshipNDI : ModuleRules
 		else
 		{
 			PublicDefinitions.Add("RSHIP_HAS_CINE_CAPTURE=0");
-			System.Console.WriteLine("RshipNDI: ==================================================");
-			System.Console.WriteLine("RshipNDI: CineCameraSceneCapture plugin NOT found.");
-			System.Console.WriteLine("RshipNDI: Using standard USceneCaptureComponent2D instead.");
-			System.Console.WriteLine("RshipNDI: For exact CineCamera DOF/lens matching, install");
-			System.Console.WriteLine("RshipNDI: the CineCameraSceneCapture plugin.");
-			System.Console.WriteLine("RshipNDI: ==================================================");
+			Log.TraceInformation("RshipNDI: ==================================================");
+			Log.TraceInformation("RshipNDI: CineCameraSceneCapture plugin NOT found.");
+			Log.TraceInformation("RshipNDI: Using standard USceneCaptureComponent2D instead.");
+			Log.TraceInformation("RshipNDI: For exact CineCamera DOF/lens matching, install");
+			Log.TraceInformation("RshipNDI: the CineCameraSceneCapture plugin.");
+			Log.TraceInformation("RshipNDI: ==================================================");
 		}
 
 		// Editor-only dependencies
@@ -227,13 +228,13 @@ public class RshipNDI : ModuleRules
 			string cargoPath = FindCargoExecutable();
 			if (string.IsNullOrEmpty(cargoPath))
 			{
-				System.Console.WriteLine("RshipNDI: cargo not found, skipping auto-build");
-				System.Console.WriteLine("RshipNDI: Install Rust from https://rustup.rs or add cargo to PATH");
+				Log.TraceInformation("RshipNDI: cargo not found, skipping auto-build");
+				Log.TraceInformation("RshipNDI: Install Rust from https://rustup.rs or add cargo to PATH");
 				return;
 			}
 
-			System.Console.WriteLine("RshipNDI: Found cargo at: " + cargoPath);
-			System.Console.WriteLine("RshipNDI: Building Rust library (this may take a minute on first build)...");
+			Log.TraceInformation("RshipNDI: Found cargo at: " + cargoPath);
+			Log.TraceInformation("RshipNDI: Building Rust library (this may take a minute on first build)...");
 
 			ProcessStartInfo buildInfo = new ProcessStartInfo
 			{
@@ -251,11 +252,11 @@ public class RshipNDI : ModuleRules
 				// Stream output
 				buildProcess.OutputDataReceived += (sender, e) => {
 					if (!string.IsNullOrEmpty(e.Data))
-						System.Console.WriteLine("RshipNDI: [cargo] " + e.Data);
+						Log.TraceInformation("RshipNDI: [cargo] " + e.Data);
 				};
 				buildProcess.ErrorDataReceived += (sender, e) => {
 					if (!string.IsNullOrEmpty(e.Data))
-						System.Console.WriteLine("RshipNDI: [cargo] " + e.Data);
+						Log.TraceInformation("RshipNDI: [cargo] " + e.Data);
 				};
 
 				buildProcess.BeginOutputReadLine();
@@ -266,22 +267,22 @@ public class RshipNDI : ModuleRules
 
 				if (!finished)
 				{
-					System.Console.WriteLine("RshipNDI: Rust build timed out after 5 minutes");
+					Log.TraceInformation("RshipNDI: Rust build timed out after 5 minutes");
 					buildProcess.Kill();
 				}
 				else if (buildProcess.ExitCode == 0)
 				{
-					System.Console.WriteLine("RshipNDI: Rust library built successfully!");
+					Log.TraceInformation("RshipNDI: Rust library built successfully!");
 				}
 				else
 				{
-					System.Console.WriteLine("RshipNDI: Rust build failed with exit code " + buildProcess.ExitCode);
+					Log.TraceInformation("RshipNDI: Rust build failed with exit code " + buildProcess.ExitCode);
 				}
 			}
 		}
 		catch (System.Exception ex)
 		{
-			System.Console.WriteLine("RshipNDI: Auto-build failed: " + ex.Message);
+			Log.TraceInformation("RshipNDI: Auto-build failed: " + ex.Message);
 		}
 	}
 
@@ -312,14 +313,14 @@ public class RshipNDI : ModuleRules
 				p.WaitForExit(5000);
 				if (p.ExitCode == 0)
 				{
-					System.Console.WriteLine("RshipNDI: Found cargo in PATH");
+					Log.TraceInformation("RshipNDI: Found cargo in PATH");
 					return cargoName; // Found in PATH
 				}
 			}
 		}
 		catch (System.Exception ex)
 		{
-			System.Console.WriteLine("RshipNDI: cargo not in PATH: " + ex.Message);
+			Log.TraceInformation("RshipNDI: cargo not in PATH: " + ex.Message);
 		}
 
 		// Check common installation locations
@@ -337,7 +338,7 @@ public class RshipNDI : ModuleRules
 			userProfile = System.Environment.GetEnvironmentVariable("HOME");
 		}
 
-		System.Console.WriteLine("RshipNDI: User profile path: " + (userProfile ?? "(null)"));
+		Log.TraceInformation("RshipNDI: User profile path: " + (userProfile ?? "(null)"));
 
 		// Build list of possible paths
 		var possiblePathsList = new System.Collections.Generic.List<string>();
@@ -369,15 +370,15 @@ public class RshipNDI : ModuleRules
 		{
 			if (File.Exists(path))
 			{
-				System.Console.WriteLine("RshipNDI: Found cargo at: " + path);
+				Log.TraceInformation("RshipNDI: Found cargo at: " + path);
 				return path;
 			}
 		}
 
-		System.Console.WriteLine("RshipNDI: cargo not found in any of these locations:");
+		Log.TraceInformation("RshipNDI: cargo not found in any of these locations:");
 		foreach (string path in possiblePaths)
 		{
-			System.Console.WriteLine("RshipNDI:   - " + path);
+			Log.TraceInformation("RshipNDI:   - " + path);
 		}
 
 		return null;
