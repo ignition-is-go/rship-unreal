@@ -3,7 +3,9 @@
 #include "RshipSpatialAudioManager.h"
 #include "Myko/SpatialAudioMykoTypes.h"
 #include "RshipSpatialAudioRuntimeModule.h"
+#if RSHIP_SPATIAL_AUDIO_HAS_EXEC
 #include "RshipSubsystem.h"
+#endif
 #include "Audio/SpatialAudioProcessor.h"
 #include "Audio/SpatialRenderingEngine.h"
 #include "DSP/SpatialSpeakerDSP.h"

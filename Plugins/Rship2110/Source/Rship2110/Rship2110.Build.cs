@@ -41,6 +41,20 @@ public class Rship2110 : ModuleRules
             DetectRivermaxDLLs();
         }
 
+        // Check for optional RshipExec plugin
+        string RshipExecPluginPath = Path.Combine(ModuleDirectory, "..", "..", "..", "..", "RshipExec");
+        bool bHasRshipExec = Directory.Exists(RshipExecPluginPath);
+        if (bHasRshipExec)
+        {
+            PublicDefinitions.Add("RSHIP_2110_HAS_EXEC=1");
+            System.Console.WriteLine("Rship2110: RshipExec plugin found - enabling integration");
+        }
+        else
+        {
+            PublicDefinitions.Add("RSHIP_2110_HAS_EXEC=0");
+            System.Console.WriteLine("Rship2110: RshipExec plugin not found - operating standalone");
+        }
+
         // Core dependencies
         PublicDependencyModuleNames.AddRange(
             new string[]
@@ -56,9 +70,14 @@ public class Rship2110 : ModuleRules
                 "HTTP",
                 "Sockets",
                 "Networking",
-                "RshipExec",  // For integration with existing rship subsystem
             }
         );
+
+        // Optional RshipExec integration
+        if (bHasRshipExec)
+        {
+            PublicDependencyModuleNames.Add("RshipExec");
+        }
 
         PrivateDependencyModuleNames.AddRange(
             new string[]

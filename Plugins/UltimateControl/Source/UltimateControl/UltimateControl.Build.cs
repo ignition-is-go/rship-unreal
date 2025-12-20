@@ -1,6 +1,7 @@
 // Copyright Rocketship. All Rights Reserved.
 
 using UnrealBuildTool;
+using System.IO;
 
 public class UltimateControl : ModuleRules
 {
@@ -10,6 +11,20 @@ public class UltimateControl : ModuleRules
 
 		// Required for async and HTTP functionality
 		bEnableExceptions = true;
+
+		// Check for optional RshipColorManagement plugin
+		string RshipColorMgmtPluginPath = Path.Combine(ModuleDirectory, "..", "..", "..", "..", "RshipColorManagement");
+		bool bHasRshipColorManagement = Directory.Exists(RshipColorMgmtPluginPath);
+		if (bHasRshipColorManagement)
+		{
+			PublicDefinitions.Add("ULTIMATE_CONTROL_HAS_COLOR_MANAGEMENT=1");
+			System.Console.WriteLine("UltimateControl: RshipColorManagement plugin found - enabling color management");
+		}
+		else
+		{
+			PublicDefinitions.Add("ULTIMATE_CONTROL_HAS_COLOR_MANAGEMENT=0");
+			System.Console.WriteLine("UltimateControl: RshipColorManagement plugin not found - color endpoints disabled");
+		}
 
 		PublicIncludePaths.AddRange(
 			new string[] {
@@ -32,9 +47,14 @@ public class UltimateControl : ModuleRules
 				"HTTP",
 				"Sockets",
 				"Networking",
-				"RshipColorManagement",  // Color management for broadcast outputs
 			}
 		);
+
+		// Optional RshipColorManagement integration
+		if (bHasRshipColorManagement)
+		{
+			PublicDependencyModuleNames.Add("RshipColorManagement");
+		}
 
 		PrivateDependencyModuleNames.AddRange(
 			new string[]

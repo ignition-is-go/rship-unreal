@@ -1,12 +1,18 @@
 // Copyright Rocketship. All Rights Reserved.
 
 using UnrealBuildTool;
+using System.IO;
 
 public class RshipSpatialAudioEditor : ModuleRules
 {
 	public RshipSpatialAudioEditor(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
+
+		// Check for optional RshipExec plugin
+		string RshipExecPluginPath = Path.Combine(ModuleDirectory, "..", "..", "..", "..", "RshipExec");
+		bool bHasRshipExec = Directory.Exists(RshipExecPluginPath);
+		// Note: RSHIP_SPATIAL_AUDIO_HAS_EXEC is already defined by Runtime module
 
 		PublicIncludePaths.AddRange(
 			new string[] {
@@ -31,7 +37,6 @@ public class RshipSpatialAudioEditor : ModuleRules
 		PrivateDependencyModuleNames.AddRange(
 			new string[]
 			{
-				"RshipExec",
 				"Slate",
 				"SlateCore",
 				"InputCore",
@@ -53,5 +58,11 @@ public class RshipSpatialAudioEditor : ModuleRules
 				"ApplicationCore",      // Clipboard support
 			}
 		);
+
+		// Optional RshipExec integration
+		if (bHasRshipExec)
+		{
+			PrivateDependencyModuleNames.Add("RshipExec");
+		}
 	}
 }

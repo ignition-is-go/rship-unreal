@@ -1,6 +1,7 @@
 // Copyright Rocketship. All Rights Reserved.
 
 using UnrealBuildTool;
+using System.IO;
 
 public class RshipSpatialAudioRuntime : ModuleRules
 {
@@ -10,6 +11,20 @@ public class RshipSpatialAudioRuntime : ModuleRules
 
 		// Enable exceptions for audio processing edge cases
 		bEnableExceptions = true;
+
+		// Check for optional RshipExec plugin
+		string RshipExecPluginPath = Path.Combine(ModuleDirectory, "..", "..", "..", "..", "RshipExec");
+		bool bHasRshipExec = Directory.Exists(RshipExecPluginPath);
+		if (bHasRshipExec)
+		{
+			PublicDefinitions.Add("RSHIP_SPATIAL_AUDIO_HAS_EXEC=1");
+			System.Console.WriteLine("RshipSpatialAudioRuntime: RshipExec plugin found - enabling rShip/Myko integration");
+		}
+		else
+		{
+			PublicDefinitions.Add("RSHIP_SPATIAL_AUDIO_HAS_EXEC=0");
+			System.Console.WriteLine("RshipSpatialAudioRuntime: RshipExec plugin not found - operating standalone");
+		}
 
 		PublicIncludePaths.AddRange(
 			new string[] {
@@ -36,7 +51,6 @@ public class RshipSpatialAudioRuntime : ModuleRules
 		PrivateDependencyModuleNames.AddRange(
 			new string[]
 			{
-				"RshipExec",           // rShip/Myko integration
 				"Json",
 				"JsonUtilities",
 				"Projects",
@@ -44,6 +58,12 @@ public class RshipSpatialAudioRuntime : ModuleRules
 				"Networking",          // Network utilities (FIPv4Address, etc.)
 			}
 		);
+
+		// Optional RshipExec integration
+		if (bHasRshipExec)
+		{
+			PrivateDependencyModuleNames.Add("RshipExec");
+		}
 
 		// Editor-only dependencies for visualization
 		if (Target.bBuildEditor)

@@ -9,8 +9,10 @@
 #include "IPMX/RshipIPMXService.h"
 #include "Capture/Rship2110VideoCapture.h"
 
-// Include RshipExec for integration
+// Include RshipExec for integration (optional)
+#if RSHIP_2110_HAS_EXEC
 #include "RshipSubsystem.h"
+#endif
 
 DECLARE_STATS_GROUP(TEXT("Rship2110"), STATGROUP_Rship2110, STATCAT_Advanced);
 DECLARE_CYCLE_STAT(TEXT("Rship2110 Tick"), STAT_Rship2110Tick, STATGROUP_Rship2110);
@@ -130,7 +132,11 @@ TStatId URship2110Subsystem::GetStatId() const
 
 URshipSubsystem* URship2110Subsystem::GetRshipSubsystem() const
 {
+#if RSHIP_2110_HAS_EXEC
     return GEngine ? GEngine->GetEngineSubsystem<URshipSubsystem>() : nullptr;
+#else
+    return nullptr;
+#endif
 }
 
 FRshipPTPTimestamp URship2110Subsystem::GetPTPTime() const
