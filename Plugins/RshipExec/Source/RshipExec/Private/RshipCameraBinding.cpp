@@ -365,6 +365,7 @@ void URshipCameraBinding::RS_LookAt(float TargetX, float TargetY, float TargetZ)
 // RS_ ACTIONS - Exposure Controls
 // ============================================================================
 
+#if ENGINE_MAJOR_VERSION < 5 || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION < 6)
 void URshipCameraBinding::RS_SetExposureMethod(int32 Method)
 {
 	if (!CameraComponent) return;
@@ -375,6 +376,7 @@ void URshipCameraBinding::RS_SetExposureMethod(int32 Method)
 		default: CameraComponent->ExposureMethod = ECameraExposureMethod::DoNotOverride; break;
 	}
 }
+#endif
 
 void URshipCameraBinding::RS_SetNearClipPlane(float DistanceCM)
 {
@@ -427,7 +429,9 @@ void URshipCameraBinding::RS_ResetToDefaults()
 	CameraComponent->SetCropSettings(DefaultCrop);
 
 	// Reset exposure
+#if ENGINE_MAJOR_VERSION < 5 || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION < 6)
 	CameraComponent->ExposureMethod = ECameraExposureMethod::DoNotOverride;
+#endif
 	CameraComponent->bOverride_CustomNearClippingPlane = false;
 }
 
@@ -459,7 +463,9 @@ void URshipCameraBinding::RS_CopyFromCamera(const FString& CameraActorName)
 					CameraComponent->SetLensSettings(SourceComp->LensSettings);
 					CameraComponent->SetFocusSettings(SourceComp->FocusSettings);
 					CameraComponent->SetCropSettings(SourceComp->CropSettings);
+#if ENGINE_MAJOR_VERSION < 5 || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION < 6)
 					CameraComponent->ExposureMethod = SourceComp->ExposureMethod;
+#endif
 
 					UE_LOG(LogRshipExec, Log, TEXT("RshipCameraBinding: Copied settings from %s"), *CameraActorName);
 					return;

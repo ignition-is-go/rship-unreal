@@ -168,9 +168,11 @@ public:
 	// RS_ ACTIONS - Exposure Controls
 	// ========================================================================
 
-	/** Set exposure method (0=DoNotOverride, 1=Enabled) */
+#if ENGINE_MAJOR_VERSION < 5 || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION < 6)
+	/** Set exposure method (0=DoNotOverride, 1=Enabled) - Only available in UE < 5.6 */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Camera|Exposure")
 	void RS_SetExposureMethod(int32 Method);
+#endif
 
 	/** Set custom near clipping plane in cm (0 to use default) */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Camera|Exposure")
