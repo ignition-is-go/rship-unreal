@@ -2,7 +2,9 @@
 
 #include "SpatialAudioVisualizerComponent.h"
 #include "RshipSpatialAudioManager.h"
+#if RSHIP_SPATIAL_AUDIO_HAS_EXEC
 #include "RshipSubsystem.h"
+#endif
 #include "Engine/Engine.h"
 
 USpatialAudioVisualizerComponent::USpatialAudioVisualizerComponent()
@@ -19,6 +21,7 @@ URshipSpatialAudioManager* USpatialAudioVisualizerComponent::GetAudioManager() c
 	}
 
 	// Try to get from subsystem
+#if RSHIP_SPATIAL_AUDIO_HAS_EXEC
 	if (GEngine)
 	{
 		if (URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>())
@@ -26,6 +29,7 @@ URshipSpatialAudioManager* USpatialAudioVisualizerComponent::GetAudioManager() c
 			return Subsystem->GetSpatialAudioManager();
 		}
 	}
+#endif
 
 	return nullptr;
 }

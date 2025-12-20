@@ -33,10 +33,11 @@ URshipSpatialAudioManager::URshipSpatialAudioManager()
 {
 }
 
+#if RSHIP_SPATIAL_AUDIO_HAS_EXEC
 void URshipSpatialAudioManager::Initialize(URshipSubsystem* InSubsystem)
 {
 	Subsystem = InSubsystem;
-	UE_LOG(LogRshipSpatialAudioManager, Log, TEXT("SpatialAudioManager initialized"));
+	UE_LOG(LogRshipSpatialAudioManager, Log, TEXT("SpatialAudioManager initialized with rShip/Myko integration"));
 
 	// Create a default venue if none exists
 	if (!Venue.Id.IsValid())
@@ -44,6 +45,18 @@ void URshipSpatialAudioManager::Initialize(URshipSubsystem* InSubsystem)
 		CreateVenue(TEXT("Default Venue"));
 	}
 }
+#else
+void URshipSpatialAudioManager::Initialize()
+{
+	UE_LOG(LogRshipSpatialAudioManager, Log, TEXT("SpatialAudioManager initialized in standalone mode"));
+
+	// Create a default venue if none exists
+	if (!Venue.Id.IsValid())
+	{
+		CreateVenue(TEXT("Default Venue"));
+	}
+}
+#endif
 
 void URshipSpatialAudioManager::Shutdown()
 {
@@ -53,11 +66,15 @@ void URshipSpatialAudioManager::Shutdown()
 	DisconnectExternalProcessor();
 	ExternalProcessor = nullptr;
 
+#if RSHIP_SPATIAL_AUDIO_HAS_EXEC
 	UnregisterMykoTargets();
+#endif
 	AudioObjects.Empty();
 	StoredScenes.Empty();
 
+#if RSHIP_SPATIAL_AUDIO_HAS_EXEC
 	Subsystem = nullptr;
+#endif
 }
 
 void URshipSpatialAudioManager::Tick(float DeltaTime)
@@ -84,6 +101,7 @@ void URshipSpatialAudioManager::Tick(float DeltaTime)
 		}
 	}
 
+#if RSHIP_SPATIAL_AUDIO_HAS_EXEC
 	// Accumulate time for meter updates
 	MeterUpdateAccumulator += DeltaTime;
 	if (MeterUpdateAccumulator >= MeterUpdateInterval)
@@ -91,6 +109,7 @@ void URshipSpatialAudioManager::Tick(float DeltaTime)
 		MeterUpdateAccumulator -= MeterUpdateInterval;
 		SendMeterPulses();
 	}
+#endif
 
 	// Update audio engine with any pending changes
 	UpdateAudioEngine();
@@ -102,8 +121,10 @@ void URshipSpatialAudioManager::Tick(float DeltaTime)
 
 void URshipSpatialAudioManager::CreateVenue(const FString& VenueName)
 {
+#if RSHIP_SPATIAL_AUDIO_HAS_EXEC
 	// Clear existing venue
 	UnregisterMykoTargets();
+#endif
 
 	// Create new venue
 	Venue = FSpatialVenue();
@@ -112,8 +133,10 @@ void URshipSpatialAudioManager::CreateVenue(const FString& VenueName)
 	UE_LOG(LogRshipSpatialAudioManager, Log, TEXT("Created venue: %s (ID: %s)"),
 		*VenueName, *Venue.Id.ToString());
 
+#if RSHIP_SPATIAL_AUDIO_HAS_EXEC
 	// Register with Myko
 	RegisterMykoTargets();
+#endif
 
 	OnVenueChanged.Broadcast();
 }
@@ -132,8 +155,10 @@ FGuid URshipSpatialAudioManager::AddSpeaker(const FSpatialSpeaker& Speaker)
 	// Get the speaker with assigned ID for registration
 	if (const FSpatialSpeaker* AddedSpeaker = Venue.GetSpeaker(NewId))
 	{
+#if RSHIP_SPATIAL_AUDIO_HAS_EXEC
 		RegisterSpeakerTarget(*AddedSpeaker);
 		CachedSpeakerIds.Add(NewId);
+#endif
 
 		// Register with audio processor DSP manager
 		if (AudioProcessor)
@@ -176,7 +201,9 @@ bool URshipSpatialAudioManager::UpdateSpeaker(const FGuid& SpeakerId, const FSpa
 	ExistingSpeaker->Id = SpeakerId;
 
 	NotifyDSPChange(SpeakerId);
+#if RSHIP_SPATIAL_AUDIO_HAS_EXEC
 	SendSpeakerUpdate(SpeakerId);
+#endif
 
 	// If position changed, need to update rendering engine triangulation
 	if (bPositionChanged)
@@ -197,8 +224,10 @@ bool URshipSpatialAudioManager::RemoveSpeaker(const FGuid& SpeakerId)
 		return false;
 	}
 
+#if RSHIP_SPATIAL_AUDIO_HAS_EXEC
 	UnregisterSpeakerTarget(SpeakerId);
 	CachedSpeakerIds.Remove(SpeakerId);
+#endif
 
 	// Remove from audio processor DSP manager
 	if (AudioProcessor)
@@ -345,7 +374,9 @@ void URshipSpatialAudioManager::SetSpeakerDSP(const FGuid& SpeakerId, const FSpa
 		DSPState.EQBands.Num());
 
 	NotifyDSPChange(SpeakerId);
+#if RSHIP_SPATIAL_AUDIO_HAS_EXEC
 	SendSpeakerUpdate(SpeakerId);
+#endif
 }
 
 void URshipSpatialAudioManager::SetSpeakerHighPass(const FGuid& SpeakerId, const FSpatialHighPassFilter& HighPass)
@@ -386,10 +417,12 @@ FGuid URshipSpatialAudioManager::AddZone(const FSpatialZone& Zone)
 		*Zone.Name, *NewId.ToString(), static_cast<int32>(Zone.RendererType));
 
 	// Get the zone with assigned ID for registration
+#if RSHIP_SPATIAL_AUDIO_HAS_EXEC
 	if (const FSpatialZone* AddedZone = Venue.GetZone(NewId))
 	{
 		RegisterZoneTarget(*AddedZone);
 	}
+#endif
 
 	OnZoneAdded.Broadcast(NewId);
 
@@ -408,7 +441,9 @@ bool URshipSpatialAudioManager::UpdateZone(const FGuid& ZoneId, const FSpatialZo
 	*ExistingZone = Zone;
 	ExistingZone->Id = ZoneId;
 
+#if RSHIP_SPATIAL_AUDIO_HAS_EXEC
 	SendZoneUpdate(ZoneId);
+#endif
 
 	return true;
 }
@@ -421,7 +456,9 @@ bool URshipSpatialAudioManager::RemoveZone(const FGuid& ZoneId)
 		return false;
 	}
 
+#if RSHIP_SPATIAL_AUDIO_HAS_EXEC
 	UnregisterZoneTarget(ZoneId);
+#endif
 
 	UE_LOG(LogRshipSpatialAudioManager, Log, TEXT("Removed zone: %s"), *ZoneId.ToString());
 	OnZoneRemoved.Broadcast(ZoneId);
@@ -470,7 +507,9 @@ FGuid URshipSpatialAudioManager::CreateAudioObject(const FString& Name)
 	UE_LOG(LogRshipSpatialAudioManager, Log, TEXT("Created audio object: %s (ID: %s)"),
 		*Name, *NewId.ToString());
 
+#if RSHIP_SPATIAL_AUDIO_HAS_EXEC
 	RegisterObjectTarget(NewObject);
+#endif
 	OnObjectAdded.Broadcast(NewId);
 
 	return NewId;
@@ -484,7 +523,9 @@ bool URshipSpatialAudioManager::RemoveAudioObject(const FGuid& ObjectId)
 		return false;
 	}
 
+#if RSHIP_SPATIAL_AUDIO_HAS_EXEC
 	UnregisterObjectTarget(ObjectId);
+#endif
 
 	UE_LOG(LogRshipSpatialAudioManager, Log, TEXT("Removed audio object: %s"), *ObjectId.ToString());
 	OnObjectRemoved.Broadcast(ObjectId);
@@ -620,7 +661,9 @@ FGuid URshipSpatialAudioManager::AddObject(const FSpatialAudioObject& Object)
 	}
 
 	AudioObjects.Add(NewObject.Id, NewObject);
+#if RSHIP_SPATIAL_AUDIO_HAS_EXEC
 	RegisterObjectTarget(NewObject);
+#endif
 	OnObjectAdded.Broadcast(NewObject.Id);
 
 	return NewObject.Id;
@@ -862,7 +905,9 @@ void URshipSpatialAudioManager::ClearAllObjects()
 
 	for (const FGuid& Id : ObjectIds)
 	{
+#if RSHIP_SPATIAL_AUDIO_HAS_EXEC
 		UnregisterObjectTarget(Id);
+#endif
 		OnObjectRemoved.Broadcast(Id);
 	}
 	AudioObjects.Empty();
@@ -873,15 +918,19 @@ void URshipSpatialAudioManager::ClearAllSpeakers()
 	// Clear objects first (they may reference zones)
 	ClearAllObjects();
 
-	// Unregister all targets
+	// Unregister all targets and broadcast removal events
 	for (const auto& Pair : Venue.Zones)
 	{
+#if RSHIP_SPATIAL_AUDIO_HAS_EXEC
 		UnregisterZoneTarget(Pair.Key);
+#endif
 		OnZoneRemoved.Broadcast(Pair.Key);
 	}
 	for (const auto& Pair : Venue.Speakers)
 	{
+#if RSHIP_SPATIAL_AUDIO_HAS_EXEC
 		UnregisterSpeakerTarget(Pair.Key);
+#endif
 		OnSpeakerRemoved.Broadcast(Pair.Key);
 	}
 
@@ -1543,8 +1592,10 @@ bool URshipSpatialAudioManager::ImportVenueFromJson(const FString& JsonString)
 		}
 	}
 
+#if RSHIP_SPATIAL_AUDIO_HAS_EXEC
 	// Re-register with Myko
 	RegisterMykoTargets();
+#endif
 
 	UE_LOG(LogRshipSpatialAudioManager, Log, TEXT("Imported venue: %s with %d speakers, %d zones, %d objects"),
 		*Venue.Name, Venue.GetSpeakerCount(), Venue.GetZoneCount(), AudioObjects.Num());
@@ -1604,6 +1655,7 @@ TArray<FString> URshipSpatialAudioManager::ValidateConfiguration() const
 	return Venue.Validate();
 }
 
+#if RSHIP_SPATIAL_AUDIO_HAS_EXEC
 // ============================================================================
 // INTERNAL METHODS - MYKO INTEGRATION
 // ============================================================================
@@ -2112,6 +2164,7 @@ void URshipSpatialAudioManager::ProcessObjectAction(const FGuid& ObjectId, const
 		UE_LOG(LogRshipSpatialAudioManager, Warning, TEXT("ProcessObjectAction: Unknown action: %s"), *ActionId);
 	}
 }
+#endif // RSHIP_SPATIAL_AUDIO_HAS_EXEC
 
 // ============================================================================
 // INTERNAL METHODS - AUDIO ENGINE
@@ -2324,8 +2377,10 @@ void URshipSpatialAudioManager::UpdateAudioEngine()
 
 void URshipSpatialAudioManager::NotifyDSPChange(const FGuid& SpeakerId)
 {
+#if RSHIP_SPATIAL_AUDIO_HAS_EXEC
 	// Send rShip update
 	SendSpeakerUpdate(SpeakerId);
+#endif
 
 	// Queue DSP parameter update to audio thread
 	if (!AudioProcessor)
@@ -2358,8 +2413,10 @@ void URshipSpatialAudioManager::NotifyDSPChange(const FGuid& SpeakerId)
 
 void URshipSpatialAudioManager::NotifyObjectChange(const FGuid& ObjectId)
 {
+#if RSHIP_SPATIAL_AUDIO_HAS_EXEC
 	// Send rShip update
 	SendObjectUpdate(ObjectId);
+#endif
 
 	FSpatialAudioObject* Object = AudioObjects.Find(ObjectId);
 	if (!Object)

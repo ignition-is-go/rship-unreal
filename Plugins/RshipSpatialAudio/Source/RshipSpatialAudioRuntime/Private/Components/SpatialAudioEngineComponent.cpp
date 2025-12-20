@@ -5,7 +5,9 @@
 #include "Audio/SpatialAudioSubmixEffect.h"
 #include "RshipSpatialAudioManager.h"
 #include "RshipSpatialAudioRuntimeModule.h"
+#if RSHIP_SPATIAL_AUDIO_HAS_EXEC
 #include "RshipSubsystem.h"
+#endif
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 
@@ -195,6 +197,7 @@ void USpatialAudioEngineComponent::DisconnectFromSubmixEffect()
 
 void USpatialAudioEngineComponent::ConnectToManager()
 {
+#if RSHIP_SPATIAL_AUDIO_HAS_EXEC
 	if (!GEngine)
 	{
 		UE_LOG(LogRshipSpatialAudio, Warning, TEXT("SpatialAudioEngineComponent: GEngine not available"));
@@ -224,6 +227,9 @@ void USpatialAudioEngineComponent::ConnectToManager()
 	ConnectedManager = Manager;
 
 	UE_LOG(LogRshipSpatialAudio, Log, TEXT("SpatialAudioEngineComponent: Connected to SpatialAudioManager"));
+#else
+	UE_LOG(LogRshipSpatialAudio, Log, TEXT("SpatialAudioEngineComponent: RshipExec not available, running standalone"));
+#endif
 }
 
 void USpatialAudioEngineComponent::DisconnectFromManager()

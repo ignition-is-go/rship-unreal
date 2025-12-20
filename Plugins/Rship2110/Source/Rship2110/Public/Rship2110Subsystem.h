@@ -93,12 +93,14 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Rship|2110")
     URship2110VideoCapture* GetVideoCapture() const { return VideoCapture; }
 
+#if RSHIP_2110_HAS_EXEC
     /**
      * Get the Rship main subsystem (for timecode integration).
      * @return Rship subsystem or nullptr
      */
     UFUNCTION(BlueprintCallable, Category = "Rship|2110")
     URshipSubsystem* GetRshipSubsystem() const;
+#endif
 
     // ========================================================================
     // QUICK ACCESS - PTP
