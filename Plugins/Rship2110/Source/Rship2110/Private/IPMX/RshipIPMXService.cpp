@@ -756,7 +756,7 @@ TSharedPtr<FJsonObject> URshipIPMXService::BuildFlowJson(const FString& SenderId
     const FRship2110VideoFormat& Format = VideoSender->GetVideoFormat();
     Data->SetNumberField(TEXT("frame_width"), Format.Width);
     Data->SetNumberField(TEXT("frame_height"), Format.Height);
-    Data->SetStringField(TEXT("colorspace"), TEXT("BT709"));
+    Data->SetStringField(TEXT("colorspace"), Format.GetColorimetryString());
 
     // Frame rate
     TSharedPtr<FJsonObject> FrameRate = MakeShareable(new FJsonObject());

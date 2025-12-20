@@ -57,6 +57,7 @@ public class Rship2110 : ModuleRules
                 "Sockets",
                 "Networking",
                 "RshipExec",  // For integration with existing rship subsystem
+                "RshipColorManagement",  // Color management for broadcast outputs
             }
         );
 

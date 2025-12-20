@@ -26,6 +26,10 @@
 		{
 			"Name": "RshipExec",
 			"Enabled": true
+		},
+		{
+			"Name": "RshipColorManagement",
+			"Enabled": true
 		}
 	]
 }

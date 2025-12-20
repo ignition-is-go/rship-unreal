@@ -31,6 +31,9 @@ using FRship2110TextureRHIRef = FTexture2DRHIRef;
 #endif
 
 class URship2110VideoSender;
+class URshipColorManagementSubsystem;
+class USceneCaptureComponent2D;
+struct FRshipColorConfig;
 
 /**
  * Capture completion delegate
@@ -136,6 +139,37 @@ public:
      * @return Buffer count
      */
     int32 GetBufferCount() const { return CaptureBuffers.Num(); }
+
+    // ========================================================================
+    // COLOR MANAGEMENT INTEGRATION
+    // ========================================================================
+
+    /**
+     * Configure a scene capture component using color management settings.
+     * Uses RshipColorManagementSubsystem for consistent color pipeline.
+     * @param SceneCapture Scene capture component to configure
+     * @param World World context for getting subsystem
+     */
+    void ConfigureSceneCaptureFromColorManagement(USceneCaptureComponent2D* SceneCapture, UWorld* World);
+
+    /**
+     * Update video format colorimetry from color management config.
+     * Call this to sync the 2110 video format with the global color config.
+     * @param World World context for getting subsystem
+     */
+    void SyncColorimetryFromColorManagement(UWorld* World);
+
+    /**
+     * Set colorimetry and reinitialize color conversion LUTs.
+     * @param NewColorimetry New colorimetry to use
+     */
+    void SetColorimetry(ERship2110Colorimetry NewColorimetry);
+
+    /**
+     * Get current colorimetry setting.
+     * @return Current colorimetry
+     */
+    ERship2110Colorimetry GetColorimetry() const { return VideoFormat.Colorimetry; }
 
     // ========================================================================
     // GPUDIRECT INTEGRATION

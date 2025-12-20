@@ -7,6 +7,11 @@
 #include "Engine/TextureRenderTarget2D.h"
 #include "ScreenRendering.h"
 #include "CommonRenderResources.h"
+#include "Components/SceneCaptureComponent2D.h"
+
+// Color management integration
+#include "RshipColorManagementSubsystem.h"
+#include "RshipColorConfig.h"
 
 bool URship2110VideoCapture::Initialize(const FRship2110VideoFormat& InVideoFormat)
 {
@@ -240,6 +245,93 @@ void URship2110VideoCapture::SetBufferCount(int32 NumBuffers)
     }
 }
 
+void URship2110VideoCapture::ConfigureSceneCaptureFromColorManagement(USceneCaptureComponent2D* SceneCapture, UWorld* World)
+{
+    if (!SceneCapture)
+    {
+        return;
+    }
+
+    URshipColorManagementSubsystem* ColorSubsystem = nullptr;
+    if (World)
+    {
+        ColorSubsystem = World->GetSubsystem<URshipColorManagementSubsystem>();
+    }
+
+    if (ColorSubsystem)
+    {
+        // Use color management subsystem to configure the scene capture
+        ColorSubsystem->ConfigureSceneCapture(SceneCapture);
+        UE_LOG(LogRship2110, Verbose, TEXT("VideoCapture: Using RshipColorManagement subsystem for capture settings"));
+
+        // Sync our colorimetry from the color config
+        SyncColorimetryFromColorManagement(World);
+    }
+    else
+    {
+        UE_LOG(LogRship2110, Verbose, TEXT("VideoCapture: Color management subsystem not available, using defaults"));
+    }
+}
+
+void URship2110VideoCapture::SyncColorimetryFromColorManagement(UWorld* World)
+{
+    if (!World)
+    {
+        return;
+    }
+
+    URshipColorManagementSubsystem* ColorSubsystem = World->GetSubsystem<URshipColorManagementSubsystem>();
+    if (!ColorSubsystem)
+    {
+        return;
+    }
+
+    FRshipColorConfig ColorConfig = ColorSubsystem->GetColorConfig();
+
+    // Map color management color space to 2110 colorimetry
+    ERship2110Colorimetry NewColorimetry = ERship2110Colorimetry::BT709;  // Default
+
+    switch (ColorConfig.ColorSpace)
+    {
+        case ERshipColorSpace::sRGB:
+        case ERshipColorSpace::Rec709:
+            NewColorimetry = ERship2110Colorimetry::BT709;
+            break;
+
+        case ERshipColorSpace::Rec2020:
+            NewColorimetry = ColorConfig.bEnableHDR ? ERship2110Colorimetry::BT2100 : ERship2110Colorimetry::BT2020;
+            break;
+
+        case ERshipColorSpace::DCIP3:
+            NewColorimetry = ERship2110Colorimetry::DCIP3;
+            break;
+    }
+
+    // Update if changed
+    if (NewColorimetry != VideoFormat.Colorimetry)
+    {
+        SetColorimetry(NewColorimetry);
+        UE_LOG(LogRship2110, Log, TEXT("VideoCapture: Synced colorimetry to %s from color management"),
+               *VideoFormat.GetColorimetryString());
+    }
+}
+
+void URship2110VideoCapture::SetColorimetry(ERship2110Colorimetry NewColorimetry)
+{
+    if (NewColorimetry == VideoFormat.Colorimetry)
+    {
+        return;
+    }
+
+    VideoFormat.Colorimetry = NewColorimetry;
+
+    // Reinitialize color LUTs with the new colorimetry coefficients
+    InitializeColorLUTs();
+
+    UE_LOG(LogRship2110, Log, TEXT("VideoCapture: Set colorimetry to %s"),
+           *VideoFormat.GetColorimetryString());
+}
+
 void URship2110VideoCapture::SetGPUDirectEnabled(bool bEnable)
 {
     if (bEnable && !bGPUDirectAvailable)
@@ -348,9 +440,37 @@ void URship2110VideoCapture::ReleaseBuffer(int32 Index)
 
 void URship2110VideoCapture::InitializeColorLUTs()
 {
-    // BT.709 coefficients for YCbCr conversion
-    const float Kr = 0.2126f;
-    const float Kb = 0.0722f;
+    // Select YCbCr coefficients based on colorimetry
+    // Kr and Kb are the luma coefficients that define the color space
+    float Kr, Kb;
+
+    switch (VideoFormat.Colorimetry)
+    {
+        case ERship2110Colorimetry::BT2020:
+        case ERship2110Colorimetry::BT2100:
+            // BT.2020/2100 coefficients (Rec. 2020 wide color gamut)
+            Kr = 0.2627f;
+            Kb = 0.0593f;
+            UE_LOG(LogRship2110, Verbose, TEXT("VideoCapture: Using BT.2020/2100 YCbCr coefficients"));
+            break;
+
+        case ERship2110Colorimetry::DCIP3:
+            // DCI-P3 uses same coefficients as BT.709 for YCbCr
+            // (DCI-P3 is primarily about different primaries, not luma coefficients)
+            Kr = 0.2126f;
+            Kb = 0.0722f;
+            UE_LOG(LogRship2110, Verbose, TEXT("VideoCapture: Using DCI-P3/BT.709 YCbCr coefficients"));
+            break;
+
+        case ERship2110Colorimetry::BT709:
+        default:
+            // BT.709 coefficients (standard HD)
+            Kr = 0.2126f;
+            Kb = 0.0722f;
+            UE_LOG(LogRship2110, Verbose, TEXT("VideoCapture: Using BT.709 YCbCr coefficients"));
+            break;
+    }
+
     const float Kg = 1.0f - Kr - Kb;
 
     RtoYLUT.SetNum(256);
