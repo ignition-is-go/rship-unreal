@@ -180,8 +180,13 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnMaterialColorUpdated, FName, Par
 // ============================================================================
 
 /**
- * Component that binds rship pulse data to material instance parameters.
- * Attach to any actor with mesh components to make materials reactive.
+ * Comprehensive binding for material instance parameters to rship.
+ * Exposes all common PBR material controls plus custom parameter access:
+ * - Base Color, Emissive Color with intensity
+ * - Roughness, Metallic, Specular
+ * - Opacity for translucent materials
+ * - UV Tiling and Offset for texture animation
+ * - Custom scalar/vector/texture parameters by name
  */
 UCLASS(ClassGroup = (Rship), meta = (BlueprintSpawnableComponent, DisplayName = "Rship Material Binding"))
 class RSHIPEXEC_API URshipMaterialBinding : public UActorComponent
@@ -232,8 +237,186 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Material")
     bool bEnableTick = true;
 
+    /** Publish rate in Hz (how often to publish material state as emitters) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Material", meta = (ClampMin = "1", ClampMax = "60"))
+    int32 PublishRateHz = 10;
+
+    /** Only publish when values change (reduces network traffic) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Material")
+    bool bOnlyPublishOnChange = true;
+
     // ========================================================================
-    // RUNTIME CONTROL
+    // RS_ ACTIONS - Generic Parameter Control
+    // ========================================================================
+
+    /** Set any scalar parameter by name */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Material|Parameters")
+    void RS_SetScalarParameter(FName ParameterName, float Value);
+
+    /** Set any vector/color parameter by name */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Material|Parameters")
+    void RS_SetVectorParameter(FName ParameterName, float R, float G, float B, float A);
+
+    /** Set texture parameter to a specific index in TextureBindings array */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Material|Parameters")
+    void RS_SetTextureIndex(FName ParameterName, int32 Index);
+
+    // ========================================================================
+    // RS_ ACTIONS - Common PBR Parameters
+    // ========================================================================
+
+    /** Set base color (albedo) - the main diffuse color of the material */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Material|PBR")
+    void RS_SetBaseColor(float R, float G, float B);
+
+    /** Set base color with alpha */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Material|PBR")
+    void RS_SetBaseColorWithAlpha(float R, float G, float B, float A);
+
+    /** Set emissive color - self-illumination color */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Material|PBR")
+    void RS_SetEmissiveColor(float R, float G, float B);
+
+    /** Set emissive intensity multiplier (for HDR glow effects) */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Material|PBR")
+    void RS_SetEmissiveIntensity(float Intensity);
+
+    /** Set combined emissive color and intensity */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Material|PBR")
+    void RS_SetEmissive(float R, float G, float B, float Intensity);
+
+    /** Set roughness (0 = mirror/glossy, 1 = matte/rough) */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Material|PBR")
+    void RS_SetRoughness(float Roughness);
+
+    /** Set metallic (0 = dielectric/non-metal, 1 = metal) */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Material|PBR")
+    void RS_SetMetallic(float Metallic);
+
+    /** Set specular (0 = no specular, 0.5 = default, 1 = max specular) */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Material|PBR")
+    void RS_SetSpecular(float Specular);
+
+    /** Set opacity (for translucent materials, 0 = transparent, 1 = opaque) */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Material|PBR")
+    void RS_SetOpacity(float Opacity);
+
+    /** Set opacity mask threshold (for masked materials) */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Material|PBR")
+    void RS_SetOpacityMask(float Threshold);
+
+    /** Set ambient occlusion multiplier */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Material|PBR")
+    void RS_SetAmbientOcclusion(float AO);
+
+    /** Set normal intensity/strength */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Material|PBR")
+    void RS_SetNormalIntensity(float Intensity);
+
+    // ========================================================================
+    // RS_ ACTIONS - UV/Texture Animation
+    // ========================================================================
+
+    /** Set UV tiling (scale) for texture coordinates */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Material|UV")
+    void RS_SetUVTiling(float TileU, float TileV);
+
+    /** Set UV offset for texture scrolling */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Material|UV")
+    void RS_SetUVOffset(float OffsetU, float OffsetV);
+
+    /** Set UV rotation in degrees */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Material|UV")
+    void RS_SetUVRotation(float Degrees);
+
+    /** Set UV pivot point for rotation */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Material|UV")
+    void RS_SetUVPivot(float PivotU, float PivotV);
+
+    // ========================================================================
+    // RS_ ACTIONS - Subsurface/Cloth/Special
+    // ========================================================================
+
+    /** Set subsurface color (for skin, wax, etc.) */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Material|Special")
+    void RS_SetSubsurfaceColor(float R, float G, float B);
+
+    /** Set subsurface intensity */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Material|Special")
+    void RS_SetSubsurfaceIntensity(float Intensity);
+
+    /** Set cloth sheen color (for fabric materials) */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Material|Special")
+    void RS_SetSheenColor(float R, float G, float B);
+
+    /** Set clear coat intensity (for car paint, etc.) */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Material|Special")
+    void RS_SetClearCoat(float Intensity);
+
+    /** Set clear coat roughness */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Material|Special")
+    void RS_SetClearCoatRoughness(float Roughness);
+
+    // ========================================================================
+    // RS_ ACTIONS - Utility
+    // ========================================================================
+
+    /** Reset all parameters to material defaults */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Material|Utility")
+    void RS_ResetToDefaults();
+
+    /** Set global intensity multiplier for all color parameters */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Material|Utility")
+    void RS_SetGlobalIntensity(float Intensity);
+
+    /** Set global color tint applied to all color parameters */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Material|Utility")
+    void RS_SetGlobalTint(float R, float G, float B);
+
+    /** Lerp all parameters toward another material's values */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Material|Utility")
+    void RS_BlendToDefaults(float Alpha);
+
+    // ========================================================================
+    // RS_ EMITTERS - State Publishing
+    // ========================================================================
+
+    DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FRS_ScalarParameterEmitter, FName, ParameterName, float, Value);
+    DECLARE_DYNAMIC_MULTICAST_DELEGATE_FiveParams(FRS_VectorParameterEmitter, FName, ParameterName, float, R, float, G, float, B, float, A);
+    DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FRS_FloatEmitter, float, Value);
+    DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FRS_ColorEmitter, float, R, float, G, float, B);
+
+    // PBR state emitters
+    UPROPERTY(BlueprintAssignable, Category = "Rship|Material|Emitters")
+    FRS_ColorEmitter RS_OnBaseColorChanged;
+
+    UPROPERTY(BlueprintAssignable, Category = "Rship|Material|Emitters")
+    FRS_ColorEmitter RS_OnEmissiveColorChanged;
+
+    UPROPERTY(BlueprintAssignable, Category = "Rship|Material|Emitters")
+    FRS_FloatEmitter RS_OnEmissiveIntensityChanged;
+
+    UPROPERTY(BlueprintAssignable, Category = "Rship|Material|Emitters")
+    FRS_FloatEmitter RS_OnRoughnessChanged;
+
+    UPROPERTY(BlueprintAssignable, Category = "Rship|Material|Emitters")
+    FRS_FloatEmitter RS_OnMetallicChanged;
+
+    UPROPERTY(BlueprintAssignable, Category = "Rship|Material|Emitters")
+    FRS_FloatEmitter RS_OnSpecularChanged;
+
+    UPROPERTY(BlueprintAssignable, Category = "Rship|Material|Emitters")
+    FRS_FloatEmitter RS_OnOpacityChanged;
+
+    // Generic parameter change emitters
+    UPROPERTY(BlueprintAssignable, Category = "Rship|Material|Emitters")
+    FRS_ScalarParameterEmitter RS_OnScalarParameterChanged;
+
+    UPROPERTY(BlueprintAssignable, Category = "Rship|Material|Emitters")
+    FRS_VectorParameterEmitter RS_OnVectorParameterChanged;
+
+    // ========================================================================
+    // RUNTIME CONTROL (existing methods)
     // ========================================================================
 
     /** Set the emitter ID at runtime */
@@ -256,8 +439,16 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Rship|Material")
     TArray<UMaterialInstanceDynamic*> GetDynamicMaterials() const { return DynamicMaterials; }
 
+    /** Force publish all current values */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Material")
+    void ForcePublish();
+
+    /** Get current material state as JSON */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Material")
+    FString GetMaterialStateJson() const;
+
     // ========================================================================
-    // EVENTS
+    // EVENTS (existing)
     // ========================================================================
 
     UPROPERTY(BlueprintAssignable, Category = "Rship|Material")
@@ -275,6 +466,23 @@ private:
 
     FDelegateHandle PulseHandle;
 
+    // State tracking for change detection
+    double LastPublishTime = 0.0;
+    double PublishInterval = 0.1;
+    FLinearColor LastBaseColor = FLinearColor::Black;
+    FLinearColor LastEmissiveColor = FLinearColor::Black;
+    float LastEmissiveIntensity = 0.0f;
+    float LastRoughness = 0.0f;
+    float LastMetallic = 0.0f;
+    float LastSpecular = 0.5f;
+    float LastOpacity = 1.0f;
+    float GlobalIntensityMultiplier = 1.0f;
+    FLinearColor GlobalTint = FLinearColor::White;
+
+    // Cached default values for reset
+    TMap<FName, float> DefaultScalarValues;
+    TMap<FName, FLinearColor> DefaultVectorValues;
+
     void SetupMaterials();
     void BindToPulseReceiver();
     void UnbindFromPulseReceiver();
@@ -285,6 +493,11 @@ private:
 
     float ExtractFloatValue(TSharedPtr<FJsonObject> Data, const FString& FieldPath, float Default = 0.0f);
     FLinearColor ExtractColorValue(TSharedPtr<FJsonObject> Data, const FString& FieldPath);
+
+    void ReadAndPublishState();
+    bool HasColorChanged(const FLinearColor& OldColor, const FLinearColor& NewColor, float Threshold = 0.001f) const;
+    bool HasValueChanged(float OldValue, float NewValue, float Threshold = 0.001f) const;
+    void CacheDefaultValues();
 };
 
 // ============================================================================

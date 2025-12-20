@@ -1190,6 +1190,251 @@ void URshipControlRigBinding::ResetAllBindings()
 }
 
 // ============================================================================
+// RS_ ACTIONS - Direct Control Access
+// ============================================================================
+
+void URshipControlRigBinding::RS_SetFloatControl(FName ControlName, float Value)
+{
+    if (!ControlRig) return;
+
+    URigHierarchy* Hierarchy = ControlRig->GetHierarchy();
+    if (!Hierarchy) return;
+
+    FRigElementKey Key(ControlName, ERigElementType::Control);
+    FRigControlValue ControlValue;
+    ControlValue.Set<float>(Value);
+    Hierarchy->SetControlValue(Key, ControlValue, ERigControlValueType::Current);
+
+    LastFloatValues.Add(ControlName, Value);
+    RS_OnFloatControlChanged.Broadcast(ControlName, Value);
+}
+
+void URshipControlRigBinding::RS_SetVectorControl(FName ControlName, float X, float Y, float Z)
+{
+    if (!ControlRig) return;
+
+    URigHierarchy* Hierarchy = ControlRig->GetHierarchy();
+    if (!Hierarchy) return;
+
+    FRigElementKey Key(ControlName, ERigElementType::Control);
+    FRigControlValue ControlValue;
+    ControlValue.Set<FVector3f>(FVector3f(X, Y, Z));
+    Hierarchy->SetControlValue(Key, ControlValue, ERigControlValueType::Current);
+
+    LastVectorValues.Add(ControlName, FVector(X, Y, Z));
+    RS_OnVectorControlChanged.Broadcast(ControlName, X, Y, Z);
+}
+
+void URshipControlRigBinding::RS_SetRotatorControl(FName ControlName, float Pitch, float Yaw, float Roll)
+{
+    if (!ControlRig) return;
+
+    URigHierarchy* Hierarchy = ControlRig->GetHierarchy();
+    if (!Hierarchy) return;
+
+    FRigElementKey Key(ControlName, ERigElementType::Control);
+    FRigControlValue ControlValue;
+#if RSHIP_UE_5_6_OR_LATER
+    ControlValue.Set<FVector3f>(FVector3f(Pitch, Yaw, Roll));
+#else
+    ControlValue.Set<FRotator>(FRotator(Pitch, Yaw, Roll));
+#endif
+    Hierarchy->SetControlValue(Key, ControlValue, ERigControlValueType::Current);
+
+    LastRotatorValues.Add(ControlName, FRotator(Pitch, Yaw, Roll));
+    RS_OnRotatorControlChanged.Broadcast(ControlName, Pitch, Yaw, Roll);
+}
+
+void URshipControlRigBinding::RS_SetTransformControl(FName ControlName, float PosX, float PosY, float PosZ, float RotPitch, float RotYaw, float RotRoll, float Scale)
+{
+    if (!ControlRig) return;
+
+    URigHierarchy* Hierarchy = ControlRig->GetHierarchy();
+    if (!Hierarchy) return;
+
+    FRigElementKey Key(ControlName, ERigElementType::Control);
+    FTransform Transform;
+    Transform.SetLocation(FVector(PosX, PosY, PosZ));
+    Transform.SetRotation(FRotator(RotPitch, RotYaw, RotRoll).Quaternion());
+    Transform.SetScale3D(FVector(Scale, Scale, Scale));
+
+#if RSHIP_UE_5_6_OR_LATER
+    FEulerTransform EulerTransform;
+    EulerTransform.SetLocation(Transform.GetLocation());
+    EulerTransform.SetRotator(Transform.Rotator());
+    EulerTransform.SetScale3D(Transform.GetScale3D());
+    FRigControlValue ControlValue = Hierarchy->MakeControlValueFromEulerTransform(EulerTransform);
+#else
+    FRigControlValue ControlValue;
+    ControlValue.Set<FTransform>(Transform);
+#endif
+    Hierarchy->SetControlValue(Key, ControlValue, ERigControlValueType::Current);
+}
+
+void URshipControlRigBinding::RS_SetBoolControl(FName ControlName, bool Value)
+{
+    if (!ControlRig) return;
+
+    URigHierarchy* Hierarchy = ControlRig->GetHierarchy();
+    if (!Hierarchy) return;
+
+    FRigElementKey Key(ControlName, ERigElementType::Control);
+    FRigControlValue ControlValue;
+    ControlValue.Set<bool>(Value);
+    Hierarchy->SetControlValue(Key, ControlValue, ERigControlValueType::Current);
+}
+
+void URshipControlRigBinding::RS_SetIntControl(FName ControlName, int32 Value)
+{
+    if (!ControlRig) return;
+
+    URigHierarchy* Hierarchy = ControlRig->GetHierarchy();
+    if (!Hierarchy) return;
+
+    FRigElementKey Key(ControlName, ERigElementType::Control);
+    FRigControlValue ControlValue;
+    ControlValue.Set<int32>(Value);
+    Hierarchy->SetControlValue(Key, ControlValue, ERigControlValueType::Current);
+}
+
+// ============================================================================
+// RS_ ACTIONS - Animation Control
+// ============================================================================
+
+void URshipControlRigBinding::RS_SetGlobalWeight(float Weight)
+{
+    LastGlobalWeight = FMath::Clamp(Weight, 0.0f, 1.0f);
+    BindingConfig.GlobalWeight = LastGlobalWeight;
+    RS_OnGlobalWeightChanged.Broadcast(LastGlobalWeight);
+}
+
+void URshipControlRigBinding::RS_SetControlWeight(FName ControlName, float Weight)
+{
+    for (FRshipControlRigPropertyBinding& Binding : BindingConfig.Bindings)
+    {
+        if (Binding.ControlName == ControlName)
+        {
+            Binding.Weight = FMath::Clamp(Weight, 0.0f, 1.0f);
+            break;
+        }
+    }
+}
+
+void URshipControlRigBinding::RS_SetEnabled(bool bEnabled)
+{
+    bLastEnabled = bEnabled;
+    BindingConfig.bEnabled = bEnabled;
+    RS_OnEnabledChanged.Broadcast(bEnabled);
+}
+
+void URshipControlRigBinding::RS_ResetAllControls()
+{
+    ResetAllBindings();
+}
+
+void URshipControlRigBinding::RS_ResetControl(FName ControlName)
+{
+    ClearBindingOverride(ControlName);
+    for (int32 i = 0; i < BindingConfig.Bindings.Num(); ++i)
+    {
+        if (BindingConfig.Bindings[i].ControlName == ControlName && i < BindingStates.Num())
+        {
+            BindingStates[i].CurrentValue = 0.0f;
+            BindingStates[i].TargetValue = 0.0f;
+            BindingStates[i].Velocity = 0.0f;
+        }
+    }
+}
+
+// ============================================================================
+// RS_ ACTIONS - Configuration
+// ============================================================================
+
+void URshipControlRigBinding::RS_LoadConfiguration(const FString& ConfigName)
+{
+    if (LoadConfig(ConfigName))
+    {
+        CurrentConfigName = ConfigName;
+        RS_OnConfigurationChanged.Broadcast(ConfigName);
+    }
+}
+
+void URshipControlRigBinding::RS_NextConfiguration()
+{
+    if (SavedConfigs.Num() == 0) return;
+
+    CurrentConfigIndex = (CurrentConfigIndex + 1) % SavedConfigs.Num();
+    const FString& ConfigName = SavedConfigs[CurrentConfigIndex].Name;
+    RS_LoadConfiguration(ConfigName);
+}
+
+void URshipControlRigBinding::RS_PreviousConfiguration()
+{
+    if (SavedConfigs.Num() == 0) return;
+
+    CurrentConfigIndex = (CurrentConfigIndex - 1 + SavedConfigs.Num()) % SavedConfigs.Num();
+    const FString& ConfigName = SavedConfigs[CurrentConfigIndex].Name;
+    RS_LoadConfiguration(ConfigName);
+}
+
+// ============================================================================
+// State Publishing
+// ============================================================================
+
+void URshipControlRigBinding::ForcePublish()
+{
+    ReadAndPublishState();
+}
+
+FString URshipControlRigBinding::GetControlRigStateJson() const
+{
+    TSharedPtr<FJsonObject> JsonObj = MakeShared<FJsonObject>();
+
+    JsonObj->SetBoolField(TEXT("enabled"), BindingConfig.bEnabled);
+    JsonObj->SetNumberField(TEXT("globalWeight"), BindingConfig.GlobalWeight);
+    JsonObj->SetStringField(TEXT("currentConfig"), CurrentConfigName);
+    JsonObj->SetNumberField(TEXT("bindingCount"), BindingConfig.Bindings.Num());
+
+    TArray<TSharedPtr<FJsonValue>> BindingsArray;
+    for (int32 i = 0; i < BindingConfig.Bindings.Num() && i < BindingStates.Num(); ++i)
+    {
+        TSharedPtr<FJsonObject> BindingObj = MakeShared<FJsonObject>();
+        BindingObj->SetStringField(TEXT("control"), BindingConfig.Bindings[i].ControlName.ToString());
+        BindingObj->SetNumberField(TEXT("value"), BindingStates[i].CurrentValue);
+        BindingObj->SetBoolField(TEXT("enabled"), BindingConfig.Bindings[i].bEnabled);
+        BindingsArray.Add(MakeShared<FJsonValueObject>(BindingObj));
+    }
+    JsonObj->SetArrayField(TEXT("bindings"), BindingsArray);
+
+    FString OutputString;
+    TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutputString);
+    FJsonSerializer::Serialize(JsonObj.ToSharedRef(), Writer);
+    return OutputString;
+}
+
+void URshipControlRigBinding::ReadAndPublishState()
+{
+    // Publish global weight changes
+    if (!bOnlyPublishOnChange || HasValueChanged(LastGlobalWeight, BindingConfig.GlobalWeight))
+    {
+        LastGlobalWeight = BindingConfig.GlobalWeight;
+        RS_OnGlobalWeightChanged.Broadcast(LastGlobalWeight);
+    }
+
+    // Publish enabled state changes
+    if (!bOnlyPublishOnChange || bLastEnabled != BindingConfig.bEnabled)
+    {
+        bLastEnabled = BindingConfig.bEnabled;
+        RS_OnEnabledChanged.Broadcast(bLastEnabled);
+    }
+}
+
+bool URshipControlRigBinding::HasValueChanged(float OldValue, float NewValue, float Threshold) const
+{
+    return FMath::Abs(OldValue - NewValue) > Threshold;
+}
+
+// ============================================================================
 // CONTROL RIG BINDING MANAGER
 // ============================================================================
 

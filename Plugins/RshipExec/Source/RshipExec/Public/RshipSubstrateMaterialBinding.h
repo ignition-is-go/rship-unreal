@@ -279,6 +279,201 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Substrate|ParameterNames")
 	FName EmissiveIntensityParam = NAME_None;
 
+	/** Publish rate in Hz (how often to publish material state as emitters) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Substrate", meta = (ClampMin = "1", ClampMax = "60"))
+	int32 PublishRateHz = 10;
+
+	/** Only publish when values change (reduces network traffic) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Substrate")
+	bool bOnlyPublishOnChange = true;
+
+	// ========================================================================
+	// RS_ ACTIONS - Base Layer
+	// ========================================================================
+
+	/** Set base color RGB */
+	UFUNCTION(BlueprintCallable, Category = "Rship|Substrate|Base")
+	void RS_SetBaseColor(float R, float G, float B);
+
+	/** Set base color with alpha */
+	UFUNCTION(BlueprintCallable, Category = "Rship|Substrate|Base")
+	void RS_SetBaseColorWithAlpha(float R, float G, float B, float A);
+
+	/** Set surface roughness (0 = mirror, 1 = diffuse) */
+	UFUNCTION(BlueprintCallable, Category = "Rship|Substrate|Base")
+	void RS_SetRoughness(float Roughness);
+
+	/** Set metallic (0 = dielectric, 1 = full metal) */
+	UFUNCTION(BlueprintCallable, Category = "Rship|Substrate|Base")
+	void RS_SetMetallic(float Metallic);
+
+	/** Set specular intensity */
+	UFUNCTION(BlueprintCallable, Category = "Rship|Substrate|Base")
+	void RS_SetSpecular(float Specular);
+
+	// ========================================================================
+	// RS_ ACTIONS - Emissive
+	// ========================================================================
+
+	/** Set emissive color */
+	UFUNCTION(BlueprintCallable, Category = "Rship|Substrate|Emissive")
+	void RS_SetEmissiveColor(float R, float G, float B);
+
+	/** Set emissive intensity (HDR multiplier) */
+	UFUNCTION(BlueprintCallable, Category = "Rship|Substrate|Emissive")
+	void RS_SetEmissiveIntensity(float Intensity);
+
+	/** Set combined emissive color and intensity */
+	UFUNCTION(BlueprintCallable, Category = "Rship|Substrate|Emissive")
+	void RS_SetEmissive(float R, float G, float B, float Intensity);
+
+	// ========================================================================
+	// RS_ ACTIONS - Subsurface
+	// ========================================================================
+
+	/** Set subsurface scattering color */
+	UFUNCTION(BlueprintCallable, Category = "Rship|Substrate|Subsurface")
+	void RS_SetSubsurfaceColor(float R, float G, float B);
+
+	/** Set subsurface scattering strength */
+	UFUNCTION(BlueprintCallable, Category = "Rship|Substrate|Subsurface")
+	void RS_SetSubsurfaceStrength(float Strength);
+
+	// ========================================================================
+	// RS_ ACTIONS - Clear Coat
+	// ========================================================================
+
+	/** Set clear coat intensity */
+	UFUNCTION(BlueprintCallable, Category = "Rship|Substrate|ClearCoat")
+	void RS_SetClearCoat(float Intensity);
+
+	/** Set clear coat roughness */
+	UFUNCTION(BlueprintCallable, Category = "Rship|Substrate|ClearCoat")
+	void RS_SetClearCoatRoughness(float Roughness);
+
+	// ========================================================================
+	// RS_ ACTIONS - Anisotropy
+	// ========================================================================
+
+	/** Set anisotropic reflection strength (-1 to 1) */
+	UFUNCTION(BlueprintCallable, Category = "Rship|Substrate|Anisotropy")
+	void RS_SetAnisotropy(float Anisotropy);
+
+	/** Set anisotropic reflection rotation (0-1 maps to 0-180 degrees) */
+	UFUNCTION(BlueprintCallable, Category = "Rship|Substrate|Anisotropy")
+	void RS_SetAnisotropyRotation(float Rotation);
+
+	// ========================================================================
+	// RS_ ACTIONS - Opacity
+	// ========================================================================
+
+	/** Set overall opacity */
+	UFUNCTION(BlueprintCallable, Category = "Rship|Substrate|Opacity")
+	void RS_SetOpacity(float Opacity);
+
+	/** Set opacity mask threshold */
+	UFUNCTION(BlueprintCallable, Category = "Rship|Substrate|Opacity")
+	void RS_SetOpacityMask(float Threshold);
+
+	// ========================================================================
+	// RS_ ACTIONS - Fuzz (Cloth/Velvet)
+	// ========================================================================
+
+	/** Set fuzz/cloth amount */
+	UFUNCTION(BlueprintCallable, Category = "Rship|Substrate|Fuzz")
+	void RS_SetFuzzAmount(float Amount);
+
+	/** Set fuzz color */
+	UFUNCTION(BlueprintCallable, Category = "Rship|Substrate|Fuzz")
+	void RS_SetFuzzColor(float R, float G, float B);
+
+	// ========================================================================
+	// RS_ ACTIONS - Detail
+	// ========================================================================
+
+	/** Set normal map strength multiplier */
+	UFUNCTION(BlueprintCallable, Category = "Rship|Substrate|Detail")
+	void RS_SetNormalStrength(float Strength);
+
+	/** Set displacement/height scale */
+	UFUNCTION(BlueprintCallable, Category = "Rship|Substrate|Detail")
+	void RS_SetDisplacementScale(float Scale);
+
+	// ========================================================================
+	// RS_ ACTIONS - Transitions & Presets
+	// ========================================================================
+
+	/** Transition to a named preset */
+	UFUNCTION(BlueprintCallable, Category = "Rship|Substrate|Transition")
+	void RS_TransitionToPreset(const FString& PresetName, float Duration);
+
+	/** Set the default transition duration */
+	UFUNCTION(BlueprintCallable, Category = "Rship|Substrate|Transition")
+	void RS_SetTransitionDuration(float Duration);
+
+	/** Next preset in list */
+	UFUNCTION(BlueprintCallable, Category = "Rship|Substrate|Transition")
+	void RS_NextPreset();
+
+	/** Previous preset in list */
+	UFUNCTION(BlueprintCallable, Category = "Rship|Substrate|Transition")
+	void RS_PreviousPreset();
+
+	// ========================================================================
+	// RS_ ACTIONS - Utility
+	// ========================================================================
+
+	/** Reset to default state */
+	UFUNCTION(BlueprintCallable, Category = "Rship|Substrate|Utility")
+	void RS_ResetToDefault();
+
+	/** Set global intensity multiplier for all parameters */
+	UFUNCTION(BlueprintCallable, Category = "Rship|Substrate|Utility")
+	void RS_SetGlobalIntensity(float Intensity);
+
+	// ========================================================================
+	// RS_ EMITTERS - State Publishing
+	// ========================================================================
+
+	DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FRS_ColorEmitter, float, R, float, G, float, B);
+	DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FRS_FloatEmitter, float, Value);
+	DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FRS_StringEmitter, const FString&, Value);
+	DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FRS_TransitionEmitter, const FString&, PresetName, float, Progress);
+
+	// Base layer emitters
+	UPROPERTY(BlueprintAssignable, Category = "Rship|Substrate|Emitters")
+	FRS_ColorEmitter RS_OnBaseColorChanged;
+
+	UPROPERTY(BlueprintAssignable, Category = "Rship|Substrate|Emitters")
+	FRS_FloatEmitter RS_OnRoughnessChanged;
+
+	UPROPERTY(BlueprintAssignable, Category = "Rship|Substrate|Emitters")
+	FRS_FloatEmitter RS_OnMetallicChanged;
+
+	UPROPERTY(BlueprintAssignable, Category = "Rship|Substrate|Emitters")
+	FRS_FloatEmitter RS_OnSpecularChanged;
+
+	// Emissive emitters
+	UPROPERTY(BlueprintAssignable, Category = "Rship|Substrate|Emitters")
+	FRS_ColorEmitter RS_OnEmissiveColorChanged;
+
+	UPROPERTY(BlueprintAssignable, Category = "Rship|Substrate|Emitters")
+	FRS_FloatEmitter RS_OnEmissiveIntensityChanged;
+
+	// Opacity emitters
+	UPROPERTY(BlueprintAssignable, Category = "Rship|Substrate|Emitters")
+	FRS_FloatEmitter RS_OnOpacityChanged;
+
+	// Transition emitters
+	UPROPERTY(BlueprintAssignable, Category = "Rship|Substrate|Emitters")
+	FRS_StringEmitter RS_OnPresetChanged;
+
+	UPROPERTY(BlueprintAssignable, Category = "Rship|Substrate|Emitters")
+	FRS_TransitionEmitter RS_OnTransitionProgressEmitter;
+
+	UPROPERTY(BlueprintAssignable, Category = "Rship|Substrate|Emitters")
+	FRS_FloatEmitter RS_OnGlobalIntensityChanged;
+
 	// ========================================================================
 	// RUNTIME STATE
 	// ========================================================================
@@ -298,6 +493,14 @@ public:
 	/** Get transition progress (0-1) */
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Rship|Substrate")
 	float GetTransitionProgress() const { return TransitionProgress; }
+
+	/** Force publish all current values */
+	UFUNCTION(BlueprintCallable, Category = "Rship|Substrate")
+	void ForcePublish();
+
+	/** Get current material state as JSON */
+	UFUNCTION(BlueprintCallable, Category = "Rship|Substrate")
+	FString GetSubstrateStateJson() const;
 
 	// ========================================================================
 	// RUNTIME CONTROL

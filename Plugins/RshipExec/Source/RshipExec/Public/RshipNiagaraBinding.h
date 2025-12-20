@@ -125,8 +125,12 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnNiagaraPulseReceived, const FStr
 // ============================================================================
 
 /**
- * Component that binds rship pulse data to Niagara particle system parameters.
- * Attach to an actor with a Niagara component to drive VFX from fixture data.
+ * Comprehensive binding for Niagara VFX systems to rship.
+ * Exposes all common particle system controls:
+ * - Spawn Rate, Lifetime, Size, Velocity
+ * - Color, Emissive, Opacity
+ * - User parameters (generic float/vector/color)
+ * - System control (activate, deactivate, reset, burst)
  */
 UCLASS(ClassGroup = (Rship), meta = (BlueprintSpawnableComponent, DisplayName = "Rship Niagara Binding"))
 class RSHIPEXEC_API URshipNiagaraBinding : public UActorComponent
@@ -181,6 +185,227 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Binding", meta = (EditCondition = "bAutoDeactivate"))
     float DeactivateThreshold = 0.01f;
 
+    /** Publish rate in Hz (how often to publish VFX state as emitters) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Binding", meta = (ClampMin = "1", ClampMax = "60"))
+    int32 PublishRateHz = 10;
+
+    /** Only publish when values change (reduces network traffic) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Binding")
+    bool bOnlyPublishOnChange = true;
+
+    // ========================================================================
+    // RS_ ACTIONS - Generic Parameter Control
+    // ========================================================================
+
+    /** Set any float parameter by name */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Niagara|Parameters")
+    void RS_SetFloatParameter(FName ParameterName, float Value);
+
+    /** Set any vector parameter by name */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Niagara|Parameters")
+    void RS_SetVectorParameter(FName ParameterName, float X, float Y, float Z);
+
+    /** Set any color parameter by name */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Niagara|Parameters")
+    void RS_SetColorParameter(FName ParameterName, float R, float G, float B, float A);
+
+    /** Set any int parameter by name */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Niagara|Parameters")
+    void RS_SetIntParameter(FName ParameterName, int32 Value);
+
+    /** Set any bool parameter by name */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Niagara|Parameters")
+    void RS_SetBoolParameter(FName ParameterName, bool Value);
+
+    // ========================================================================
+    // RS_ ACTIONS - Spawn Control
+    // ========================================================================
+
+    /** Set spawn rate multiplier (1.0 = default, 0.0 = no spawning) */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Niagara|Spawn")
+    void RS_SetSpawnRate(float Rate);
+
+    /** Set spawn rate as absolute particles per second */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Niagara|Spawn")
+    void RS_SetSpawnRateAbsolute(float ParticlesPerSecond);
+
+    /** Trigger a burst of particles */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Niagara|Spawn")
+    void RS_TriggerBurst(int32 Count);
+
+    /** Set burst count for triggered bursts */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Niagara|Spawn")
+    void RS_SetBurstCount(int32 Count);
+
+    // ========================================================================
+    // RS_ ACTIONS - Particle Properties
+    // ========================================================================
+
+    /** Set particle lifetime multiplier */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Niagara|Particles")
+    void RS_SetLifetime(float Lifetime);
+
+    /** Set particle size/scale multiplier */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Niagara|Particles")
+    void RS_SetSize(float Size);
+
+    /** Set particle size as XYZ scale */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Niagara|Particles")
+    void RS_SetSizeXYZ(float X, float Y, float Z);
+
+    /** Set particle velocity multiplier */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Niagara|Particles")
+    void RS_SetVelocity(float Velocity);
+
+    /** Set particle velocity as direction vector */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Niagara|Particles")
+    void RS_SetVelocityXYZ(float X, float Y, float Z);
+
+    /** Set particle mass */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Niagara|Particles")
+    void RS_SetMass(float Mass);
+
+    /** Set particle drag coefficient */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Niagara|Particles")
+    void RS_SetDrag(float Drag);
+
+    /** Set gravity multiplier */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Niagara|Particles")
+    void RS_SetGravity(float Gravity);
+
+    // ========================================================================
+    // RS_ ACTIONS - Visual Properties
+    // ========================================================================
+
+    /** Set particle color */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Niagara|Visual")
+    void RS_SetColor(float R, float G, float B);
+
+    /** Set particle color with alpha */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Niagara|Visual")
+    void RS_SetColorWithAlpha(float R, float G, float B, float A);
+
+    /** Set emissive/glow intensity */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Niagara|Visual")
+    void RS_SetEmissive(float Intensity);
+
+    /** Set emissive color with intensity */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Niagara|Visual")
+    void RS_SetEmissiveColor(float R, float G, float B, float Intensity);
+
+    /** Set particle opacity */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Niagara|Visual")
+    void RS_SetOpacity(float Opacity);
+
+    /** Set sprite rotation */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Niagara|Visual")
+    void RS_SetSpriteRotation(float Degrees);
+
+    /** Set sprite alignment */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Niagara|Visual")
+    void RS_SetSpriteSize(float Width, float Height);
+
+    // ========================================================================
+    // RS_ ACTIONS - System Control
+    // ========================================================================
+
+    /** Activate the Niagara system */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Niagara|System")
+    void RS_Activate();
+
+    /** Deactivate the Niagara system */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Niagara|System")
+    void RS_Deactivate();
+
+    /** Reset and restart the Niagara system */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Niagara|System")
+    void RS_Reset();
+
+    /** Pause the Niagara system */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Niagara|System")
+    void RS_Pause();
+
+    /** Resume the Niagara system */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Niagara|System")
+    void RS_Resume();
+
+    /** Set system age (seek to time position) */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Niagara|System")
+    void RS_SetAge(float Age);
+
+    /** Set overall intensity multiplier (affects spawn, size, emissive) */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Niagara|System")
+    void RS_SetGlobalIntensity(float Intensity);
+
+    // ========================================================================
+    // RS_ ACTIONS - Transform
+    // ========================================================================
+
+    /** Set emitter world location */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Niagara|Transform")
+    void RS_SetLocation(float X, float Y, float Z);
+
+    /** Set emitter world rotation (degrees) */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Niagara|Transform")
+    void RS_SetRotation(float Pitch, float Yaw, float Roll);
+
+    /** Set emitter world scale */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Niagara|Transform")
+    void RS_SetScale(float Scale);
+
+    /** Set emitter world scale XYZ */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Niagara|Transform")
+    void RS_SetScaleXYZ(float X, float Y, float Z);
+
+    // ========================================================================
+    // RS_ EMITTERS - State Publishing
+    // ========================================================================
+
+    DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FRS_FloatEmitter, float, Value);
+    DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FRS_VectorEmitter, float, X, float, Y, float, Z);
+    DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FRS_ColorEmitter, float, R, float, G, float, B);
+    DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FRS_BoolEmitter, bool, Value);
+    DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FRS_IntEmitter, int32, Value);
+
+    // System state emitters
+    UPROPERTY(BlueprintAssignable, Category = "Rship|Niagara|Emitters")
+    FRS_BoolEmitter RS_OnActiveChanged;
+
+    UPROPERTY(BlueprintAssignable, Category = "Rship|Niagara|Emitters")
+    FRS_IntEmitter RS_OnParticleCountChanged;
+
+    UPROPERTY(BlueprintAssignable, Category = "Rship|Niagara|Emitters")
+    FRS_FloatEmitter RS_OnAgeChanged;
+
+    // Property emitters
+    UPROPERTY(BlueprintAssignable, Category = "Rship|Niagara|Emitters")
+    FRS_FloatEmitter RS_OnSpawnRateChanged;
+
+    UPROPERTY(BlueprintAssignable, Category = "Rship|Niagara|Emitters")
+    FRS_FloatEmitter RS_OnLifetimeChanged;
+
+    UPROPERTY(BlueprintAssignable, Category = "Rship|Niagara|Emitters")
+    FRS_FloatEmitter RS_OnSizeChanged;
+
+    UPROPERTY(BlueprintAssignable, Category = "Rship|Niagara|Emitters")
+    FRS_FloatEmitter RS_OnVelocityChanged;
+
+    UPROPERTY(BlueprintAssignable, Category = "Rship|Niagara|Emitters")
+    FRS_ColorEmitter RS_OnColorChanged;
+
+    UPROPERTY(BlueprintAssignable, Category = "Rship|Niagara|Emitters")
+    FRS_FloatEmitter RS_OnEmissiveChanged;
+
+    UPROPERTY(BlueprintAssignable, Category = "Rship|Niagara|Emitters")
+    FRS_FloatEmitter RS_OnGlobalIntensityChanged;
+
+    // Transform emitters
+    UPROPERTY(BlueprintAssignable, Category = "Rship|Niagara|Emitters")
+    FRS_VectorEmitter RS_OnLocationChanged;
+
+    UPROPERTY(BlueprintAssignable, Category = "Rship|Niagara|Emitters")
+    FRS_VectorEmitter RS_OnRotationChanged;
+
     // ========================================================================
     // RUNTIME STATE
     // ========================================================================
@@ -206,7 +431,7 @@ public:
     FOnNiagaraPulseReceived OnPulseReceived;
 
     // ========================================================================
-    // METHODS
+    // PUBLIC METHODS
     // ========================================================================
 
     /** Manually set a parameter value (bypasses pulse) */
@@ -225,6 +450,14 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Rship|Binding")
     void SetBindingsEnabled(bool bEnabled);
 
+    /** Force publish all current values */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Niagara")
+    void ForcePublish();
+
+    /** Get current VFX state as JSON */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Niagara")
+    FString GetNiagaraStateJson() const;
+
 private:
     UPROPERTY()
     URshipSubsystem* Subsystem;
@@ -232,12 +465,30 @@ private:
     FDelegateHandle PulseReceivedHandle;
     double LastPulseTime = 0.0;
 
+    // State tracking for change detection and emitter publishing
+    double LastPublishTime = 0.0;
+    double PublishInterval = 0.1;
+    float GlobalIntensityMultiplier = 1.0f;
+    float LastSpawnRate = 1.0f;
+    float LastLifetime = 1.0f;
+    float LastSize = 1.0f;
+    float LastVelocity = 1.0f;
+    float LastEmissive = 1.0f;
+    FLinearColor LastColor = FLinearColor::White;
+    FVector LastLocation = FVector::ZeroVector;
+    FRotator LastRotation = FRotator::ZeroRotator;
+    bool bLastActive = false;
+    int32 LastParticleCount = 0;
+
     void OnPulseReceivedInternal(const FString& InEmitterId, float Intensity, FLinearColor Color, TSharedPtr<FJsonObject> Data);
     void ApplyBindings(TSharedPtr<FJsonObject> Data);
     float ProcessBindingValue(FRshipNiagaraParameterBinding& Binding, float RawValue, float DeltaTime);
     float GetFloatFromJson(TSharedPtr<FJsonObject> Data, const FString& FieldPath);
     FLinearColor GetColorFromJson(TSharedPtr<FJsonObject> Data, const FString& Prefix);
     FString GetFullEmitterId() const;
+    void ReadAndPublishState();
+    bool HasValueChanged(float OldValue, float NewValue, float Threshold = 0.001f) const;
+    bool HasColorChanged(const FLinearColor& OldColor, const FLinearColor& NewColor, float Threshold = 0.001f) const;
 };
 
 // ============================================================================

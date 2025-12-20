@@ -10,6 +10,8 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Curves/CurveFloat.h"
 #include "Dom/JsonObject.h"
+#include "Serialization/JsonSerializer.h"
+#include "Serialization/JsonWriter.h"
 
 // ============================================================================
 // MATERIAL BINDING COMPONENT
@@ -31,10 +33,14 @@ void URshipMaterialBinding::BeginPlay()
     }
 
     SetupMaterials();
+    CacheDefaultValues();
     BindToPulseReceiver();
 
-    // Enable tick if we have smoothed parameters
-    bool bNeedsTick = false;
+    // Set publish interval from rate
+    PublishInterval = 1.0 / FMath::Max(1, PublishRateHz);
+
+    // Enable tick if we have smoothed parameters or need to publish state
+    bool bNeedsTick = true; // Always tick to publish state via emitters
     for (const FRshipMaterialScalarBinding& B : ScalarBindings)
     {
         if (B.Smoothing > 0.0f) bNeedsTick = true;
@@ -116,6 +122,14 @@ void URshipMaterialBinding::TickComponent(float DeltaTime, ELevelTick TickType, 
                 MID->SetVectorParameterValue(Binding.ParameterName, Binding.CurrentColor);
             }
         }
+    }
+
+    // Publish state at configured rate
+    double CurrentTime = FPlatformTime::Seconds();
+    if (CurrentTime - LastPublishTime >= PublishInterval)
+    {
+        ReadAndPublishState();
+        LastPublishTime = CurrentTime;
     }
 }
 
@@ -467,6 +481,556 @@ void URshipMaterialBinding::SetVectorValue(FName ParameterName, FLinearColor Val
 void URshipMaterialBinding::RefreshMaterials()
 {
     SetupMaterials();
+}
+
+// ============================================================================
+// RS_ ACTIONS - Generic Parameter Control
+// ============================================================================
+
+void URshipMaterialBinding::RS_SetScalarParameter(FName ParameterName, float Value)
+{
+    for (UMaterialInstanceDynamic* MID : DynamicMaterials)
+    {
+        if (MID)
+        {
+            MID->SetScalarParameterValue(ParameterName, Value);
+        }
+    }
+    RS_OnScalarParameterChanged.Broadcast(ParameterName, Value);
+}
+
+void URshipMaterialBinding::RS_SetVectorParameter(FName ParameterName, float R, float G, float B, float A)
+{
+    FLinearColor Color(R, G, B, A);
+    for (UMaterialInstanceDynamic* MID : DynamicMaterials)
+    {
+        if (MID)
+        {
+            MID->SetVectorParameterValue(ParameterName, Color);
+        }
+    }
+    RS_OnVectorParameterChanged.Broadcast(ParameterName, R, G, B, A);
+}
+
+void URshipMaterialBinding::RS_SetTextureIndex(FName ParameterName, int32 Index)
+{
+    for (FRshipMaterialTextureBinding& Binding : TextureBindings)
+    {
+        if (Binding.ParameterName == ParameterName && Binding.Textures.IsValidIndex(Index))
+        {
+            Binding.CurrentIndex = Index;
+            UTexture* Texture = Binding.Textures[Index];
+            if (Texture)
+            {
+                for (UMaterialInstanceDynamic* MID : DynamicMaterials)
+                {
+                    if (MID)
+                    {
+                        MID->SetTextureParameterValue(ParameterName, Texture);
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ============================================================================
+// RS_ ACTIONS - Common PBR Parameters
+// ============================================================================
+
+void URshipMaterialBinding::RS_SetBaseColor(float R, float G, float B)
+{
+    RS_SetBaseColorWithAlpha(R, G, B, 1.0f);
+}
+
+void URshipMaterialBinding::RS_SetBaseColorWithAlpha(float R, float G, float B, float A)
+{
+    FLinearColor Color(R * GlobalTint.R * GlobalIntensityMultiplier,
+                       G * GlobalTint.G * GlobalIntensityMultiplier,
+                       B * GlobalTint.B * GlobalIntensityMultiplier, A);
+    for (UMaterialInstanceDynamic* MID : DynamicMaterials)
+    {
+        if (MID)
+        {
+            MID->SetVectorParameterValue(TEXT("BaseColor"), Color);
+            MID->SetVectorParameterValue(TEXT("Base Color"), Color);
+        }
+    }
+    LastBaseColor = FLinearColor(R, G, B, A);
+    RS_OnBaseColorChanged.Broadcast(R, G, B);
+}
+
+void URshipMaterialBinding::RS_SetEmissiveColor(float R, float G, float B)
+{
+    RS_SetEmissive(R, G, B, LastEmissiveIntensity > 0.0f ? LastEmissiveIntensity : 1.0f);
+}
+
+void URshipMaterialBinding::RS_SetEmissiveIntensity(float Intensity)
+{
+    LastEmissiveIntensity = Intensity;
+    FLinearColor EmissiveColor = LastEmissiveColor * Intensity * GlobalIntensityMultiplier;
+    for (UMaterialInstanceDynamic* MID : DynamicMaterials)
+    {
+        if (MID)
+        {
+            MID->SetVectorParameterValue(TEXT("EmissiveColor"), EmissiveColor);
+            MID->SetVectorParameterValue(TEXT("Emissive Color"), EmissiveColor);
+            MID->SetScalarParameterValue(TEXT("EmissiveIntensity"), Intensity);
+            MID->SetScalarParameterValue(TEXT("Emissive Intensity"), Intensity);
+        }
+    }
+    RS_OnEmissiveIntensityChanged.Broadcast(Intensity);
+}
+
+void URshipMaterialBinding::RS_SetEmissive(float R, float G, float B, float Intensity)
+{
+    LastEmissiveColor = FLinearColor(R, G, B);
+    LastEmissiveIntensity = Intensity;
+    FLinearColor EmissiveColor(R * Intensity * GlobalIntensityMultiplier,
+                                G * Intensity * GlobalIntensityMultiplier,
+                                B * Intensity * GlobalIntensityMultiplier);
+    for (UMaterialInstanceDynamic* MID : DynamicMaterials)
+    {
+        if (MID)
+        {
+            MID->SetVectorParameterValue(TEXT("EmissiveColor"), EmissiveColor);
+            MID->SetVectorParameterValue(TEXT("Emissive Color"), EmissiveColor);
+            MID->SetScalarParameterValue(TEXT("EmissiveIntensity"), Intensity);
+            MID->SetScalarParameterValue(TEXT("Emissive Intensity"), Intensity);
+        }
+    }
+    RS_OnEmissiveColorChanged.Broadcast(R, G, B);
+    RS_OnEmissiveIntensityChanged.Broadcast(Intensity);
+}
+
+void URshipMaterialBinding::RS_SetRoughness(float Roughness)
+{
+    LastRoughness = FMath::Clamp(Roughness, 0.0f, 1.0f);
+    for (UMaterialInstanceDynamic* MID : DynamicMaterials)
+    {
+        if (MID)
+        {
+            MID->SetScalarParameterValue(TEXT("Roughness"), LastRoughness);
+        }
+    }
+    RS_OnRoughnessChanged.Broadcast(LastRoughness);
+}
+
+void URshipMaterialBinding::RS_SetMetallic(float Metallic)
+{
+    LastMetallic = FMath::Clamp(Metallic, 0.0f, 1.0f);
+    for (UMaterialInstanceDynamic* MID : DynamicMaterials)
+    {
+        if (MID)
+        {
+            MID->SetScalarParameterValue(TEXT("Metallic"), LastMetallic);
+        }
+    }
+    RS_OnMetallicChanged.Broadcast(LastMetallic);
+}
+
+void URshipMaterialBinding::RS_SetSpecular(float Specular)
+{
+    LastSpecular = FMath::Clamp(Specular, 0.0f, 1.0f);
+    for (UMaterialInstanceDynamic* MID : DynamicMaterials)
+    {
+        if (MID)
+        {
+            MID->SetScalarParameterValue(TEXT("Specular"), LastSpecular);
+        }
+    }
+    RS_OnSpecularChanged.Broadcast(LastSpecular);
+}
+
+void URshipMaterialBinding::RS_SetOpacity(float Opacity)
+{
+    LastOpacity = FMath::Clamp(Opacity, 0.0f, 1.0f);
+    for (UMaterialInstanceDynamic* MID : DynamicMaterials)
+    {
+        if (MID)
+        {
+            MID->SetScalarParameterValue(TEXT("Opacity"), LastOpacity);
+        }
+    }
+    RS_OnOpacityChanged.Broadcast(LastOpacity);
+}
+
+void URshipMaterialBinding::RS_SetOpacityMask(float Threshold)
+{
+    float ClampedThreshold = FMath::Clamp(Threshold, 0.0f, 1.0f);
+    for (UMaterialInstanceDynamic* MID : DynamicMaterials)
+    {
+        if (MID)
+        {
+            MID->SetScalarParameterValue(TEXT("OpacityMask"), ClampedThreshold);
+            MID->SetScalarParameterValue(TEXT("Opacity Mask"), ClampedThreshold);
+            MID->SetScalarParameterValue(TEXT("OpacityMaskClipValue"), ClampedThreshold);
+        }
+    }
+}
+
+void URshipMaterialBinding::RS_SetAmbientOcclusion(float AO)
+{
+    float ClampedAO = FMath::Clamp(AO, 0.0f, 1.0f);
+    for (UMaterialInstanceDynamic* MID : DynamicMaterials)
+    {
+        if (MID)
+        {
+            MID->SetScalarParameterValue(TEXT("AmbientOcclusion"), ClampedAO);
+            MID->SetScalarParameterValue(TEXT("Ambient Occlusion"), ClampedAO);
+            MID->SetScalarParameterValue(TEXT("AO"), ClampedAO);
+        }
+    }
+}
+
+void URshipMaterialBinding::RS_SetNormalIntensity(float Intensity)
+{
+    for (UMaterialInstanceDynamic* MID : DynamicMaterials)
+    {
+        if (MID)
+        {
+            MID->SetScalarParameterValue(TEXT("NormalIntensity"), Intensity);
+            MID->SetScalarParameterValue(TEXT("Normal Intensity"), Intensity);
+            MID->SetScalarParameterValue(TEXT("NormalStrength"), Intensity);
+        }
+    }
+}
+
+// ============================================================================
+// RS_ ACTIONS - UV/Texture Animation
+// ============================================================================
+
+void URshipMaterialBinding::RS_SetUVTiling(float TileU, float TileV)
+{
+    for (UMaterialInstanceDynamic* MID : DynamicMaterials)
+    {
+        if (MID)
+        {
+            MID->SetScalarParameterValue(TEXT("TilingU"), TileU);
+            MID->SetScalarParameterValue(TEXT("TilingV"), TileV);
+            MID->SetVectorParameterValue(TEXT("UVTiling"), FLinearColor(TileU, TileV, 0.0f, 0.0f));
+            MID->SetVectorParameterValue(TEXT("UV Tiling"), FLinearColor(TileU, TileV, 0.0f, 0.0f));
+        }
+    }
+}
+
+void URshipMaterialBinding::RS_SetUVOffset(float OffsetU, float OffsetV)
+{
+    for (UMaterialInstanceDynamic* MID : DynamicMaterials)
+    {
+        if (MID)
+        {
+            MID->SetScalarParameterValue(TEXT("OffsetU"), OffsetU);
+            MID->SetScalarParameterValue(TEXT("OffsetV"), OffsetV);
+            MID->SetVectorParameterValue(TEXT("UVOffset"), FLinearColor(OffsetU, OffsetV, 0.0f, 0.0f));
+            MID->SetVectorParameterValue(TEXT("UV Offset"), FLinearColor(OffsetU, OffsetV, 0.0f, 0.0f));
+        }
+    }
+}
+
+void URshipMaterialBinding::RS_SetUVRotation(float Degrees)
+{
+    for (UMaterialInstanceDynamic* MID : DynamicMaterials)
+    {
+        if (MID)
+        {
+            MID->SetScalarParameterValue(TEXT("UVRotation"), Degrees);
+            MID->SetScalarParameterValue(TEXT("UV Rotation"), Degrees);
+        }
+    }
+}
+
+void URshipMaterialBinding::RS_SetUVPivot(float PivotU, float PivotV)
+{
+    for (UMaterialInstanceDynamic* MID : DynamicMaterials)
+    {
+        if (MID)
+        {
+            MID->SetVectorParameterValue(TEXT("UVPivot"), FLinearColor(PivotU, PivotV, 0.0f, 0.0f));
+            MID->SetVectorParameterValue(TEXT("UV Pivot"), FLinearColor(PivotU, PivotV, 0.0f, 0.0f));
+        }
+    }
+}
+
+// ============================================================================
+// RS_ ACTIONS - Subsurface/Cloth/Special
+// ============================================================================
+
+void URshipMaterialBinding::RS_SetSubsurfaceColor(float R, float G, float B)
+{
+    FLinearColor Color(R, G, B);
+    for (UMaterialInstanceDynamic* MID : DynamicMaterials)
+    {
+        if (MID)
+        {
+            MID->SetVectorParameterValue(TEXT("SubsurfaceColor"), Color);
+            MID->SetVectorParameterValue(TEXT("Subsurface Color"), Color);
+        }
+    }
+}
+
+void URshipMaterialBinding::RS_SetSubsurfaceIntensity(float Intensity)
+{
+    for (UMaterialInstanceDynamic* MID : DynamicMaterials)
+    {
+        if (MID)
+        {
+            MID->SetScalarParameterValue(TEXT("SubsurfaceIntensity"), Intensity);
+            MID->SetScalarParameterValue(TEXT("Subsurface Intensity"), Intensity);
+            MID->SetScalarParameterValue(TEXT("Subsurface"), Intensity);
+        }
+    }
+}
+
+void URshipMaterialBinding::RS_SetSheenColor(float R, float G, float B)
+{
+    FLinearColor Color(R, G, B);
+    for (UMaterialInstanceDynamic* MID : DynamicMaterials)
+    {
+        if (MID)
+        {
+            MID->SetVectorParameterValue(TEXT("SheenColor"), Color);
+            MID->SetVectorParameterValue(TEXT("Sheen Color"), Color);
+            MID->SetVectorParameterValue(TEXT("ClothColor"), Color);
+            MID->SetVectorParameterValue(TEXT("Fuzz Color"), Color);
+        }
+    }
+}
+
+void URshipMaterialBinding::RS_SetClearCoat(float Intensity)
+{
+    for (UMaterialInstanceDynamic* MID : DynamicMaterials)
+    {
+        if (MID)
+        {
+            MID->SetScalarParameterValue(TEXT("ClearCoat"), Intensity);
+            MID->SetScalarParameterValue(TEXT("Clear Coat"), Intensity);
+            MID->SetScalarParameterValue(TEXT("ClearCoatIntensity"), Intensity);
+        }
+    }
+}
+
+void URshipMaterialBinding::RS_SetClearCoatRoughness(float Roughness)
+{
+    float ClampedRoughness = FMath::Clamp(Roughness, 0.0f, 1.0f);
+    for (UMaterialInstanceDynamic* MID : DynamicMaterials)
+    {
+        if (MID)
+        {
+            MID->SetScalarParameterValue(TEXT("ClearCoatRoughness"), ClampedRoughness);
+            MID->SetScalarParameterValue(TEXT("Clear Coat Roughness"), ClampedRoughness);
+        }
+    }
+}
+
+// ============================================================================
+// RS_ ACTIONS - Utility
+// ============================================================================
+
+void URshipMaterialBinding::RS_ResetToDefaults()
+{
+    for (const auto& Pair : DefaultScalarValues)
+    {
+        RS_SetScalarParameter(Pair.Key, Pair.Value);
+    }
+    for (const auto& Pair : DefaultVectorValues)
+    {
+        RS_SetVectorParameter(Pair.Key, Pair.Value.R, Pair.Value.G, Pair.Value.B, Pair.Value.A);
+    }
+}
+
+void URshipMaterialBinding::RS_SetGlobalIntensity(float Intensity)
+{
+    GlobalIntensityMultiplier = FMath::Max(0.0f, Intensity);
+}
+
+void URshipMaterialBinding::RS_SetGlobalTint(float R, float G, float B)
+{
+    GlobalTint = FLinearColor(R, G, B);
+}
+
+void URshipMaterialBinding::RS_BlendToDefaults(float Alpha)
+{
+    float ClampedAlpha = FMath::Clamp(Alpha, 0.0f, 1.0f);
+    for (const auto& Pair : DefaultScalarValues)
+    {
+        float CurrentValue = 0.0f;
+        if (DynamicMaterials.Num() > 0 && DynamicMaterials[0])
+        {
+            DynamicMaterials[0]->GetScalarParameterValue(Pair.Key, CurrentValue);
+        }
+        float BlendedValue = FMath::Lerp(CurrentValue, Pair.Value, ClampedAlpha);
+        RS_SetScalarParameter(Pair.Key, BlendedValue);
+    }
+    for (const auto& Pair : DefaultVectorValues)
+    {
+        FLinearColor CurrentColor = FLinearColor::Black;
+        if (DynamicMaterials.Num() > 0 && DynamicMaterials[0])
+        {
+            DynamicMaterials[0]->GetVectorParameterValue(Pair.Key, CurrentColor);
+        }
+        FLinearColor BlendedColor = FMath::Lerp(CurrentColor, Pair.Value, ClampedAlpha);
+        RS_SetVectorParameter(Pair.Key, BlendedColor.R, BlendedColor.G, BlendedColor.B, BlendedColor.A);
+    }
+}
+
+void URshipMaterialBinding::ForcePublish()
+{
+    ReadAndPublishState();
+}
+
+FString URshipMaterialBinding::GetMaterialStateJson() const
+{
+    TSharedPtr<FJsonObject> JsonObj = MakeShared<FJsonObject>();
+
+    JsonObj->SetNumberField(TEXT("roughness"), LastRoughness);
+    JsonObj->SetNumberField(TEXT("metallic"), LastMetallic);
+    JsonObj->SetNumberField(TEXT("specular"), LastSpecular);
+    JsonObj->SetNumberField(TEXT("opacity"), LastOpacity);
+    JsonObj->SetNumberField(TEXT("emissiveIntensity"), LastEmissiveIntensity);
+
+    TSharedPtr<FJsonObject> BaseColorObj = MakeShared<FJsonObject>();
+    BaseColorObj->SetNumberField(TEXT("r"), LastBaseColor.R);
+    BaseColorObj->SetNumberField(TEXT("g"), LastBaseColor.G);
+    BaseColorObj->SetNumberField(TEXT("b"), LastBaseColor.B);
+    BaseColorObj->SetNumberField(TEXT("a"), LastBaseColor.A);
+    JsonObj->SetObjectField(TEXT("baseColor"), BaseColorObj);
+
+    TSharedPtr<FJsonObject> EmissiveObj = MakeShared<FJsonObject>();
+    EmissiveObj->SetNumberField(TEXT("r"), LastEmissiveColor.R);
+    EmissiveObj->SetNumberField(TEXT("g"), LastEmissiveColor.G);
+    EmissiveObj->SetNumberField(TEXT("b"), LastEmissiveColor.B);
+    JsonObj->SetObjectField(TEXT("emissiveColor"), EmissiveObj);
+
+    JsonObj->SetNumberField(TEXT("materialCount"), DynamicMaterials.Num());
+
+    FString OutputString;
+    TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutputString);
+    FJsonSerializer::Serialize(JsonObj.ToSharedRef(), Writer);
+    return OutputString;
+}
+
+void URshipMaterialBinding::ReadAndPublishState()
+{
+    // Try to read current values from the first dynamic material
+    if (DynamicMaterials.Num() == 0) return;
+
+    UMaterialInstanceDynamic* MID = DynamicMaterials[0];
+    if (!MID) return;
+
+    FLinearColor BaseColor;
+    if (MID->GetVectorParameterValue(TEXT("BaseColor"), BaseColor) ||
+        MID->GetVectorParameterValue(TEXT("Base Color"), BaseColor))
+    {
+        if (!bOnlyPublishOnChange || HasColorChanged(LastBaseColor, BaseColor))
+        {
+            LastBaseColor = BaseColor;
+            RS_OnBaseColorChanged.Broadcast(BaseColor.R, BaseColor.G, BaseColor.B);
+        }
+    }
+
+    FLinearColor EmissiveColor;
+    if (MID->GetVectorParameterValue(TEXT("EmissiveColor"), EmissiveColor) ||
+        MID->GetVectorParameterValue(TEXT("Emissive Color"), EmissiveColor))
+    {
+        if (!bOnlyPublishOnChange || HasColorChanged(LastEmissiveColor, EmissiveColor))
+        {
+            LastEmissiveColor = EmissiveColor;
+            RS_OnEmissiveColorChanged.Broadcast(EmissiveColor.R, EmissiveColor.G, EmissiveColor.B);
+        }
+    }
+
+    float Roughness;
+    if (MID->GetScalarParameterValue(TEXT("Roughness"), Roughness))
+    {
+        if (!bOnlyPublishOnChange || HasValueChanged(LastRoughness, Roughness))
+        {
+            LastRoughness = Roughness;
+            RS_OnRoughnessChanged.Broadcast(Roughness);
+        }
+    }
+
+    float Metallic;
+    if (MID->GetScalarParameterValue(TEXT("Metallic"), Metallic))
+    {
+        if (!bOnlyPublishOnChange || HasValueChanged(LastMetallic, Metallic))
+        {
+            LastMetallic = Metallic;
+            RS_OnMetallicChanged.Broadcast(Metallic);
+        }
+    }
+
+    float Specular;
+    if (MID->GetScalarParameterValue(TEXT("Specular"), Specular))
+    {
+        if (!bOnlyPublishOnChange || HasValueChanged(LastSpecular, Specular))
+        {
+            LastSpecular = Specular;
+            RS_OnSpecularChanged.Broadcast(Specular);
+        }
+    }
+
+    float Opacity;
+    if (MID->GetScalarParameterValue(TEXT("Opacity"), Opacity))
+    {
+        if (!bOnlyPublishOnChange || HasValueChanged(LastOpacity, Opacity))
+        {
+            LastOpacity = Opacity;
+            RS_OnOpacityChanged.Broadcast(Opacity);
+        }
+    }
+}
+
+bool URshipMaterialBinding::HasColorChanged(const FLinearColor& OldColor, const FLinearColor& NewColor, float Threshold) const
+{
+    return FMath::Abs(OldColor.R - NewColor.R) > Threshold ||
+           FMath::Abs(OldColor.G - NewColor.G) > Threshold ||
+           FMath::Abs(OldColor.B - NewColor.B) > Threshold ||
+           FMath::Abs(OldColor.A - NewColor.A) > Threshold;
+}
+
+bool URshipMaterialBinding::HasValueChanged(float OldValue, float NewValue, float Threshold) const
+{
+    return FMath::Abs(OldValue - NewValue) > Threshold;
+}
+
+void URshipMaterialBinding::CacheDefaultValues()
+{
+    if (DynamicMaterials.Num() == 0) return;
+
+    UMaterialInstanceDynamic* MID = DynamicMaterials[0];
+    if (!MID) return;
+
+    // Cache common scalar defaults
+    TArray<FName> ScalarParams = {
+        TEXT("Roughness"), TEXT("Metallic"), TEXT("Specular"), TEXT("Opacity"),
+        TEXT("AmbientOcclusion"), TEXT("NormalIntensity"), TEXT("EmissiveIntensity"),
+        TEXT("ClearCoat"), TEXT("ClearCoatRoughness"), TEXT("SubsurfaceIntensity")
+    };
+
+    for (const FName& ParamName : ScalarParams)
+    {
+        float Value = 0.0f;
+        if (MID->GetScalarParameterValue(ParamName, Value))
+        {
+            DefaultScalarValues.Add(ParamName, Value);
+        }
+    }
+
+    // Cache common vector defaults
+    TArray<FName> VectorParams = {
+        TEXT("BaseColor"), TEXT("Base Color"), TEXT("EmissiveColor"), TEXT("Emissive Color"),
+        TEXT("SubsurfaceColor"), TEXT("Subsurface Color"), TEXT("SheenColor")
+    };
+
+    for (const FName& ParamName : VectorParams)
+    {
+        FLinearColor Color;
+        if (MID->GetVectorParameterValue(ParamName, Color))
+        {
+            DefaultVectorValues.Add(ParamName, Color);
+        }
+    }
 }
 
 // ============================================================================

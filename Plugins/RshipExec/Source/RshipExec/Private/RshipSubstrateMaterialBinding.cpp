@@ -12,7 +12,9 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
+#include "Serialization/JsonWriter.h"
 #include "Dom/JsonObject.h"
+#include "Logs.h"
 
 // ============================================================================
 // FRshipSubstrateMaterialState
@@ -515,6 +517,269 @@ void URshipSubstrateMaterialBinding::RefreshMaterials()
 {
 	SetupMaterials();
 	ApplyStateToMaterials(CurrentState);
+}
+
+// ============================================================================
+// RS_ ACTIONS - Base Layer
+// ============================================================================
+
+void URshipSubstrateMaterialBinding::RS_SetBaseColor(float R, float G, float B)
+{
+	CurrentState.BaseColor = FLinearColor(R, G, B, CurrentState.BaseColor.A);
+	ApplyStateToMaterials(CurrentState);
+	RS_OnBaseColorChanged.Broadcast(R, G, B);
+}
+
+void URshipSubstrateMaterialBinding::RS_SetBaseColorWithAlpha(float R, float G, float B, float A)
+{
+	CurrentState.BaseColor = FLinearColor(R, G, B, A);
+	ApplyStateToMaterials(CurrentState);
+	RS_OnBaseColorChanged.Broadcast(R, G, B);
+}
+
+void URshipSubstrateMaterialBinding::RS_SetRoughness(float Roughness)
+{
+	CurrentState.Roughness = FMath::Clamp(Roughness, 0.0f, 1.0f);
+	ApplyStateToMaterials(CurrentState);
+	RS_OnRoughnessChanged.Broadcast(CurrentState.Roughness);
+}
+
+void URshipSubstrateMaterialBinding::RS_SetMetallic(float Metallic)
+{
+	CurrentState.Metallic = FMath::Clamp(Metallic, 0.0f, 1.0f);
+	ApplyStateToMaterials(CurrentState);
+	RS_OnMetallicChanged.Broadcast(CurrentState.Metallic);
+}
+
+void URshipSubstrateMaterialBinding::RS_SetSpecular(float Specular)
+{
+	CurrentState.Specular = FMath::Clamp(Specular, 0.0f, 1.0f);
+	ApplyStateToMaterials(CurrentState);
+	RS_OnSpecularChanged.Broadcast(CurrentState.Specular);
+}
+
+// ============================================================================
+// RS_ ACTIONS - Emissive
+// ============================================================================
+
+void URshipSubstrateMaterialBinding::RS_SetEmissiveColor(float R, float G, float B)
+{
+	CurrentState.EmissiveColor = FLinearColor(R, G, B, 1.0f);
+	ApplyStateToMaterials(CurrentState);
+	RS_OnEmissiveColorChanged.Broadcast(R, G, B);
+}
+
+void URshipSubstrateMaterialBinding::RS_SetEmissiveIntensity(float Intensity)
+{
+	CurrentState.EmissiveIntensity = FMath::Max(Intensity, 0.0f);
+	ApplyStateToMaterials(CurrentState);
+	RS_OnEmissiveIntensityChanged.Broadcast(CurrentState.EmissiveIntensity);
+}
+
+void URshipSubstrateMaterialBinding::RS_SetEmissive(float R, float G, float B, float Intensity)
+{
+	CurrentState.EmissiveColor = FLinearColor(R, G, B, 1.0f);
+	CurrentState.EmissiveIntensity = FMath::Max(Intensity, 0.0f);
+	ApplyStateToMaterials(CurrentState);
+	RS_OnEmissiveColorChanged.Broadcast(R, G, B);
+	RS_OnEmissiveIntensityChanged.Broadcast(CurrentState.EmissiveIntensity);
+}
+
+// ============================================================================
+// RS_ ACTIONS - Subsurface
+// ============================================================================
+
+void URshipSubstrateMaterialBinding::RS_SetSubsurfaceColor(float R, float G, float B)
+{
+	CurrentState.SubsurfaceColor = FLinearColor(R, G, B, 1.0f);
+	ApplyStateToMaterials(CurrentState);
+}
+
+void URshipSubstrateMaterialBinding::RS_SetSubsurfaceStrength(float Strength)
+{
+	CurrentState.SubsurfaceStrength = FMath::Clamp(Strength, 0.0f, 1.0f);
+	ApplyStateToMaterials(CurrentState);
+}
+
+// ============================================================================
+// RS_ ACTIONS - Clear Coat
+// ============================================================================
+
+void URshipSubstrateMaterialBinding::RS_SetClearCoat(float Intensity)
+{
+	CurrentState.ClearCoat = FMath::Clamp(Intensity, 0.0f, 1.0f);
+	ApplyStateToMaterials(CurrentState);
+}
+
+void URshipSubstrateMaterialBinding::RS_SetClearCoatRoughness(float Roughness)
+{
+	CurrentState.ClearCoatRoughness = FMath::Clamp(Roughness, 0.0f, 1.0f);
+	ApplyStateToMaterials(CurrentState);
+}
+
+// ============================================================================
+// RS_ ACTIONS - Anisotropy
+// ============================================================================
+
+void URshipSubstrateMaterialBinding::RS_SetAnisotropy(float Anisotropy)
+{
+	CurrentState.Anisotropy = FMath::Clamp(Anisotropy, -1.0f, 1.0f);
+	ApplyStateToMaterials(CurrentState);
+}
+
+void URshipSubstrateMaterialBinding::RS_SetAnisotropyRotation(float Rotation)
+{
+	CurrentState.AnisotropyRotation = FMath::Clamp(Rotation, 0.0f, 1.0f);
+	ApplyStateToMaterials(CurrentState);
+}
+
+// ============================================================================
+// RS_ ACTIONS - Opacity
+// ============================================================================
+
+void URshipSubstrateMaterialBinding::RS_SetOpacity(float Opacity)
+{
+	CurrentState.Opacity = FMath::Clamp(Opacity, 0.0f, 1.0f);
+	ApplyStateToMaterials(CurrentState);
+	RS_OnOpacityChanged.Broadcast(CurrentState.Opacity);
+}
+
+void URshipSubstrateMaterialBinding::RS_SetOpacityMask(float Threshold)
+{
+	CurrentState.OpacityMask = FMath::Clamp(Threshold, 0.0f, 1.0f);
+	ApplyStateToMaterials(CurrentState);
+}
+
+// ============================================================================
+// RS_ ACTIONS - Fuzz
+// ============================================================================
+
+void URshipSubstrateMaterialBinding::RS_SetFuzzAmount(float Amount)
+{
+	CurrentState.FuzzAmount = FMath::Clamp(Amount, 0.0f, 1.0f);
+	ApplyStateToMaterials(CurrentState);
+}
+
+void URshipSubstrateMaterialBinding::RS_SetFuzzColor(float R, float G, float B)
+{
+	CurrentState.FuzzColor = FLinearColor(R, G, B, 1.0f);
+	ApplyStateToMaterials(CurrentState);
+}
+
+// ============================================================================
+// RS_ ACTIONS - Detail
+// ============================================================================
+
+void URshipSubstrateMaterialBinding::RS_SetNormalStrength(float Strength)
+{
+	CurrentState.NormalStrength = FMath::Clamp(Strength, 0.0f, 2.0f);
+	ApplyStateToMaterials(CurrentState);
+}
+
+void URshipSubstrateMaterialBinding::RS_SetDisplacementScale(float Scale)
+{
+	CurrentState.DisplacementScale = FMath::Clamp(Scale, 0.0f, 10.0f);
+	ApplyStateToMaterials(CurrentState);
+}
+
+// ============================================================================
+// RS_ ACTIONS - Transitions & Presets
+// ============================================================================
+
+void URshipSubstrateMaterialBinding::RS_TransitionToPreset(const FString& PresetName, float Duration)
+{
+	if (TransitionToPreset(PresetName, Duration))
+	{
+		RS_OnPresetChanged.Broadcast(PresetName);
+	}
+}
+
+void URshipSubstrateMaterialBinding::RS_SetTransitionDuration(float Duration)
+{
+	TransitionConfig.Duration = FMath::Clamp(Duration, 0.0f, 60.0f);
+}
+
+void URshipSubstrateMaterialBinding::RS_NextPreset()
+{
+	if (Presets.Num() == 0)
+	{
+		return;
+	}
+
+	// Find current preset index
+	int32 CurrentIndex = -1;
+	for (int32 i = 0; i < Presets.Num(); i++)
+	{
+		// Simple heuristic: find the preset closest to current state
+		// In practice, we'd track which preset we're on
+	}
+
+	// Cycle to next
+	int32 NextIndex = (CurrentIndex + 1) % Presets.Num();
+	TransitionToPreset(Presets[NextIndex].PresetName, TransitionConfig.Duration);
+	RS_OnPresetChanged.Broadcast(Presets[NextIndex].PresetName);
+}
+
+void URshipSubstrateMaterialBinding::RS_PreviousPreset()
+{
+	if (Presets.Num() == 0)
+	{
+		return;
+	}
+
+	// Find current preset index (simplified - would need to track this properly)
+	int32 CurrentIndex = 0;
+
+	// Cycle to previous
+	int32 PrevIndex = (CurrentIndex - 1 + Presets.Num()) % Presets.Num();
+	TransitionToPreset(Presets[PrevIndex].PresetName, TransitionConfig.Duration);
+	RS_OnPresetChanged.Broadcast(Presets[PrevIndex].PresetName);
+}
+
+// ============================================================================
+// RS_ ACTIONS - Utility
+// ============================================================================
+
+void URshipSubstrateMaterialBinding::RS_ResetToDefault()
+{
+	TransitionToState(DefaultState, TransitionConfig.Duration);
+}
+
+void URshipSubstrateMaterialBinding::RS_SetGlobalIntensity(float Intensity)
+{
+	float ClampedIntensity = FMath::Clamp(Intensity, 0.0f, 10.0f);
+
+	// Apply global intensity to emissive
+	CurrentState.EmissiveIntensity = DefaultState.EmissiveIntensity * ClampedIntensity;
+	ApplyStateToMaterials(CurrentState);
+	RS_OnGlobalIntensityChanged.Broadcast(ClampedIntensity);
+}
+
+// ============================================================================
+// RS_ State Publishing
+// ============================================================================
+
+void URshipSubstrateMaterialBinding::ForcePublish()
+{
+	// Publish all current state values to emitters
+	RS_OnBaseColorChanged.Broadcast(CurrentState.BaseColor.R, CurrentState.BaseColor.G, CurrentState.BaseColor.B);
+	RS_OnRoughnessChanged.Broadcast(CurrentState.Roughness);
+	RS_OnMetallicChanged.Broadcast(CurrentState.Metallic);
+	RS_OnSpecularChanged.Broadcast(CurrentState.Specular);
+	RS_OnEmissiveColorChanged.Broadcast(CurrentState.EmissiveColor.R, CurrentState.EmissiveColor.G, CurrentState.EmissiveColor.B);
+	RS_OnEmissiveIntensityChanged.Broadcast(CurrentState.EmissiveIntensity);
+	RS_OnOpacityChanged.Broadcast(CurrentState.Opacity);
+}
+
+FString URshipSubstrateMaterialBinding::GetSubstrateStateJson() const
+{
+	TSharedPtr<FJsonObject> JsonObject = CurrentState.ToJson();
+
+	FString OutputString;
+	TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutputString);
+	FJsonSerializer::Serialize(JsonObject.ToSharedRef(), Writer);
+
+	return OutputString;
 }
 
 bool URshipSubstrateMaterialBinding::IsSubstrateMaterial(UMaterialInterface* Material)

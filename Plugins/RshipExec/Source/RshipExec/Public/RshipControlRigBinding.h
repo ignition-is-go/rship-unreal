@@ -205,9 +205,11 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnControlRigConfigChanged, const FR
 // ============================================================================
 
 /**
- * Component that binds rship pulse data to Control Rig properties.
- * Attach to an actor with a ControlRigComponent to enable procedural animation
- * driven by rship emitter values.
+ * Comprehensive binding for Control Rig procedural animation to rship.
+ * Exposes all Control Rig controls for direct manipulation and state publishing:
+ * - Float, Vector, Rotator, Transform controls
+ * - Animation blending and weights
+ * - Configuration management
  */
 UCLASS(ClassGroup = (Rship), meta = (BlueprintSpawnableComponent, DisplayName = "Rship Control Rig Binding"))
 class RSHIPEXEC_API URshipControlRigBinding : public UActorComponent
@@ -240,6 +242,129 @@ public:
     /** Manual Control Rig component reference */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|ControlRig", meta = (EditCondition = "!bAutoDiscoverControlRig"))
     UControlRigComponent* ControlRigComponent;
+
+    /** Publish rate in Hz (how often to publish rig state as emitters) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|ControlRig", meta = (ClampMin = "1", ClampMax = "60"))
+    int32 PublishRateHz = 10;
+
+    /** Only publish when values change (reduces network traffic) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|ControlRig")
+    bool bOnlyPublishOnChange = true;
+
+    // ========================================================================
+    // RS_ ACTIONS - Direct Control Access
+    // ========================================================================
+
+    /** Set a float control by name */
+    UFUNCTION(BlueprintCallable, Category = "Rship|ControlRig|Controls")
+    void RS_SetFloatControl(FName ControlName, float Value);
+
+    /** Set a vector control by name */
+    UFUNCTION(BlueprintCallable, Category = "Rship|ControlRig|Controls")
+    void RS_SetVectorControl(FName ControlName, float X, float Y, float Z);
+
+    /** Set a rotator control by name */
+    UFUNCTION(BlueprintCallable, Category = "Rship|ControlRig|Controls")
+    void RS_SetRotatorControl(FName ControlName, float Pitch, float Yaw, float Roll);
+
+    /** Set a transform control by name */
+    UFUNCTION(BlueprintCallable, Category = "Rship|ControlRig|Controls")
+    void RS_SetTransformControl(FName ControlName, float PosX, float PosY, float PosZ, float RotPitch, float RotYaw, float RotRoll, float Scale);
+
+    /** Set a bool control by name */
+    UFUNCTION(BlueprintCallable, Category = "Rship|ControlRig|Controls")
+    void RS_SetBoolControl(FName ControlName, bool Value);
+
+    /** Set an int control by name */
+    UFUNCTION(BlueprintCallable, Category = "Rship|ControlRig|Controls")
+    void RS_SetIntControl(FName ControlName, int32 Value);
+
+    // ========================================================================
+    // RS_ ACTIONS - Animation Control
+    // ========================================================================
+
+    /** Set global weight for all Control Rig animation (0-1) */
+    UFUNCTION(BlueprintCallable, Category = "Rship|ControlRig|Animation")
+    void RS_SetGlobalWeight(float Weight);
+
+    /** Set weight for a specific control (0-1) */
+    UFUNCTION(BlueprintCallable, Category = "Rship|ControlRig|Animation")
+    void RS_SetControlWeight(FName ControlName, float Weight);
+
+    /** Enable/disable all Control Rig bindings */
+    UFUNCTION(BlueprintCallable, Category = "Rship|ControlRig|Animation")
+    void RS_SetEnabled(bool bEnabled);
+
+    /** Reset all controls to default values */
+    UFUNCTION(BlueprintCallable, Category = "Rship|ControlRig|Animation")
+    void RS_ResetAllControls();
+
+    /** Reset a specific control to default */
+    UFUNCTION(BlueprintCallable, Category = "Rship|ControlRig|Animation")
+    void RS_ResetControl(FName ControlName);
+
+    // ========================================================================
+    // RS_ ACTIONS - Configuration
+    // ========================================================================
+
+    /** Load a saved configuration by name */
+    UFUNCTION(BlueprintCallable, Category = "Rship|ControlRig|Config")
+    void RS_LoadConfiguration(const FString& ConfigName);
+
+    /** Switch to next saved configuration */
+    UFUNCTION(BlueprintCallable, Category = "Rship|ControlRig|Config")
+    void RS_NextConfiguration();
+
+    /** Switch to previous saved configuration */
+    UFUNCTION(BlueprintCallable, Category = "Rship|ControlRig|Config")
+    void RS_PreviousConfiguration();
+
+    // ========================================================================
+    // RS_ EMITTERS - State Publishing
+    // ========================================================================
+
+    DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FRS_FloatControlEmitter, FName, ControlName, float, Value);
+    DECLARE_DYNAMIC_MULTICAST_DELEGATE_FourParams(FRS_VectorControlEmitter, FName, ControlName, float, X, float, Y, float, Z);
+    DECLARE_DYNAMIC_MULTICAST_DELEGATE_FourParams(FRS_RotatorControlEmitter, FName, ControlName, float, Pitch, float, Yaw, float, Roll);
+    DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FRS_FloatEmitter, float, Value);
+    DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FRS_BoolEmitter, bool, Value);
+    DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FRS_StringEmitter, const FString&, Value);
+
+    /** Fired when any float control changes */
+    UPROPERTY(BlueprintAssignable, Category = "Rship|ControlRig|Emitters")
+    FRS_FloatControlEmitter RS_OnFloatControlChanged;
+
+    /** Fired when any vector control changes */
+    UPROPERTY(BlueprintAssignable, Category = "Rship|ControlRig|Emitters")
+    FRS_VectorControlEmitter RS_OnVectorControlChanged;
+
+    /** Fired when any rotator control changes */
+    UPROPERTY(BlueprintAssignable, Category = "Rship|ControlRig|Emitters")
+    FRS_RotatorControlEmitter RS_OnRotatorControlChanged;
+
+    /** Fired when global weight changes */
+    UPROPERTY(BlueprintAssignable, Category = "Rship|ControlRig|Emitters")
+    FRS_FloatEmitter RS_OnGlobalWeightChanged;
+
+    /** Fired when enabled state changes */
+    UPROPERTY(BlueprintAssignable, Category = "Rship|ControlRig|Emitters")
+    FRS_BoolEmitter RS_OnEnabledChanged;
+
+    /** Fired when configuration changes */
+    UPROPERTY(BlueprintAssignable, Category = "Rship|ControlRig|Emitters")
+    FRS_StringEmitter RS_OnConfigurationChanged;
+
+    // ========================================================================
+    // PUBLIC METHODS
+    // ========================================================================
+
+    /** Force publish all current values */
+    UFUNCTION(BlueprintCallable, Category = "Rship|ControlRig")
+    void ForcePublish();
+
+    /** Get current rig state as JSON */
+    UFUNCTION(BlueprintCallable, Category = "Rship|ControlRig")
+    FString GetControlRigStateJson() const;
 
     // ========================================================================
     // BINDING MANAGEMENT
@@ -369,6 +494,17 @@ private:
     // Pulse receiver binding
     FDelegateHandle PulseReceiverHandle;
 
+    // State tracking for publishing
+    double LastPublishTime = 0.0;
+    double PublishInterval = 0.1;
+    float LastGlobalWeight = 1.0f;
+    bool bLastEnabled = true;
+    int32 CurrentConfigIndex = 0;
+    FString CurrentConfigName;
+    TMap<FName, float> LastFloatValues;
+    TMap<FName, FVector> LastVectorValues;
+    TMap<FName, FRotator> LastRotatorValues;
+
     void DiscoverControlRig();
     void BindToPulseReceiver();
     void UnbindFromPulseReceiver();
@@ -382,6 +518,9 @@ private:
     float InterpolateValue(float Current, float Target, const FRshipControlRigPropertyBinding& Binding, float DeltaTime, float& Velocity) const;
 
     bool MatchesEmitterPattern(const FString& EmitterId, const FString& Pattern) const;
+
+    void ReadAndPublishState();
+    bool HasValueChanged(float OldValue, float NewValue, float Threshold = 0.001f) const;
 
     // Expression parser helpers
     float EvaluateExpression(const FString& ExpressionStr, float X) const;
