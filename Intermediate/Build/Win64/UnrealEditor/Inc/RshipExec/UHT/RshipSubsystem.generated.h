@@ -17,7 +17,7 @@
 PRAGMA_DISABLE_DEPRECATION_WARNINGS
 
 // ********** Begin Delegate FRshipMessageDelegate *************************************************
-#define FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipSubsystem_h_18_DELEGATE \
+#define FID_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipSubsystem_h_18_DELEGATE \
 RSHIPEXEC_API void FRshipMessageDelegate_DelegateWrapper(const FScriptDelegate& RshipMessageDelegate);
 
 
@@ -26,7 +26,7 @@ RSHIPEXEC_API void FRshipMessageDelegate_DelegateWrapper(const FScriptDelegate& 
 // ********** Begin Class URshipSubsystem **********************************************************
 RSHIPEXEC_API UClass* Z_Construct_UClass_URshipSubsystem_NoRegister();
 
-#define FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipSubsystem_h_26_INCLASS_NO_PURE_DECLS \
+#define FID_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipSubsystem_h_26_INCLASS_NO_PURE_DECLS \
 private: \
 	static void StaticRegisterNativesURshipSubsystem(); \
 	friend struct Z_Construct_UClass_URshipSubsystem_Statics; \
@@ -37,7 +37,7 @@ public: \
 	DECLARE_SERIALIZER(URshipSubsystem)
 
 
-#define FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipSubsystem_h_26_ENHANCED_CONSTRUCTORS \
+#define FID_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipSubsystem_h_26_ENHANCED_CONSTRUCTORS \
 	/** Standard constructor, called after all reflected properties have been initialized */ \
 	NO_API URshipSubsystem(); \
 	/** Deleted move- and copy-constructors, should never be used */ \
@@ -49,12 +49,12 @@ public: \
 	NO_API virtual ~URshipSubsystem();
 
 
-#define FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipSubsystem_h_23_PROLOG
-#define FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipSubsystem_h_26_GENERATED_BODY \
+#define FID_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipSubsystem_h_23_PROLOG
+#define FID_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipSubsystem_h_26_GENERATED_BODY \
 PRAGMA_DISABLE_DEPRECATION_WARNINGS \
 public: \
-	FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipSubsystem_h_26_INCLASS_NO_PURE_DECLS \
-	FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipSubsystem_h_26_ENHANCED_CONSTRUCTORS \
+	FID_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipSubsystem_h_26_INCLASS_NO_PURE_DECLS \
+	FID_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipSubsystem_h_26_ENHANCED_CONSTRUCTORS \
 private: \
 PRAGMA_ENABLE_DEPRECATION_WARNINGS
 
@@ -64,6 +64,6 @@ class URshipSubsystem;
 // ********** End Class URshipSubsystem ************************************************************
 
 #undef CURRENT_FILE_ID
-#define CURRENT_FILE_ID FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipSubsystem_h
+#define CURRENT_FILE_ID FID_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipSubsystem_h
 
 PRAGMA_ENABLE_DEPRECATION_WARNINGS

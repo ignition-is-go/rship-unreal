@@ -107,6 +107,50 @@ DEFINE_FUNCTION(URshipTargetComponent::execRegister)
 }
 // ********** End Class URshipTargetComponent Function Register ************************************
 
+// ********** Begin Class URshipTargetComponent Function SetTargetId *******************************
+struct Z_Construct_UFunction_URshipTargetComponent_SetTargetId_Statics
+{
+	struct RshipTargetComponent_eventSetTargetId_Parms
+	{
+		FString newTargetId;
+	};
+#if WITH_METADATA
+	static constexpr UECodeGen_Private::FMetaDataPairParam Function_MetaDataParams[] = {
+		{ "CallInEditor", "true" },
+		{ "Category", "RshipTarget" },
+		{ "ModuleRelativePath", "Public/RshipTargetComponent.h" },
+	};
+#endif // WITH_METADATA
+	static const UECodeGen_Private::FStrPropertyParams NewProp_newTargetId;
+	static const UECodeGen_Private::FPropertyParamsBase* const PropPointers[];
+	static const UECodeGen_Private::FFunctionParams FuncParams;
+};
+const UECodeGen_Private::FStrPropertyParams Z_Construct_UFunction_URshipTargetComponent_SetTargetId_Statics::NewProp_newTargetId = { "newTargetId", nullptr, (EPropertyFlags)0x0010000000000080, UECodeGen_Private::EPropertyGenFlags::Str, RF_Public|RF_Transient|RF_MarkAsNative, nullptr, nullptr, 1, STRUCT_OFFSET(RshipTargetComponent_eventSetTargetId_Parms, newTargetId), METADATA_PARAMS(0, nullptr) };
+const UECodeGen_Private::FPropertyParamsBase* const Z_Construct_UFunction_URshipTargetComponent_SetTargetId_Statics::PropPointers[] = {
+	(const UECodeGen_Private::FPropertyParamsBase*)&Z_Construct_UFunction_URshipTargetComponent_SetTargetId_Statics::NewProp_newTargetId,
+};
+static_assert(UE_ARRAY_COUNT(Z_Construct_UFunction_URshipTargetComponent_SetTargetId_Statics::PropPointers) < 2048);
+const UECodeGen_Private::FFunctionParams Z_Construct_UFunction_URshipTargetComponent_SetTargetId_Statics::FuncParams = { { (UObject*(*)())Z_Construct_UClass_URshipTargetComponent, nullptr, "SetTargetId", Z_Construct_UFunction_URshipTargetComponent_SetTargetId_Statics::PropPointers, UE_ARRAY_COUNT(Z_Construct_UFunction_URshipTargetComponent_SetTargetId_Statics::PropPointers), sizeof(Z_Construct_UFunction_URshipTargetComponent_SetTargetId_Statics::RshipTargetComponent_eventSetTargetId_Parms), RF_Public|RF_Transient|RF_MarkAsNative, (EFunctionFlags)0x04020401, 0, 0, METADATA_PARAMS(UE_ARRAY_COUNT(Z_Construct_UFunction_URshipTargetComponent_SetTargetId_Statics::Function_MetaDataParams), Z_Construct_UFunction_URshipTargetComponent_SetTargetId_Statics::Function_MetaDataParams)},  };
+static_assert(sizeof(Z_Construct_UFunction_URshipTargetComponent_SetTargetId_Statics::RshipTargetComponent_eventSetTargetId_Parms) < MAX_uint16);
+UFunction* Z_Construct_UFunction_URshipTargetComponent_SetTargetId()
+{
+	static UFunction* ReturnFunction = nullptr;
+	if (!ReturnFunction)
+	{
+		UECodeGen_Private::ConstructUFunction(&ReturnFunction, Z_Construct_UFunction_URshipTargetComponent_SetTargetId_Statics::FuncParams);
+	}
+	return ReturnFunction;
+}
+DEFINE_FUNCTION(URshipTargetComponent::execSetTargetId)
+{
+	P_GET_PROPERTY(FStrProperty,Z_Param_newTargetId);
+	P_FINISH;
+	P_NATIVE_BEGIN;
+	P_THIS->SetTargetId(Z_Param_newTargetId);
+	P_NATIVE_END;
+}
+// ********** End Class URshipTargetComponent Function SetTargetId *********************************
+
 // ********** Begin Class URshipTargetComponent ****************************************************
 void URshipTargetComponent::StaticRegisterNativesURshipTargetComponent()
 {
@@ -114,6 +158,7 @@ void URshipTargetComponent::StaticRegisterNativesURshipTargetComponent()
 	static const FNameNativePtrPair Funcs[] = {
 		{ "Reconnect", &URshipTargetComponent::execReconnect },
 		{ "Register", &URshipTargetComponent::execRegister },
+		{ "SetTargetId", &URshipTargetComponent::execSetTargetId },
 	};
 	FNativeFunctionRegistrar::RegisterFunctions(Class, Funcs, UE_ARRAY_COUNT(Funcs));
 }
@@ -171,6 +216,7 @@ struct Z_Construct_UClass_URshipTargetComponent_Statics
 	static constexpr FClassFunctionLinkInfo FuncInfo[] = {
 		{ &Z_Construct_UFunction_URshipTargetComponent_Reconnect, "Reconnect" }, // 3039823271
 		{ &Z_Construct_UFunction_URshipTargetComponent_Register, "Register" }, // 3288716340
+		{ &Z_Construct_UFunction_URshipTargetComponent_SetTargetId, "SetTargetId" }, // 469023497
 	};
 	static_assert(UE_ARRAY_COUNT(FuncInfo) < 2048);
 	static constexpr FCppClassTypeInfoStatic StaticCppClassTypeInfo = {
@@ -219,14 +265,14 @@ URshipTargetComponent::~URshipTargetComponent() {}
 // ********** End Class URshipTargetComponent ******************************************************
 
 // ********** Begin Registration *******************************************************************
-struct Z_CompiledInDeferFile_FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipTargetComponent_h__Script_RshipExec_Statics
+struct Z_CompiledInDeferFile_FID_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipTargetComponent_h__Script_RshipExec_Statics
 {
 	static constexpr FClassRegisterCompiledInInfo ClassInfo[] = {
-		{ Z_Construct_UClass_URshipTargetComponent, URshipTargetComponent::StaticClass, TEXT("URshipTargetComponent"), &Z_Registration_Info_UClass_URshipTargetComponent, CONSTRUCT_RELOAD_VERSION_INFO(FClassReloadVersionInfo, sizeof(URshipTargetComponent), 907475556U) },
+		{ Z_Construct_UClass_URshipTargetComponent, URshipTargetComponent::StaticClass, TEXT("URshipTargetComponent"), &Z_Registration_Info_UClass_URshipTargetComponent, CONSTRUCT_RELOAD_VERSION_INFO(FClassReloadVersionInfo, sizeof(URshipTargetComponent), 4207180872U) },
 	};
 };
-static FRegisterCompiledInInfo Z_CompiledInDeferFile_FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipTargetComponent_h__Script_RshipExec_3687156371(TEXT("/Script/RshipExec"),
-	Z_CompiledInDeferFile_FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipTargetComponent_h__Script_RshipExec_Statics::ClassInfo, UE_ARRAY_COUNT(Z_CompiledInDeferFile_FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipTargetComponent_h__Script_RshipExec_Statics::ClassInfo),
+static FRegisterCompiledInInfo Z_CompiledInDeferFile_FID_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipTargetComponent_h__Script_RshipExec_2526931645(TEXT("/Script/RshipExec"),
+	Z_CompiledInDeferFile_FID_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipTargetComponent_h__Script_RshipExec_Statics::ClassInfo, UE_ARRAY_COUNT(Z_CompiledInDeferFile_FID_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipTargetComponent_h__Script_RshipExec_Statics::ClassInfo),
 	nullptr, 0,
 	nullptr, 0);
 // ********** End Registration *********************************************************************

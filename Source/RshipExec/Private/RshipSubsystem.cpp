@@ -165,7 +165,7 @@ void URshipSubsystem::ProcessMessage(const FString &message)
 
                     if (target != nullptr)
                     {
-                        // UE_LOG(LogRshipExec, Warning, TEXT("Taking Action: %s"), *actionId);
+                        UE_LOG(LogRshipExec, Verbose, TEXT("Taking Action: %s on Target %s"), *actionId, *targetId);
                         bool takeResult = target->TakeAction(owner, actionId, execData);
                         result |= takeResult;
                         comp->OnDataReceived();

@@ -19,7 +19,7 @@ PRAGMA_DISABLE_DEPRECATION_WARNINGS
 // ********** Begin Class URshipSettings ***********************************************************
 RSHIPEXEC_API UClass* Z_Construct_UClass_URshipSettings_NoRegister();
 
-#define FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipSettings_h_10_INCLASS_NO_PURE_DECLS \
+#define FID_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipSettings_h_10_INCLASS_NO_PURE_DECLS \
 private: \
 	static void StaticRegisterNativesURshipSettings(); \
 	friend struct Z_Construct_UClass_URshipSettings_Statics; \
@@ -32,7 +32,7 @@ public: \
 
 
 
-#define FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipSettings_h_10_ENHANCED_CONSTRUCTORS \
+#define FID_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipSettings_h_10_ENHANCED_CONSTRUCTORS \
 	/** Standard constructor, called after all reflected properties have been initialized */ \
 	NO_API URshipSettings(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get()); \
 	/** Deleted move- and copy-constructors, should never be used */ \
@@ -44,12 +44,12 @@ public: \
 	NO_API virtual ~URshipSettings();
 
 
-#define FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipSettings_h_7_PROLOG
-#define FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipSettings_h_10_GENERATED_BODY \
+#define FID_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipSettings_h_7_PROLOG
+#define FID_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipSettings_h_10_GENERATED_BODY \
 PRAGMA_DISABLE_DEPRECATION_WARNINGS \
 public: \
-	FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipSettings_h_10_INCLASS_NO_PURE_DECLS \
-	FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipSettings_h_10_ENHANCED_CONSTRUCTORS \
+	FID_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipSettings_h_10_INCLASS_NO_PURE_DECLS \
+	FID_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipSettings_h_10_ENHANCED_CONSTRUCTORS \
 private: \
 PRAGMA_ENABLE_DEPRECATION_WARNINGS
 
@@ -59,6 +59,6 @@ class URshipSettings;
 // ********** End Class URshipSettings *************************************************************
 
 #undef CURRENT_FILE_ID
-#define CURRENT_FILE_ID FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipSettings_h
+#define CURRENT_FILE_ID FID_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_RshipSettings_h
 
 PRAGMA_ENABLE_DEPRECATION_WARNINGS

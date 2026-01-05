@@ -34,6 +34,9 @@ public:
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "RshipTarget")
 	void Register();
 
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "RshipTarget")
+	void SetTargetId(FString newTargetId);
+
 	UPROPERTY(EditAnywhere, config, Category = "RshipTarget", meta = (DisplayName = "Target Id"))
 	FString targetName;
 

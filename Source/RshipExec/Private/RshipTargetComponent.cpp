@@ -208,3 +208,9 @@ void URshipTargetComponent::Register()
 
     UE_LOG(LogRshipExec, Log, TEXT("Component Registered: %s"), *parent->GetName());
 }
+
+void URshipTargetComponent::SetTargetId(FString newTargetId) {
+    this->OnComponentDestroyed(false);
+    this->targetName = newTargetId;
+    this->Register();
+}

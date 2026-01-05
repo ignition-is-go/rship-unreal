@@ -19,7 +19,7 @@ PRAGMA_DISABLE_DEPRECATION_WARNINGS
 // ********** Begin Class ALevelReporter ***********************************************************
 RSHIPEXEC_API UClass* Z_Construct_UClass_ALevelReporter_NoRegister();
 
-#define FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_LevelReporter_h_13_INCLASS_NO_PURE_DECLS \
+#define FID_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_LevelReporter_h_13_INCLASS_NO_PURE_DECLS \
 private: \
 	static void StaticRegisterNativesALevelReporter(); \
 	friend struct Z_Construct_UClass_ALevelReporter_Statics; \
@@ -30,7 +30,7 @@ public: \
 	DECLARE_SERIALIZER(ALevelReporter)
 
 
-#define FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_LevelReporter_h_13_ENHANCED_CONSTRUCTORS \
+#define FID_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_LevelReporter_h_13_ENHANCED_CONSTRUCTORS \
 	/** Deleted move- and copy-constructors, should never be used */ \
 	ALevelReporter(ALevelReporter&&) = delete; \
 	ALevelReporter(const ALevelReporter&) = delete; \
@@ -40,12 +40,12 @@ public: \
 	NO_API virtual ~ALevelReporter();
 
 
-#define FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_LevelReporter_h_10_PROLOG
-#define FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_LevelReporter_h_13_GENERATED_BODY \
+#define FID_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_LevelReporter_h_10_PROLOG
+#define FID_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_LevelReporter_h_13_GENERATED_BODY \
 PRAGMA_DISABLE_DEPRECATION_WARNINGS \
 public: \
-	FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_LevelReporter_h_13_INCLASS_NO_PURE_DECLS \
-	FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_LevelReporter_h_13_ENHANCED_CONSTRUCTORS \
+	FID_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_LevelReporter_h_13_INCLASS_NO_PURE_DECLS \
+	FID_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_LevelReporter_h_13_ENHANCED_CONSTRUCTORS \
 private: \
 PRAGMA_ENABLE_DEPRECATION_WARNINGS
 
@@ -55,6 +55,6 @@ class ALevelReporter;
 // ********** End Class ALevelReporter *************************************************************
 
 #undef CURRENT_FILE_ID
-#define CURRENT_FILE_ID FID_Users_Administrator_Documents_Unreal_Projects_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_LevelReporter_h
+#define CURRENT_FILE_ID FID_RshipPluginSource_Plugins_rship_unreal_Source_RshipExec_Public_LevelReporter_h
 
 PRAGMA_ENABLE_DEPRECATION_WARNINGS
