@@ -121,22 +121,21 @@ public class RshipExec : ModuleRules
 		bHasPCG = false;
 		// To enable PCG: set bHasPCG = true above and add "PCG" plugin to your .uproject
 
+		// Always include PCG directory paths - base types don't require PCG plugin
+		// Only RshipPCGSpawnActorSettings requires PCG and is guarded with #if RSHIP_HAS_PCG
+		PublicIncludePaths.Add(Path.Combine(ModuleDirectory, "Public", "PCG"));
+		PrivateIncludePaths.Add(Path.Combine(ModuleDirectory, "Private", "PCG"));
+
 		if (bHasPCG)
 		{
 			PublicDependencyModuleNames.Add("PCG");
 			PublicDefinitions.Add("RSHIP_HAS_PCG=1");
-
-			// Add PCG source directories
-			PublicIncludePaths.Add(Path.Combine(ModuleDirectory, "Public", "PCG"));
-			PrivateIncludePaths.Add(Path.Combine(ModuleDirectory, "Private", "PCG"));
-
-			System.Console.WriteLine("RshipExec: PCG plugin enabled, PCG bindings available");
+			System.Console.WriteLine("RshipExec: PCG plugin enabled, PCG spawn actor node available");
 		}
 		else
 		{
 			PublicDefinitions.Add("RSHIP_HAS_PCG=0");
-			// PCG files are in Public/PCG and Private/PCG - not included when PCG disabled
-			System.Console.WriteLine("RshipExec: PCG plugin not enabled, PCG bindings disabled");
+			System.Console.WriteLine("RshipExec: PCG plugin not enabled, using manual component attachment");
 		}
 
 		// RshipNDI plugin for NDI streaming (optional)

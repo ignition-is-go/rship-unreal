@@ -648,13 +648,11 @@ void URshipSubsystem::TickSubsystems()
         Recorder->Tick(DeltaTime);
     }
 
-#if RSHIP_HAS_PCG
-    // Tick PCG manager for regeneration budget
+    // Tick PCG manager for binding lifecycle
     if (PCGManager)
     {
         PCGManager->Tick(DeltaTime);
     }
-#endif
 
     // Process message queue every tick to ensure messages are sent
     ProcessMessageQueue();
@@ -804,22 +802,38 @@ void URshipSubsystem::ProcessMessage(const FString &message)
 
             bool result = false;
 
-            for (URshipTargetComponent *comp : *this->TargetComponents)
+            // Check if this is a PCG target (paths start with "/pcg/")
+            if (targetId.StartsWith(TEXT("/pcg/")))
             {
-                if (comp->TargetData->GetId() == targetId)
+                if (PCGManager)
                 {
-                    Target *target = comp->TargetData;
-                    AActor *owner = comp->GetOwner();
+                    result = PCGManager->RouteAction(targetId, actionId, execData);
+                }
+                else
+                {
+                    UE_LOG(LogRshipExec, Warning, TEXT("PCG target action received but PCGManager not initialized: %s"), *targetId);
+                }
+            }
+            else
+            {
+                // Standard target component routing
+                for (URshipTargetComponent *comp : *this->TargetComponents)
+                {
+                    if (comp->TargetData->GetId() == targetId)
+                    {
+                        Target *target = comp->TargetData;
+                        AActor *owner = comp->GetOwner();
 
-                    if (target != nullptr)
-                    {
-                        bool takeResult = target->TakeAction(owner, actionId, execData);
-                        result |= takeResult;
-                        comp->OnDataReceived();
-                    }
-                    else
-                    {
-                        UE_LOG(LogRshipExec, Warning, TEXT("Target not found: %s"), *targetId);
+                        if (target != nullptr)
+                        {
+                            bool takeResult = target->TakeAction(owner, actionId, execData);
+                            result |= takeResult;
+                            comp->OnDataReceived();
+                        }
+                        else
+                        {
+                            UE_LOG(LogRshipExec, Warning, TEXT("Target not found: %s"), *targetId);
+                        }
                     }
                 }
             }
@@ -1189,14 +1203,12 @@ void URshipSubsystem::Deinitialize()
         ControlRigManager = nullptr;
     }
 
-#if RSHIP_HAS_PCG
     // Shutdown PCG manager
     if (PCGManager)
     {
         PCGManager->Shutdown();
         PCGManager = nullptr;
     }
-#endif
 
     // Clear rate limiter
     if (RateLimiter)
@@ -2159,8 +2171,8 @@ URshipControlRigManager* URshipSubsystem::GetControlRigManager()
 
 URshipPCGManager* URshipSubsystem::GetPCGManager()
 {
-#if RSHIP_HAS_PCG
     // Lazy initialization
+    // PCGManager is always available - only the PCG graph nodes require PCG plugin
     if (!PCGManager)
     {
         PCGManager = NewObject<URshipPCGManager>(this);
@@ -2169,10 +2181,6 @@ URshipPCGManager* URshipSubsystem::GetPCGManager()
         UE_LOG(LogRshipExec, Log, TEXT("PCGManager initialized"));
     }
     return PCGManager;
-#else
-    UE_LOG(LogRshipExec, Warning, TEXT("GetPCGManager called but PCG plugin is not enabled. Enable PCG plugin and rebuild."));
-    return nullptr;
-#endif
 }
 
 URshipSpatialAudioManager* URshipSubsystem::GetSpatialAudioManager()

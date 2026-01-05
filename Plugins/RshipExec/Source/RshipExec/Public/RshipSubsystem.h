@@ -38,12 +38,8 @@
 #include "RshipAudioReactive.h"
 #include "RshipRecorder.h"
 #include "RshipControlRigBinding.h"
-#if RSHIP_HAS_PCG
-#include "PCG/RshipPCGBinding.h"
-#else
-// Forward declaration when PCG plugin is not available
-class URshipPCGManager;
-#endif
+// PCG Manager is always available - only PCG graph nodes require PCG plugin
+#include "PCG/RshipPCGManager.h"
 #include "GameFramework/Actor.h"
 
 // Forward declaration for optional SpatialAudio plugin
