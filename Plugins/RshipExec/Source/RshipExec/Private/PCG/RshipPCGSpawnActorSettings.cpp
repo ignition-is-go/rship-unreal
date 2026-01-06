@@ -21,8 +21,10 @@
 #include "Engine/World.h"
 #include "Components/SceneComponent.h"
 
+#endif // RSHIP_HAS_PCG
+
 // ============================================================================
-// URSHIPPCGSPAWNACTORSETTINGS
+// URSHIPPCGSPAWNACTORSETTINGS - Constructor always available
 // ============================================================================
 
 URshipPCGSpawnActorSettings::URshipPCGSpawnActorSettings()
@@ -30,6 +32,12 @@ URshipPCGSpawnActorSettings::URshipPCGSpawnActorSettings()
 	// Add default "pcg" tag
 	DefaultTags.Add(TEXT("pcg"));
 }
+
+// ============================================================================
+// PCG-SPECIFIC IMPLEMENTATION
+// ============================================================================
+
+#if RSHIP_HAS_PCG
 
 #if WITH_EDITOR
 FText URshipPCGSpawnActorSettings::GetNodeTooltipText() const

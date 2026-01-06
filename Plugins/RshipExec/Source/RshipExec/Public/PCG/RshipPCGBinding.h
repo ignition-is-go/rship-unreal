@@ -8,7 +8,5 @@
 #include "PCG/RshipPCGAutoBindComponent.h"
 #include "PCG/RshipPCGManager.h"
 
-// PCG Spawn Actor Settings is conditionally included based on PCG plugin availability
-#if RSHIP_HAS_PCG
+// PCG Spawn Actor Settings is always included but has limited functionality without PCG
 #include "PCG/RshipPCGSpawnActorSettings.h"
-#endif

@@ -4,16 +4,23 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "PCG/RshipPCGTypes.h"
 
 #if RSHIP_HAS_PCG
-
 #include "PCGSettings.h"
 #include "PCGElement.h"
-#include "PCG/RshipPCGTypes.h"
 #include "Metadata/PCGMetadataAttribute.h"
+#endif
+
 #include "RshipPCGSpawnActorSettings.generated.h"
 
 class URshipPCGAutoBindComponent;
+
+// Forward declarations for PCG types when PCG is not available
+#if !RSHIP_HAS_PCG
+struct FPCGPoint;
+class FPCGContext;
+#endif
 
 // ============================================================================
 // PCG SPAWN ACTOR WITH RSHIP BINDING
@@ -32,9 +39,17 @@ class URshipPCGAutoBindComponent;
  * - Support for custom target naming patterns
  * - Tag inheritance from PCG attributes
  * - Batch registration for efficiency
+ *
+ * NOTE: This class requires the PCG plugin to be enabled for full functionality.
+ * When PCG is disabled, the class exists but is non-functional.
  */
 UCLASS(BlueprintType, ClassGroup = (Procedural), DisplayName = "Rship Spawn Actor")
-class RSHIPEXEC_API URshipPCGSpawnActorSettings : public UPCGSettings
+class RSHIPEXEC_API URshipPCGSpawnActorSettings :
+#if RSHIP_HAS_PCG
+	public UPCGSettings
+#else
+	public UObject
+#endif
 {
 	GENERATED_BODY()
 
@@ -137,9 +152,10 @@ public:
 	FName AlphaAttribute = TEXT("Alpha");
 
 	// ========================================================================
-	// UPCGSETTINGS INTERFACE
+	// UPCGSETTINGS INTERFACE (PCG-only)
 	// ========================================================================
 
+#if RSHIP_HAS_PCG
 #if WITH_EDITOR
 	virtual FName GetDefaultNodeName() const override { return TEXT("Rship Spawn Actor"); }
 	virtual FText GetDefaultNodeTitle() const override { return NSLOCTEXT("RshipPCG", "SpawnActorTitle", "Rship Spawn Actor"); }
@@ -151,11 +167,14 @@ protected:
 	virtual TArray<FPCGPinProperties> InputPinProperties() const override;
 	virtual TArray<FPCGPinProperties> OutputPinProperties() const override;
 	virtual FPCGElementPtr CreateElement() const override;
+#endif // RSHIP_HAS_PCG
 };
 
 // ============================================================================
-// PCG ELEMENT (EXECUTION)
+// PCG ELEMENT (EXECUTION) - Only available when PCG is enabled
 // ============================================================================
+
+#if RSHIP_HAS_PCG
 
 /**
  * Execution element for the Rship Spawn Actor node.
