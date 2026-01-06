@@ -249,7 +249,7 @@ struct RSHIPEXEC_API FRshipPCGClassBindings
 
 	/** Class these bindings are for */
 	UPROPERTY()
-	TWeakObjectPtr<UClass> BoundClass;
+	TObjectPtr<UClass> BoundClass;
 
 	/** All bindable properties */
 	UPROPERTY()
