@@ -310,12 +310,12 @@ int32 URshipEditorTransformSync::TrackConvertedActors()
 
 bool URshipEditorTransformSync::SyncActorInternal(FRshipTrackedActor& TrackedInfo)
 {
-    if (!Subsystem || !TrackedInfo.Actor.IsValid())
+    if (!Subsystem || !TrackedInfo.Actor)
     {
         return false;
     }
 
-    AActor* Actor = TrackedInfo.Actor.Get();
+    AActor* Actor = TrackedInfo.Actor;
     FVector Position = Actor->GetActorLocation() * PositionScale;
     FRotator Rotation = Actor->GetActorRotation();
 
@@ -360,7 +360,7 @@ void URshipEditorTransformSync::OnPeriodicSyncTimer()
 
 void URshipEditorTransformSync::CheckActorForChanges(FRshipTrackedActor& TrackedInfo)
 {
-    if (!TrackedInfo.Actor.IsValid())
+    if (!TrackedInfo.Actor)
     {
         return;
     }
@@ -370,19 +370,19 @@ void URshipEditorTransformSync::CheckActorForChanges(FRshipTrackedActor& Tracked
         if (!TrackedInfo.bHasPendingChanges)
         {
             TrackedInfo.bHasPendingChanges = true;
-            OnActorTransformChanged.Broadcast(TrackedInfo.Actor.Get(), TrackedInfo.EntityId);
+            OnActorTransformChanged.Broadcast(TrackedInfo.Actor, TrackedInfo.EntityId);
         }
     }
 }
 
 bool URshipEditorTransformSync::HasActorMoved(const FRshipTrackedActor& TrackedInfo) const
 {
-    if (!TrackedInfo.Actor.IsValid())
+    if (!TrackedInfo.Actor)
     {
         return false;
     }
 
-    AActor* Actor = TrackedInfo.Actor.Get();
+    AActor* Actor = TrackedInfo.Actor;
     FVector CurrentPos = Actor->GetActorLocation();
     FRotator CurrentRot = Actor->GetActorRotation();
 

@@ -209,7 +209,7 @@ FRshipPCGClassBindings* URshipPCGManager::GetOrCreateClassBindings(UClass* Class
 	if (Existing && Existing->bIsValid)
 	{
 		// Rebuild property pointers if needed (after garbage collection)
-		if (!Existing->BoundClass.IsValid())
+		if (!Existing->BoundClass)
 		{
 			Existing->BoundClass = Class;
 			Existing->RebuildPropertyPointers();

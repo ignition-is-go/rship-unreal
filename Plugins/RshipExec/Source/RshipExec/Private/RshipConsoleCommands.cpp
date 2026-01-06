@@ -64,7 +64,7 @@ static FAutoConsoleCommand CmdRshipValidateScene(
                 if (Issue.Severity == ERshipValidationSeverity::Error ||
                     Issue.Severity == ERshipValidationSeverity::Critical)
                 {
-                    FString ActorName = Issue.AffectedActor.IsValid() ? Issue.AffectedActor->GetActorLabel() : TEXT("Unknown");
+                    FString ActorName = Issue.AffectedActor ? Issue.AffectedActor->GetActorLabel() : TEXT("Unknown");
                     UE_LOG(LogRshipExec, Warning, TEXT("  [%s] %s: %s"),
                         Issue.Severity == ERshipValidationSeverity::Critical ? TEXT("CRIT") : TEXT("ERR"),
                         *ActorName, *Issue.Message);

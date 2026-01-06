@@ -409,12 +409,12 @@ void FRshipPCGClassBindings::BuildFromClass(UClass* InClass)
 
 void FRshipPCGClassBindings::RebuildPropertyPointers()
 {
-	if (!BoundClass.IsValid())
+	if (!BoundClass)
 	{
 		return;
 	}
 
-	UClass* Class = BoundClass.Get();
+	UClass* Class = BoundClass;
 	for (FRshipPCGPropertyDescriptor& Desc : Properties)
 	{
 		Desc.CachedProperty = Class->FindPropertyByName(Desc.PropertyName);
