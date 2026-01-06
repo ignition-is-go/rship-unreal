@@ -10,6 +10,11 @@
 #include "PCGSettings.h"
 #include "PCGElement.h"
 #include "Metadata/PCGMetadataAttribute.h"
+// Base class macro - expands before UHT parsing
+#define RSHIP_PCG_SPAWN_ACTOR_SETTINGS_BASE UPCGSettings
+#else
+// Base class macro - expands before UHT parsing
+#define RSHIP_PCG_SPAWN_ACTOR_SETTINGS_BASE UObject
 #endif
 
 #include "RshipPCGSpawnActorSettings.generated.h"
@@ -44,12 +49,7 @@ class FPCGContext;
  * When PCG is disabled, the class exists but is non-functional.
  */
 UCLASS(BlueprintType, ClassGroup = (Procedural), DisplayName = "Rship Spawn Actor")
-class RSHIPEXEC_API URshipPCGSpawnActorSettings :
-#if RSHIP_HAS_PCG
-	public UPCGSettings
-#else
-	public UObject
-#endif
+class RSHIPEXEC_API URshipPCGSpawnActorSettings : public RSHIP_PCG_SPAWN_ACTOR_SETTINGS_BASE
 {
 	GENERATED_BODY()
 
@@ -169,6 +169,9 @@ protected:
 	virtual FPCGElementPtr CreateElement() const override;
 #endif // RSHIP_HAS_PCG
 };
+
+// Clean up the macro
+#undef RSHIP_PCG_SPAWN_ACTOR_SETTINGS_BASE
 
 // ============================================================================
 // PCG ELEMENT (EXECUTION) - Only available when PCG is enabled
