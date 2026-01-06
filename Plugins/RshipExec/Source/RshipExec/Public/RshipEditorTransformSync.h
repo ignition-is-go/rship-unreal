@@ -36,9 +36,9 @@ struct RSHIPEXEC_API FRshipTrackedActor
 {
     GENERATED_BODY()
 
-    /** Weak reference to the actor */
+    /** Reference to the actor */
     UPROPERTY()
-    TWeakObjectPtr<AActor> Actor;
+    TObjectPtr<AActor> Actor;
 
     /** The rship entity ID (fixture or camera) */
     UPROPERTY(BlueprintReadOnly, Category = "Rship|TransformSync")

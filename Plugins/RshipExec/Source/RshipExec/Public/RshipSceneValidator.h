@@ -56,7 +56,7 @@ struct RSHIPEXEC_API FRshipValidationIssue
     FString Details;
 
     UPROPERTY(BlueprintReadOnly, Category = "Rship|Validation")
-    TWeakObjectPtr<AActor> AffectedActor;
+    TObjectPtr<AActor> AffectedActor;
 
     UPROPERTY(BlueprintReadOnly, Category = "Rship|Validation")
     FString AffectedComponentName;
