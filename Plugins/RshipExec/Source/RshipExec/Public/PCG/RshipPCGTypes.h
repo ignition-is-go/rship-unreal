@@ -5,7 +5,13 @@
 
 #include "CoreMinimal.h"
 #include "UObject/ObjectMacros.h"
+#include "Dom/JsonValue.h"
+#include "Dom/JsonObject.h"
 #include "RshipPCGTypes.generated.h"
+
+// Forward declarations
+class FProperty;
+class AActor;
 
 // ============================================================================
 // PCG INSTANCE IDENTITY
