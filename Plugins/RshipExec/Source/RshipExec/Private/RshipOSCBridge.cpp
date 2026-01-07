@@ -516,24 +516,18 @@ void URshipOSCBridge::ProcessIncomingMessage(const FRshipOSCMessage& Message)
                     TSharedRef<FJsonObject> ActionData = MakeShared<FJsonObject>();
                     ActionData->SetNumberField(Mapping.FieldName, Value);
 
-                    // Find target and execute action
-                    if (Subsystem->TargetComponents)
+                    // Find target and execute action - O(1) lookup
+                    URshipTargetComponent* Comp = Subsystem->FindTargetComponent(TargetId);
+                    if (Comp && Comp->TargetData)
                     {
-                        for (URshipTargetComponent* Comp : *Subsystem->TargetComponents)
+                        AActor* Owner = Comp->GetOwner();
+                        if (Owner)
                         {
-                            if (Comp && Comp->TargetData && Comp->TargetData->GetId() == TargetId)
+                            bool bResult = Comp->TargetData->TakeAction(Owner, ActionId, ActionData);
+                            if (bResult)
                             {
-                                AActor* Owner = Comp->GetOwner();
-                                if (Owner)
-                                {
-                                    bool bResult = Comp->TargetData->TakeAction(Owner, ActionId, ActionData);
-                                    if (bResult)
-                                    {
-                                        Comp->OnDataReceived();
-                                        UE_LOG(LogRshipExec, Verbose, TEXT("OSCBridge: Executed action %s on %s"), *ActionId, *TargetId);
-                                    }
-                                }
-                                break;
+                                Comp->OnDataReceived();
+                                UE_LOG(LogRshipExec, Verbose, TEXT("OSCBridge: Executed action %s on %s"), *ActionId, *TargetId);
                             }
                         }
                     }

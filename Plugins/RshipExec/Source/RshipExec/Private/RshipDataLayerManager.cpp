@@ -62,8 +62,9 @@ TArray<FRshipDataLayerInfo> URshipDataLayerManager::GetAllDataLayers()
 
 	if (Subsystem->TargetComponents)
 	{
-		for (URshipTargetComponent* Comp : *Subsystem->TargetComponents)
+		for (auto& Pair : *Subsystem->TargetComponents)
 		{
+			URshipTargetComponent* Comp = Pair.Value;
 			if (!Comp || !Comp->GetOwner()) continue;
 
 			TArray<const UDataLayerInstance*> ActorDataLayers = Comp->GetOwner()->GetDataLayerInstances();
@@ -171,8 +172,9 @@ TArray<URshipTargetComponent*> URshipDataLayerManager::GetTargetsByDataLayerPatt
 	// Simple wildcard: * matches any characters
 	FString Pattern = WildcardPattern.ToLower().Replace(TEXT("*"), TEXT(""));
 
-	for (URshipTargetComponent* Comp : *Subsystem->TargetComponents)
+	for (auto& Pair : *Subsystem->TargetComponents)
 	{
+		URshipTargetComponent* Comp = Pair.Value;
 		if (!Comp || !Comp->GetOwner()) continue;
 
 		TArray<const UDataLayerInstance*> ActorDataLayers = Comp->GetOwner()->GetDataLayerInstances();
@@ -376,8 +378,9 @@ void URshipDataLayerManager::SetAutoDataLayerTagging(bool bEnabled)
 	if (bEnabled)
 	{
 		// Apply Data Layer tags to all existing targets
-		for (URshipTargetComponent* Comp : *Subsystem->TargetComponents)
+		for (auto& Pair : *Subsystem->TargetComponents)
 		{
+			URshipTargetComponent* Comp = Pair.Value;
 			if (Comp)
 			{
 				TArray<FString> DataLayers = GetTargetDataLayers(Comp);
@@ -393,11 +396,11 @@ void URshipDataLayerManager::SetAutoDataLayerTagging(bool bEnabled)
 	else
 	{
 		// Remove Data Layer tags from all targets
-		for (URshipTargetComponent* Comp : *Subsystem->TargetComponents)
+		for (auto& Pair : *Subsystem->TargetComponents)
 		{
-			if (Comp)
+			if (Pair.Value)
 			{
-				RemoveAutoDataLayerTags(Comp);
+				RemoveAutoDataLayerTags(Pair.Value);
 			}
 		}
 
@@ -412,18 +415,19 @@ void URshipDataLayerManager::SetAutoDataLayerTagPrefix(const FString& Prefix)
 	// Remove old tags and apply new ones if enabled
 	if (bAutoDataLayerTagging && Subsystem && Subsystem->TargetComponents)
 	{
-		for (URshipTargetComponent* Comp : *Subsystem->TargetComponents)
+		for (auto& Pair : *Subsystem->TargetComponents)
 		{
-			if (Comp)
+			if (Pair.Value)
 			{
-				RemoveAutoDataLayerTags(Comp);
+				RemoveAutoDataLayerTags(Pair.Value);
 			}
 		}
 
 		AutoDataLayerTagPrefix = Prefix;
 
-		for (URshipTargetComponent* Comp : *Subsystem->TargetComponents)
+		for (auto& Pair : *Subsystem->TargetComponents)
 		{
+			URshipTargetComponent* Comp = Pair.Value;
 			if (Comp)
 			{
 				TArray<FString> DataLayers = GetTargetDataLayers(Comp);
@@ -643,8 +647,9 @@ TArray<URshipTargetComponent*> URshipDataLayerManager::GetTargetsForDataLayerIns
 		return Result;
 	}
 
-	for (URshipTargetComponent* Comp : *Subsystem->TargetComponents)
+	for (auto& Pair : *Subsystem->TargetComponents)
 	{
+		URshipTargetComponent* Comp = Pair.Value;
 		if (!Comp || !Comp->GetOwner()) continue;
 
 		// Check if this actor belongs to the Data Layer

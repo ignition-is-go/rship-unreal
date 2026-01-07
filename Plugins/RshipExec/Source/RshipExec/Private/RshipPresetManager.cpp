@@ -109,9 +109,9 @@ FRshipPreset URshipPresetManager::CapturePresetAll(const FString& Name)
 	if (!Subsystem || !Subsystem->TargetComponents) return FRshipPreset();
 
 	TArray<URshipTargetComponent*> Targets;
-	for (URshipTargetComponent* Comp : *Subsystem->TargetComponents)
+	for (auto& Pair : *Subsystem->TargetComponents)
 	{
-		if (Comp) Targets.Add(Comp);
+		if (Pair.Value) Targets.Add(Pair.Value);
 	}
 
 	return CapturePreset(Name, Targets);
@@ -161,9 +161,9 @@ void URshipPresetManager::RecallPresetWithFade(const FRshipPreset& Preset, float
 	TArray<URshipTargetComponent*> TargetsToCapture;
 	if (Subsystem && Subsystem->TargetComponents)
 	{
-		for (URshipTargetComponent* Comp : *Subsystem->TargetComponents)
+		for (auto& Pair : *Subsystem->TargetComponents)
 		{
-			if (Comp) TargetsToCapture.Add(Comp);
+			if (Pair.Value) TargetsToCapture.Add(Pair.Value);
 		}
 	}
 
@@ -540,8 +540,9 @@ void URshipPresetManager::ApplySnapshot(const FRshipEmitterSnapshot& Snapshot)
 	// Find the target component and invoke the corresponding action
 	if (!Subsystem->TargetComponents) return;
 
-	for (URshipTargetComponent* TargetComp : *Subsystem->TargetComponents)
+	for (auto& Pair : *Subsystem->TargetComponents)
 	{
+		URshipTargetComponent* TargetComp = Pair.Value;
 		if (!TargetComp || TargetComp->targetName != Snapshot.TargetId) continue;
 		if (!TargetComp->TargetData) continue;
 
@@ -616,8 +617,9 @@ void URshipPresetManager::ApplyInterpolatedSnapshot(const FRshipEmitterSnapshot&
 	CacheEmitterValue(To.TargetId, To.EmitterName, Interpolated);
 
 	// Find the target component and invoke the corresponding action
-	for (URshipTargetComponent* TargetComp : *Subsystem->TargetComponents)
+	for (auto& Pair : *Subsystem->TargetComponents)
 	{
+		URshipTargetComponent* TargetComp = Pair.Value;
 		if (!TargetComp || TargetComp->targetName != To.TargetId) continue;
 		if (!TargetComp->TargetData) continue;
 

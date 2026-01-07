@@ -511,8 +511,9 @@ void URshipLevelManager::RegisterLevelTargets(ULevel* Level)
 	FString LevelName = Level->GetOutermost()->GetName();
 	FString ShortName = GetLevelShortName(LevelName);
 
-	for (URshipTargetComponent* Comp : *Subsystem->TargetComponents)
+	for (auto& Pair : *Subsystem->TargetComponents)
 	{
+		URshipTargetComponent* Comp = Pair.Value;
 		if (!Comp || !Comp->GetOwner()) continue;
 
 		if (Comp->GetOwner()->GetLevel() == Level)
@@ -533,8 +534,9 @@ void URshipLevelManager::UnregisterLevelTargets(ULevel* Level)
 {
 	if (!Level || !Subsystem || !Subsystem->TargetComponents) return;
 
-	for (URshipTargetComponent* Comp : *Subsystem->TargetComponents)
+	for (auto& Pair : *Subsystem->TargetComponents)
 	{
+		URshipTargetComponent* Comp = Pair.Value;
 		if (!Comp || !Comp->GetOwner()) continue;
 
 		if (Comp->GetOwner()->GetLevel() == Level)

@@ -474,8 +474,9 @@ void SRshipStatusPanel::RefreshTargetList()
     // Build new items list
     TArray<TSharedPtr<FRshipTargetListItem>> NewItems;
 
-    for (URshipTargetComponent* Component : *Subsystem->TargetComponents)
+    for (auto& Pair : *Subsystem->TargetComponents)
     {
+        URshipTargetComponent* Component = Pair.Value;
         if (Component && Component->IsValidLowLevel())
         {
             TSharedPtr<FRshipTargetListItem> Item = MakeShareable(new FRshipTargetListItem());
