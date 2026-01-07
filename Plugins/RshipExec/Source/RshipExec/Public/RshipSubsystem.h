@@ -73,13 +73,14 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
 {
     GENERATED_BODY()
 
-    // Friend classes that need access to private methods (SetItem, SendJsonDirect, SendTargetStatus)
+    // Friend classes that need access to private methods (SetItem, SendJsonDirect, SendTargetStatus, DeleteTarget)
     friend class URshipCameraManager;
     friend class URshipFixtureManager;
     friend class URshipLevelManager;
     friend class URshipMultiCameraManager;
     friend class URshipDataLayerManager;
     friend class URshipSpatialAudioManager;
+    friend class URshipTargetComponent;
 
     AEmitterHandler *EmitterHandler;
 
