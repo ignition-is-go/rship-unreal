@@ -49,12 +49,8 @@ void URshipTargetComponent::OnComponentDestroyed(bool bDestoryHierarchy)
         return;
     }
 
-    if (!subsystem->TargetComponents)
-    {
-        return;
-    }
-
-    subsystem->TargetComponents->Remove(this);
+    // Unregister from subsystem's target registry
+    subsystem->UnregisterTargetComponent(this);
 
     // Unregister from GroupManager
     if (URshipTargetGroupManager* GroupManager = subsystem->GetGroupManager())
@@ -128,8 +124,6 @@ void URshipTargetComponent::Register()
         UE_LOG(LogRshipExec, Warning, TEXT("Parent not found"));
     }
 
-    subsystem->TargetComponents->Add(this);
-
     FString outlinerName = parent->GetName();
 
     // Default target name to actor name if not set
@@ -144,6 +138,9 @@ void URshipTargetComponent::Register()
     FString fullTargetId = subsystem->GetServiceId() + ":" + this->targetName;
 
     this->TargetData = new Target(fullTargetId);
+
+    // Register with subsystem for O(1) lookups by target ID
+    subsystem->RegisterTargetComponent(this);
 
     UClass *ownerClass = parent->GetClass();
 
@@ -320,16 +317,14 @@ void URshipTargetComponent::Unregister()
     }
     EmitterHandlers.Empty();
 
+    // Unregister from subsystem before cleaning up target data
+    subsystem->UnregisterTargetComponent(this);
+
     // Clean up target data
     if (TargetData)
     {
         delete TargetData;
         TargetData = nullptr;
-    }
-
-    if (subsystem->TargetComponents)
-    {
-        subsystem->TargetComponents->Remove(this);
     }
 
     // Unregister from GroupManager

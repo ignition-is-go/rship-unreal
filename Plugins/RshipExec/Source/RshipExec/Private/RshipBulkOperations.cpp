@@ -174,11 +174,11 @@ void URshipBulkOperations::SelectAll()
 	}
 
 	GetSelectionSet().Empty();
-	for (URshipTargetComponent* Target : *Subsystem->TargetComponents)
+	for (auto& Pair : *Subsystem->TargetComponents)
 	{
-		if (Target)
+		if (Pair.Value)
 		{
-			GetSelectionSet().Add(Target);
+			GetSelectionSet().Add(Pair.Value);
 		}
 	}
 	NotifySelectionChanged();
@@ -193,11 +193,11 @@ void URshipBulkOperations::InvertSelection()
 	}
 
 	TSet<TWeakObjectPtr<URshipTargetComponent>> NewSelection;
-	for (URshipTargetComponent* Target : *Subsystem->TargetComponents)
+	for (auto& Pair : *Subsystem->TargetComponents)
 	{
-		if (Target && !GetSelectionSet().Contains(Target))
+		if (Pair.Value && !GetSelectionSet().Contains(Pair.Value))
 		{
-			NewSelection.Add(Target);
+			NewSelection.Add(Pair.Value);
 		}
 	}
 	GetSelectionSet() = NewSelection;
@@ -581,8 +581,9 @@ int32 URshipBulkOperations::FindAndReplaceInTargetNames(const FString& Find, con
 	int32 ModifiedCount = 0;
 	ESearchCase::Type SearchCase = bCaseSensitive ? ESearchCase::CaseSensitive : ESearchCase::IgnoreCase;
 
-	for (URshipTargetComponent* Target : *Subsystem->TargetComponents)
+	for (auto& Pair : *Subsystem->TargetComponents)
 	{
+		URshipTargetComponent* Target = Pair.Value;
 		if (!Target)
 		{
 			continue;
@@ -623,8 +624,9 @@ int32 URshipBulkOperations::FindAndReplaceInTags(const FString& Find, const FStr
 
 	int32 ModifiedCount = 0;
 
-	for (URshipTargetComponent* Target : *Subsystem->TargetComponents)
+	for (auto& Pair : *Subsystem->TargetComponents)
 	{
+		URshipTargetComponent* Target = Pair.Value;
 		if (!Target)
 		{
 			continue;
@@ -679,11 +681,11 @@ TArray<URshipTargetComponent*> URshipBulkOperations::FilterTargets(TFunction<boo
 		return Result;
 	}
 
-	for (URshipTargetComponent* Target : *Subsystem->TargetComponents)
+	for (auto& Pair : *Subsystem->TargetComponents)
 	{
-		if (Target && Predicate(Target))
+		if (Pair.Value && Predicate(Pair.Value))
 		{
-			Result.Add(Target);
+			Result.Add(Pair.Value);
 		}
 	}
 

@@ -70,11 +70,11 @@ TArray<URshipTargetComponent*> URshipBlueprintLibrary::GetAllTargetComponents()
     URshipSubsystem* Subsystem = GetSubsystem();
     if (Subsystem && Subsystem->TargetComponents)
     {
-        for (URshipTargetComponent* Comp : *Subsystem->TargetComponents)
+        for (auto& Pair : *Subsystem->TargetComponents)
         {
-            if (Comp)
+            if (Pair.Value)
             {
-                Result.Add(Comp);
+                Result.Add(Pair.Value);
             }
         }
     }
@@ -85,15 +85,10 @@ TArray<URshipTargetComponent*> URshipBlueprintLibrary::GetAllTargetComponents()
 URshipTargetComponent* URshipBlueprintLibrary::FindTargetById(const FString& TargetId)
 {
     URshipSubsystem* Subsystem = GetSubsystem();
-    if (Subsystem && Subsystem->TargetComponents)
+    if (Subsystem)
     {
-        for (URshipTargetComponent* Comp : *Subsystem->TargetComponents)
-        {
-            if (Comp && Comp->TargetData && Comp->TargetData->GetId() == TargetId)
-            {
-                return Comp;
-            }
-        }
+        // O(1) lookup via FindTargetComponent
+        return Subsystem->FindTargetComponent(TargetId);
     }
     return nullptr;
 }

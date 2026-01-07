@@ -190,6 +190,88 @@ Groups->AddTargetToGroup("light-02", "all-lights");
 Groups->SetGroupEmitterValue("all-lights", "Intensity", 0.5f);
 ```
 
+## Dynamic Target IDs
+
+For procedurally generated content (PCG, Foliage, runtime spawning), you often need to assign Target IDs dynamically rather than setting them in the editor.
+
+### Setting Target ID at Runtime
+
+Use `SetTargetId` to change the Target ID after the component is created:
+
+**Blueprint:**
+```
+Event BeginPlay → Do Once → Set Target Id (NewTargetId)
+```
+
+**C++:**
+```cpp
+// Get the target component
+URshipTargetComponent* Target = Actor->FindComponentByClass<URshipTargetComponent>();
+
+// Set the ID - this unregisters the old ID and registers the new one
+Target->SetTargetId(TEXT("MyDynamicTarget_001"));
+```
+
+When you call `SetTargetId`:
+1. The old target is fully unregistered (DEL events sent to server)
+2. The new Target ID is set
+3. The target re-registers with all its emitters and actions
+
+### Target ID Helper Functions
+
+Blueprint library functions for constructing consistent Target IDs:
+
+| Function | Example Output | Description |
+|----------|----------------|-------------|
+| `MakeTargetIdIndexed("Light", 5)` | `Light_005` | Base name + zero-padded index |
+| `MakeTargetId("PCG", "abc123")` | `PCG_abc123` | Prefix + unique identifier |
+| `MakeTargetIdHierarchical(["Stage","Truss"], 1)` | `Stage_Truss_001` | Hierarchical path + index |
+| `MakeTargetIdFromActor(Actor, 3)` | `BP_Light_003` | Actor class name + mesh index |
+
+**Blueprint Example (PCG-spawned lights):**
+```
+Event BeginPlay
+    → Do Once
+    → Make Target Id Indexed (BaseName: "Light", Index: MeshIndex)
+    → Set Target Id (Result)
+```
+
+### Lifecycle Functions
+
+| Function | Description |
+|----------|-------------|
+| `SetTargetId(NewId)` | Change Target ID with full unregister/register cycle |
+| `GetTargetId()` | Returns current Target ID |
+| `IsRegistered()` | Check if target is currently registered with rship |
+| `Unregister()` | Manually unregister (sends DEL events to server) |
+
+### PCG Integration Example
+
+When using PCG to spawn actors with Rship Target Components:
+
+```cpp
+// In your PCG-spawned actor's BeginPlay
+void AMyPCGLight::BeginPlay()
+{
+    Super::BeginPlay();
+
+    // Get mesh index from PCG metadata (if available)
+    int32 MeshIndex = GetMeshIndexFromPCGMetadata();
+
+    // Create a unique, meaningful Target ID
+    FString TargetId = URshipBlueprintLibrary::MakeTargetIdIndexed(
+        TEXT("PCGLight"), MeshIndex);
+
+    // Set it on the target component
+    if (RshipTarget)
+    {
+        RshipTarget->SetTargetId(TargetId);
+    }
+}
+```
+
+This ensures each PCG-spawned instance gets a unique, predictable Target ID like `PCGLight_001`, `PCGLight_002`, etc.
+
 ## Advanced: Metadata-Based Binding
 
 For more control, use UPROPERTY metadata instead of the RS_ prefix:

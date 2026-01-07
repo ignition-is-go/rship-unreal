@@ -168,8 +168,9 @@ TArray<URshipTargetComponent*> URshipLevelManager::GetTargetsInLevel(const FStri
 
 	FString ShortName = GetLevelShortName(LevelName);
 
-	for (URshipTargetComponent* Comp : *Subsystem->TargetComponents)
+	for (auto& Pair : *Subsystem->TargetComponents)
 	{
+		URshipTargetComponent* Comp = Pair.Value;
 		if (!Comp || !Comp->GetOwner()) continue;
 
 		ULevel* OwnerLevel = Comp->GetOwner()->GetLevel();
@@ -196,8 +197,9 @@ TArray<URshipTargetComponent*> URshipLevelManager::GetTargetsInPersistentLevel()
 	UWorld* World = Subsystem->GetWorld();
 	if (!World || !World->PersistentLevel) return Result;
 
-	for (URshipTargetComponent* Comp : *Subsystem->TargetComponents)
+	for (auto& Pair : *Subsystem->TargetComponents)
 	{
+		URshipTargetComponent* Comp = Pair.Value;
 		if (!Comp || !Comp->GetOwner()) continue;
 
 		if (Comp->GetOwner()->GetLevel() == World->PersistentLevel)
@@ -218,8 +220,9 @@ TArray<URshipTargetComponent*> URshipLevelManager::GetTargetsInStreamingLevels()
 	UWorld* World = Subsystem->GetWorld();
 	if (!World) return Result;
 
-	for (URshipTargetComponent* Comp : *Subsystem->TargetComponents)
+	for (auto& Pair : *Subsystem->TargetComponents)
 	{
+		URshipTargetComponent* Comp = Pair.Value;
 		if (!Comp || !Comp->GetOwner()) continue;
 
 		ULevel* OwnerLevel = Comp->GetOwner()->GetLevel();
@@ -360,8 +363,9 @@ void URshipLevelManager::SetAutoLevelTagging(bool bEnabled)
 	if (bEnabled)
 	{
 		// Apply level tags to all existing targets
-		for (URshipTargetComponent* Comp : *Subsystem->TargetComponents)
+		for (auto& Pair : *Subsystem->TargetComponents)
 		{
+			URshipTargetComponent* Comp = Pair.Value;
 			if (Comp)
 			{
 				FString LevelName = GetTargetLevel(Comp);
@@ -377,11 +381,11 @@ void URshipLevelManager::SetAutoLevelTagging(bool bEnabled)
 	else
 	{
 		// Remove level tags from all targets
-		for (URshipTargetComponent* Comp : *Subsystem->TargetComponents)
+		for (auto& Pair : *Subsystem->TargetComponents)
 		{
-			if (Comp)
+			if (Pair.Value)
 			{
-				RemoveAutoLevelTag(Comp);
+				RemoveAutoLevelTag(Pair.Value);
 			}
 		}
 
@@ -396,18 +400,19 @@ void URshipLevelManager::SetAutoLevelTagPrefix(const FString& Prefix)
 	// Remove old tags and apply new ones if enabled
 	if (bAutoLevelTagging && Subsystem && Subsystem->TargetComponents)
 	{
-		for (URshipTargetComponent* Comp : *Subsystem->TargetComponents)
+		for (auto& Pair : *Subsystem->TargetComponents)
 		{
-			if (Comp)
+			if (Pair.Value)
 			{
-				RemoveAutoLevelTag(Comp);
+				RemoveAutoLevelTag(Pair.Value);
 			}
 		}
 
 		AutoLevelTagPrefix = Prefix;
 
-		for (URshipTargetComponent* Comp : *Subsystem->TargetComponents)
+		for (auto& Pair : *Subsystem->TargetComponents)
 		{
+			URshipTargetComponent* Comp = Pair.Value;
 			if (Comp)
 			{
 				FString LevelName = GetTargetLevel(Comp);

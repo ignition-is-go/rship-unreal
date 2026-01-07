@@ -80,7 +80,7 @@ void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
         this->EmitterHandler = GetWorld()->SpawnActor<AEmitterHandler>();
     }
 
-    this->TargetComponents = new TSet<URshipTargetComponent *>;
+    this->TargetComponents = new TMap<FString, URshipTargetComponent*>;
 
     // Start queue processing timer
     const URshipSettings *Settings = GetDefault<URshipSettings>();
@@ -816,25 +816,27 @@ void URshipSubsystem::ProcessMessage(const FString &message)
             }
             else
             {
-                // Standard target component routing
-                for (URshipTargetComponent *comp : *this->TargetComponents)
+                // Standard target component routing - O(1) lookup by target ID
+                URshipTargetComponent* comp = FindTargetComponent(targetId);
+                if (comp)
                 {
-                    if (comp->TargetData->GetId() == targetId)
-                    {
-                        Target *target = comp->TargetData;
-                        AActor *owner = comp->GetOwner();
+                    Target* target = comp->TargetData;
+                    AActor* owner = comp->GetOwner();
 
-                        if (target != nullptr)
-                        {
-                            bool takeResult = target->TakeAction(owner, actionId, execData);
-                            result |= takeResult;
-                            comp->OnDataReceived();
-                        }
-                        else
-                        {
-                            UE_LOG(LogRshipExec, Warning, TEXT("Target not found: %s"), *targetId);
-                        }
+                    if (target != nullptr)
+                    {
+                        bool takeResult = target->TakeAction(owner, actionId, execData);
+                        result |= takeResult;
+                        comp->OnDataReceived();
                     }
+                    else
+                    {
+                        UE_LOG(LogRshipExec, Warning, TEXT("Target data null for: %s"), *targetId);
+                    }
+                }
+                else
+                {
+                    UE_LOG(LogRshipExec, Warning, TEXT("Target not found: %s"), *targetId);
                 }
             }
 
@@ -1276,16 +1278,8 @@ void URshipSubsystem::SendTarget(Target *target)
     Target->SetStringField(TEXT("name"), target->GetId());
     Target->SetStringField(TEXT("serviceId"), ServiceId);
 
-    // Add tags and groups from the target component
-    URshipTargetComponent* TargetComp = nullptr;
-    for (URshipTargetComponent* Comp : *TargetComponents)
-    {
-        if (Comp && Comp->TargetData == target)
-        {
-            TargetComp = Comp;
-            break;
-        }
-    }
+    // Add tags and groups from the target component - O(1) lookup
+    URshipTargetComponent* TargetComp = FindTargetComponent(target->GetId());
 
     if (TargetComp)
     {
@@ -1484,9 +1478,12 @@ void URshipSubsystem::SendAll()
     SetItem("Instance", Instance, ERshipMessagePriority::High, "instance:" + InstanceId);
 
     // Send all targets
-    for (auto &comp : *this->TargetComponents)
+    for (auto& Pair : *this->TargetComponents)
     {
-        SendTarget(comp->TargetData);
+        if (Pair.Value && Pair.Value->TargetData)
+        {
+            SendTarget(Pair.Value->TargetData);
+        }
     }
 }
 
@@ -1578,25 +1575,17 @@ void URshipSubsystem::PulseEmitter(FString targetId, FString emitterId, TSharedP
 
 EmitterContainer *URshipSubsystem::GetEmitterInfo(FString fullTargetId, FString emitterId)
 {
-    Target *target = nullptr;
-
-    for (auto &comp : *this->TargetComponents)
-    {
-        if (comp->TargetData->GetId() == fullTargetId)
-        {
-            target = comp->TargetData;
-            break;
-        }
-    }
-
-    if (target == nullptr)
+    // O(1) lookup by target ID
+    URshipTargetComponent* comp = FindTargetComponent(fullTargetId);
+    if (!comp || !comp->TargetData)
     {
         return nullptr;
     }
 
+    Target* target = comp->TargetData;
     FString fullEmitterId = fullTargetId + ":" + emitterId;
 
-    auto emitters = target->GetEmitters();
+    auto& emitters = target->GetEmitters();
 
     if (!emitters.Contains(fullEmitterId))
     {
@@ -1729,11 +1718,11 @@ URshipTargetGroupManager* URshipSubsystem::GetGroupManager()
         // Register all existing targets with the group manager
         if (TargetComponents)
         {
-            for (URshipTargetComponent* Comp : *TargetComponents)
+            for (auto& Pair : *TargetComponents)
             {
-                if (Comp)
+                if (Pair.Value)
                 {
-                    GroupManager->RegisterTarget(Comp);
+                    GroupManager->RegisterTarget(Pair.Value);
                 }
             }
         }
@@ -2284,4 +2273,66 @@ URshipSpatialAudioManager* URshipSubsystem::GetSpatialAudioManager()
         }
     }
     return SpatialAudioManager;
+}
+
+// ============================================================================
+// TARGET COMPONENT REGISTRY (O(1) LOOKUPS)
+// ============================================================================
+
+void URshipSubsystem::RegisterTargetComponent(URshipTargetComponent* Component)
+{
+    if (!Component || !Component->TargetData)
+    {
+        UE_LOG(LogRshipExec, Warning, TEXT("RegisterTargetComponent: Invalid component or null TargetData"));
+        return;
+    }
+
+    if (!TargetComponents)
+    {
+        UE_LOG(LogRshipExec, Warning, TEXT("RegisterTargetComponent: TargetComponents map not initialized"));
+        return;
+    }
+
+    const FString& TargetId = Component->TargetData->GetId();
+    TargetComponents->Add(TargetId, Component);
+
+    UE_LOG(LogRshipExec, Log, TEXT("Registered target component: %s (total: %d)"),
+        *TargetId, TargetComponents->Num());
+}
+
+void URshipSubsystem::UnregisterTargetComponent(URshipTargetComponent* Component)
+{
+    if (!Component || !TargetComponents)
+    {
+        return;
+    }
+
+    // Find and remove by value since we might not have TargetData anymore during destruction
+    FString KeyToRemove;
+    for (auto& Pair : *TargetComponents)
+    {
+        if (Pair.Value == Component)
+        {
+            KeyToRemove = Pair.Key;
+            break;
+        }
+    }
+
+    if (!KeyToRemove.IsEmpty())
+    {
+        TargetComponents->Remove(KeyToRemove);
+        UE_LOG(LogRshipExec, Log, TEXT("Unregistered target component: %s (remaining: %d)"),
+            *KeyToRemove, TargetComponents->Num());
+    }
+}
+
+URshipTargetComponent* URshipSubsystem::FindTargetComponent(const FString& FullTargetId) const
+{
+    if (!TargetComponents)
+    {
+        return nullptr;
+    }
+
+    URshipTargetComponent* const* Found = TargetComponents->Find(FullTargetId);
+    return Found ? *Found : nullptr;
 }

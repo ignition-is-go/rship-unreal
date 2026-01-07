@@ -79,8 +79,9 @@ FRshipHealthStatus URshipHealthMonitor::GetCurrentHealth()
 		int32 ErrorCount = 0;
 		double Now = FPlatformTime::Seconds();
 
-		for (URshipTargetComponent* Comp : *Subsystem->TargetComponents)
+		for (auto& Pair : *Subsystem->TargetComponents)
 		{
+			URshipTargetComponent* Comp = Pair.Value;
 			if (!Comp) continue;
 
 			FTargetPulseInfo* Info = TargetPulseInfo.Find(Comp->targetName);
@@ -182,8 +183,9 @@ TArray<FRshipTargetActivity> URshipHealthMonitor::GetInactiveTargets(float Inact
 
 	FDateTime Now = FDateTime::Now();
 
-	for (URshipTargetComponent* Comp : *Subsystem->TargetComponents)
+	for (auto& Pair : *Subsystem->TargetComponents)
 	{
+		URshipTargetComponent* Comp = Pair.Value;
 		if (!Comp) continue;
 
 		FTargetPulseInfo* Info = TargetPulseInfo.Find(Comp->targetName);

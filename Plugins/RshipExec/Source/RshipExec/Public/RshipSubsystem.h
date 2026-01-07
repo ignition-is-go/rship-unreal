@@ -302,7 +302,18 @@ public:
 
     EmitterContainer* GetEmitterInfo(FString targetId, FString emitterId);
 
-    TSet<URshipTargetComponent*>* TargetComponents;
+    // Target component registry - keyed by full target ID for O(1) lookups
+    // Key format: "ServiceId:TargetName"
+    TMap<FString, URshipTargetComponent*>* TargetComponents;
+
+    // Register a target component (called by URshipTargetComponent)
+    void RegisterTargetComponent(URshipTargetComponent* Component);
+
+    // Unregister a target component (called by URshipTargetComponent)
+    void UnregisterTargetComponent(URshipTargetComponent* Component);
+
+    // Find a target component by full target ID - O(1) lookup
+    URshipTargetComponent* FindTargetComponent(const FString& FullTargetId) const;
 
     FString GetServiceId();
 
