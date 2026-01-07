@@ -362,8 +362,8 @@ Or use the metadata approach with `RShipWritable="true"` and handle changes in T
 
 ## Next Steps
 
-- [PCG Auto-Bind System](Source/RshipExec/Public/PCG/README_PCG_BINDING.md) - Automatic binding for procedurally spawned actors
-- [Rate Limiting Guide](Source/RshipExec/README_RATE_LIMITING.md) - Configure message throttling
+- [PCG Auto-Bind System](../Plugins/RshipExec/Source/RshipExec/Public/PCG/README_PCG_BINDING.md) - Automatic binding for procedurally spawned actors
+- [Rate Limiting Guide](README_RATE_LIMITING.md) - Configure message throttling
 - [Upgrade Guide](UPGRADE_GUIDE.md) - Full feature reference
 
 ## Troubleshooting
