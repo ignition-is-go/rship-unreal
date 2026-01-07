@@ -1336,6 +1336,51 @@ void URshipSubsystem::SendTarget(Target *target)
     SetItem("TargetStatus", TargetStatus, ERshipMessagePriority::High, target->GetId() + ":status");
 }
 
+void URshipSubsystem::DeleteTarget(Target* target)
+{
+    if (!target)
+    {
+        return;
+    }
+
+    UE_LOG(LogRshipExec, Log, TEXT("DeleteTarget: %s - removing %d actions, %d emitters"),
+        *target->GetId(),
+        target->GetActions().Num(),
+        target->GetEmitters().Num());
+
+    // Send DEL events for all actions
+    for (auto& Elem : target->GetActions())
+    {
+        TSharedPtr<FJsonObject> ActionDel = MakeShareable(new FJsonObject);
+        ActionDel->SetStringField(TEXT("id"), Elem.Key);
+        DelItem("Action", ActionDel, ERshipMessagePriority::High, Elem.Key + ":del");
+    }
+
+    // Send DEL events for all emitters
+    for (auto& Elem : target->GetEmitters())
+    {
+        TSharedPtr<FJsonObject> EmitterDel = MakeShareable(new FJsonObject);
+        EmitterDel->SetStringField(TEXT("id"), Elem.Key);
+        DelItem("Emitter", EmitterDel, ERshipMessagePriority::High, Elem.Key + ":del");
+    }
+
+    // Send TargetStatus offline
+    TSharedPtr<FJsonObject> TargetStatus = MakeShareable(new FJsonObject);
+    TargetStatus->SetStringField(TEXT("targetId"), target->GetId());
+    TargetStatus->SetStringField(TEXT("instanceId"), InstanceId);
+    TargetStatus->SetStringField(TEXT("status"), TEXT("offline"));
+    TargetStatus->SetStringField(TEXT("id"), target->GetId());
+    TargetStatus->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
+    SetItem("TargetStatus", TargetStatus, ERshipMessagePriority::High, target->GetId() + ":status");
+
+    // Send DEL event for the target itself
+    TSharedPtr<FJsonObject> TargetDel = MakeShareable(new FJsonObject);
+    TargetDel->SetStringField(TEXT("id"), target->GetId());
+    DelItem("Target", TargetDel, ERshipMessagePriority::High, target->GetId() + ":del");
+
+    UE_LOG(LogRshipExec, Log, TEXT("DeleteTarget: %s - deletion events sent"), *target->GetId());
+}
+
 void URshipSubsystem::SendAction(Action *action, FString targetId)
 {
     TSharedPtr<FJsonObject> Action = MakeShareable(new FJsonObject);
@@ -1477,6 +1522,23 @@ void URshipSubsystem::SetItem(FString itemType, TSharedPtr<FJsonObject> data, ER
     }
 
     QueueMessage(payload, Priority, Type, CoalesceKey);
+}
+
+void URshipSubsystem::DelItem(FString itemType, TSharedPtr<FJsonObject> data, ERshipMessagePriority Priority, const FString& CoalesceKey)
+{
+    // MakeDel produces the complete WSMEvent format with changeType: "DEL"
+    TSharedPtr<FJsonObject> payload = MakeDel(itemType, data);
+
+    // Debug: Log deletion events
+    if (itemType == TEXT("Target") || itemType == TEXT("Action") || itemType == TEXT("Emitter"))
+    {
+        FString JsonString;
+        TSharedRef<TJsonWriter<>> JsonWriter = TJsonWriterFactory<>::Create(&JsonString);
+        FJsonSerializer::Serialize(payload.ToSharedRef(), JsonWriter);
+        UE_LOG(LogRshipExec, Log, TEXT("DelItem [%s]: %s"), *itemType, *JsonString);
+    }
+
+    QueueMessage(payload, Priority, ERshipMessageType::Registration, CoalesceKey);
 }
 
 void URshipSubsystem::PulseEmitter(FString targetId, FString emitterId, TSharedPtr<FJsonObject> data)

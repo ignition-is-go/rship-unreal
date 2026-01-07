@@ -292,6 +292,24 @@ bool URshipTargetComponent::HasTag(const FString& Tag) const
 
 void URshipTargetComponent::Unregister()
 {
+    // Remove from subsystem first (before cleanup)
+    if (!GEngine)
+    {
+        return;
+    }
+
+    URshipSubsystem* subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+    if (!subsystem)
+    {
+        return;
+    }
+
+    // Send deletion events to server BEFORE cleaning up local state
+    if (TargetData)
+    {
+        subsystem->DeleteTarget(TargetData);
+    }
+
     // Clean up emitter handlers
     for (const auto& handler : EmitterHandlers)
     {
@@ -307,18 +325,6 @@ void URshipTargetComponent::Unregister()
     {
         delete TargetData;
         TargetData = nullptr;
-    }
-
-    // Remove from subsystem
-    if (!GEngine)
-    {
-        return;
-    }
-
-    URshipSubsystem* subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
-    if (!subsystem)
-    {
-        return;
     }
 
     if (subsystem->TargetComponents)
