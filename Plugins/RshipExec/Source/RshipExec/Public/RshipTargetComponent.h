@@ -34,10 +34,28 @@ public:
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "RshipTarget")
 	void Register();
 
+	/** Unregister this target from rship (cleans up emitters and removes from server) */
+	UFUNCTION(BlueprintCallable, Category = "RshipTarget")
+	void Unregister();
+
 	/** Re-scan sibling components for RS_ members and update registration.
 	 *  Call this when a new component with RS_ members is added at runtime. */
 	UFUNCTION(BlueprintCallable, Category = "RshipTarget")
 	void RescanSiblingComponents();
+
+	/** Set the Target ID dynamically and re-register with the new ID.
+	 *  Useful for PCG-spawned actors or runtime-generated targets.
+	 *  @param NewTargetId The new unique identifier for this target */
+	UFUNCTION(BlueprintCallable, Category = "RshipTarget")
+	void SetTargetId(const FString& NewTargetId);
+
+	/** Get the current Target ID */
+	UFUNCTION(BlueprintPure, Category = "RshipTarget")
+	FString GetTargetId() const { return targetName; }
+
+	/** Check if this target is currently registered with rship */
+	UFUNCTION(BlueprintPure, Category = "RshipTarget")
+	bool IsRegistered() const { return TargetData != nullptr; }
 
 	UPROPERTY(EditAnywhere, config, Category = "RshipTarget", meta = (DisplayName = "Target Id"))
 	FString targetName;

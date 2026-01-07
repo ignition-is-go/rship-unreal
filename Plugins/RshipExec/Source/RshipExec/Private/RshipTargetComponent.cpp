@@ -290,6 +290,84 @@ bool URshipTargetComponent::HasTag(const FString& Tag) const
     return false;
 }
 
+void URshipTargetComponent::Unregister()
+{
+    // Clean up emitter handlers
+    for (const auto& handler : EmitterHandlers)
+    {
+        if (handler.Value)
+        {
+            handler.Value->Destroy();
+        }
+    }
+    EmitterHandlers.Empty();
+
+    // Clean up target data
+    if (TargetData)
+    {
+        delete TargetData;
+        TargetData = nullptr;
+    }
+
+    // Remove from subsystem
+    if (!GEngine)
+    {
+        return;
+    }
+
+    URshipSubsystem* subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+    if (!subsystem)
+    {
+        return;
+    }
+
+    if (subsystem->TargetComponents)
+    {
+        subsystem->TargetComponents->Remove(this);
+    }
+
+    // Unregister from GroupManager
+    if (URshipTargetGroupManager* GroupManager = subsystem->GetGroupManager())
+    {
+        GroupManager->UnregisterTarget(this);
+    }
+
+    UE_LOG(LogRshipExec, Log, TEXT("Target unregistered: %s"), *targetName);
+}
+
+void URshipTargetComponent::SetTargetId(const FString& NewTargetId)
+{
+    if (NewTargetId.IsEmpty())
+    {
+        UE_LOG(LogRshipExec, Warning, TEXT("SetTargetId called with empty ID - ignoring"));
+        return;
+    }
+
+    // If same ID, no need to re-register
+    if (targetName == NewTargetId)
+    {
+        UE_LOG(LogRshipExec, Verbose, TEXT("SetTargetId called with same ID (%s) - no change needed"), *NewTargetId);
+        return;
+    }
+
+    FString OldTargetId = targetName;
+
+    // Unregister with old ID if we were registered
+    if (TargetData != nullptr)
+    {
+        UE_LOG(LogRshipExec, Log, TEXT("Changing Target ID from '%s' to '%s'"), *OldTargetId, *NewTargetId);
+        Unregister();
+    }
+
+    // Set new ID
+    targetName = NewTargetId;
+
+    // Re-register with new ID
+    Register();
+
+    UE_LOG(LogRshipExec, Log, TEXT("Target ID changed: %s -> %s"), *OldTargetId, *NewTargetId);
+}
+
 void URshipTargetComponent::RescanSiblingComponents()
 {
     if (!GEngine)

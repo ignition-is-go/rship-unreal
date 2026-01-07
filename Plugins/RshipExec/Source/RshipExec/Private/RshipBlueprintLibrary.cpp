@@ -113,6 +113,93 @@ void URshipBlueprintLibrary::PulseEmitter(const FString& TargetId, const FString
 }
 
 // ============================================================================
+// TARGET ID HELPERS
+// ============================================================================
+
+FString URshipBlueprintLibrary::MakeTargetIdIndexed(const FString& BaseName, int32 Index, int32 PaddingDigits)
+{
+    // Format: BaseName_XXX (e.g., Light_005)
+    FString IndexStr = FString::Printf(TEXT("%0*d"), PaddingDigits, Index);
+    return FString::Printf(TEXT("%s_%s"), *BaseName, *IndexStr);
+}
+
+FString URshipBlueprintLibrary::MakeTargetId(const FString& Prefix, const FString& UniqueId)
+{
+    // Format: Prefix_UniqueId (e.g., PCG_abc123)
+    if (Prefix.IsEmpty())
+    {
+        return UniqueId;
+    }
+    if (UniqueId.IsEmpty())
+    {
+        return Prefix;
+    }
+    return FString::Printf(TEXT("%s_%s"), *Prefix, *UniqueId);
+}
+
+FString URshipBlueprintLibrary::MakeTargetIdHierarchical(const TArray<FString>& Parts, int32 Index, int32 PaddingDigits)
+{
+    // Format: Part1_Part2_Part3_XXX (e.g., Stage_Truss_Light_001)
+    FString Result;
+    for (int32 i = 0; i < Parts.Num(); ++i)
+    {
+        if (!Parts[i].IsEmpty())
+        {
+            if (!Result.IsEmpty())
+            {
+                Result += TEXT("_");
+            }
+            Result += Parts[i];
+        }
+    }
+
+    // Add index if provided (>= 0)
+    if (Index >= 0)
+    {
+        FString IndexStr = FString::Printf(TEXT("%0*d"), PaddingDigits, Index);
+        if (!Result.IsEmpty())
+        {
+            Result += TEXT("_");
+        }
+        Result += IndexStr;
+    }
+
+    return Result;
+}
+
+FString URshipBlueprintLibrary::MakeTargetIdFromActor(AActor* Actor, int32 MeshIndex)
+{
+    if (!Actor)
+    {
+        return TEXT("Unknown");
+    }
+
+    // Get the class name without prefix (e.g., "BP_Light_C" -> "Light")
+    FString ClassName = Actor->GetClass()->GetName();
+
+    // Remove common prefixes
+    if (ClassName.StartsWith(TEXT("BP_")))
+    {
+        ClassName = ClassName.RightChop(3);
+    }
+
+    // Remove _C suffix (Blueprint generated class)
+    if (ClassName.EndsWith(TEXT("_C")))
+    {
+        ClassName = ClassName.LeftChop(2);
+    }
+
+    // If mesh index provided, append it
+    if (MeshIndex >= 0)
+    {
+        return MakeTargetIdIndexed(ClassName, MeshIndex);
+    }
+
+    // Otherwise use actor name for uniqueness
+    return FString::Printf(TEXT("%s_%s"), *ClassName, *Actor->GetName());
+}
+
+// ============================================================================
 // FIXTURES
 // ============================================================================
 

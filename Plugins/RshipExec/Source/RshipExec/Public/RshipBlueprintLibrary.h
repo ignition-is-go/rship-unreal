@@ -61,6 +61,26 @@ public:
     static void PulseEmitter(const FString& TargetId, const FString& EmitterId, const TMap<FString, FString>& Data);
 
     // ========================================================================
+    // TARGET ID HELPERS
+    // ========================================================================
+
+    /** Make a target ID from a base name and index (e.g., "Light", 5 -> "Light_005") */
+    UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Rship|Targets", meta = (DisplayName = "Make Target ID (Indexed)"))
+    static FString MakeTargetIdIndexed(const FString& BaseName, int32 Index, int32 PaddingDigits = 3);
+
+    /** Make a target ID from a prefix and unique identifier (e.g., "PCG", "abc123" -> "PCG_abc123") */
+    UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Rship|Targets", meta = (DisplayName = "Make Target ID"))
+    static FString MakeTargetId(const FString& Prefix, const FString& UniqueId);
+
+    /** Make a target ID from multiple parts (e.g., "Stage", "Truss", "Light", 1 -> "Stage_Truss_Light_001") */
+    UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Rship|Targets", meta = (DisplayName = "Make Target ID (Hierarchical)"))
+    static FString MakeTargetIdHierarchical(const TArray<FString>& Parts, int32 Index = -1, int32 PaddingDigits = 3);
+
+    /** Make a target ID from actor class and mesh index (common PCG pattern) */
+    UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Rship|Targets", meta = (DisplayName = "Make Target ID (From Actor)"))
+    static FString MakeTargetIdFromActor(AActor* Actor, int32 MeshIndex = -1);
+
+    // ========================================================================
     // FIXTURES
     // ========================================================================
 
