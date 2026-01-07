@@ -1585,7 +1585,7 @@ EmitterContainer *URshipSubsystem::GetEmitterInfo(FString fullTargetId, FString 
     Target* target = comp->TargetData;
     FString fullEmitterId = fullTargetId + ":" + emitterId;
 
-    auto& emitters = target->GetEmitters();
+    auto emitters = target->GetEmitters();
 
     if (!emitters.Contains(fullEmitterId))
     {

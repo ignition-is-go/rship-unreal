@@ -349,9 +349,10 @@ TArray<FRshipTestIssue> URshipTestUtilities::ValidateTargetComponent(URshipTarge
 
 	// Check if target is registered with subsystem
 	URshipSubsystem* Subsystem = GetSubsystem();
-	if (Subsystem && Subsystem->TargetComponents)
+	if (Subsystem && Target->TargetData)
 	{
-		if (!Subsystem->TargetComponents->Contains(Target))
+		// Use O(1) lookup by target ID
+		if (!Subsystem->FindTargetComponent(Target->TargetData->GetId()))
 		{
 			FRshipTestIssue Result;
 			Result.Severity = ERshipTestSeverity::Warning;
