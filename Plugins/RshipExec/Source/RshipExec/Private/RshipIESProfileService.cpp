@@ -458,8 +458,10 @@ UTextureLightProfile* URshipIESProfileService::GenerateLightProfileTexture(const
         TextureData[i] = static_cast<uint8>(FMath::Clamp(Intensity * 255.0f, 0.0f, 255.0f));
     }
 
-    // Initialize texture
+    // Initialize texture source data (editor-only)
+#if WITH_EDITORONLY_DATA
     Texture->Source.Init(Resolution, 1, 1, 1, TSF_G8, TextureData.GetData());
+#endif
     Texture->UpdateResource();
 
     // Cache it

@@ -215,7 +215,7 @@ bool UUltimateControlSubsystem::HandleHttpRequest(const FHttpServerRequest& Requ
 	// Handle CORS preflight
 	if (Request.Verb == EHttpServerRequestVerbs::VERB_OPTIONS)
 	{
-		TUniquePtr<FHttpServerResponse> Response = FHttpServerResponse::Create(TEXT(""), TEXT("text/plain"));
+		TUniquePtr<FHttpServerResponse> Response = FHttpServerResponse::Create(FString(TEXT("")), TEXT("text/plain"));
 		if (Settings && Settings->bEnableCORS)
 		{
 			Response->Headers.Add(TEXT("Access-Control-Allow-Origin"), { Settings->CORSAllowedOrigins });

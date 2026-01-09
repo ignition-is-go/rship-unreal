@@ -298,10 +298,16 @@ void URshipPCGAutoBindComponent::GenerateAutoInstanceId()
 	Seed = GetTypeHash(Location);
 
 	// Generate display name
-	FString DisplayName = CustomTargetName.IsEmpty() ? Owner->GetActorLabel() : CustomTargetName;
+	FString DisplayName = CustomTargetName;
 	if (DisplayName.IsEmpty())
 	{
-		DisplayName = Owner->GetName();
+#if WITH_EDITOR
+		DisplayName = Owner->GetActorLabel();
+#endif
+		if (DisplayName.IsEmpty())
+		{
+			DisplayName = Owner->GetName();
+		}
 	}
 
 	InstanceId = FRshipPCGInstanceId::FromPCGPoint(

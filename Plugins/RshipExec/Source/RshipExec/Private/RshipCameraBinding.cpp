@@ -458,7 +458,7 @@ void URshipCameraBinding::RS_CopyFromCamera(const FString& CameraActorName)
 
 	for (AActor* Actor : FoundActors)
 	{
-		if (Actor->GetName() == CameraActorName || Actor->GetActorLabel() == CameraActorName)
+		if (Actor->GetName() == CameraActorName || FString(Actor->GetActorNameOrLabel()) == CameraActorName)
 		{
 			ACineCameraActor* SourceCamera = Cast<ACineCameraActor>(Actor);
 			if (SourceCamera)

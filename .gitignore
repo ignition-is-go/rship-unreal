@@ -372,3 +372,7 @@ Log.rtf
 Log2.rtf
 *.rtf
 Plugins/RshipExec/Intermediate/
+
+
+**/Intermediate/*
+**/Binaries/*
