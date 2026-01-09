@@ -25,6 +25,9 @@
 #include "Engine/Engine.h"
 #include "SocketSubsystem.h"
 #include "IPAddress.h"
+#include "Editor.h"
+#include "Selection.h"
+#include "Widgets/Text/SInlineEditableTextBlock.h"
 
 #define LOCTEXT_NAMESPACE "SRshipStatusPanel"
 
@@ -105,10 +108,22 @@ void SRshipStatusPanel::Construct(const FArguments& InArgs)
 #if RSHIP_EDITOR_HAS_2110
     Update2110Status();
 #endif
+
+    // Bind to editor selection changes to sync outliner selection with target list
+    if (GEditor)
+    {
+        SelectionChangedHandle = USelection::SelectionChangedEvent.AddRaw(
+            this, &SRshipStatusPanel::OnEditorSelectionChanged);
+    }
 }
 
 SRshipStatusPanel::~SRshipStatusPanel()
 {
+    // Unbind from editor selection
+    if (SelectionChangedHandle.IsValid())
+    {
+        USelection::SelectionChangedEvent.Remove(SelectionChangedHandle);
+    }
 }
 
 void SRshipStatusPanel::Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime)
@@ -474,6 +489,17 @@ void SRshipStatusPanel::RefreshTargetList()
         return;
     }
 
+    // Save currently selected component to restore after refresh
+    TWeakObjectPtr<URshipTargetComponent> SelectedComponent;
+    if (TargetListView.IsValid())
+    {
+        TArray<TSharedPtr<FRshipTargetListItem>> SelectedItems = TargetListView->GetSelectedItems();
+        if (SelectedItems.Num() > 0 && SelectedItems[0].IsValid())
+        {
+            SelectedComponent = SelectedItems[0]->Component;
+        }
+    }
+
     // Build new items list
     TArray<TSharedPtr<FRshipTargetListItem>> NewItems;
 
@@ -485,6 +511,26 @@ void SRshipStatusPanel::RefreshTargetList()
             TSharedPtr<FRshipTargetListItem> Item = MakeShareable(new FRshipTargetListItem());
             Item->TargetId = Component->targetName;
             Item->DisplayName = Component->GetOwner() ? Component->GetOwner()->GetActorLabel() : Component->targetName;
+
+            // Add suffix for PIE/Simulate instances
+            if (AActor* Owner = Component->GetOwner())
+            {
+                if (UWorld* World = Owner->GetWorld())
+                {
+                    if (World->WorldType == EWorldType::PIE)
+                    {
+                        // Check if simulating vs playing
+                        if (GEditor && GEditor->bIsSimulatingInEditor)
+                        {
+                            Item->DisplayName += TEXT(" (Simulate)");
+                        }
+                        else
+                        {
+                            Item->DisplayName += TEXT(" (PIE)");
+                        }
+                    }
+                }
+            }
 
             // Get type from tags if available, otherwise use "Target"
             Item->TargetType = Component->Tags.Num() > 0 ? Component->Tags[0] : TEXT("Target");
@@ -513,6 +559,19 @@ void SRshipStatusPanel::RefreshTargetList()
     if (TargetListView.IsValid())
     {
         TargetListView->RequestListRefresh();
+
+        // Restore selection if the component still exists
+        if (SelectedComponent.IsValid())
+        {
+            for (const auto& Item : TargetItems)
+            {
+                if (Item.IsValid() && Item->Component.Get() == SelectedComponent.Get())
+                {
+                    TargetListView->SetSelection(Item, ESelectInfo::Direct);
+                    break;
+                }
+            }
+        }
     }
 }
 
@@ -671,10 +730,70 @@ TSharedRef<ITableRow> SRshipStatusPanel::GenerateTargetRow(TSharedPtr<FRshipTarg
 
 void SRshipStatusPanel::OnTargetSelectionChanged(TSharedPtr<FRshipTargetListItem> Item, ESelectInfo::Type SelectInfo)
 {
-    if (Item.IsValid() && Item->Component.IsValid())
+    // Don't respond to programmatic selection changes (prevents infinite loop)
+    if (SelectInfo == ESelectInfo::Direct)
     {
-        // Could select the actor in the editor here
-        // GEditor->SelectActor(Item->Component->GetOwner(), true, true);
+        return;
+    }
+
+    if (Item.IsValid() && Item->Component.IsValid() && GEditor)
+    {
+        // Select the actor in the outliner
+        AActor* Owner = Item->Component->GetOwner();
+        if (Owner)
+        {
+            GEditor->SelectNone(false, true, false);
+            GEditor->SelectActor(Owner, true, true, true);
+        }
+    }
+}
+
+void SRshipStatusPanel::OnEditorSelectionChanged(UObject* Object)
+{
+    // Sync our list selection when outliner selection changes
+    SyncSelectionFromOutliner();
+}
+
+void SRshipStatusPanel::SyncSelectionFromOutliner()
+{
+    if (!GEditor || !TargetListView.IsValid())
+    {
+        return;
+    }
+
+    USelection* Selection = GEditor->GetSelectedActors();
+    if (!Selection || Selection->Num() == 0)
+    {
+        return;
+    }
+
+    // Find the first selected actor that has a target component in our list
+    for (int32 i = 0; i < Selection->Num(); i++)
+    {
+        AActor* SelectedActor = Cast<AActor>(Selection->GetSelectedObject(i));
+        if (!SelectedActor)
+        {
+            continue;
+        }
+
+        // Check if this actor has a target component
+        URshipTargetComponent* TargetComp = SelectedActor->FindComponentByClass<URshipTargetComponent>();
+        if (!TargetComp)
+        {
+            continue;
+        }
+
+        // Find matching item in our list
+        for (const auto& Item : TargetItems)
+        {
+            if (Item.IsValid() && Item->Component.Get() == TargetComp)
+            {
+                // Select this item in the list (Direct = programmatic, won't trigger OnTargetSelectionChanged loop)
+                TargetListView->SetSelection(Item, ESelectInfo::Direct);
+                TargetListView->RequestScrollIntoView(Item);
+                return;
+            }
+        }
     }
 }
 
@@ -980,8 +1099,9 @@ TSharedRef<SWidget> SRshipTargetRow::GenerateWidgetForColumn(const FName& Column
     }
     else if (ColumnName == "TargetId")
     {
-        return SNew(STextBlock)
-            .Text(FText::FromString(Item->TargetId));
+        return SNew(SInlineEditableTextBlock)
+            .Text(FText::FromString(Item->TargetId))
+            .OnTextCommitted(this, &SRshipTargetRow::OnTargetIdCommitted);
     }
     else if (ColumnName == "Type")
     {
@@ -1002,6 +1122,25 @@ TSharedRef<SWidget> SRshipTargetRow::GenerateWidgetForColumn(const FName& Column
     }
 
     return SNullWidget::NullWidget;
+}
+
+void SRshipTargetRow::OnTargetIdCommitted(const FText& NewText, ETextCommit::Type CommitType)
+{
+    // Only apply on Enter or focus lost, not on cancel
+    if (CommitType == ETextCommit::OnEnter || CommitType == ETextCommit::OnUserMovedFocus)
+    {
+        FString NewTargetId = NewText.ToString().TrimStartAndEnd();
+
+        if (!NewTargetId.IsEmpty() && Item.IsValid() && Item->Component.IsValid())
+        {
+            // Only update if the ID actually changed
+            if (NewTargetId != Item->TargetId)
+            {
+                Item->Component->SetTargetId(NewTargetId);
+                Item->TargetId = NewTargetId;
+            }
+        }
+    }
 }
 
 #undef LOCTEXT_NAMESPACE
