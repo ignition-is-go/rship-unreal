@@ -64,16 +64,16 @@ static bool IsStringLike(const FString &UnrealType)
     return UnrealType == TEXT("StrProperty") || UnrealType == TEXT("TextProperty") || UnrealType == TEXT("NameProperty");
 }
 
-static FString FormatValueForUnrealArg(const SchemaNode &SchemaProp, const TSharedPtr<FJsonValue> &JsonVal);
+static FString FormatValueForUnrealArg(const SchemaNode &SchemaProp, const TSharedPtr<FJsonValue> &JsonVal, bool bQuoteStrings);
 
-static FString FormatStructForUnrealArg(const SchemaNode &SchemaProp, const TSharedPtr<FJsonObject> &Obj)
+static FString FormatStructForUnrealArg(const SchemaNode &SchemaProp, const TSharedPtr<FJsonObject> &Obj, bool bQuoteStrings)
 {
     TArray<FString> Pairs;
     Pairs.Reserve(SchemaProp.Children.Num());
     for (const SchemaNode &Child : SchemaProp.Children)
     {
         const TSharedPtr<FJsonValue> ChildVal = Obj.IsValid() ? Obj->TryGetField(Child.Name) : nullptr;
-        const FString ChildStr = FormatValueForUnrealArg(Child, ChildVal);
+        const FString ChildStr = FormatValueForUnrealArg(Child, ChildVal, bQuoteStrings);
         if (!ChildStr.IsEmpty())
         {
             Pairs.Add(FString::Printf(TEXT("%s=%s"), *Child.Name, *ChildStr));
@@ -82,12 +82,12 @@ static FString FormatStructForUnrealArg(const SchemaNode &SchemaProp, const TSha
     return FString::Printf(TEXT("(%s)"), *FString::Join(Pairs, TEXT(",")));
 }
 
-static FString FormatValueForUnrealArg(const SchemaNode &SchemaProp, const TSharedPtr<FJsonValue> &JsonVal)
+static FString FormatValueForUnrealArg(const SchemaNode &SchemaProp, const TSharedPtr<FJsonValue> &JsonVal, bool bQuoteStrings)
 {
     if (SchemaProp.Type == TEXT("StructProperty"))
     {
         const TSharedPtr<FJsonObject> AsObj = (JsonVal.IsValid() && JsonVal->Type == EJson::Object) ? JsonVal->AsObject() : MakeShareable(new FJsonObject());
-        return FormatStructForUnrealArg(SchemaProp, AsObj);
+        return FormatStructForUnrealArg(SchemaProp, AsObj, bQuoteStrings);
     }
 
     if (!JsonVal.IsValid())
@@ -120,7 +120,7 @@ static FString FormatValueForUnrealArg(const SchemaNode &SchemaProp, const TShar
         break;
     }
 
-    if (IsStringLike(SchemaProp.Type))
+    if (bQuoteStrings && IsStringLike(SchemaProp.Type))
     {
         Out.ReplaceInline(TEXT("\""), TEXT("\\\""));
         return FString::Printf(TEXT("\"%s\""), *Out);
@@ -128,7 +128,7 @@ static FString FormatValueForUnrealArg(const SchemaNode &SchemaProp, const TShar
     return Out;
 }
 
-FString BuildArgStringFromJson(const TDoubleLinkedList<SchemaNode>& Props, const TSharedRef<FJsonObject>& Data)
+FString BuildArgStringFromJson(const TDoubleLinkedList<SchemaNode>& Props, const TSharedRef<FJsonObject>& Data, bool bQuoteStrings)
 {
     FString Args;
     for (const SchemaNode &Prop : Props)
@@ -143,7 +143,7 @@ FString BuildArgStringFromJson(const TDoubleLinkedList<SchemaNode>& Props, const
         {
             Args.Append(TEXT(" "));
         }
-        Args.Append(FormatValueForUnrealArg(Prop, Piece));
+        Args.Append(FormatValueForUnrealArg(Prop, Piece, bQuoteStrings));
     }
     return Args;
 }
