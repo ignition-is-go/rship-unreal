@@ -840,6 +840,19 @@ void URshipSubsystem::ProcessMessage(const FString &message)
 
                         if (target != nullptr)
                         {
+                            // Skip action execution in Editor world - only run in PIE/Simulate/Game
+                            if (owner)
+                            {
+                                if (UWorld* World = owner->GetWorld())
+                                {
+                                    if (World->WorldType == EWorldType::Editor)
+                                    {
+                                        UE_LOG(LogRshipExec, Verbose, TEXT("Skipping action [%s] on target [%s] (Editor)"), *actionId, *targetId);
+                                        continue;
+                                    }
+                                }
+                            }
+
                             UE_LOG(LogRshipExec, Log, TEXT("Executing action [%s] on target [%s] (%s)"), *actionId, *targetId, *WorldTypeStr);
                             bool takeResult = target->TakeAction(owner, actionId, execData);
                             result |= takeResult;
