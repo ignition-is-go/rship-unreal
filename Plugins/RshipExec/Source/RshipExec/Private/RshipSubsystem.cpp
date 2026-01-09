@@ -1683,9 +1683,9 @@ void URshipSubsystem::PulseEmitter(FString targetId, FString emitterId, TSharedP
     // hash for optimistic concurrency control (myko protocol requirement)
     pulse->SetStringField("hash", FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
 
-    // Emitter pulses are LOW priority - no coalescing to allow high-frequency updates
-    // Rate limiting still applies via token bucket algorithm
-    SetItem("Pulse", pulse, ERshipMessagePriority::Low, TEXT(""));
+    // Emitter pulses coalesce by emitter ID to ensure latest value is always sent
+    // This prevents stale data from queueing - only the most recent pulse per emitter is kept
+    SetItem("Pulse", pulse, ERshipMessagePriority::Normal, fullEmitterId);
 
     // Record pulse in health monitor for activity tracking
     if (HealthMonitor)
