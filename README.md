@@ -1,56 +1,146 @@
 # Rship-Unreal
 
-Rocketship's Unreal Engine integration is facilitated by the Rship-Unreal plugin.
+Unreal Engine integration for [Rocketship](https://rocketship.io) - a reactive control platform for live entertainment, broadcast, and immersive experiences.
 
-## Quickstart
+## Plugins
 
-### Installation
+| Plugin | Description | Status |
+|--------|-------------|--------|
+| [RshipExec](Plugins/RshipExec/README.md) | Core executor - WebSocket, targets, emitters, actions, fixtures, bindings | Stable |
+| [RshipNDI](Plugins/RshipNDI/README.md) | NDI video streaming for CineCamera output | Stable |
+| [Rship2110](Plugins/Rship2110/README.md) | SMPTE ST 2110 / PTP professional broadcast streaming | Beta |
+| [RshipColorManagement](Plugins/RshipColorManagement/README.md) | Broadcast-grade color pipeline management | Beta |
+| [RshipSpatialAudio](Plugins/RshipSpatialAudio/README.md) | Multi-channel spatial audio with VBAP/DBAP/HOA | Beta |
+| [UltimateControl](Plugins/UltimateControl/README.md) | AI control - 350+ tools for Claude/LLM integration | Stable |
 
-1. Download the plugin from [releases](https://docs.rship.io/releases)
-2. Create a 'Plugins' folder inside a UE project directory and place the extracted folder there
-3. Restart Unreal
-4. In the plugins manager (Edit > Plugins), search for the 'RshipExec' plugin and verify it exists and is active (checked on)
-5. Open the Unreal project settings (Edit > Project Settings) and search for the 'Rship Exec' plugin
-6. Enter the address of the Rocketship server you wish to connect to in the 'Rocketship Host' field. Also set the 'Service Color' :)
-7. Currently the rship connection management lives in the RshipTarget blueprint component. Create a Target to establish a connection with rship
+## Quick Start
 
-### Usage
+### 1. Install Plugins
 
-#### Create a Target
+Copy the `Plugins/` folder to your UE project, or copy individual plugins you need.
 
-1. Add an RshipTarget component to any Actor blueprint
-2. Name the Target in the Actor properties pane (in the level editor).
-3. In the Editor Details pane, select the RshipTarget component and click 'Register' or 'Reconnect'
+### 2. Enable in Project
 
-#### Create an Action
+```json
+// YourProject.uproject
+{
+  "Plugins": [
+    { "Name": "RshipExec", "Enabled": true }
+  ]
+}
+```
 
-1. Create a function in the Actor blueprint. **Make sure to prefix the function name with RS_** to add it to the Actor's Target 
-2. Edit the function arguments to define an Action Schema, which determines the data structure required for triggering the Action
+### 3. Configure Connection
 
-![Screenshot 2024-04-03 at 11 38 28 AM](https://github.com/ignition-is-go/rship-unreal/assets/131498134/92378b33-281f-48ff-9228-6434604c02b5)
+**Project Settings > Game > Rocketship Settings:**
 
-3. Connect the RS function to some other function
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Host | `localhost` | Rship server address |
+| Port | `5155` | WebSocket port |
 
-![Unreal_Action_Blueprint_Example](https://github.com/ignition-is-go/rship-unreal/assets/131498134/3111ee2d-a857-4c35-998f-396f745dc9d7)
+### 4. Create a Target
 
-#### Create an Emitter
+1. Add `URshipTargetComponent` to any Actor
+2. Set the **Target Id** (unique name in rship)
+3. Add `RS_` prefixed properties/functions:
 
-1. Create an event dispatcher in the Actor blueprint. **Make sure to prefix the event dispatcher name with RS_** to add it to the Actor's Target
-2. Edit the event dispatcher properties to define an Emitter Schema, which determines the data structure pulsed by the Emitter
+```cpp
+// These automatically become rship Actions and Emitters
+UPROPERTY(EditAnywhere, BlueprintReadWrite)
+float RS_Intensity = 1.0f;
 
-### Current Limitations
+UPROPERTY(EditAnywhere, BlueprintReadWrite)
+FLinearColor RS_Color = FLinearColor::White;
 
-Due to some pesky aspects of Unreal's implementation of C++, we are still working out the following limitations:
+UFUNCTION(BlueprintCallable)
+void RS_PlayEffect(FName EffectName);
+```
 
-- Emitter Schema Size: 
-    - An Emitter Schema can have at most 32 properties. 
+5. Press Play - your targets appear in rship!
 
-- Unsupported Data Types:  
-    - Vector, Rotation, and Position (note these structures can be easily decomposed into floats)
+See the [Getting Started Guide](docs/GETTING_STARTED.md) for detailed setup.
 
-## Targets, Actions, and Emitters
+## Documentation
 
+| Document | Description |
+|----------|-------------|
+| [Getting Started](docs/GETTING_STARTED.md) | New user onboarding guide |
+| [Upgrade Guide](docs/UPGRADE_GUIDE.md) | Full feature reference |
+| [Rate Limiting](docs/README_RATE_LIMITING.md) | Message throttling configuration |
+| [Spatial Audio Architecture](docs/SPATIAL_AUDIO_ARCHITECTURE.md) | Spatial audio system design |
+| [Windows Build Environment](docs/WINDOWS_BUILD_ENVIRONMENT.md) | Windows build setup |
 
-| Targets          | Emitters                                  | Actions                  |
-|------------------|-------------------------------------------|--------------------------|
-| **Actors**       | - Any Event dispatcher Parameter          | - Any Function Argument  |
+## Features
+
+### RshipExec (Core)
+- **Target System** - Expose actors with `RS_` prefix convention
+- **Fixture Control** - DMX output, GDTF/MVR import, IES profiles, beam visualization
+- **Material Bindings** - Material parameters, Substrate materials, Niagara systems
+- **Control Rig** - Bind Control Rig parameters for animation
+- **LiveLink** - Bidirectional LiveLink subject integration
+- **Timecode** - Multi-source SMPTE timecode sync
+- **Sequencer Sync** - Level Sequence playback control
+- **OSC Bridge** - Route OSC through rship bindings
+- **PCG Auto-Bind** - Automatic binding for procedurally spawned actors
+- **Recording** - Record and playback sessions
+
+### Video Streaming
+- **NDI** - Stream CineCamera views to NDI receivers
+- **ST 2110** - Professional uncompressed video over IP (requires Rivermax)
+
+### Audio
+- **Spatial Audio** - 256+ speaker support, VBAP/DBAP/HOA rendering
+- **External Processors** - d&b DS100 integration via OSC
+
+### AI Control
+- **UltimateControl** - 350+ methods for Claude/LLM control of the editor
+
+## Requirements
+
+- Unreal Engine 5.6+
+- Windows or macOS
+- Rocketship server for full functionality
+
+## Console Commands
+
+```
+rship.status          # Connection status
+rship.targets         # List registered targets
+rship.validate        # Validate scene configuration
+rship.reconnect       # Force reconnection
+rship.timecode        # Timecode sync status
+```
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         RSHIP SERVER                            │
+│   Bindings • Scenes • Calendars • Event Routing                │
+└─────────────────────────────────────────────────────────────────┘
+        │ Actions                                    ▲ Pulses
+        ▼                                            │
+┌─────────────────────────────────────────────────────────────────┐
+│                      UNREAL ENGINE                              │
+│                                                                 │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐             │
+│  │ RshipExec   │  │ RshipNDI    │  │ Rship2110   │             │
+│  │ Targets     │  │ NDI Streams │  │ ST 2110     │             │
+│  │ Fixtures    │  └─────────────┘  └─────────────┘             │
+│  │ Bindings    │                                               │
+│  └─────────────┘  ┌─────────────┐  ┌─────────────┐             │
+│                   │ ColorMgmt   │  │ SpatialAudio│             │
+│                   │ Color Pipe  │  │ VBAP/HOA    │             │
+│                   └─────────────┘  └─────────────┘             │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Support
+
+- GitHub Issues: [github.com/ignition-is-go/rship-unreal](https://github.com/ignition-is-go/rship-unreal/issues)
+- Rocketship Docs: [docs.rocketship.io](https://docs.rocketship.io)
+
+## License
+
+Proprietary - Contact [Lucid](https://lucid.rocks) for licensing.

@@ -1,0 +1,47 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"EngineVersion": "5.6.0",
+	"FriendlyName": "Rship Spatial Audio",
+	"Description": "Spatial audio and loudspeaker management system for large-scale installations. Supports VBAP, DBAP, and HOA rendering with phase-coherent panning, per-output DSP, and full rShip/Myko integration.",
+	"Category": "Audio",
+	"CreatedBy": "Rocketship",
+	"CreatedByURL": "https://rocketship.com",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"CanContainContent": true,
+	"IsBetaVersion": true,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"EnabledByDefault": false,
+	"Modules": [
+		{
+			"Name": "RshipSpatialAudioRuntime",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"PlatformAllowList": [
+				"Win64",
+				"Mac",
+				"Linux"
+			]
+		},
+		{
+			"Name": "RshipSpatialAudioEditor",
+			"Type": "Editor",
+			"LoadingPhase": "PostEngineInit",
+			"PlatformAllowList": [
+				"Win64",
+				"Mac",
+				"Linux"
+			]
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "RshipExec",
+			"Enabled": true
+		}
+	]
+}

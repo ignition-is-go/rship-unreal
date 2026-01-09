@@ -1,0 +1,25 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"EngineVersion": "5.6.0",
+	"FriendlyName": "Rship Color Management",
+	"Description": "Centralized broadcast-grade color management for predictable output across viewport, NDI, and 2110",
+	"Category": "Rocketship",
+	"CreatedBy": "Lucid",
+	"CreatedByURL": "",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"CanContainContent": false,
+	"IsBetaVersion": true,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "RshipColorManagement",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	]
+}

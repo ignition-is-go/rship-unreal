@@ -1,0 +1,35 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"EngineVersion": "5.6.0",
+	"FriendlyName": "Rship NDI",
+	"Description": "NDI video streaming for CineCamera output - stream camera views to NDI receivers on the network",
+	"Category": "Rocketship",
+	"CreatedBy": "Lucid",
+	"CreatedByURL": "",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"CanContainContent": false,
+	"IsBetaVersion": true,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "RshipNDI",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "CineCameraSceneCapture",
+			"Enabled": true
+		},
+		{
+			"Name": "RshipColorManagement",
+			"Enabled": true
+		}
+	]
+}

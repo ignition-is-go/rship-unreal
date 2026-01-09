@@ -1,0 +1,36 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0.0",
+	"EngineVersion": "5.6.0",
+	"FriendlyName": "Ultimate Control",
+	"Description": "HTTP JSON-RPC API for AI agents and external tools to control Unreal Engine. Enables Claude, GPT, and other AI assistants to manipulate the editor via MCP.",
+	"Category": "Editor",
+	"CreatedBy": "Rocketship",
+	"CreatedByURL": "https://rocketship.com",
+	"DocsURL": "https://github.com/rocketship/ue5-mcp-bridge",
+	"MarketplaceURL": "",
+	"SupportURL": "https://github.com/rocketship/ue5-mcp-bridge/issues",
+	"CanContainContent": false,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"EnabledByDefault": true,
+	"Modules": [
+		{
+			"Name": "UltimateControl",
+			"Type": "Editor",
+			"LoadingPhase": "PostEngineInit",
+			"PlatformAllowList": [
+				"Win64",
+				"Mac",
+				"Linux"
+			]
+		}
+	],
+	"Plugins": [
+		{ "Name": "Niagara", "Enabled": true },
+		{ "Name": "EditorScriptingUtilities", "Enabled": true },
+		{ "Name": "RshipColorManagement", "Enabled": true }
+	]
+}

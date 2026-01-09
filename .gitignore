@@ -4,7 +4,10 @@
 ## Get latest from https://github.com/github/gitignore/blob/master/VisualStudio.gitignore
 
 # Unreal
+Saved/
 
+# Claude Code local settings
+.claude/settings.local.json
 
 # User-specific files
 *.rsuser
@@ -368,3 +371,11 @@ FodyWeavers.xsd
 
 !Release
 sync.ffs_db
+Log.rtf
+Log2.rtf
+*.rtf
+Plugins/RshipExec/Intermediate/
+
+
+**/Intermediate/*
+**/Binaries/*
