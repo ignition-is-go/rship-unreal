@@ -114,6 +114,14 @@ void URshipTargetComponent::RegisterProperty(UObject* owner, FProperty* prop, FS
 
 void URshipTargetComponent::Register()
 {
+    // Skip registration in blueprint editor preview worlds
+    UWorld* World = GetWorld();
+    if (World && World->WorldType == EWorldType::EditorPreview)
+    {
+        UE_LOG(LogRshipExec, Verbose, TEXT("Skipping registration for blueprint preview actor: %s"), *targetName);
+        return;
+    }
+
     // If already registered, unregister first to clean up
     if (TargetData != nullptr)
     {
