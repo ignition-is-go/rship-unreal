@@ -401,10 +401,20 @@ int32 FRshipRateLimiter::ProcessQueue()
         }
     }
 
-    // Check if batch should be flushed due to time
-    if (Config.bEnableBatching && ShouldFlushBatch())
+    // Check if batch should be flushed due to time or queue empty
+    if (Config.bEnableBatching)
     {
-        FlushBatch();
+        // Flush if queue is empty and batch has messages (don't wait for interval)
+        // This ensures registration messages and other immediate sends don't get stuck
+        if (MessageQueue.Num() == 0 && CurrentBatch.Num() > 0)
+        {
+            LogMessage(3, TEXT("Flushing batch because queue is empty"));
+            FlushBatch();
+        }
+        else if (ShouldFlushBatch())
+        {
+            FlushBatch();
+        }
     }
 
     // Update metrics
