@@ -3,6 +3,7 @@
 #include "RshipExec.h"
 #include "ISettingsModule.h"
 #include "RshipSettings.h"
+#include "RshipSubsystem.h"
 
 // Old RshipEditorWidget.h dashboard deprecated - using RshipExecEditor's SRshipStatusPanel instead
 
@@ -19,6 +20,18 @@ void FRshipExecModule::StartupModule()
 										 GetMutableDefault<URshipSettings>());
 	}
 
+	// After hot reload, reinitialize the subsystem's tickers and connections
+	// GEngine may not exist yet on initial load, but will exist after hot reload
+	if (GEngine)
+	{
+		if (URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>())
+		{
+			// Re-run initialization to set up tickers that were cleared before hot reload
+			UE_LOG(LogTemp, Log, TEXT("RshipExec: Re-initializing subsystem after hot reload"));
+			Subsystem->ReinitializeAfterHotReload();
+		}
+	}
+
 // Dashboard panel now registered in RshipExecEditor module (SRshipStatusPanel)
 }
 
@@ -26,6 +39,16 @@ void FRshipExecModule::ShutdownModule()
 {
 	// This function may be called during shutdown to clean up your module.  For modules that support dynamic reloading,
 	// we call this function before unloading the module.
+
+	// CRITICAL: Clean up the subsystem before module unload (especially for live coding)
+	// This prevents crashes when the new module loads with stale ticker delegates
+	if (GEngine)
+	{
+		if (URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>())
+		{
+			Subsystem->PrepareForHotReload();
+		}
+	}
 
 	if (ISettingsModule *SettingsModule = FModuleManager::GetModulePtr<ISettingsModule>("Settings"))
 	{
