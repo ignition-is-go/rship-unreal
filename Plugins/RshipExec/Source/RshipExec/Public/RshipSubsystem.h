@@ -242,7 +242,6 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
 
     // Internal message handling
     void SetItem(FString itemType, TSharedPtr<FJsonObject> data, ERshipMessagePriority Priority = ERshipMessagePriority::Normal, const FString& CoalesceKey = TEXT(""));
-    void DelItem(FString itemType, TSharedPtr<FJsonObject> data, ERshipMessagePriority Priority = ERshipMessagePriority::Normal, const FString& CoalesceKey = TEXT(""));
     void SendTarget(Target* target);
     void DeleteTarget(Target* target);
     void SendAction(Action* action, FString targetId);
@@ -328,6 +327,7 @@ public:
     URshipTargetComponent* FindTargetComponent(const FString& FullTargetId) const;
 
     FString GetServiceId();
+    FString GetInstanceId();
 
     // ========================================================================
     // TARGET GROUP MANAGEMENT

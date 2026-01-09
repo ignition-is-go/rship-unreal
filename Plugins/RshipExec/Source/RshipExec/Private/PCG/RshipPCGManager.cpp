@@ -718,15 +718,18 @@ void URshipPCGManager::SendTargetDeregistration(URshipPCGAutoBindComponent* Comp
 
 	const FRshipPCGInstanceId& Id = Component->GetInstanceId();
 
-	// Send DEL event for the target
-	TSharedPtr<FJsonObject> TargetJson = MakeShared<FJsonObject>();
-	TargetJson->SetStringField(TEXT("id"), Id.TargetPath);
-	TargetJson->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
+	// Send TargetStatus offline - server manages target lifecycle (no DEL commands)
+	TSharedPtr<FJsonObject> TargetStatus = MakeShared<FJsonObject>();
+	TargetStatus->SetStringField(TEXT("targetId"), Id.TargetPath);
+	TargetStatus->SetStringField(TEXT("instanceId"), Subsystem->GetInstanceId());
+	TargetStatus->SetStringField(TEXT("status"), TEXT("offline"));
+	TargetStatus->SetStringField(TEXT("id"), Id.TargetPath);
+	TargetStatus->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
 
 	TSharedPtr<FJsonObject> EventData = MakeShared<FJsonObject>();
-	EventData->SetStringField(TEXT("itemType"), TEXT("Target"));
-	EventData->SetStringField(TEXT("changeType"), TEXT("DEL"));
-	EventData->SetObjectField(TEXT("item"), TargetJson);
+	EventData->SetStringField(TEXT("itemType"), TEXT("TargetStatus"));
+	EventData->SetStringField(TEXT("changeType"), TEXT("SET"));
+	EventData->SetObjectField(TEXT("item"), TargetStatus);
 	EventData->SetStringField(TEXT("tx"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
 	EventData->SetStringField(TEXT("createdAt"), FDateTime::UtcNow().ToIso8601());
 
