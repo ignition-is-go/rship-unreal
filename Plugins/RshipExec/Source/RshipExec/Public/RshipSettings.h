@@ -32,10 +32,6 @@ public:
     UPROPERTY(EditAnywhere, config, Category = "Connection", meta = (DisplayName = "Service Color"))
     FLinearColor ServiceColor = FLinearColor::Gray;
 
-    UPROPERTY(EditAnywhere, config, Category = "Connection", meta = (DisplayName = "Use High-Performance WebSocket",
-        ToolTip = "Use dedicated send thread to bypass UE's 30Hz WebSocket throttle. Recommended for high-throughput scenarios."))
-    bool bUseHighPerformanceWebSocket = true;
-
     UPROPERTY(EditAnywhere, config, Category = "Connection", meta = (DisplayName = "TCP No Delay",
         ToolTip = "Disable Nagle's algorithm for lower latency. Recommended for real-time data."))
     bool bTcpNoDelay = true;

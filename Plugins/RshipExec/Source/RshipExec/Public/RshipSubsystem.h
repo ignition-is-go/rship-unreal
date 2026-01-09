@@ -5,7 +5,6 @@
 #include "CoreMinimal.h"
 #include "Subsystems/EngineSubsystem.h"
 #include "Subsystems/SubsystemCollection.h"
-#include "IWebSocket.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "RshipTargetComponent.h"
@@ -45,6 +44,7 @@
 // Forward declaration for optional SpatialAudio plugin
 class URshipSpatialAudioManager;
 #include "Containers/List.h"
+#include "Containers/Ticker.h"
 #include "Target.h"
 #include "RshipRateLimiter.h"
 #include "RshipWebSocket.h"
@@ -84,11 +84,10 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
 
     AEmitterHandler *EmitterHandler;
 
-    // WebSocket connections (use one or the other based on settings)
-    TSharedPtr<IWebSocket> WebSocket;                    // Standard UE WebSocket
-    TSharedPtr<FRshipWebSocket> HighPerfWebSocket;       // High-performance WebSocket
-    bool bUsingHighPerfWebSocket;                        // Which one is active
+    // High-performance WebSocket connection
+    TSharedPtr<FRshipWebSocket> WebSocket;
     bool bPingResponseReceived = false;                  // Diagnostic: tracks if ping response came back
+    bool bIsManuallyReconnecting = false;                // Prevents auto-reconnect during manual reconnect
 
     FString InstanceId;
     FString ServiceId;
@@ -229,11 +228,17 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     // Connection state management
     ERshipConnectionState ConnectionState;
     int32 ReconnectAttempts;
-    FTimerHandle QueueProcessTimerHandle;
-    FTimerHandle ReconnectTimerHandle;
-    FTimerHandle SubsystemTickTimerHandle;
-    FTimerHandle ConnectionTimeoutHandle;
+    FTSTicker::FDelegateHandle QueueProcessTickerHandle;
+    FTSTicker::FDelegateHandle ReconnectTickerHandle;
+    FTSTicker::FDelegateHandle SubsystemTickerHandle;
+    FTSTicker::FDelegateHandle ConnectionTimeoutTickerHandle;
     double LastTickTime;
+
+    // Ticker callbacks (return true to keep ticking, false to stop)
+    bool OnQueueProcessTick(float DeltaTime);
+    bool OnReconnectTick(float DeltaTime);
+    bool OnSubsystemTick(float DeltaTime);
+    bool OnConnectionTimeoutTick(float DeltaTime);
 
     // Internal message handling
     void SetItem(FString itemType, TSharedPtr<FJsonObject> data, ERshipMessagePriority Priority = ERshipMessagePriority::Normal, const FString& CoalesceKey = TEXT(""));
@@ -276,6 +281,13 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
 public:
     virtual void Initialize(FSubsystemCollectionBase &Collection) override;
     virtual void Deinitialize() override;
+    virtual void BeginDestroy() override;
+
+    /** Clean up tickers and connections before hot reload. Called by module ShutdownModule. */
+    void PrepareForHotReload();
+
+    /** Reinitialize tickers and connections after hot reload. Called by module StartupModule. */
+    void ReinitializeAfterHotReload();
 
     // ========================================================================
     // CONNECTION MANAGEMENT

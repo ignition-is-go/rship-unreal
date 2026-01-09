@@ -425,15 +425,14 @@ The plugin provides two WebSocket implementations:
    - 1ms service loop (1000Hz capability vs 30Hz)
    - Works without any third-party libraries
 
-#### Enabling High-Performance Mode
+#### Configuring High-Performance Mode
 
-In Project Settings > Game > Rocketship Settings:
+High-performance WebSocket is always enabled. Configure options in Project Settings > Game > Rocketship Settings:
 
 ```ini
 [/Script/RshipExec.RshipSettings]
-bUseHighPerformanceWebSocket=true   ; Enable high-perf mode
-bTcpNoDelay=true                    ; Disable Nagle's algorithm
-bDisableCompression=true            ; Disable permessage-deflate
+bTcpNoDelay=true                    ; Disable Nagle's algorithm (default: true)
+bDisableCompression=true            ; Disable permessage-deflate (default: true)
 PingIntervalSeconds=30              ; Keep-alive interval
 ```
 
@@ -454,16 +453,10 @@ The build system auto-detects IXWebSocket and compiles it automatically. No manu
 
 Check the log on startup:
 ```
-LogRshipExec: Connecting to ws://localhost:5155/myko (HighPerf=1)
+LogRshipExec: Connecting to ws://localhost:5155/myko
 LogRshipExec: RshipWebSocket: Started dedicated send thread   ; Fallback mode
 # OR
 LogRshipExec: RshipWebSocket: Connected                       ; IXWebSocket mode
-```
-
-If using the fallback, look for the absence of throttle warnings:
-```
-; This warning should NOT appear with high-perf enabled:
-LogRshipExec: Warning: WebSocket send throttled: 33.3ms between sends
 ```
 
 ---
@@ -479,17 +472,20 @@ LogRshipExec: Warning: WebSocket send throttled: 33.3ms between sends
 | TCP Nagle delay | - | ✅ TCP_NODELAY | ✅ TCP_NODELAY |
 | Compression delay | - | ✅ Disabled | ✅ Disable deflate |
 
-**Recommended**: Enable `bUseHighPerformanceWebSocket=true` for best results without patching UE.
+High-performance WebSocket is always enabled, bypassing UE's 30Hz throttle without engine patches.
 
 ---
 
 ## Changelog
 
+### v2.2 - Simplified WebSocket
+- Removed `bUseHighPerformanceWebSocket` setting - high-performance mode is now always enabled
+- Simplified codebase by removing standard UE WebSocket path
+
 ### v2.1 - High-Performance WebSocket Integration
 - Added `FRshipWebSocket` wrapper with dual implementation:
   - IXWebSocket path for maximum performance
   - Fallback with dedicated send thread (1ms loop)
-- Added `bUseHighPerformanceWebSocket` setting (default: true)
 - Added `bTcpNoDelay` setting to disable Nagle's algorithm
 - Added `bDisableCompression` setting to disable permessage-deflate
 - Build system auto-detects IXWebSocket in ThirdParty folder
