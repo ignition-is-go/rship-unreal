@@ -544,7 +544,7 @@ public:
 
     /** Load library from file */
     UFUNCTION(BlueprintCallable, Category = "Rship|Library")
-    bool LoadLibrary();
+    bool LoadProfileLibrary();
 
     /** Get library file path */
     UFUNCTION(BlueprintCallable, Category = "Rship|Library")
