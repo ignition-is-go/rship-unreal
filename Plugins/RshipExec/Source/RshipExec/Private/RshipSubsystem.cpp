@@ -220,12 +220,15 @@ void URshipSubsystem::Reconnect()
     InstanceId = ClusterId;
 
     const URshipSettings *Settings = GetDefault<URshipSettings>();
-    FString rshipHostAddress = *Settings->rshipHostAddress;
+    FString rshipHostAddress = Settings->rshipHostAddress;
     int32 rshipServerPort = Settings->rshipServerPort;
 
-    if (rshipHostAddress.IsEmpty() || rshipHostAddress.Len() == 0)
+    UE_LOG(LogRshipExec, Log, TEXT("Settings loaded - Address: [%s], Port: [%d]"), *rshipHostAddress, rshipServerPort);
+
+    if (rshipHostAddress.IsEmpty())
     {
-        rshipHostAddress = FString("localhost");
+        UE_LOG(LogRshipExec, Warning, TEXT("rshipHostAddress is empty, defaulting to localhost"));
+        rshipHostAddress = TEXT("localhost");
     }
 
     // Close existing connection
@@ -282,8 +285,9 @@ void URshipSubsystem::ConnectTo(const FString& Host, int32 Port)
         Settings->rshipHostAddress = Host;
         Settings->rshipServerPort = Port;
         Settings->SaveConfig();
+        Settings->UpdateDefaultConfigFile();  // Also update DefaultGame.ini
 
-        UE_LOG(LogRshipExec, Log, TEXT("Updated server to %s:%d, reconnecting..."), *Host, Port);
+        UE_LOG(LogRshipExec, Log, TEXT("Saved server settings to config: %s:%d"), *Host, Port);
     }
 
     // Force reconnect with new settings
