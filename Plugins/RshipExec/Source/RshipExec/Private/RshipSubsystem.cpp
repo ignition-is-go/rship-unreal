@@ -25,6 +25,10 @@
 #include "EmitterHandler.h"
 #include "Logs.h"
 
+#if WITH_EDITOR
+#include "Editor.h"
+#endif
+
 using namespace std;
 
 void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
@@ -79,7 +83,7 @@ void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
         this->EmitterHandler = GetWorld()->SpawnActor<AEmitterHandler>();
     }
 
-    this->TargetComponents = new TMap<FString, URshipTargetComponent*>;
+    this->TargetComponents = new TMultiMap<FString, URshipTargetComponent*>;
 
     // Start queue processing ticker (works in editor without a world)
     const URshipSettings *Settings = GetDefault<URshipSettings>();
@@ -800,22 +804,51 @@ void URshipSubsystem::ProcessMessage(const FString &message)
             }
             else
             {
-                // Standard target component routing - O(1) lookup by target ID
-                URshipTargetComponent* comp = FindTargetComponent(targetId);
-                if (comp)
+                // Standard target component routing - get ALL components with this target ID
+                TArray<URshipTargetComponent*> comps = FindAllTargetComponents(targetId);
+                if (comps.Num() > 0)
                 {
-                    Target* target = comp->TargetData;
-                    AActor* owner = comp->GetOwner();
+                    for (URshipTargetComponent* comp : comps)
+                    {
+                        if (!comp) continue;
 
-                    if (target != nullptr)
-                    {
-                        bool takeResult = target->TakeAction(owner, actionId, execData);
-                        result |= takeResult;
-                        comp->OnDataReceived();
-                    }
-                    else
-                    {
-                        UE_LOG(LogRshipExec, Warning, TEXT("Target data null for: %s"), *targetId);
+                        Target* target = comp->TargetData;
+                        AActor* owner = comp->GetOwner();
+
+                        // Determine world type for logging
+                        FString WorldTypeStr = TEXT("Unknown");
+                        if (owner)
+                        {
+                            if (UWorld* World = owner->GetWorld())
+                            {
+                                switch (World->WorldType)
+                                {
+                                    case EWorldType::Editor: WorldTypeStr = TEXT("Editor"); break;
+                                    case EWorldType::PIE:
+#if WITH_EDITOR
+                                        WorldTypeStr = (GEditor && GEditor->bIsSimulatingInEditor) ? TEXT("Simulate") : TEXT("PIE");
+#else
+                                        WorldTypeStr = TEXT("PIE");
+#endif
+                                        break;
+                                    case EWorldType::Game: WorldTypeStr = TEXT("Game"); break;
+                                    case EWorldType::EditorPreview: WorldTypeStr = TEXT("EditorPreview"); break;
+                                    default: WorldTypeStr = TEXT("Other"); break;
+                                }
+                            }
+                        }
+
+                        if (target != nullptr)
+                        {
+                            UE_LOG(LogRshipExec, Log, TEXT("Executing action [%s] on target [%s] (%s)"), *actionId, *targetId, *WorldTypeStr);
+                            bool takeResult = target->TakeAction(owner, actionId, execData);
+                            result |= takeResult;
+                            comp->OnDataReceived();
+                        }
+                        else
+                        {
+                            UE_LOG(LogRshipExec, Warning, TEXT("Target data null for: %s (%s)"), *targetId, *WorldTypeStr);
+                        }
                     }
                 }
                 else
@@ -2398,7 +2431,9 @@ void URshipSubsystem::UnregisterTargetComponent(URshipTargetComponent* Component
 
     if (!KeyToRemove.IsEmpty())
     {
-        TargetComponents->Remove(KeyToRemove);
+        // RemoveSingle removes exactly one entry matching both key AND value
+        // This is important for TMultiMap where multiple components can share a target ID
+        TargetComponents->RemoveSingle(KeyToRemove, Component);
         UE_LOG(LogRshipExec, Log, TEXT("Unregistered target component: %s (remaining: %d)"),
             *KeyToRemove, TargetComponents->Num());
     }
@@ -2413,4 +2448,14 @@ URshipTargetComponent* URshipSubsystem::FindTargetComponent(const FString& FullT
 
     URshipTargetComponent* const* Found = TargetComponents->Find(FullTargetId);
     return Found ? *Found : nullptr;
+}
+
+TArray<URshipTargetComponent*> URshipSubsystem::FindAllTargetComponents(const FString& FullTargetId) const
+{
+    TArray<URshipTargetComponent*> Result;
+    if (TargetComponents)
+    {
+        TargetComponents->MultiFind(FullTargetId, Result);
+    }
+    return Result;
 }
