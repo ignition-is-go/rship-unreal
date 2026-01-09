@@ -67,9 +67,6 @@ bool Action::Take(AActor *actor, const TSharedRef<FJsonObject> data)
 
     }
     else {
-
-
-
         FString args;
         args.Append(TEXT("\""));
         args.Append(this->functionName);
@@ -80,8 +77,6 @@ bool Action::Take(AActor *actor, const TSharedRef<FJsonObject> data)
             args.Append(TEXT(" "));
             args.Append(argList);
         }
-
-        // get current output device
 
         FOutputDeviceNull out = FOutputDeviceNull();
 

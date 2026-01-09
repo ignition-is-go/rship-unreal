@@ -42,8 +42,8 @@ bool Target::TakeAction(AActor *actor, FString actionId, const TSharedRef<FJsonO
 {
 	if (!this->actions.Contains(actionId))
 	{
-		UE_LOG(LogRshipExec, Warning, TEXT("Action not found: [%s]"), *actionId);
-		return 1;
+		UE_LOG(LogRshipExec, Error, TEXT("Action not found: [%s] on target [%s]"), *actionId, *this->id);
+		return false;
 	}
 
 	return this->actions[actionId]->Take(actor, data);
