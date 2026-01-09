@@ -114,6 +114,12 @@ void URshipTargetComponent::RegisterProperty(UObject* owner, FProperty* prop, FS
 
 void URshipTargetComponent::Register()
 {
+    // If already registered, unregister first to clean up
+    if (TargetData != nullptr)
+    {
+        UE_LOG(LogRshipExec, Log, TEXT("Register called on already-registered target '%s', re-registering..."), *targetName);
+        Unregister();
+    }
 
     URshipSubsystem *subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
 
