@@ -319,7 +319,10 @@ TSharedRef<SWidget> SRshipStatusPanel::BuildTargetsSection()
                     .FixedWidth(24.0f)
                     + SHeaderRow::Column("Name")
                     .DefaultLabel(LOCTEXT("NameColumn", "Name"))
-                    .FillWidth(1.0f)
+                    .FillWidth(0.5f)
+                    + SHeaderRow::Column("TargetId")
+                    .DefaultLabel(LOCTEXT("TargetIdColumn", "Target ID"))
+                    .FillWidth(0.5f)
                     + SHeaderRow::Column("Type")
                     .DefaultLabel(LOCTEXT("TypeColumn", "Type"))
                     .FixedWidth(80.0f)
@@ -973,8 +976,12 @@ TSharedRef<SWidget> SRshipTargetRow::GenerateWidgetForColumn(const FName& Column
     else if (ColumnName == "Name")
     {
         return SNew(STextBlock)
-            .Text(FText::FromString(Item->DisplayName))
-            .ToolTipText(FText::FromString(Item->TargetId));
+            .Text(FText::FromString(Item->DisplayName));
+    }
+    else if (ColumnName == "TargetId")
+    {
+        return SNew(STextBlock)
+            .Text(FText::FromString(Item->TargetId));
     }
     else if (ColumnName == "Type")
     {
