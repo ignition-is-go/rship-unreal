@@ -276,7 +276,12 @@ void URshipTargetComponent::Register()
         this->TargetData->GetEmitters().Num(),
         this->TargetData->GetActions().Num());
 
-    subsystem->SendAll();
+    // Send only this target (not all targets) to avoid redundant sends
+    if (this->TargetData)
+    {
+        subsystem->SendTarget(this->TargetData);
+        subsystem->ProcessMessageQueue();
+    }
 
     // Register with GroupManager for tagging/grouping support
     if (URshipTargetGroupManager* GroupManager = subsystem->GetGroupManager())
@@ -523,7 +528,12 @@ void URshipTargetComponent::RescanSiblingComponents()
     if (newActionsCount > 0 || newEmittersCount > 0)
     {
         UE_LOG(LogRshipExec, Log, TEXT("Rescan complete: %d new actions, %d new emitters. Sending update to server."), newActionsCount, newEmittersCount);
-        subsystem->SendAll();
+        // Send only this target (not all targets) to avoid redundant sends
+        if (this->TargetData)
+        {
+            subsystem->SendTarget(this->TargetData);
+            subsystem->ProcessMessageQueue();
+        }
     }
     else
     {

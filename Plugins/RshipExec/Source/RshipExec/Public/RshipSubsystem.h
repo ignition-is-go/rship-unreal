@@ -242,6 +242,7 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
 
     // Internal message handling
     void SetItem(FString itemType, TSharedPtr<FJsonObject> data, ERshipMessagePriority Priority = ERshipMessagePriority::Normal, const FString& CoalesceKey = TEXT(""));
+    void SendInstanceInfo();  // Send Machine and Instance only (called once on connect)
     void SendTarget(Target* target);
     void DeleteTarget(Target* target);
     void SendAction(Action* action, FString targetId);

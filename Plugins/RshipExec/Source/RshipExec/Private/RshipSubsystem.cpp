@@ -1573,11 +1573,10 @@ void URshipSubsystem::SendTargetStatus(Target *target, bool online)
     UE_LOG(LogRshipExec, Log, TEXT("Sent target status: %s = %s"), *target->GetId(), online ? TEXT("online") : TEXT("offline"));
 }
 
-void URshipSubsystem::SendAll()
+void URshipSubsystem::SendInstanceInfo()
 {
-    UE_LOG(LogRshipExec, Log, TEXT("SendAll: MachineId=%s, ServiceId=%s, InstanceId=%s, ClusterId=%s, ClientId=%s"),
+    UE_LOG(LogRshipExec, Log, TEXT("SendInstanceInfo: MachineId=%s, ServiceId=%s, InstanceId=%s, ClusterId=%s, ClientId=%s"),
         *MachineId, *ServiceId, *InstanceId, *ClusterId, *ClientId);
-    UE_LOG(LogRshipExec, Log, TEXT("SendAll: %d TargetComponents registered"), TargetComponents ? TargetComponents->Num() : 0);
 
     // Send Machine - HIGH priority, coalesce
     TSharedPtr<FJsonObject> Machine = MakeShareable(new FJsonObject);
@@ -1615,6 +1614,14 @@ void URshipSubsystem::SendAll()
     Instance->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
 
     SetItem("Instance", Instance, ERshipMessagePriority::High, "instance:" + InstanceId);
+}
+
+void URshipSubsystem::SendAll()
+{
+    UE_LOG(LogRshipExec, Log, TEXT("SendAll: %d TargetComponents registered"), TargetComponents ? TargetComponents->Num() : 0);
+
+    // Send Machine and Instance info first
+    SendInstanceInfo();
 
     // Send all targets
     for (auto& Pair : *this->TargetComponents)
