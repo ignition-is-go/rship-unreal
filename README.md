@@ -30,34 +30,55 @@ Copy the `Plugins/` folder to your UE project, or copy individual plugins you ne
 }
 ```
 
-### 3. Configure Connection
+### 3. Open the Rocketship Panel
 
-**Project Settings > Game > Rocketship Settings:**
+Open the Rocketship panel from **Window > Rocketship**. You'll also find specialized panels for fixtures, materials, NDI, and more.
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| Host | `localhost` | Rship server address |
-| Port | `5155` | WebSocket port |
+![Window menu showing Rocketship panels](docs/screenshots/window-menu-rocketship-panels.png)
 
-### 4. Create a Target
+### 4. Connect to the Server
 
-1. Add `URshipTargetComponent` to any Actor
-2. Set the **Target Id** (unique name in rship)
-3. Add `RS_` prefixed properties/functions:
+Enter your rship server address and port, then click **Reconnect**. The status indicator turns green when connected.
 
-```cpp
-// These automatically become rship Actions and Emitters
-UPROPERTY(EditAnywhere, BlueprintReadWrite)
-float RS_Intensity = 1.0f;
+![Rocketship connection panel](docs/screenshots/connection-panel.png)
 
-UPROPERTY(EditAnywhere, BlueprintReadWrite)
-FLinearColor RS_Color = FLinearColor::White;
+### 5. Add the Target Component
 
-UFUNCTION(BlueprintCallable)
-void RS_PlayEffect(FName EffectName);
-```
+Create or open a Blueprint Actor. In the Components panel, click **Add** and search for "rship" to find all available components. Add an **RshipTarget** component - this turns your Blueprint into an rship target that can be controlled remotely.
 
-5. Press Play - your targets appear in rship!
+![Adding Rship components](docs/screenshots/add-rship-components.png)
+
+### 6. Add Variables
+
+Variables with the `RS_` prefix automatically create both an **action** (to set the value from rship) and an **emitter** (that broadcasts when the value changes).
+
+### 7. Add Functions
+
+Functions with the `RS_` prefix become **actions** that rship can trigger on your target.
+
+![Creating an RS_ function](docs/screenshots/create-rs-function.png)
+
+Add input parameters as needed - these become the action's fields in rship.
+
+![Function with input parameters](docs/screenshots/function-input-parameters.png)
+
+Implement your action logic in the Blueprint graph.
+
+![Action implementation in Blueprint](docs/screenshots/function-implementation.png)
+
+### 8. Handle Variable Changes (Optional)
+
+If you need custom logic when an `RS_` variable is set from rship, use the **On Rship Data** event. This is only necessary if the variable isn't already driving behavior elsewhere in your Blueprint.
+
+Select the RshipTarget component in the Blueprint editor outliner to find these events in the Details panel:
+
+![RshipTarget component events](docs/screenshots/rship-target-events.png)
+
+![On Rship Data event handler](docs/screenshots/on-rship-data-event.png)
+
+### 9. Press Play
+
+Hit Play in the editor - your targets automatically register with rship and appear in the UI. Create bindings between emitters and actions to build reactive behavior.
 
 See the [Getting Started Guide](docs/GETTING_STARTED.md) for detailed setup.
 
