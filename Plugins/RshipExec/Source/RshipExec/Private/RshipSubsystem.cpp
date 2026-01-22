@@ -350,7 +350,7 @@ void URshipSubsystem::OnWebSocketConnected()
         TSharedRef<TJsonWriter<>> JsonWriter = TJsonWriterFactory<>::Create(&PingJson);
         FJsonSerializer::Serialize(PingPayload.ToSharedRef(), JsonWriter);
 
-        UE_LOG(LogRshipExec, Log, TEXT("*** SENDING DIAGNOSTIC PING *** %s"), *PingJson);
+        UE_LOG(LogRshipExec, Verbose, TEXT("Sending diagnostic ping"));
 
         // Send directly to bypass rate limiter for diagnostic
         if (WebSocket.IsValid())
@@ -359,11 +359,12 @@ void URshipSubsystem::OnWebSocketConnected()
         }
     }
 
-    // Clear entity cache and sync from server on connect
+    // Clear entity cache and sync from server
     bEntityCacheSynced = false;
     ServerTargetHashes.Empty();
     ServerActionHashes.Empty();
     ServerEmitterHashes.Empty();
+    PendingQueries.Empty();  // Clear any stale queries from previous connection
 
     // Sync entity cache from server, then send all entities
     // This queries existing entities and skips unchanged ones on reconnect
@@ -414,6 +415,10 @@ void URshipSubsystem::OnWebSocketClosed(int32 StatusCode, const FString &Reason,
         StatusCode, *Reason, bWasClean);
 
     ConnectionState = ERshipConnectionState::Disconnected;
+
+    // Clear pending queries - subscriptions are invalid after disconnect
+    PendingQueries.Empty();
+    bEntityCacheSynced = false;
 
     // Handle rate limit response (HTTP 429 or similar status codes indicating rate limiting)
     if (StatusCode == 429 || StatusCode == 1008)  // 1008 = Policy Violation
@@ -781,11 +786,8 @@ void URshipSubsystem::ProcessMessage(const FString &message)
         if (commandId == "SetClientId")
         {
             ClientId = command->GetStringField(TEXT("clientId"));
-            UE_LOG(LogRshipExec, Warning, TEXT("Received ClientId %s"), *ClientId);
-
-            // Sync entity cache from server, then send all entities
-            // This queries existing entities and skips unchanged ones on reconnect
-            SyncEntityCacheFromServer();
+            UE_LOG(LogRshipExec, Log, TEXT("Received ClientId %s"), *ClientId);
+            // Cache sync already triggered by OnWebSocketConnected
             return;
         }
 
@@ -917,9 +919,18 @@ void URshipSubsystem::ProcessMessage(const FString &message)
                     TSharedPtr<FJsonObject> ActionItem = ActionValue->AsObject();
                     if (!ActionItem.IsValid()) continue;
 
-                    FString TargetId = ActionItem->GetStringField(TEXT("targetId"));
-                    FString ActionId = ActionItem->GetStringField(TEXT("actionId"));
+                    // Batch action structure: { action: { id, targetId, ... }, data: { ... } }
+                    TSharedPtr<FJsonObject> ActionObj = ActionItem->GetObjectField(TEXT("action"));
                     TSharedPtr<FJsonObject> ActionData = ActionItem->GetObjectField(TEXT("data"));
+
+                    if (!ActionObj.IsValid())
+                    {
+                        UE_LOG(LogRshipExec, Warning, TEXT("BatchExecTargetActions: Missing 'action' field in item"));
+                        continue;
+                    }
+
+                    FString TargetId = ActionObj->GetStringField(TEXT("targetId"));
+                    FString ActionId = ActionObj->GetStringField(TEXT("id"));
 
                     bool ActionResult = false;
 
@@ -1366,7 +1377,14 @@ void URshipSubsystem::ReinitializeAfterHotReload()
 
 void URshipSubsystem::SendTarget(Target *target)
 {
-    UE_LOG(LogRshipExec, Log, TEXT("SendTarget: %s - %d actions, %d emitters"),
+    // Buffer entities until cache is synced - SendAll() will send them after sync
+    if (!bEntityCacheSynced)
+    {
+        UE_LOG(LogRshipExec, Log, TEXT("SendTarget: %s - BUFFERED (cache not yet synced, will send after sync)"), *target->GetId());
+        return;
+    }
+
+    UE_LOG(LogRshipExec, Verbose, TEXT("SendTarget: %s - %d actions, %d emitters"),
         *target->GetId(),
         target->GetActions().Num(),
         target->GetEmitters().Num());
@@ -1376,14 +1394,12 @@ void URshipSubsystem::SendTarget(Target *target)
 
     for (auto &Elem : target->GetActions())
     {
-        UE_LOG(LogRshipExec, Log, TEXT("  Action: %s"), *Elem.Key);
         ActionIdsJson.Push(MakeShareable(new FJsonValueString(Elem.Key)));
         SendAction(Elem.Value, target->GetId());
     }
 
     for (auto &Elem : target->GetEmitters())
     {
-        UE_LOG(LogRshipExec, Log, TEXT("  Emitter: %s"), *Elem.Key);
         EmitterIdsJson.Push(MakeShareable(new FJsonValueString(Elem.Key)));
         SendEmitter(Elem.Value, target->GetId());
     }
@@ -1450,6 +1466,8 @@ void URshipSubsystem::SendTarget(Target *target)
 
         // Target registration - HIGH priority, coalesce by target ID
         SetItem("Target", Target, ERshipMessagePriority::High, target->GetId());
+
+        // NOTE: Cache is updated by server via live query subscription, not here
     }
 
     TSharedPtr<FJsonObject> TargetStatus = MakeShareable(new FJsonObject);
@@ -1517,6 +1535,8 @@ void URshipSubsystem::SendAction(Action *action, FString targetId)
 
     // Action registration - HIGH priority, coalesce by action ID
     SetItem("Action", Action, ERshipMessagePriority::High, action->GetId());
+
+    // NOTE: Cache is updated by server via live query subscription, not here
 }
 
 void URshipSubsystem::SendEmitter(EmitterContainer *emitter, FString targetId)
@@ -1548,6 +1568,8 @@ void URshipSubsystem::SendEmitter(EmitterContainer *emitter, FString targetId)
 
     // Emitter registration - HIGH priority, coalesce by emitter ID
     SetItem("Emitter", Emitter, ERshipMessagePriority::High, emitter->GetId());
+
+    // NOTE: Cache is updated by server via live query subscription, not here
 }
 
 void URshipSubsystem::SendTargetStatus(Target *target, bool online)
@@ -1646,13 +1668,8 @@ void URshipSubsystem::SetItem(FString itemType, TSharedPtr<FJsonObject> data, ER
     TSharedPtr<FJsonObject> payload = MakeSet(itemType, data);
 
     // Debug: Log registration events to help diagnose protocol issues
-    if (itemType == TEXT("Machine") || itemType == TEXT("Instance") || itemType == TEXT("Target") || itemType == TEXT("TargetStatus"))
-    {
-        FString JsonString;
-        TSharedRef<TJsonWriter<>> JsonWriter = TJsonWriterFactory<>::Create(&JsonString);
-        FJsonSerializer::Serialize(payload.ToSharedRef(), JsonWriter);
-        UE_LOG(LogRshipExec, Log, TEXT("SetItem [%s]: %s"), *itemType, *JsonString);
-    }
+    // Log entity sends at Verbose level to avoid noise - use NeedsXxxUpdate logs for dedup status
+    UE_LOG(LogRshipExec, Verbose, TEXT("SetItem [%s]"), *itemType);
 
     // Determine message type for coalescing
     ERshipMessageType Type = ERshipMessageType::Registration;
@@ -2506,11 +2523,15 @@ void URshipSubsystem::SendQuery(
     TSharedRef<TJsonWriter<>> JsonWriter = TJsonWriterFactory<>::Create(&JsonString);
     FJsonSerializer::Serialize(QueryMessage.ToSharedRef(), JsonWriter);
 
-    UE_LOG(LogRshipExec, Log, TEXT("SendQuery: %s (%s) tx=%s"), *QueryId, *QueryItemType, *Tx);
+    UE_LOG(LogRshipExec, Log, TEXT("SendQuery: %s (%s) tx=%s params=%s"), *QueryId, *QueryItemType, *Tx, *JsonString);
 
-    if (WebSocket.IsValid())
+    if (WebSocket.IsValid() && WebSocket->IsConnected())
     {
         WebSocket->Send(JsonString);
+    }
+    else
+    {
+        UE_LOG(LogRshipExec, Warning, TEXT("SendQuery: WebSocket not connected, query not sent"));
     }
 }
 
@@ -2542,11 +2563,15 @@ void URshipSubsystem::ProcessQueryResponse(TSharedPtr<FJsonObject> ResponseData)
     UE_LOG(LogRshipExec, Log, TEXT("ProcessQueryResponse: tx=%s seq=%d query=%s"),
         *Tx, Sequence, *Pending->QueryId);
 
-    // Get upserts array
+    // Get upserts array (new or changed entities)
     const TArray<TSharedPtr<FJsonValue>>* Upserts = nullptr;
     ResponseData->TryGetArrayField(TEXT("upserts"), Upserts);
 
-    // Call the callback with the upserts
+    // Get deletes array (removed entities) - for delta updates
+    const TArray<TSharedPtr<FJsonValue>>* Deletes = nullptr;
+    ResponseData->TryGetArrayField(TEXT("deletes"), Deletes);
+
+    // Process upserts - call the callback for initial sync or delta updates
     if (Pending->OnComplete)
     {
         TArray<TSharedPtr<FJsonValue>> Items;
@@ -2557,122 +2582,186 @@ void URshipSubsystem::ProcessQueryResponse(TSharedPtr<FJsonObject> ResponseData)
         Pending->OnComplete(Items);
     }
 
-    // For sync queries, we only need the first response (sequence 0)
-    // Remove from pending to avoid processing follow-up deltas
-    if (Sequence == 0)
+    // Process deletes - remove from cache (delta updates only, sequence > 0)
+    if (Deletes && Sequence > 0)
     {
-        // Send cancel to stop further updates
-        TSharedPtr<FJsonObject> CancelMessage = MakeQueryCancel(Tx);
-        FString CancelJson;
-        TSharedRef<TJsonWriter<>> JsonWriter = TJsonWriterFactory<>::Create(&CancelJson);
-        FJsonSerializer::Serialize(CancelMessage.ToSharedRef(), JsonWriter);
-
-        if (WebSocket.IsValid())
+        for (const TSharedPtr<FJsonValue>& DeleteValue : *Deletes)
         {
-            WebSocket->Send(CancelJson);
+            FString DeletedId = DeleteValue->AsString();
+            if (!DeletedId.IsEmpty())
+            {
+                // Remove from appropriate cache based on query type
+                if (Pending->QueryItemType == TEXT("Target"))
+                {
+                    ServerTargetHashes.Remove(DeletedId);
+                    UE_LOG(LogRshipExec, Verbose, TEXT("ProcessQueryResponse: Removed target %s from cache"), *DeletedId);
+                }
+                else if (Pending->QueryItemType == TEXT("Action"))
+                {
+                    ServerActionHashes.Remove(DeletedId);
+                    UE_LOG(LogRshipExec, Verbose, TEXT("ProcessQueryResponse: Removed action %s from cache"), *DeletedId);
+                }
+                else if (Pending->QueryItemType == TEXT("Emitter"))
+                {
+                    ServerEmitterHashes.Remove(DeletedId);
+                    UE_LOG(LogRshipExec, Verbose, TEXT("ProcessQueryResponse: Removed emitter %s from cache"), *DeletedId);
+                }
+            }
         }
-
-        PendingQueries.Remove(Tx);
     }
+
+    // Keep query subscription live for delta updates (don't cancel)
+    // The query will be cancelled when we disconnect or explicitly cancel
 }
 
 void URshipSubsystem::SyncEntityCacheFromServer()
 {
     UE_LOG(LogRshipExec, Log, TEXT("SyncEntityCacheFromServer: Starting cache sync for serviceId=%s"), *ServiceId);
 
-    // Clear existing cache
+    // Clear existing cache and pending queries
     ServerTargetHashes.Empty();
     ServerActionHashes.Empty();
     ServerEmitterHashes.Empty();
+    PendingQueries.Empty();  // Cancel any existing subscriptions before starting new ones
     bEntityCacheSynced = false;
 
-    // Track how many queries are pending using shared pointer (must survive async callbacks)
+    // Track initial sync completion using shared pointers (must survive async callbacks)
+    // PendingCount tracks how many queries still need their initial response (sequence 0)
+    // InitialSyncFlags track whether each query has received its first response
     TSharedPtr<int32> PendingCount = MakeShareable(new int32(3));
+    TSharedPtr<bool> TargetSyncComplete = MakeShareable(new bool(false));
+    TSharedPtr<bool> ActionSyncComplete = MakeShareable(new bool(false));
+    TSharedPtr<bool> EmitterSyncComplete = MakeShareable(new bool(false));
 
-    // Query targets
+    // Query targets - callback handles both initial sync and live delta updates
     SendQuery(FGetTargetsByServiceId(ServiceId),
-        [this, PendingCount](const TArray<TSharedPtr<FJsonValue>>& Items)
+        [this, PendingCount, TargetSyncComplete](const TArray<TSharedPtr<FJsonValue>>& Items)
         {
+            bool bIsInitialSync = !(*TargetSyncComplete);
+            UE_LOG(LogRshipExec, Log, TEXT("Target query response: %d items (initial=%d)"), Items.Num(), bIsInitialSync ? 1 : 0);
+
+            // Update cache with upserts (works for both initial sync and deltas)
+            // Query response structure: { item: { id, hash, ... }, itemType: "Target" }
             for (const TSharedPtr<FJsonValue>& ItemValue : Items)
             {
-                TSharedPtr<FJsonObject> Item = ItemValue->AsObject();
-                if (Item.IsValid())
+                TSharedPtr<FJsonObject> Wrapper = ItemValue->AsObject();
+                if (Wrapper.IsValid())
                 {
-                    FString Id = Item->GetStringField(TEXT("id"));
-                    FString Hash = Item->GetStringField(TEXT("hash"));
-                    if (!Id.IsEmpty())
+                    // Extract the actual item from the wrapper
+                    TSharedPtr<FJsonObject> Item = Wrapper->GetObjectField(TEXT("item"));
+                    if (Item.IsValid())
                     {
-                        ServerTargetHashes.Add(Id, Hash);
+                        FString Id = Item->GetStringField(TEXT("id"));
+                        FString Hash = Item->GetStringField(TEXT("hash"));
+                        if (!Id.IsEmpty())
+                        {
+                            ServerTargetHashes.Add(Id, Hash);
+                            UE_LOG(LogRshipExec, Log, TEXT("  Cache: Target %s = %s"), *Id, *Hash);
+                        }
                     }
                 }
             }
 
-            // Check if all queries complete
-            (*PendingCount)--;
-            if (*PendingCount == 0)
+            // Only decrement PendingCount on first response (initial sync)
+            if (bIsInitialSync)
             {
-                bEntityCacheSynced = true;
-                UE_LOG(LogRshipExec, Log, TEXT("SyncEntityCacheFromServer: Cache synced - Targets=%d, Actions=%d, Emitters=%d"),
-                    ServerTargetHashes.Num(), ServerActionHashes.Num(), ServerEmitterHashes.Num());
-                SendAll();
+                *TargetSyncComplete = true;
+                (*PendingCount)--;
+                if (*PendingCount == 0)
+                {
+                    bEntityCacheSynced = true;
+                    UE_LOG(LogRshipExec, Log, TEXT("=== CACHE SYNC COMPLETE === Targets=%d, Actions=%d, Emitters=%d"),
+                        ServerTargetHashes.Num(), ServerActionHashes.Num(), ServerEmitterHashes.Num());
+                    SendAll();
+                }
             }
         });
 
-    // Query actions
+    // Query actions - callback handles both initial sync and live delta updates
     SendQuery(*FGetActionsByQuery::ByServiceId(ServiceId),
-        [this, PendingCount](const TArray<TSharedPtr<FJsonValue>>& Items)
+        [this, PendingCount, ActionSyncComplete](const TArray<TSharedPtr<FJsonValue>>& Items)
         {
+            bool bIsInitialSync = !(*ActionSyncComplete);
+            UE_LOG(LogRshipExec, Log, TEXT("Action query response: %d items (initial=%d)"), Items.Num(), bIsInitialSync ? 1 : 0);
+
+            // Update cache with upserts (works for both initial sync and deltas)
+            // Query response structure: { item: { id, hash, ... }, itemType: "Action" }
             for (const TSharedPtr<FJsonValue>& ItemValue : Items)
             {
-                TSharedPtr<FJsonObject> Item = ItemValue->AsObject();
-                if (Item.IsValid())
+                TSharedPtr<FJsonObject> Wrapper = ItemValue->AsObject();
+                if (Wrapper.IsValid())
                 {
-                    FString Id = Item->GetStringField(TEXT("id"));
-                    FString Hash = Item->GetStringField(TEXT("hash"));
-                    if (!Id.IsEmpty())
+                    // Extract the actual item from the wrapper
+                    TSharedPtr<FJsonObject> Item = Wrapper->GetObjectField(TEXT("item"));
+                    if (Item.IsValid())
                     {
-                        ServerActionHashes.Add(Id, Hash);
+                        FString Id = Item->GetStringField(TEXT("id"));
+                        FString Hash = Item->GetStringField(TEXT("hash"));
+                        if (!Id.IsEmpty())
+                        {
+                            ServerActionHashes.Add(Id, Hash);
+                            UE_LOG(LogRshipExec, Verbose, TEXT("  Cache: Action %s = %s"), *Id, *Hash);
+                        }
                     }
                 }
             }
 
-            // Check if all queries complete
-            (*PendingCount)--;
-            if (*PendingCount == 0)
+            // Only decrement PendingCount on first response (initial sync)
+            if (bIsInitialSync)
             {
-                bEntityCacheSynced = true;
-                UE_LOG(LogRshipExec, Log, TEXT("SyncEntityCacheFromServer: Cache synced - Targets=%d, Actions=%d, Emitters=%d"),
-                    ServerTargetHashes.Num(), ServerActionHashes.Num(), ServerEmitterHashes.Num());
-                SendAll();
+                *ActionSyncComplete = true;
+                (*PendingCount)--;
+                if (*PendingCount == 0)
+                {
+                    bEntityCacheSynced = true;
+                    UE_LOG(LogRshipExec, Log, TEXT("=== CACHE SYNC COMPLETE === Targets=%d, Actions=%d, Emitters=%d"),
+                        ServerTargetHashes.Num(), ServerActionHashes.Num(), ServerEmitterHashes.Num());
+                    SendAll();
+                }
             }
         });
 
-    // Query emitters
+    // Query emitters - callback handles both initial sync and live delta updates
     SendQuery(*FGetEmittersByQuery::ByServiceId(ServiceId),
-        [this, PendingCount](const TArray<TSharedPtr<FJsonValue>>& Items)
+        [this, PendingCount, EmitterSyncComplete](const TArray<TSharedPtr<FJsonValue>>& Items)
         {
+            bool bIsInitialSync = !(*EmitterSyncComplete);
+            UE_LOG(LogRshipExec, Log, TEXT("Emitter query response: %d items (initial=%d)"), Items.Num(), bIsInitialSync ? 1 : 0);
+
+            // Update cache with upserts (works for both initial sync and deltas)
+            // Query response structure: { item: { id, hash, ... }, itemType: "Emitter" }
             for (const TSharedPtr<FJsonValue>& ItemValue : Items)
             {
-                TSharedPtr<FJsonObject> Item = ItemValue->AsObject();
-                if (Item.IsValid())
+                TSharedPtr<FJsonObject> Wrapper = ItemValue->AsObject();
+                if (Wrapper.IsValid())
                 {
-                    FString Id = Item->GetStringField(TEXT("id"));
-                    FString Hash = Item->GetStringField(TEXT("hash"));
-                    if (!Id.IsEmpty())
+                    // Extract the actual item from the wrapper
+                    TSharedPtr<FJsonObject> Item = Wrapper->GetObjectField(TEXT("item"));
+                    if (Item.IsValid())
                     {
-                        ServerEmitterHashes.Add(Id, Hash);
+                        FString Id = Item->GetStringField(TEXT("id"));
+                        FString Hash = Item->GetStringField(TEXT("hash"));
+                        if (!Id.IsEmpty())
+                        {
+                            ServerEmitterHashes.Add(Id, Hash);
+                            UE_LOG(LogRshipExec, Verbose, TEXT("  Cache: Emitter %s = %s"), *Id, *Hash);
+                        }
                     }
                 }
             }
 
-            // Check if all queries complete
-            (*PendingCount)--;
-            if (*PendingCount == 0)
+            // Only decrement PendingCount on first response (initial sync)
+            if (bIsInitialSync)
             {
-                bEntityCacheSynced = true;
-                UE_LOG(LogRshipExec, Log, TEXT("SyncEntityCacheFromServer: Cache synced - Targets=%d, Actions=%d, Emitters=%d"),
-                    ServerTargetHashes.Num(), ServerActionHashes.Num(), ServerEmitterHashes.Num());
-                SendAll();
+                *EmitterSyncComplete = true;
+                (*PendingCount)--;
+                if (*PendingCount == 0)
+                {
+                    bEntityCacheSynced = true;
+                    UE_LOG(LogRshipExec, Log, TEXT("=== CACHE SYNC COMPLETE === Targets=%d, Actions=%d, Emitters=%d"),
+                        ServerTargetHashes.Num(), ServerActionHashes.Num(), ServerEmitterHashes.Num());
+                    SendAll();
+                }
             }
         });
 }
@@ -2681,28 +2770,64 @@ bool URshipSubsystem::NeedsTargetUpdate(const FString& TargetId, const FString& 
 {
     if (!bEntityCacheSynced)
     {
+        UE_LOG(LogRshipExec, Warning, TEXT("NeedsTargetUpdate(%s): cache not synced, will send"), *TargetId);
         return true;
     }
     const FString* ServerHash = ServerTargetHashes.Find(TargetId);
-    return !ServerHash || *ServerHash != Hash;
+    if (!ServerHash)
+    {
+        UE_LOG(LogRshipExec, Log, TEXT("NeedsTargetUpdate(%s): not in cache, will send (local=%s)"), *TargetId, *Hash);
+        return true;
+    }
+    if (*ServerHash != Hash)
+    {
+        UE_LOG(LogRshipExec, Log, TEXT("NeedsTargetUpdate(%s): hash mismatch, will send (local=%s, server=%s)"), *TargetId, *Hash, **ServerHash);
+        return true;
+    }
+    UE_LOG(LogRshipExec, Log, TEXT("NeedsTargetUpdate(%s): hash match, SKIPPING (hash=%s)"), *TargetId, *Hash);
+    return false;
 }
 
 bool URshipSubsystem::NeedsActionUpdate(const FString& ActionId, const FString& Hash) const
 {
     if (!bEntityCacheSynced)
     {
+        UE_LOG(LogRshipExec, Warning, TEXT("NeedsActionUpdate(%s): cache not synced, will send"), *ActionId);
         return true;
     }
     const FString* ServerHash = ServerActionHashes.Find(ActionId);
-    return !ServerHash || *ServerHash != Hash;
+    if (!ServerHash)
+    {
+        UE_LOG(LogRshipExec, Log, TEXT("NeedsActionUpdate(%s): not in cache, will send (local=%s)"), *ActionId, *Hash);
+        return true;
+    }
+    if (*ServerHash != Hash)
+    {
+        UE_LOG(LogRshipExec, Log, TEXT("NeedsActionUpdate(%s): hash mismatch, will send (local=%s, server=%s)"), *ActionId, *Hash, **ServerHash);
+        return true;
+    }
+    UE_LOG(LogRshipExec, Log, TEXT("NeedsActionUpdate(%s): hash match, SKIPPING (hash=%s)"), *ActionId, *Hash);
+    return false;
 }
 
 bool URshipSubsystem::NeedsEmitterUpdate(const FString& EmitterId, const FString& Hash) const
 {
     if (!bEntityCacheSynced)
     {
+        UE_LOG(LogRshipExec, Warning, TEXT("NeedsEmitterUpdate(%s): cache not synced, will send"), *EmitterId);
         return true;
     }
     const FString* ServerHash = ServerEmitterHashes.Find(EmitterId);
-    return !ServerHash || *ServerHash != Hash;
+    if (!ServerHash)
+    {
+        UE_LOG(LogRshipExec, Log, TEXT("NeedsEmitterUpdate(%s): not in cache, will send (local=%s)"), *EmitterId, *Hash);
+        return true;
+    }
+    if (*ServerHash != Hash)
+    {
+        UE_LOG(LogRshipExec, Log, TEXT("NeedsEmitterUpdate(%s): hash mismatch, will send (local=%s, server=%s)"), *EmitterId, *Hash, **ServerHash);
+        return true;
+    }
+    UE_LOG(LogRshipExec, Log, TEXT("NeedsEmitterUpdate(%s): hash match, SKIPPING (hash=%s)"), *EmitterId, *Hash);
+    return false;
 }

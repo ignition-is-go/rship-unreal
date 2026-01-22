@@ -556,6 +556,26 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
     void ResetRateLimiterStats();
 
+    // ========================================================================
+    // ENTITY CACHE STATUS (for diagnostics)
+    // ========================================================================
+
+    /** Returns true if entity cache has been synced from server */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    bool IsEntityCacheSynced() const { return bEntityCacheSynced; }
+
+    /** Get number of targets in cache */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    int32 GetCachedTargetCount() const { return ServerTargetHashes.Num(); }
+
+    /** Get number of actions in cache */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    int32 GetCachedActionCount() const { return ServerActionHashes.Num(); }
+
+    /** Get number of emitters in cache */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    int32 GetCachedEmitterCount() const { return ServerEmitterHashes.Num(); }
+
     // Legacy compatibility - direct send (use sparingly, bypasses queue)
     void SendJson(TSharedPtr<FJsonObject> Payload);
 };

@@ -465,6 +465,26 @@ TSharedRef<SWidget> SRshipStatusPanel::BuildDiagnosticsSection()
             ]
         ]
 
+        // Cache status row
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 8.0f, 0.0f, 0.0f)
+        [
+            SNew(SHorizontalBox)
+            + SHorizontalBox::Slot()
+            .AutoWidth()
+            [
+                SNew(STextBlock)
+                .Text(LOCTEXT("CacheLabel", "Cache: "))
+            ]
+            + SHorizontalBox::Slot()
+            .FillWidth(1.0f)
+            [
+                SAssignNew(CacheStatusText, STextBlock)
+                .Text(LOCTEXT("CacheDefault", "Not synced"))
+            ]
+        ]
+
         // Backoff status
         + SVerticalBox::Slot()
         .AutoHeight()
@@ -666,6 +686,25 @@ void SRshipStatusPanel::UpdateDiagnostics()
         else
         {
             BackoffText->SetText(FText::GetEmpty());
+        }
+    }
+
+    // Update cache status
+    if (CacheStatusText.IsValid())
+    {
+        if (Subsystem->IsEntityCacheSynced())
+        {
+            CacheStatusText->SetText(FText::Format(
+                LOCTEXT("CacheSyncedFmt", "Synced (T:{0} A:{1} E:{2})"),
+                FText::AsNumber(Subsystem->GetCachedTargetCount()),
+                FText::AsNumber(Subsystem->GetCachedActionCount()),
+                FText::AsNumber(Subsystem->GetCachedEmitterCount())));
+            CacheStatusText->SetColorAndOpacity(FLinearColor(0.0f, 0.8f, 0.0f, 1.0f));
+        }
+        else
+        {
+            CacheStatusText->SetText(LOCTEXT("CacheNotSynced", "Syncing..."));
+            CacheStatusText->SetColorAndOpacity(FLinearColor(0.9f, 0.5f, 0.0f, 1.0f));
         }
     }
 }

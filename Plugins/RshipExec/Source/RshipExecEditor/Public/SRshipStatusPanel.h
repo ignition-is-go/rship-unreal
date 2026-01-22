@@ -96,6 +96,7 @@ private:
     TSharedPtr<STextBlock> ByteRateText;
     TSharedPtr<STextBlock> DroppedText;
     TSharedPtr<STextBlock> BackoffText;
+    TSharedPtr<STextBlock> CacheStatusText;
 
 #if RSHIP_EDITOR_HAS_2110
     // 2110 status text blocks
