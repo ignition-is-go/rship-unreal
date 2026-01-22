@@ -2,7 +2,7 @@
 	"FileVersion": 3,
 	"Version": 1,
 	"VersionName": "1.0",
-	"EngineVersion": "5.6.0",
+	"EngineVersion": "5.7.0",
 	"FriendlyName": "Rship NDI",
 	"Description": "NDI video streaming for CineCamera output - stream camera views to NDI receivers on the network",
 	"Category": "Rocketship",
