@@ -132,3 +132,50 @@ FString ComputeEntityHash(TSharedPtr<FJsonObject> Data)
 
     return Hash;
 }
+
+// ============================================================================
+// Query Class Implementations
+// ============================================================================
+
+TSharedPtr<FJsonObject> FMQuery::MakeMessage(FString& OutTx) const
+{
+    return MakeQuery(GetQueryId(), GetQueryItemType(), ToJson(), OutTx);
+}
+
+// GetTargetsByServiceId - flat structure { serviceId: "xxx" }
+TSharedPtr<FJsonObject> FGetTargetsByServiceId::ToJson() const
+{
+    TSharedPtr<FJsonObject> Params = MakeShareable(new FJsonObject);
+    Params->SetStringField(TEXT("serviceId"), ServiceId);
+    return Params;
+}
+
+// GetActionsByQuery - nested structure { query: { ...partial } }
+TSharedPtr<FJsonObject> FGetActionsByQuery::ToJson() const
+{
+    TSharedPtr<FJsonObject> Params = MakeShareable(new FJsonObject);
+    Params->SetObjectField(TEXT("query"), Query.IsValid() ? Query : MakeShareable(new FJsonObject));
+    return Params;
+}
+
+TSharedPtr<FGetActionsByQuery> FGetActionsByQuery::ByServiceId(const FString& ServiceId)
+{
+    TSharedPtr<FJsonObject> InnerQuery = MakeShareable(new FJsonObject);
+    InnerQuery->SetStringField(TEXT("serviceId"), ServiceId);
+    return MakeShareable(new FGetActionsByQuery(InnerQuery));
+}
+
+// GetEmittersByQuery - nested structure { query: { ...partial } }
+TSharedPtr<FJsonObject> FGetEmittersByQuery::ToJson() const
+{
+    TSharedPtr<FJsonObject> Params = MakeShareable(new FJsonObject);
+    Params->SetObjectField(TEXT("query"), Query.IsValid() ? Query : MakeShareable(new FJsonObject));
+    return Params;
+}
+
+TSharedPtr<FGetEmittersByQuery> FGetEmittersByQuery::ByServiceId(const FString& ServiceId)
+{
+    TSharedPtr<FJsonObject> InnerQuery = MakeShareable(new FJsonObject);
+    InnerQuery->SetStringField(TEXT("serviceId"), ServiceId);
+    return MakeShareable(new FGetEmittersByQuery(InnerQuery));
+}

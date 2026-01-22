@@ -987,135 +987,6 @@ void URshipSubsystem::ProcessMessage(const FString &message)
         }
         obj.Reset();
     }
-    else if (type == "ws:m:event")
-    {
-        // Entity event - route to appropriate manager
-        // Myko protocol: { event: "ws:m:event", data: { changeType: "SET"|"DEL", itemType, item, tx, createdAt } }
-        TSharedPtr<FJsonObject> data = obj->GetObjectField(TEXT("data"));
-
-        if (!data.IsValid())
-        {
-            return;
-        }
-
-        FString changeType = data->GetStringField(TEXT("changeType"));
-        bool bIsDelete = (changeType == TEXT("DEL"));
-
-        FString itemType = data->GetStringField(TEXT("itemType"));
-        TSharedPtr<FJsonObject> item = data->GetObjectField(TEXT("item"));
-
-        if (!item.IsValid())
-        {
-            return;
-        }
-
-        UE_LOG(LogRshipExec, Log, TEXT("Entity event: %s %s"), *changeType, *itemType);
-
-        // Route to fixture manager
-        if (itemType == TEXT("Fixture"))
-        {
-            if (FixtureManager)
-            {
-                FixtureManager->ProcessFixtureEvent(item, bIsDelete);
-            }
-        }
-        else if (itemType == TEXT("FixtureType"))
-        {
-            if (FixtureManager)
-            {
-                FixtureManager->ProcessFixtureTypeEvent(item, bIsDelete);
-            }
-        }
-        else if (itemType == TEXT("FixtureCalibration"))
-        {
-            if (FixtureManager)
-            {
-                FixtureManager->ProcessCalibrationEvent(item, bIsDelete);
-            }
-        }
-        // Route to camera manager
-        else if (itemType == TEXT("Camera"))
-        {
-            if (CameraManager)
-            {
-                CameraManager->ProcessCameraEvent(item, bIsDelete);
-            }
-        }
-        else if (itemType == TEXT("Calibration"))
-        {
-            // OpenCV camera calibration result
-            if (CameraManager)
-            {
-                CameraManager->ProcessCalibrationEvent(item, bIsDelete);
-            }
-        }
-        else if (itemType == TEXT("ColorProfile"))
-        {
-            if (CameraManager)
-            {
-                CameraManager->ProcessColorProfileEvent(item, bIsDelete);
-            }
-        }
-        // Route pulses to pulse receiver
-        else if (itemType == TEXT("Pulse") && !bIsDelete)
-        {
-            if (PulseReceiver)
-            {
-                // Extract emitterId and data from the pulse
-                FString EmitterId = item->GetStringField(TEXT("emitterId"));
-                TSharedPtr<FJsonObject> PulseData = item->GetObjectField(TEXT("data"));
-
-                if (!EmitterId.IsEmpty() && PulseData.IsValid())
-                {
-                    PulseReceiver->ProcessPulseEvent(EmitterId, PulseData);
-                }
-            }
-        }
-        // Route timecode events
-        else if (itemType == TEXT("Timecode") && !bIsDelete)
-        {
-            if (TimecodeSync)
-            {
-                TimecodeSync->ProcessTimecodeEvent(item);
-            }
-        }
-        // Route event track events
-        else if (itemType == TEXT("EventTrack"))
-        {
-            if (TimecodeSync && !bIsDelete)
-            {
-                TimecodeSync->ProcessEventTrackEvent(item);
-            }
-        }
-        // Route fixture profile events to library
-        else if (itemType == TEXT("FixtureProfile"))
-        {
-            if (FixtureLibrary)
-            {
-                FixtureLibrary->ProcessProfileEvent(item, bIsDelete);
-            }
-        }
-        // Route camera switch commands
-        else if (itemType == TEXT("CameraSwitch") && !bIsDelete)
-        {
-            if (MultiCameraManager)
-            {
-                MultiCameraManager->ProcessCameraSwitchCommand(item);
-            }
-        }
-        // Route camera view events
-        else if (itemType == TEXT("CameraView"))
-        {
-            if (MultiCameraManager && !bIsDelete)
-            {
-                // Sync camera views from rship
-                FRshipCameraView View;
-                View.Id = item->GetStringField(TEXT("id"));
-                View.Name = item->GetStringField(TEXT("name"));
-                MultiCameraManager->AddView(View);
-            }
-        }
-    }
     else if (type == MQUERY_RESPONSE_EVENT)
     {
         // Query response - route to callback
@@ -2643,6 +2514,13 @@ void URshipSubsystem::SendQuery(
     }
 }
 
+void URshipSubsystem::SendQuery(
+    const FMQuery& Query,
+    TFunction<void(const TArray<TSharedPtr<FJsonValue>>&)> OnComplete)
+{
+    SendQuery(Query.GetQueryId(), Query.GetQueryItemType(), Query.ToJson(), OnComplete);
+}
+
 void URshipSubsystem::ProcessQueryResponse(TSharedPtr<FJsonObject> ResponseData)
 {
     if (!ResponseData.IsValid())
@@ -2712,10 +2590,7 @@ void URshipSubsystem::SyncEntityCacheFromServer()
     TSharedPtr<int32> PendingCount = MakeShareable(new int32(3));
 
     // Query targets
-    TSharedPtr<FJsonObject> TargetParams = MakeShareable(new FJsonObject);
-    TargetParams->SetStringField(TEXT("serviceId"), ServiceId);
-
-    SendQuery(TEXT("GetTargetsByServiceId"), TEXT("Target"), TargetParams,
+    SendQuery(FGetTargetsByServiceId(ServiceId),
         [this, PendingCount](const TArray<TSharedPtr<FJsonValue>>& Items)
         {
             for (const TSharedPtr<FJsonValue>& ItemValue : Items)
@@ -2744,10 +2619,7 @@ void URshipSubsystem::SyncEntityCacheFromServer()
         });
 
     // Query actions
-    TSharedPtr<FJsonObject> ActionParams = MakeShareable(new FJsonObject);
-    ActionParams->SetStringField(TEXT("serviceId"), ServiceId);
-
-    SendQuery(TEXT("GetActionsByQuery"), TEXT("Action"), ActionParams,
+    SendQuery(*FGetActionsByQuery::ByServiceId(ServiceId),
         [this, PendingCount](const TArray<TSharedPtr<FJsonValue>>& Items)
         {
             for (const TSharedPtr<FJsonValue>& ItemValue : Items)
@@ -2776,10 +2648,7 @@ void URshipSubsystem::SyncEntityCacheFromServer()
         });
 
     // Query emitters
-    TSharedPtr<FJsonObject> EmitterParams = MakeShareable(new FJsonObject);
-    EmitterParams->SetStringField(TEXT("serviceId"), ServiceId);
-
-    SendQuery(TEXT("GetEmittersByQuery"), TEXT("Emitter"), EmitterParams,
+    SendQuery(*FGetEmittersByQuery::ByServiceId(ServiceId),
         [this, PendingCount](const TArray<TSharedPtr<FJsonValue>>& Items)
         {
             for (const TSharedPtr<FJsonValue>& ItemValue : Items)

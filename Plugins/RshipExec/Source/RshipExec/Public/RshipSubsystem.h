@@ -48,6 +48,7 @@ class URshipSpatialAudioManager;
 #include "Target.h"
 #include "RshipRateLimiter.h"
 #include "RshipWebSocket.h"
+#include "Myko.h"
 #include "RshipSubsystem.generated.h"
 
 
@@ -127,6 +128,10 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     // Send a query and register callback for response
     void SendQuery(const FString& QueryId, const FString& QueryItemType,
                    TSharedPtr<FJsonObject> QueryParams,
+                   TFunction<void(const TArray<TSharedPtr<FJsonValue>>&)> OnComplete);
+
+    // Send a query using FMQuery subclass (type-safe query construction)
+    void SendQuery(const FMQuery& Query,
                    TFunction<void(const TArray<TSharedPtr<FJsonValue>>&)> OnComplete);
 
     // Check if entity needs update (returns true if new or changed)
