@@ -99,6 +99,41 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     // Rate limiter for outbound messages
     TUniquePtr<FRshipRateLimiter> RateLimiter;
 
+    // ========================================================================
+    // ENTITY CACHE - for smart registration (skip unchanged entities)
+    // ========================================================================
+
+    // Server entity hashes - used to detect unchanged entities on reconnect
+    TMap<FString, FString> ServerTargetHashes;   // TargetId -> Hash
+    TMap<FString, FString> ServerActionHashes;   // ActionId -> Hash
+    TMap<FString, FString> ServerEmitterHashes;  // EmitterId -> Hash
+    bool bEntityCacheSynced = false;  // True after successful sync from server
+
+    // Pending query tracking - for matching responses to requests
+    struct FPendingQuery
+    {
+        FString QueryId;
+        FString QueryItemType;
+        TFunction<void(const TArray<TSharedPtr<FJsonValue>>&)> OnComplete;
+    };
+    TMap<FString, FPendingQuery> PendingQueries;  // Tx -> Query info
+
+    // Sync entity cache from server on connect (queries existing entities)
+    void SyncEntityCacheFromServer();
+
+    // Handle query response messages
+    void ProcessQueryResponse(TSharedPtr<FJsonObject> ResponseData);
+
+    // Send a query and register callback for response
+    void SendQuery(const FString& QueryId, const FString& QueryItemType,
+                   TSharedPtr<FJsonObject> QueryParams,
+                   TFunction<void(const TArray<TSharedPtr<FJsonValue>>&)> OnComplete);
+
+    // Check if entity needs update (returns true if new or changed)
+    bool NeedsTargetUpdate(const FString& TargetId, const FString& Hash) const;
+    bool NeedsActionUpdate(const FString& ActionId, const FString& Hash) const;
+    bool NeedsEmitterUpdate(const FString& EmitterId, const FString& Hash) const;
+
     // Group manager for target organization (lazy initialized)
     UPROPERTY()
     URshipTargetGroupManager* GroupManager;
