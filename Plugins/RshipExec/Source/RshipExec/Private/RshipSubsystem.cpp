@@ -24,6 +24,7 @@
 #include "Myko.h"
 #include "EmitterHandler.h"
 #include "Logs.h"
+#include "RshipMsgPack.h"
 
 #if WITH_EDITOR
 #include "Editor.h"
@@ -262,6 +263,7 @@ void URshipSubsystem::Reconnect()
     WebSocket->OnConnectionError.BindUObject(this, &URshipSubsystem::OnWebSocketConnectionError);
     WebSocket->OnClosed.BindUObject(this, &URshipSubsystem::OnWebSocketClosed);
     WebSocket->OnMessage.BindUObject(this, &URshipSubsystem::OnWebSocketMessage);
+    WebSocket->OnBinaryMessage.BindUObject(this, &URshipSubsystem::OnWebSocketBinaryMessage);
 
     // Configure and connect
     FRshipWebSocketConfig Config;
@@ -346,16 +348,27 @@ void URshipSubsystem::OnWebSocketConnected()
         PingPayload->SetStringField(TEXT("event"), TEXT("ws:m:ping"));
         PingPayload->SetObjectField(TEXT("data"), PingData);
 
-        FString PingJson;
-        TSharedRef<TJsonWriter<>> JsonWriter = TJsonWriterFactory<>::Create(&PingJson);
-        FJsonSerializer::Serialize(PingPayload.ToSharedRef(), JsonWriter);
-
         UE_LOG(LogRshipExec, Verbose, TEXT("Sending diagnostic ping"));
 
         // Send directly to bypass rate limiter for diagnostic
         if (WebSocket.IsValid())
         {
-            WebSocket->Send(PingJson);
+            if (bUseMsgpack)
+            {
+                // Send ping as msgpack - this also establishes msgpack protocol with server
+                TArray<uint8> BinaryData;
+                if (FRshipMsgPack::Encode(PingPayload, BinaryData))
+                {
+                    WebSocket->SendBinary(BinaryData);
+                }
+            }
+            else
+            {
+                FString PingJson;
+                TSharedRef<TJsonWriter<>> JsonWriter = TJsonWriterFactory<>::Create(&PingJson);
+                FJsonSerializer::Serialize(PingPayload.ToSharedRef(), JsonWriter);
+                WebSocket->Send(PingJson);
+            }
         }
     }
 
@@ -442,6 +455,25 @@ void URshipSubsystem::OnWebSocketClosed(int32 StatusCode, const FString &Reason,
 void URshipSubsystem::OnWebSocketMessage(const FString &Message)
 {
     ProcessMessage(Message);
+}
+
+void URshipSubsystem::OnWebSocketBinaryMessage(const TArray<uint8>& Data)
+{
+    // Decode msgpack binary data
+    TSharedPtr<FJsonObject> JsonObject;
+    if (FRshipMsgPack::Decode(Data, JsonObject) && JsonObject.IsValid())
+    {
+        // Convert to JSON string for ProcessMessage (reuses existing logic)
+        FString JsonString;
+        TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&JsonString);
+        FJsonSerializer::Serialize(JsonObject.ToSharedRef(), Writer);
+
+        ProcessMessage(JsonString);
+    }
+    else
+    {
+        UE_LOG(LogRshipExec, Warning, TEXT("Failed to decode msgpack binary message (%d bytes)"), Data.Num());
+    }
 }
 
 void URshipSubsystem::ScheduleReconnect()
@@ -740,6 +772,26 @@ void URshipSubsystem::SendJsonDirect(const FString& JsonString)
     }
 
     UE_LOG(LogRshipExec, Verbose, TEXT("Sending: %s"), *JsonString);
+
+    if (bUseMsgpack)
+    {
+        // Parse JSON string and encode as msgpack binary
+        TSharedPtr<FJsonObject> JsonObject;
+        TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonString);
+
+        if (FJsonSerializer::Deserialize(Reader, JsonObject) && JsonObject.IsValid())
+        {
+            TArray<uint8> BinaryData;
+            if (FRshipMsgPack::Encode(JsonObject, BinaryData))
+            {
+                WebSocket->SendBinary(BinaryData);
+                return;
+            }
+        }
+
+        // Fallback to JSON if msgpack encoding failed
+        UE_LOG(LogRshipExec, Warning, TEXT("Msgpack encoding failed, falling back to JSON"));
+    }
 
     WebSocket->Send(JsonString);
 }
@@ -2527,7 +2579,23 @@ void URshipSubsystem::SendQuery(
 
     if (WebSocket.IsValid() && WebSocket->IsConnected())
     {
-        WebSocket->Send(JsonString);
+        if (bUseMsgpack)
+        {
+            TArray<uint8> BinaryData;
+            if (FRshipMsgPack::Encode(QueryMessage, BinaryData))
+            {
+                WebSocket->SendBinary(BinaryData);
+            }
+            else
+            {
+                UE_LOG(LogRshipExec, Warning, TEXT("SendQuery: Msgpack encoding failed, using JSON fallback"));
+                WebSocket->Send(JsonString);
+            }
+        }
+        else
+        {
+            WebSocket->Send(JsonString);
+        }
     }
     else
     {

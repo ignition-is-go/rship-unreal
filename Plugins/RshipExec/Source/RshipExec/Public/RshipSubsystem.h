@@ -89,6 +89,7 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     TSharedPtr<FRshipWebSocket> WebSocket;
     bool bPingResponseReceived = false;                  // Diagnostic: tracks if ping response came back
     bool bIsManuallyReconnecting = false;                // Prevents auto-reconnect during manual reconnect
+    bool bUseMsgpack = true;                             // Use msgpack binary protocol instead of JSON
 
     FString InstanceId;
     FString ServiceId;
@@ -308,6 +309,7 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     void OnWebSocketConnectionError(const FString& Error);
     void OnWebSocketClosed(int32 StatusCode, const FString& Reason, bool bWasClean);
     void OnWebSocketMessage(const FString& Message);
+    void OnWebSocketBinaryMessage(const TArray<uint8>& Data);
 
     // Rate limiter event handlers
     void OnRateLimiterStatusChanged(bool bIsBackingOff, float BackoffSeconds);
