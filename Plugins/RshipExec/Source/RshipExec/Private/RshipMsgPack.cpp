@@ -8,7 +8,21 @@
 #pragma push_macro("check")
 #undef check
 
-#include <msgpack.hpp>
+// Include only the msgpack headers we need, avoiding the full type.hpp
+// which pulls in adaptor/define.hpp and the incomplete preprocessor headers
+#include "msgpack/object.hpp"
+#include "msgpack/zone.hpp"
+#include "msgpack/pack.hpp"
+#include "msgpack/unpack.hpp"
+#include "msgpack/sbuffer.hpp"
+// Include basic type adaptors we use (but not define.hpp)
+#include "msgpack/adaptor/nil.hpp"
+#include "msgpack/adaptor/bool.hpp"
+#include "msgpack/adaptor/int.hpp"
+#include "msgpack/adaptor/float.hpp"
+#include "msgpack/adaptor/string.hpp"
+#include "msgpack/adaptor/map.hpp"
+#include "msgpack/adaptor/vector.hpp"
 
 #pragma pop_macro("check")
 

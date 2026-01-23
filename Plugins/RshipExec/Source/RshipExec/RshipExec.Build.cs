@@ -44,6 +44,25 @@ public class RshipExec : ModuleRules
 		// Add msgpack-c include path (header-only library)
 		string MsgPackIncludePath = Path.Combine(ModuleDirectory, "ThirdParty", "msgpack-c", "include");
 		PublicIncludePaths.Add(MsgPackIncludePath);
+		// Disable Boost dependency - msgpack-c has standalone mode
+		PublicDefinitions.Add("MSGPACK_NO_BOOST");
+		// Define endianness directly to avoid boost/predef dependency chain
+		// (msgpack-c's bundled predef headers are incomplete, MSGPACK_NO_BOOST alone isn't enough)
+		// All supported UE platforms (Windows, Mac, Linux, iOS, Android on x64/ARM) are little-endian
+		if (Target.Platform == UnrealTargetPlatform.Win64 ||
+			Target.Platform == UnrealTargetPlatform.Mac ||
+			Target.Platform == UnrealTargetPlatform.Linux ||
+			Target.Platform == UnrealTargetPlatform.IOS ||
+			Target.Platform == UnrealTargetPlatform.Android)
+		{
+			PublicDefinitions.Add("MSGPACK_ENDIAN_LITTLE_BYTE=1");
+			PublicDefinitions.Add("MSGPACK_ENDIAN_BIG_BYTE=0");
+		}
+		else
+		{
+			// Unknown platform - let msgpack try to detect (may fail if boost not available)
+			System.Console.WriteLine("RshipExec: WARNING - Unknown platform endianness, msgpack may fail to compile");
+		}
 		System.Console.WriteLine("RshipExec: msgpack-c headers added from " + MsgPackIncludePath);
 
 		// Add IXWebSocket includes if available
