@@ -81,6 +81,7 @@ void FRshipWebSocket::Close(int32 Code, const FString& Reason)
     OnConnectionError.Unbind();
     OnClosed.Unbind();
     OnMessage.Unbind();
+    OnBinaryMessage.Unbind();
     OnMessageSent.Unbind();
 
 #if RSHIP_USE_IXWEBSOCKET
@@ -294,13 +295,29 @@ void FRshipWebSocket::SetupIXWebSocket(const FRshipWebSocketConfig& Config)
 
         case ix::WebSocketMessageType::Message:
             {
-                FString Message = UTF8_TO_TCHAR(msg->str.c_str());
-                UE_LOG(LogRshipExec, Log, TEXT("RshipWebSocket: Received message (%d bytes)"), Message.Len());
-
-                AsyncTask(ENamedThreads::GameThread, [this, Message]()
+                if (msg->binary)
                 {
-                    OnMessage.ExecuteIfBound(Message);
-                });
+                    // Binary message (msgpack)
+                    TArray<uint8> BinaryData;
+                    BinaryData.Append(reinterpret_cast<const uint8*>(msg->str.data()), msg->str.size());
+                    UE_LOG(LogRshipExec, Verbose, TEXT("RshipWebSocket: Received binary message (%d bytes)"), BinaryData.Num());
+
+                    AsyncTask(ENamedThreads::GameThread, [this, BinaryData = MoveTemp(BinaryData)]()
+                    {
+                        OnBinaryMessage.ExecuteIfBound(BinaryData);
+                    });
+                }
+                else
+                {
+                    // Text message (JSON)
+                    FString Message = UTF8_TO_TCHAR(msg->str.c_str());
+                    UE_LOG(LogRshipExec, Verbose, TEXT("RshipWebSocket: Received text message (%d bytes)"), Message.Len());
+
+                    AsyncTask(ENamedThreads::GameThread, [this, Message]()
+                    {
+                        OnMessage.ExecuteIfBound(Message);
+                    });
+                }
             }
             break;
 
