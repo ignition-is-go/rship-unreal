@@ -41,6 +41,11 @@ public class RshipExec : ModuleRules
 			PublicDefinitions.Add("RSHIP_USE_IXWEBSOCKET=0");
 		}
 
+		// Add msgpack-c include path (header-only library)
+		string MsgPackIncludePath = Path.Combine(ModuleDirectory, "ThirdParty", "msgpack-c", "include");
+		PublicIncludePaths.Add(MsgPackIncludePath);
+		System.Console.WriteLine("RshipExec: msgpack-c headers added from " + MsgPackIncludePath);
+
 		// Add IXWebSocket includes if available
 		if (bUseIXWebSocket)
 		{
