@@ -21,7 +21,6 @@
 #include "SlateOptMacros.h"
 #include "Engine/Texture2D.h"
 #include "Engine/TextureRenderTarget2D.h"
-#include "Brushes/SlateDynamicImageBrush.h"
 #include "EngineUtils.h"
 #include "RshipContentMappingPreviewActor.h"
 #include "Editor.h"
@@ -110,7 +109,7 @@ void SRshipContentMappingPanel::Construct(const FArguments& InArgs)
 						.Padding(2.0f)
 						[
 							SAssignNew(PreviewImage, SImage)
-							.Image(FCoreStyle::GetDefaultBrush())
+							.Image(FAppStyle::GetBrush("WhiteBrush"))
 							.ColorAndOpacity(FLinearColor::White)
 							.DesiredSizeOverride(FVector2D(160, 90))
 						]
@@ -205,11 +204,6 @@ void SRshipContentMappingPanel::Construct(const FArguments& InArgs)
 
 SRshipContentMappingPanel::~SRshipContentMappingPanel()
 {
-	if (ActivePreviewBrush)
-	{
-		delete ActivePreviewBrush;
-		ActivePreviewBrush = nullptr;
-	}
 }
 
 UWorld* SRshipContentMappingPanel::GetEditorWorld() const
@@ -223,7 +217,7 @@ UWorld* SRshipContentMappingPanel::GetEditorWorld() const
 	return GEngine ? GEngine->GetWorld() : nullptr;
 }
 
-void SRshipContentMappingPanel::UpdatePreviewImage(const UTexture* Texture, const FRshipContentMappingState& Mapping)
+void SRshipContentMappingPanel::UpdatePreviewImage(UTexture* Texture, const FRshipContentMappingState& Mapping)
 {
 	if (!PreviewImage.IsValid())
 	{
@@ -232,7 +226,10 @@ void SRshipContentMappingPanel::UpdatePreviewImage(const UTexture* Texture, cons
 
 	if (!Texture)
 	{
-		PreviewImage->SetImage(FCoreStyle::GetDefaultBrush());
+		PreviewImage->SetImage(FAppStyle::GetBrush("WhiteBrush"));
+		ActivePreviewBrush.SetResourceObject(nullptr);
+		bHasActivePreviewBrush = false;
+		LastPreviewTexture = nullptr;
 		if (PreviewLabel.IsValid())
 		{
 			PreviewLabel->SetText(FText::FromString(FString::Printf(TEXT("No texture available for %s"), *Mapping.Name)));
@@ -241,21 +238,21 @@ void SRshipContentMappingPanel::UpdatePreviewImage(const UTexture* Texture, cons
 		return;
 	}
 
-	if (Texture != LastPreviewTexture)
+	if (Texture != LastPreviewTexture || !bHasActivePreviewBrush)
 	{
 		LastPreviewTexture = Texture;
-		if (ActivePreviewBrush)
-		{
-			delete ActivePreviewBrush;
-			ActivePreviewBrush = nullptr;
-		}
-		FName BrushName = *FString::Printf(TEXT("RshipPreview_%p"), Texture);
-		ActivePreviewBrush = new FSlateDynamicImageBrush(Texture, FVector2D(160, 90), BrushName);
-		PreviewImage->SetImage(ActivePreviewBrush);
+		ActivePreviewBrush = FSlateBrush();
+		ActivePreviewBrush.SetResourceObject(Texture);
+		ActivePreviewBrush.ImageSize = FVector2D(160, 90);
+		ActivePreviewBrush.DrawAs = ESlateBrushDrawType::Image;
+		PreviewImage->SetImage(&ActivePreviewBrush);
+		bHasActivePreviewBrush = true;
 	}
 	if (PreviewLabel.IsValid())
 	{
-		PreviewLabel->SetText(FText::FromString(FString::Printf(TEXT("Previewing %s (%dx%d)"), *Mapping.Name, Texture->GetSurfaceWidth(), Texture->GetSurfaceHeight())));
+		const int32 PreviewWidth = FMath::RoundToInt(Texture->GetSurfaceWidth());
+		const int32 PreviewHeight = FMath::RoundToInt(Texture->GetSurfaceHeight());
+		PreviewLabel->SetText(FText::FromString(FString::Printf(TEXT("Previewing %s (%dx%d)"), *Mapping.Name, PreviewWidth, PreviewHeight)));
 		PreviewLabel->SetColorAndOpacity(FLinearColor::White);
 	}
 
@@ -2302,7 +2299,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 
 								URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
 								const URshipContentMappingManager* Manager = Subsystem ? Subsystem->GetContentMappingManager() : nullptr;
-								const UTexture* Tex = nullptr;
+								UTexture* Tex = nullptr;
 								if (Manager)
 								{
 									const TArray<FRshipRenderContextState> Contexts = Manager->GetRenderContexts();
@@ -2487,7 +2484,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 
 		if (PreviewMapping)
 		{
-			const UTexture* Tex = nullptr;
+			UTexture* Tex = nullptr;
 			for (const FRshipRenderContextState& Ctx : Contexts)
 			{
 				if (Ctx.Id == PreviewMapping->ContextId)

@@ -2005,7 +2005,7 @@ UTexture2D* URshipContentMappingManager::LoadTextureFromFile(const FString& Loca
         return nullptr;
     }
 
-    const TArray<uint8>* RawData = nullptr;
+    TArray<uint8> RawData;
     if (!Wrapper->GetRaw(ERGBFormat::BGRA, 8, RawData))
     {
         return nullptr;
@@ -2018,7 +2018,7 @@ UTexture2D* URshipContentMappingManager::LoadTextureFromFile(const FString& Loca
     }
 
     void* TextureData = Texture->GetPlatformData()->Mips[0].BulkData.Lock(LOCK_READ_WRITE);
-    FMemory::Memcpy(TextureData, RawData->GetData(), RawData->Num());
+    FMemory::Memcpy(TextureData, RawData.GetData(), RawData.Num());
     Texture->GetPlatformData()->Mips[0].BulkData.Unlock();
 
     Texture->SRGB = true;

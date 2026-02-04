@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Styling/SlateBrush.h"
 #include "Widgets/SCompoundWidget.h"
 
 class SVerticalBox;
@@ -110,10 +111,11 @@ private:
 	TSharedPtr<class SBorder> PreviewBorder;
 	TSharedPtr<class SImage> PreviewImage;
 	TSharedPtr<class STextBlock> PreviewLabel;
-	class FSlateDynamicImageBrush* ActivePreviewBrush = nullptr;
-	const class UTexture* LastPreviewTexture = nullptr;
+	FSlateBrush ActivePreviewBrush;
+	bool bHasActivePreviewBrush = false;
+	class UTexture* LastPreviewTexture = nullptr;
 	FString LastPreviewMappingId;
-	void UpdatePreviewImage(const class UTexture* Texture, const struct FRshipContentMappingState& Mapping);
+	void UpdatePreviewImage(class UTexture* Texture, const struct FRshipContentMappingState& Mapping);
 
 	float TimeSinceLastRefresh = 0.0f;
 	float RefreshInterval = 1.0f;
