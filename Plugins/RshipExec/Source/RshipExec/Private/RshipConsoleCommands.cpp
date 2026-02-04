@@ -12,6 +12,7 @@
 #include "RshipSequencerSync.h"
 #include "RshipMaterialBinding.h"
 #include "RshipDMXOutput.h"
+#include "RshipContentMappingManager.h"
 #include "Logs.h"
 #include "HAL/IConsoleManager.h"
 #include "Engine/Engine.h"
@@ -630,6 +631,32 @@ static FAutoConsoleCommand CmdRshipDMXAutoMap(
 );
 
 // ============================================================================
+// CONTENT MAPPING
+// ============================================================================
+
+static FAutoConsoleCommand CmdRshipContentMappingDebug(
+    TEXT("rship.contentmapping.debug"),
+    TEXT("Toggle content mapping debug overlay"),
+    FConsoleCommandDelegate::CreateLambda([]()
+    {
+        if (!GEngine) return;
+        URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+        if (!Subsystem) return;
+
+        URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
+        if (!Manager)
+        {
+            UE_LOG(LogRshipExec, Warning, TEXT("ContentMappingManager not available"));
+            return;
+        }
+
+        const bool bEnabled = !Manager->IsDebugOverlayEnabled();
+        Manager->SetDebugOverlayEnabled(bEnabled);
+        UE_LOG(LogRshipExec, Log, TEXT("Content mapping debug overlay: %s"), bEnabled ? TEXT("ON") : TEXT("OFF"));
+    })
+);
+
+// ============================================================================
 // HELP
 // ============================================================================
 
@@ -674,6 +701,9 @@ static FAutoConsoleCommand CmdRshipHelp(
         UE_LOG(LogRshipExec, Log, TEXT("  rship.dmx.disable    - Disable DMX output"));
         UE_LOG(LogRshipExec, Log, TEXT("  rship.dmx.blackout   - Toggle blackout"));
         UE_LOG(LogRshipExec, Log, TEXT("  rship.dmx.automap    - Auto-map fixtures to DMX"));
+        UE_LOG(LogRshipExec, Log, TEXT(""));
+        UE_LOG(LogRshipExec, Log, TEXT("Content Mapping:"));
+        UE_LOG(LogRshipExec, Log, TEXT("  rship.contentmapping.debug - Toggle content mapping debug overlay"));
         UE_LOG(LogRshipExec, Log, TEXT(""));
         UE_LOG(LogRshipExec, Log, TEXT("Library:"));
         UE_LOG(LogRshipExec, Log, TEXT("  rship.fixtures       - List fixture profiles"));

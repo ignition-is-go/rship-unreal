@@ -179,6 +179,7 @@ public class RshipExec : ModuleRules
 				"Slate",
 				"SlateCore",
 				"Settings",
+				"ImageWrapper",
 			}
 		);
 

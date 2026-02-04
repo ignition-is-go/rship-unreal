@@ -20,6 +20,7 @@
 #include "Engine/World.h"
 #include "Action.h"
 #include "Target.h"
+#include "RshipContentMappingManager.h"
 
 #include "Myko.h"
 #include "EmitterHandler.h"
@@ -65,6 +66,7 @@ void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
     Recorder = nullptr;
     ControlRigManager = nullptr;
     PCGManager = nullptr;
+    ContentMappingManager = nullptr;
     LastTickTime = 0.0;
 
     // Initialize rate limiter
@@ -105,6 +107,11 @@ void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
             1.0f / 60.0f,  // 60Hz tick rate
             true  // Looping
         );
+    }
+
+    if (Settings->bEnableContentMapping)
+    {
+        GetContentMappingManager();
     }
 }
 
@@ -654,6 +661,12 @@ void URshipSubsystem::TickSubsystems()
         PCGManager->Tick(DeltaTime);
     }
 
+    // Tick Content Mapping manager for render contexts and mappings
+    if (ContentMappingManager)
+    {
+        ContentMappingManager->Tick(DeltaTime);
+    }
+
     // Process message queue every tick to ensure messages are sent
     ProcessMessageQueue();
 }
@@ -802,8 +815,20 @@ void URshipSubsystem::ProcessMessage(const FString &message)
 
             bool result = false;
 
+            // Route content mapping targets
+            if (targetId.StartsWith(TEXT("/content-mapping/")))
+            {
+                if (URshipContentMappingManager* MappingManager = GetContentMappingManager())
+                {
+                    result = MappingManager->RouteAction(targetId, actionId, execData);
+                }
+                else
+                {
+                    UE_LOG(LogRshipExec, Warning, TEXT("Content mapping action received but manager not initialized: %s"), *targetId);
+                }
+            }
             // Check if this is a PCG target (paths start with "/pcg/")
-            if (targetId.StartsWith(TEXT("/pcg/")))
+            else if (targetId.StartsWith(TEXT("/pcg/")))
             {
                 if (PCGManager)
                 {
@@ -992,6 +1017,27 @@ void URshipSubsystem::ProcessMessage(const FString &message)
                 View.Id = item->GetStringField(TEXT("id"));
                 View.Name = item->GetStringField(TEXT("name"));
                 MultiCameraManager->AddView(View);
+            }
+        }
+        else if (itemType == TEXT("RenderContext"))
+        {
+            if (URshipContentMappingManager* MappingManager = GetContentMappingManager())
+            {
+                MappingManager->ProcessRenderContextEvent(item, bIsDelete);
+            }
+        }
+        else if (itemType == TEXT("MappingSurface"))
+        {
+            if (URshipContentMappingManager* MappingManager = GetContentMappingManager())
+            {
+                MappingManager->ProcessMappingSurfaceEvent(item, bIsDelete);
+            }
+        }
+        else if (itemType == TEXT("Mapping"))
+        {
+            if (URshipContentMappingManager* MappingManager = GetContentMappingManager())
+            {
+                MappingManager->ProcessMappingEvent(item, bIsDelete);
             }
         }
     }
@@ -1210,6 +1256,13 @@ void URshipSubsystem::Deinitialize()
     {
         PCGManager->Shutdown();
         PCGManager = nullptr;
+    }
+
+    // Shutdown Content Mapping manager
+    if (ContentMappingManager)
+    {
+        ContentMappingManager->Shutdown();
+        ContentMappingManager = nullptr;
     }
 
     // Clear rate limiter
@@ -2232,6 +2285,28 @@ URshipPCGManager* URshipSubsystem::GetPCGManager()
         UE_LOG(LogRshipExec, Log, TEXT("PCGManager initialized"));
     }
     return PCGManager;
+}
+
+// ============================================================================
+// CONTENT MAPPING MANAGER
+// ============================================================================
+
+URshipContentMappingManager* URshipSubsystem::GetContentMappingManager()
+{
+    const URshipSettings* Settings = GetDefault<URshipSettings>();
+    if (Settings && !Settings->bEnableContentMapping)
+    {
+        return nullptr;
+    }
+
+    if (!ContentMappingManager)
+    {
+        ContentMappingManager = NewObject<URshipContentMappingManager>(this);
+        ContentMappingManager->Initialize(this);
+
+        UE_LOG(LogRshipExec, Log, TEXT("ContentMappingManager initialized"));
+    }
+    return ContentMappingManager;
 }
 
 URshipSpatialAudioManager* URshipSubsystem::GetSpatialAudioManager()

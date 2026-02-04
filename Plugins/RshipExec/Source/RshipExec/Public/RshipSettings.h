@@ -184,6 +184,27 @@ public:
     float RateAdjustmentInterval = 1.0f;
 
     // ============================================================================
+    // CONTENT MAPPING SETTINGS
+    // ============================================================================
+
+    UPROPERTY(EditAnywhere, config, Category = "Content Mapping", meta = (DisplayName = "Enable Content Mapping"))
+    bool bEnableContentMapping = true;
+
+    UPROPERTY(EditAnywhere, config, Category = "Content Mapping", meta = (DisplayName = "Asset Store URL"))
+    FString AssetStoreUrl = TEXT("http://localhost:3100");
+
+    UPROPERTY(EditAnywhere, config, Category = "Content Mapping", meta = (DisplayName = "Content Mapping Cache Path",
+        ToolTip = "Optional override for content mapping cache file location."))
+    FString ContentMappingCachePath;
+
+    UPROPERTY(EditAnywhere, config, Category = "Content Mapping", meta = (DisplayName = "Content Mapping Material Path",
+        ToolTip = "Optional override for the content mapping material instance asset path."))
+    FString ContentMappingMaterialPath;
+
+    UPROPERTY(EditAnywhere, config, Category = "Content Mapping", meta = (DisplayName = "Spawn Debug Actors (Editor Only)"))
+    bool bSpawnContentMappingDebugActors = false;
+
+    // ============================================================================
     // BACKOFF SETTINGS
     // Controls reconnection and rate-limit recovery behavior
     // ============================================================================
