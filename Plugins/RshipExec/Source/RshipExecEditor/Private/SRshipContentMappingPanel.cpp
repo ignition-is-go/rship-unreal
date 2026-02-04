@@ -12,10 +12,12 @@
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SEditableTextBox.h"
 #include "Widgets/Input/SCheckBox.h"
+#include "Widgets/Input/SComboButton.h"
 #include "Widgets/Input/SSpinBox.h"
 #include "Widgets/Text/STextBlock.h"
 #include "Widgets/Images/SImage.h"
 #include "Dom/JsonObject.h"
+#include "Framework/MultiBox/MultiBoxBuilder.h"
 #include "Styling/AppStyle.h"
 #include "Engine/Engine.h"
 #include "SlateOptMacros.h"
@@ -24,6 +26,8 @@
 #include "EngineUtils.h"
 #include "RshipContentMappingPreviewActor.h"
 #include "Editor.h"
+#include "RshipTargetComponent.h"
+#include "RshipCameraManager.h"
 
 #define LOCTEXT_NAMESPACE "SRshipContentMappingPanel"
 
@@ -295,6 +299,152 @@ void SRshipContentMappingPanel::UpdatePreviewImage(UTexture* Texture, const FRsh
 		}
 	}
 }
+
+TSharedRef<SWidget> SRshipContentMappingPanel::BuildIdPickerMenu(const TArray<TSharedPtr<FRshipIdOption>>& Options, const FText& EmptyText, TSharedPtr<SEditableTextBox> TargetInput, bool bAppend)
+{
+	FMenuBuilder MenuBuilder(true, nullptr);
+	if (Options.Num() == 0)
+	{
+		MenuBuilder.AddMenuEntry(EmptyText, FText(), FSlateIcon(), FUIAction());
+		return MenuBuilder.MakeWidget();
+	}
+
+	for (const TSharedPtr<FRshipIdOption>& Option : Options)
+	{
+		if (!Option.IsValid())
+		{
+			continue;
+		}
+
+		const FString OptionId = Option->Id;
+		const FString OptionLabel = Option->Label;
+		MenuBuilder.AddMenuEntry(
+			FText::FromString(OptionLabel),
+			FText::FromString(OptionId),
+			FSlateIcon(),
+			FUIAction(FExecuteAction::CreateLambda([TargetInput, OptionId, bAppend]()
+			{
+				if (!TargetInput.IsValid())
+				{
+					return;
+				}
+
+				if (!bAppend)
+				{
+					TargetInput->SetText(FText::FromString(OptionId));
+					return;
+				}
+
+				FString Current = TargetInput->GetText().ToString();
+				TArray<FString> Parts;
+				Current.ParseIntoArray(Parts, TEXT(","), true);
+				for (FString& Part : Parts)
+				{
+					Part = Part.TrimStartAndEnd();
+				}
+				if (!Parts.Contains(OptionId))
+				{
+					Parts.Add(OptionId);
+				}
+				TargetInput->SetText(FText::FromString(FString::Join(Parts, TEXT(","))));
+			}))
+		);
+	}
+
+	return MenuBuilder.MakeWidget();
+}
+
+void SRshipContentMappingPanel::RebuildPickerOptions(const TArray<FRshipRenderContextState>& Contexts, const TArray<FRshipMappingSurfaceState>& Surfaces)
+{
+	TargetOptions.Reset();
+	CameraOptions.Reset();
+	AssetOptions.Reset();
+	ContextOptions.Reset();
+	SurfaceOptions.Reset();
+
+	URshipSubsystem* Subsystem = GEngine ? GEngine->GetEngineSubsystem<URshipSubsystem>() : nullptr;
+
+	if (Subsystem && Subsystem->TargetComponents)
+	{
+		for (auto& Pair : *Subsystem->TargetComponents)
+		{
+			URshipTargetComponent* Component = Pair.Value;
+			if (!Component || !Component->IsValidLowLevel())
+			{
+				continue;
+			}
+
+			const FString TargetId = Component->targetName;
+			const FString DisplayName = Component->GetOwner() ? Component->GetOwner()->GetActorLabel() : TargetId;
+			TSharedPtr<FRshipIdOption> Opt = MakeShared<FRshipIdOption>();
+			Opt->Id = TargetId;
+			Opt->Label = DisplayName.IsEmpty() ? TargetId : FString::Printf(TEXT("%s (%s)"), *DisplayName, *TargetId);
+			TargetOptions.Add(Opt);
+		}
+	}
+
+	if (Subsystem)
+	{
+		if (URshipCameraManager* CamMgr = Subsystem->GetCameraManager())
+		{
+			const TArray<FRshipCameraInfo> Cameras = CamMgr->GetAllCameras();
+			for (const FRshipCameraInfo& Cam : Cameras)
+			{
+				if (Cam.Id.IsEmpty())
+				{
+					continue;
+				}
+				TSharedPtr<FRshipIdOption> Opt = MakeShared<FRshipIdOption>();
+				Opt->Id = Cam.Id;
+				Opt->Label = Cam.Name.IsEmpty() ? Cam.Id : FString::Printf(TEXT("%s (%s)"), *Cam.Name, *Cam.Id);
+				CameraOptions.Add(Opt);
+			}
+		}
+	}
+
+	TSet<FString> AssetIds;
+	for (const FRshipRenderContextState& Ctx : Contexts)
+	{
+		if (!Ctx.Id.IsEmpty())
+		{
+			TSharedPtr<FRshipIdOption> Opt = MakeShared<FRshipIdOption>();
+			Opt->Id = Ctx.Id;
+			Opt->Label = Ctx.Name.IsEmpty() ? Ctx.Id : FString::Printf(TEXT("%s (%s)"), *Ctx.Name, *Ctx.Id);
+			ContextOptions.Add(Opt);
+		}
+		if (!Ctx.AssetId.IsEmpty())
+		{
+			AssetIds.Add(Ctx.AssetId);
+		}
+	}
+
+	for (const FRshipMappingSurfaceState& Surface : Surfaces)
+	{
+		if (Surface.Id.IsEmpty())
+		{
+			continue;
+		}
+		TSharedPtr<FRshipIdOption> Opt = MakeShared<FRshipIdOption>();
+		Opt->Id = Surface.Id;
+		if (Surface.Name.IsEmpty())
+		{
+			Opt->Label = Surface.TargetId.IsEmpty() ? Surface.Id : FString::Printf(TEXT("%s (%s)"), *Surface.TargetId, *Surface.Id);
+		}
+		else
+		{
+			Opt->Label = Surface.TargetId.IsEmpty() ? Surface.Name : FString::Printf(TEXT("%s [%s]"), *Surface.Name, *Surface.TargetId);
+		}
+		SurfaceOptions.Add(Opt);
+	}
+
+	for (const FString& AssetId : AssetIds)
+	{
+		TSharedPtr<FRshipIdOption> Opt = MakeShared<FRshipIdOption>();
+		Opt->Id = AssetId;
+		Opt->Label = AssetId;
+		AssetOptions.Add(Opt);
+	}
+}
 void SRshipContentMappingPanel::Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime)
 {
 	SCompoundWidget::Tick(AllottedGeometry, InCurrentTime, InDeltaTime);
@@ -429,6 +579,25 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildQuickMappingSection()
 						return FText::FromString(QuickSourceType == TEXT("camera") ? TEXT("CameraId") : TEXT("AssetId"));
 					})
 				]
+				+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,6,0)
+				[
+					SNew(SComboButton)
+					.OnGetMenuContent_Lambda([this]()
+					{
+						const bool bIsCamera = QuickSourceType == TEXT("camera");
+						const TArray<TSharedPtr<FRshipIdOption>>& Options = bIsCamera ? CameraOptions : AssetOptions;
+						const FText EmptyText = bIsCamera ? LOCTEXT("QuickNoCameras", "No cameras found") : LOCTEXT("QuickNoAssets", "No assets found");
+						return BuildIdPickerMenu(Options, EmptyText, QuickSourceIdInput, false);
+					})
+					.ButtonContent()
+					[
+						SNew(STextBlock)
+						.Text_Lambda([this]()
+						{
+							return QuickSourceType == TEXT("camera") ? LOCTEXT("QuickPickCamera", "Pick Camera") : LOCTEXT("QuickPickAsset", "Pick Asset");
+						})
+					]
+				]
 				+ SHorizontalBox::Slot().FillWidth(0.6f)
 				[
 					SAssignNew(QuickProjectIdInput, SEditableTextBox)
@@ -446,6 +615,18 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildQuickMappingSection()
 				[
 					SAssignNew(QuickTargetIdInput, SEditableTextBox)
 					.HintText(LOCTEXT("QuickTargetHint", "TargetId"))
+				]
+				+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,6,0)
+				[
+					SNew(SComboButton)
+					.OnGetMenuContent_Lambda([this]()
+					{
+						return BuildIdPickerMenu(TargetOptions, LOCTEXT("QuickNoTargets", "No targets found"), QuickTargetIdInput, false);
+					})
+					.ButtonContent()
+					[
+						SNew(STextBlock).Text(LOCTEXT("QuickPickTarget", "Pick Target"))
+					]
 				]
 				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,4,0)
 				[
@@ -887,6 +1068,18 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildContextForm()
 				[
 					SAssignNew(CtxCameraInput, SEditableTextBox)
 				]
+				+ SHorizontalBox::Slot().AutoWidth().Padding(6,0,0,0)
+				[
+					SNew(SComboButton)
+					.OnGetMenuContent_Lambda([this]()
+					{
+						return BuildIdPickerMenu(CameraOptions, LOCTEXT("CtxNoCameras", "No cameras found"), CtxCameraInput, false);
+					})
+					.ButtonContent()
+					[
+						SNew(STextBlock).Text(LOCTEXT("CtxPickCamera", "Pick"))
+					]
+				]
 			]
 
 			+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
@@ -899,6 +1092,18 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildContextForm()
 				+ SHorizontalBox::Slot().FillWidth(1.0f)
 				[
 					SAssignNew(CtxAssetInput, SEditableTextBox)
+				]
+				+ SHorizontalBox::Slot().AutoWidth().Padding(6,0,0,0)
+				[
+					SNew(SComboButton)
+					.OnGetMenuContent_Lambda([this]()
+					{
+						return BuildIdPickerMenu(AssetOptions, LOCTEXT("CtxNoAssets", "No assets found"), CtxAssetInput, false);
+					})
+					.ButtonContent()
+					[
+						SNew(STextBlock).Text(LOCTEXT("CtxPickAsset", "Pick"))
+					]
 				]
 			]
 
@@ -1043,6 +1248,18 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildSurfaceForm()
 				+ SHorizontalBox::Slot().FillWidth(1.0f)
 				[
 					SAssignNew(SurfTargetInput, SEditableTextBox)
+				]
+				+ SHorizontalBox::Slot().AutoWidth().Padding(6,0,0,0)
+				[
+					SNew(SComboButton)
+					.OnGetMenuContent_Lambda([this]()
+					{
+						return BuildIdPickerMenu(TargetOptions, LOCTEXT("SurfNoTargets", "No targets found"), SurfTargetInput, false);
+					})
+					.ButtonContent()
+					[
+						SNew(STextBlock).Text(LOCTEXT("SurfPickTarget", "Pick"))
+					]
 				]
 			]
 
@@ -1221,6 +1438,18 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildMappingForm()
 				[
 					SAssignNew(MapContextInput, SEditableTextBox)
 				]
+				+ SHorizontalBox::Slot().AutoWidth().Padding(6,0,0,0)
+				[
+					SNew(SComboButton)
+					.OnGetMenuContent_Lambda([this]()
+					{
+						return BuildIdPickerMenu(ContextOptions, LOCTEXT("MapNoContexts", "No contexts found"), MapContextInput, false);
+					})
+					.ButtonContent()
+					[
+						SNew(STextBlock).Text(LOCTEXT("MapPickContext", "Pick"))
+					]
+				]
 			]
 
 			+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
@@ -1233,6 +1462,31 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildMappingForm()
 				+ SHorizontalBox::Slot().FillWidth(1.0f)
 				[
 					SAssignNew(MapSurfacesInput, SEditableTextBox)
+				]
+				+ SHorizontalBox::Slot().AutoWidth().Padding(6,0,0,0)
+				[
+					SNew(SComboButton)
+					.OnGetMenuContent_Lambda([this]()
+					{
+						return BuildIdPickerMenu(SurfaceOptions, LOCTEXT("MapNoSurfaces", "No surfaces found"), MapSurfacesInput, true);
+					})
+					.ButtonContent()
+					[
+						SNew(STextBlock).Text(LOCTEXT("MapAddSurface", "Add"))
+					]
+				]
+				+ SHorizontalBox::Slot().AutoWidth().Padding(4,0,0,0)
+				[
+					SNew(SButton)
+					.Text(LOCTEXT("MapClearSurfaces", "Clear"))
+					.OnClicked_Lambda([this]()
+					{
+						if (MapSurfacesInput.IsValid())
+						{
+							MapSurfacesInput->SetText(FText::GetEmpty());
+						}
+						return FReply::Handled();
+					})
 				]
 			]
 
@@ -1583,6 +1837,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 	const TArray<FRshipRenderContextState> Contexts = Manager->GetRenderContexts();
 	const TArray<FRshipMappingSurfaceState> Surfaces = Manager->GetMappingSurfaces();
 	const TArray<FRshipContentMappingState> Mappings = Manager->GetMappings();
+	RebuildPickerOptions(Contexts, Surfaces);
 
 	if (CountsText.IsValid())
 	{

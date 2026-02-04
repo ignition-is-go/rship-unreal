@@ -22,6 +22,12 @@ public:
 	virtual void Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime) override;
 
 private:
+	struct FRshipIdOption
+	{
+		FString Id;
+		FString Label;
+	};
+
 	TSharedRef<SWidget> BuildHeaderSection();
 	TSharedRef<SWidget> BuildQuickMappingSection();
 	TSharedRef<SWidget> BuildContextsSection();
@@ -31,6 +37,8 @@ private:
 	TSharedRef<SWidget> BuildSurfaceForm();
 	TSharedRef<SWidget> BuildMappingForm();
 
+	TSharedRef<SWidget> BuildIdPickerMenu(const TArray<TSharedPtr<FRshipIdOption>>& Options, const FText& EmptyText, TSharedPtr<class SEditableTextBox> TargetInput, bool bAppend);
+	void RebuildPickerOptions(const TArray<struct FRshipRenderContextState>& Contexts, const TArray<struct FRshipMappingSurfaceState>& Surfaces);
 	void RefreshStatus();
 	void PopulateContextForm(const struct FRshipRenderContextState& State);
 	void PopulateSurfaceForm(const struct FRshipMappingSurfaceState& State);
@@ -99,6 +107,12 @@ private:
 	TSharedPtr<SSpinBox<float>> MapUvOffsetUInput;
 	TSharedPtr<SSpinBox<float>> MapUvOffsetVInput;
 	TSharedPtr<SSpinBox<float>> MapUvRotInput;
+
+	TArray<TSharedPtr<FRshipIdOption>> TargetOptions;
+	TArray<TSharedPtr<FRshipIdOption>> CameraOptions;
+	TArray<TSharedPtr<FRshipIdOption>> AssetOptions;
+	TArray<TSharedPtr<FRshipIdOption>> ContextOptions;
+	TArray<TSharedPtr<FRshipIdOption>> SurfaceOptions;
 
 	FString SelectedContextId;
 	FString SelectedSurfaceId;
