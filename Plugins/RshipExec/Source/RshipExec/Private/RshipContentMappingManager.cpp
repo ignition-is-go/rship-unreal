@@ -27,10 +27,6 @@
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 
-#if WITH_EDITOR
-#include "Editor.h"
-#endif
-
 static const FName ParamContextTexture(TEXT("RshipContextTexture"));
 static const FName ParamMappingMode(TEXT("RshipMappingMode"));
 static const FName ParamProjectionType(TEXT("RshipProjectionType"));
@@ -699,7 +695,6 @@ UWorld* URshipContentMappingManager::GetBestWorld() const
         }
     }
 
-#if WITH_EDITOR
     for (const FWorldContext& Context : Contexts)
     {
         UWorld* World = Context.World();
@@ -713,16 +708,6 @@ UWorld* URshipContentMappingManager::GetBestWorld() const
             return World;
         }
     }
-
-    if (GEditor)
-    {
-        UWorld* EditorWorld = GEditor->GetEditorWorldContext().World();
-        if (EditorWorld)
-        {
-            return EditorWorld;
-        }
-    }
-#endif
 
     for (const FWorldContext& Context : Contexts)
     {
