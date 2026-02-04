@@ -30,7 +30,6 @@
 #include "RshipCameraManager.h"
 #include "RshipSceneConverter.h"
 #include "Camera/CameraActor.h"
-#include "CineCameraActor.h"
 #include "RshipCameraActor.h"
 
 #define LOCTEXT_NAMESPACE "SRshipContentMappingPanel"
@@ -458,7 +457,8 @@ void SRshipContentMappingPanel::RebuildPickerOptions(const TArray<FRshipRenderCo
 			}
 
 			const FString ActorLabel = CameraActor->GetActorLabel();
-			const bool bIsCine = CameraActor->IsA<ACineCameraActor>();
+			const FString ClassName = CameraActor->GetClass() ? CameraActor->GetClass()->GetName() : TEXT("CameraActor");
+			const bool bIsCine = ClassName.Contains(TEXT("CineCameraActor"));
 			TSharedPtr<FRshipIdOption> Opt = MakeShared<FRshipIdOption>();
 			Opt->bIsSceneCamera = true;
 			Opt->Actor = CameraActor;
