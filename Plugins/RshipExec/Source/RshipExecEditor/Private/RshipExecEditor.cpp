@@ -9,6 +9,7 @@
 #include "SRshipFixturePanel.h"
 #include "SRshipTestPanel.h"
 #include "SRshipNDIPanel.h"
+#include "SRshipContentMappingPanel.h"
 #include "RshipStatusPanelStyle.h"
 #include "RshipStatusPanelCommands.h"
 
@@ -29,6 +30,7 @@ static const FName RshipAssetSyncPanelTabName("RshipAssetSyncPanel");
 static const FName RshipFixturePanelTabName("RshipFixturePanel");
 static const FName RshipTestPanelTabName("RshipTestPanel");
 static const FName RshipNDIPanelTabName("RshipNDIPanel");
+static const FName RshipContentMappingPanelTabName("RshipContentMappingPanel");
 
 void FRshipExecEditorModule::StartupModule()
 {
@@ -50,6 +52,7 @@ void FRshipExecEditorModule::StartupModule()
     RegisterFixturePanel();
     RegisterTestPanel();
     RegisterNDIPanel();
+    RegisterContentMappingPanel();
 
     // Register menus after ToolMenus is ready
     UToolMenus::RegisterStartupCallback(FSimpleMulticastDelegate::FDelegate::CreateRaw(this, &FRshipExecEditorModule::RegisterMenus));
@@ -71,6 +74,7 @@ void FRshipExecEditorModule::ShutdownModule()
     UnregisterFixturePanel();
     UnregisterTestPanel();
     UnregisterNDIPanel();
+    UnregisterContentMappingPanel();
 }
 
 FRshipExecEditorModule& FRshipExecEditorModule::Get()
@@ -258,6 +262,30 @@ TSharedRef<SDockTab> FRshipExecEditorModule::SpawnNDIPanelTab(const FSpawnTabArg
         .TabRole(ETabRole::NomadTab)
         [
             SNew(SRshipNDIPanel)
+        ];
+}
+
+void FRshipExecEditorModule::RegisterContentMappingPanel()
+{
+    FGlobalTabmanager::Get()->RegisterNomadTabSpawner(RshipContentMappingPanelTabName,
+        FOnSpawnTab::CreateRaw(this, &FRshipExecEditorModule::SpawnContentMappingPanelTab))
+        .SetDisplayName(LOCTEXT("RshipContentMappingPanelTabTitle", "Rship Content Mapping"))
+        .SetTooltipText(LOCTEXT("RshipContentMappingPanelTooltip", "Open Rocketship Content Mapping Panel"))
+        .SetGroup(WorkspaceMenu::GetMenuStructure().GetLevelEditorCategory())
+        .SetIcon(FSlateIcon(FRshipStatusPanelStyle::GetStyleSetName(), "Rship.StatusPanel.TabIcon"));
+}
+
+void FRshipExecEditorModule::UnregisterContentMappingPanel()
+{
+    FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(RshipContentMappingPanelTabName);
+}
+
+TSharedRef<SDockTab> FRshipExecEditorModule::SpawnContentMappingPanelTab(const FSpawnTabArgs& Args)
+{
+    return SNew(SDockTab)
+        .TabRole(ETabRole::NomadTab)
+        [
+            SNew(SRshipContentMappingPanel)
         ];
 }
 
