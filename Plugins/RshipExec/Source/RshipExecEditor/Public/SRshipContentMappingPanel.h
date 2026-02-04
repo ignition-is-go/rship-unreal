@@ -7,6 +7,7 @@
 
 class SVerticalBox;
 class STextBlock;
+template<typename NumericType> class SSpinBox;
 
 class SRshipContentMappingPanel : public SCompoundWidget
 {
