@@ -6,6 +6,7 @@
 #include "Styling/SlateBrush.h"
 #include "Widgets/SCompoundWidget.h"
 
+class AActor;
 class SVerticalBox;
 class STextBlock;
 template<typename NumericType> class SSpinBox;
@@ -26,6 +27,10 @@ private:
 	{
 		FString Id;
 		FString Label;
+		bool bIsSceneCamera = false;
+		bool bRequiresConversion = false;
+		TWeakObjectPtr<AActor> Actor;
+		FString ResolvedId;
 	};
 
 	TSharedRef<SWidget> BuildHeaderSection();
@@ -39,6 +44,7 @@ private:
 
 	TSharedRef<SWidget> BuildIdPickerMenu(const TArray<TSharedPtr<FRshipIdOption>>& Options, const FText& EmptyText, TSharedPtr<class SEditableTextBox> TargetInput, bool bAppend);
 	void RebuildPickerOptions(const TArray<struct FRshipRenderContextState>& Contexts, const TArray<struct FRshipMappingSurfaceState>& Surfaces);
+	FString ConvertSceneCamera(AActor* Actor) const;
 	void RefreshStatus();
 	void PopulateContextForm(const struct FRshipRenderContextState& State);
 	void PopulateSurfaceForm(const struct FRshipMappingSurfaceState& State);

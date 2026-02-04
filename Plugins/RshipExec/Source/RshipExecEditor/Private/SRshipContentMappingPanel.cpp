@@ -28,6 +28,10 @@
 #include "Editor.h"
 #include "RshipTargetComponent.h"
 #include "RshipCameraManager.h"
+#include "RshipSceneConverter.h"
+#include "Camera/CameraActor.h"
+#include "CineCameraActor.h"
+#include "RshipCameraActor.h"
 
 #define LOCTEXT_NAMESPACE "SRshipContentMappingPanel"
 
@@ -322,16 +326,43 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildIdPickerMenu(const TArray<TS
 			FText::FromString(OptionLabel),
 			FText::FromString(OptionId),
 			FSlateIcon(),
-			FUIAction(FExecuteAction::CreateLambda([TargetInput, OptionId, bAppend]()
+			FUIAction(FExecuteAction::CreateLambda([this, TargetInput, Option, OptionId, bAppend]()
 			{
 				if (!TargetInput.IsValid())
 				{
 					return;
 				}
 
+				FString SelectedId = OptionId;
+				if (Option.IsValid() && Option->bIsSceneCamera)
+				{
+					if (!Option->ResolvedId.IsEmpty())
+					{
+						SelectedId = Option->ResolvedId;
+					}
+					else if (Option->bRequiresConversion)
+					{
+						SelectedId = ConvertSceneCamera(Option->Actor.Get());
+						if (!SelectedId.IsEmpty())
+						{
+							Option->ResolvedId = SelectedId;
+							Option->bRequiresConversion = false;
+							Option->Id = SelectedId;
+							const FString ActorLabel = Option->Actor.IsValid() ? Option->Actor->GetActorLabel() : TEXT("Scene Camera");
+							Option->Label = FString::Printf(TEXT("Scene Camera: %s (%s)"), *ActorLabel, *SelectedId);
+							RefreshStatus();
+						}
+					}
+				}
+
+				if (SelectedId.IsEmpty())
+				{
+					return;
+				}
+
 				if (!bAppend)
 				{
-					TargetInput->SetText(FText::FromString(OptionId));
+					TargetInput->SetText(FText::FromString(SelectedId));
 					return;
 				}
 
@@ -342,9 +373,9 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildIdPickerMenu(const TArray<TS
 				{
 					Part = Part.TrimStartAndEnd();
 				}
-				if (!Parts.Contains(OptionId))
+				if (!Parts.Contains(SelectedId))
 				{
-					Parts.Add(OptionId);
+					Parts.Add(SelectedId);
 				}
 				TargetInput->SetText(FText::FromString(FString::Join(Parts, TEXT(","))));
 			}))
@@ -363,6 +394,7 @@ void SRshipContentMappingPanel::RebuildPickerOptions(const TArray<FRshipRenderCo
 	SurfaceOptions.Reset();
 
 	URshipSubsystem* Subsystem = GEngine ? GEngine->GetEngineSubsystem<URshipSubsystem>() : nullptr;
+	TSet<FString> ExistingCameraIds;
 
 	if (Subsystem && Subsystem->TargetComponents)
 	{
@@ -398,7 +430,46 @@ void SRshipContentMappingPanel::RebuildPickerOptions(const TArray<FRshipRenderCo
 				Opt->Id = Cam.Id;
 				Opt->Label = Cam.Name.IsEmpty() ? Cam.Id : FString::Printf(TEXT("%s (%s)"), *Cam.Name, *Cam.Id);
 				CameraOptions.Add(Opt);
+				ExistingCameraIds.Add(Cam.Id);
 			}
+		}
+	}
+
+	UWorld* World = GetEditorWorld();
+	if (World)
+	{
+		URshipSceneConverter* Converter = Subsystem ? Subsystem->GetSceneConverter() : nullptr;
+		for (TActorIterator<ACameraActor> It(World); It; ++It)
+		{
+			ACameraActor* CameraActor = *It;
+			if (!CameraActor || CameraActor->IsA<ARshipCameraActor>())
+			{
+				continue;
+			}
+
+			FString ConvertedId;
+			if (Converter)
+			{
+				ConvertedId = Converter->GetConvertedEntityId(CameraActor);
+			}
+			if (!ConvertedId.IsEmpty() && ExistingCameraIds.Contains(ConvertedId))
+			{
+				continue;
+			}
+
+			const FString ActorLabel = CameraActor->GetActorLabel();
+			const bool bIsCine = CameraActor->IsA<ACineCameraActor>();
+			TSharedPtr<FRshipIdOption> Opt = MakeShared<FRshipIdOption>();
+			Opt->bIsSceneCamera = true;
+			Opt->Actor = CameraActor;
+			Opt->ResolvedId = ConvertedId;
+			Opt->bRequiresConversion = ConvertedId.IsEmpty();
+			Opt->Id = ConvertedId.IsEmpty() ? ActorLabel : ConvertedId;
+			const FString Prefix = bIsCine ? TEXT("Scene CineCamera") : TEXT("Scene Camera");
+			Opt->Label = ConvertedId.IsEmpty()
+				? FString::Printf(TEXT("%s: %s (convert)"), *Prefix, *ActorLabel)
+				: FString::Printf(TEXT("%s: %s (%s)"), *Prefix, *ActorLabel, *ConvertedId);
+			CameraOptions.Add(Opt);
 		}
 	}
 
@@ -444,6 +515,54 @@ void SRshipContentMappingPanel::RebuildPickerOptions(const TArray<FRshipRenderCo
 		Opt->Label = AssetId;
 		AssetOptions.Add(Opt);
 	}
+}
+
+FString SRshipContentMappingPanel::ConvertSceneCamera(AActor* Actor) const
+{
+	if (!Actor || !GEngine)
+	{
+		return TEXT("");
+	}
+
+	URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+	if (!Subsystem)
+	{
+		return TEXT("");
+	}
+
+	URshipSceneConverter* Converter = Subsystem->GetSceneConverter();
+	if (!Converter)
+	{
+		return TEXT("");
+	}
+
+	FRshipDiscoveryOptions Options;
+	Options.bIncludeCameras = true;
+	Options.bIncludeDirectionalLights = false;
+	Options.bIncludePointLights = false;
+	Options.bIncludeRectLights = false;
+	Options.bIncludeSpotLights = false;
+	Options.bSkipAlreadyConverted = false;
+
+	Converter->DiscoverScene(Options);
+	const TArray<FRshipDiscoveredCamera> Cameras = Converter->GetDiscoveredCameras();
+	for (const FRshipDiscoveredCamera& Camera : Cameras)
+	{
+		if (Camera.CameraActor == Actor)
+		{
+			FRshipConversionOptions ConvOptions;
+			ConvOptions.bSpawnVisualizationActor = false;
+			ConvOptions.bEnableTransformSync = true;
+			FRshipConversionResult Result = Converter->ConvertCamera(Camera, ConvOptions);
+			if (Result.bSuccess)
+			{
+				return Result.EntityId;
+			}
+			return TEXT("");
+		}
+	}
+
+	return TEXT("");
 }
 void SRshipContentMappingPanel::Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime)
 {
