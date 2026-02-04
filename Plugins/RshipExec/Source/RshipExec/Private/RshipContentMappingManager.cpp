@@ -684,7 +684,7 @@ UWorld* URshipContentMappingManager::GetBestWorld() const
         return nullptr;
     }
 
-    const TArray<FWorldContext>& Contexts = GEngine->GetWorldContexts();
+    const TIndirectArray<FWorldContext>& Contexts = GEngine->GetWorldContexts();
     for (const FWorldContext& Context : Contexts)
     {
         UWorld* World = Context.World();
