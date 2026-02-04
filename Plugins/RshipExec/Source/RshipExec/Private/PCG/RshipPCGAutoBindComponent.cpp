@@ -547,7 +547,7 @@ void URshipPCGAutoBindComponent::EmitAllPulses()
 	}
 }
 
-void URshipPCGAutoBindComponent::HandleAction(const FString& ActionId, const TSharedRef<FJsonObject>& Data)
+void URshipPCGAutoBindComponent::HandleAction(const FString& ActionId, const TSharedPtr<FJsonObject>& Data)
 {
 	if (!ClassBindings)
 	{
@@ -584,7 +584,10 @@ void URshipPCGAutoBindComponent::HandleAction(const FString& ActionId, const TSh
 
 		FString DataString;
 		TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&DataString);
-		FJsonSerializer::Serialize(Data, Writer);
+		if (Data.IsValid())
+		{
+			FJsonSerializer::Serialize(Data.ToSharedRef(), Writer);
+		}
 		OnRshipActionReceived.Broadcast(PropertyName, DataString);
 
 		UE_LOG(LogRshipExec, Verbose, TEXT("URshipPCGAutoBindComponent: Applied action %s to %s"),
@@ -645,7 +648,7 @@ bool URshipPCGAutoBindComponent::FindPropertyAndOwner(FName PropertyName, const 
 	return OutOwner != nullptr;
 }
 
-bool URshipPCGAutoBindComponent::ApplyActionToProperty(const FRshipPCGPropertyDescriptor& Desc, UObject* Owner, const TSharedRef<FJsonObject>& Data)
+bool URshipPCGAutoBindComponent::ApplyActionToProperty(const FRshipPCGPropertyDescriptor& Desc, UObject* Owner, const TSharedPtr<FJsonObject>& Data)
 {
 	if (!Owner || !Desc.CachedProperty)
 	{
@@ -1074,6 +1077,68 @@ bool URshipPCGAutoBindComponent::SetVectorProperty(FName PropertyName, FVector V
 		if (StructProp->Struct == TBaseStructure<FVector>::Get())
 		{
 			*static_cast<FVector*>(ValuePtr) = Value;
+			return true;
+		}
+	}
+
+	return false;
+}
+
+FRotator URshipPCGAutoBindComponent::GetRotatorProperty(FName PropertyName, bool& bSuccess) const
+{
+	bSuccess = false;
+
+	const FRshipPCGPropertyDescriptor* Desc = nullptr;
+	const UObject* Owner = nullptr;
+
+	if (!FindPropertyAndOwner(PropertyName, Desc, Owner))
+	{
+		return FRotator::ZeroRotator;
+	}
+
+	if (Desc->PropertyType != ERshipPCGPropertyType::Rotator)
+	{
+		return FRotator::ZeroRotator;
+	}
+
+	FProperty* Property = Desc->CachedProperty;
+	const void* ValuePtr = Property->ContainerPtrToValuePtr<void>(Owner);
+
+	if (FStructProperty* StructProp = CastField<FStructProperty>(Property))
+	{
+		if (StructProp->Struct == TBaseStructure<FRotator>::Get())
+		{
+			bSuccess = true;
+			return *static_cast<const FRotator*>(ValuePtr);
+		}
+	}
+
+	return FRotator::ZeroRotator;
+}
+
+bool URshipPCGAutoBindComponent::SetRotatorProperty(FName PropertyName, FRotator Value)
+{
+	FRshipPCGPropertyDescriptor* Desc = nullptr;
+	UObject* Owner = nullptr;
+
+	if (!FindPropertyAndOwner(PropertyName, Desc, Owner))
+	{
+		return false;
+	}
+
+	if (Desc->PropertyType != ERshipPCGPropertyType::Rotator)
+	{
+		return false;
+	}
+
+	FProperty* Property = Desc->CachedProperty;
+	void* ValuePtr = Property->ContainerPtrToValuePtr<void>(Owner);
+
+	if (FStructProperty* StructProp = CastField<FStructProperty>(Property))
+	{
+		if (StructProp->Struct == TBaseStructure<FRotator>::Get())
+		{
+			*static_cast<FRotator*>(ValuePtr) = Value;
 			return true;
 		}
 	}

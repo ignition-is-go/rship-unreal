@@ -128,7 +128,7 @@ static FString FormatValueForUnrealArg(const SchemaNode &SchemaProp, const TShar
     return Out;
 }
 
-FString BuildArgStringFromJson(const TDoubleLinkedList<SchemaNode>& Props, const TSharedRef<FJsonObject>& Data, bool bQuoteStrings)
+FString BuildArgStringFromJson(const TDoubleLinkedList<SchemaNode>& Props, const TSharedPtr<FJsonObject>& Data, bool bQuoteStrings)
 {
     FString Args;
     for (const SchemaNode &Prop : Props)

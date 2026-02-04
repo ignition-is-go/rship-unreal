@@ -48,9 +48,14 @@ class URshipSpatialAudioManager;
 #include "Target.h"
 #include "RshipRateLimiter.h"
 #include "RshipWebSocket.h"
+#include "RshipMsgPack.h"
 #include "Myko.h"
+#include "HAL/Runnable.h"
+#include "HAL/RunnableThread.h"
 #include "RshipSubsystem.generated.h"
 
+// Forward declare the decoder thread
+class FRshipDecoderThread;
 
 DECLARE_DYNAMIC_DELEGATE(FRshipMessageDelegate);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnRshipSelectionChanged);
@@ -82,6 +87,7 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     friend class URshipDataLayerManager;
     friend class URshipSpatialAudioManager;
     friend class URshipTargetComponent;
+    friend class FRshipDecoderThread;
 
     AEmitterHandler *EmitterHandler;
 
@@ -275,6 +281,9 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     FTSTicker::FDelegateHandle ConnectionTimeoutTickerHandle;
     double LastTickTime;
 
+    // Background decoder thread for msgpack processing
+    TUniquePtr<FRshipDecoderThread> DecoderThread;
+
     // Ticker callbacks (return true to keep ticking, false to stop)
     bool OnQueueProcessTick(float DeltaTime);
     bool OnReconnectTick(float DeltaTime);
@@ -290,6 +299,11 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     void SendEmitter(EmitterContainer* emitter, FString targetId);
     void SendTargetStatus(Target* target, bool online);
     void ProcessMessage(const FString& message);
+    void ProcessMessageDirect(TSharedPtr<FJsonObject> obj);  // Direct processing without JSON string round-trip
+
+    // Optimized batch action processing
+    void ProcessBatchActions(const TArray<TSharedPtr<FJsonValue>>& ActionsArray, const FString& TxId, const FString& CommandId);
+    void ProcessBatchActionsFast(const struct FRshipBatchCommand& BatchCommand);  // Ultra-fast path using pre-parsed structs
 
     // Queue a message through rate limiter (preferred method)
     void QueueMessage(TSharedPtr<FJsonObject> Payload, ERshipMessagePriority Priority = ERshipMessagePriority::Normal,
@@ -580,4 +594,36 @@ public:
 
     // Legacy compatibility - direct send (use sparingly, bypasses queue)
     void SendJson(TSharedPtr<FJsonObject> Payload);
+};
+
+// ============================================================================
+// Background Decoder Thread
+// Decodes msgpack binary data on a background thread to avoid blocking game thread
+// ============================================================================
+
+class FRshipDecoderThread : public FRunnable
+{
+public:
+    FRshipDecoderThread(URshipSubsystem* InSubsystem);
+    virtual ~FRshipDecoderThread();
+
+    // FRunnable interface
+    virtual bool Init() override;
+    virtual uint32 Run() override;
+    virtual void Stop() override;
+    virtual void Exit() override;
+
+    // Queue raw binary data for decoding
+    void QueueBinaryData(TArray<uint8>&& Data);
+
+private:
+    // Input queue: raw binary data from WebSocket
+    TQueue<TArray<uint8>, EQueueMode::Mpsc> InputQueue;
+
+    // Reference to subsystem for dispatching decoded messages
+    URshipSubsystem* Subsystem;
+
+    FThreadSafeBool bShouldStop;
+    FRunnableThread* Thread;
+    FEvent* WakeEvent;
 };

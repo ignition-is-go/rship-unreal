@@ -170,11 +170,13 @@ static TSharedPtr<FJsonObject> UnpackToJsonObject(const msgpack::object& Obj)
         FString Key;
         if (KV.key.type == msgpack::type::STR)
         {
-            Key = UTF8_TO_TCHAR(std::string(KV.key.via.str.ptr, KV.key.via.str.size).c_str());
+            // Convert UTF8 msgpack string to FString (handles non-null-terminated strings)
+            FUTF8ToTCHAR Converter(KV.key.via.str.ptr, KV.key.via.str.size);
+            Key = FString(Converter.Length(), Converter.Get());
         }
         else
         {
-            // Convert non-string keys to string
+            // Convert non-string keys to string (rare case)
             std::stringstream ss;
             ss << KV.key;
             Key = UTF8_TO_TCHAR(ss.str().c_str());
@@ -234,8 +236,9 @@ static TSharedPtr<FJsonValue> UnpackToJsonValue(const msgpack::object& Obj)
 
     case msgpack::type::STR:
     {
-        FString StrValue = UTF8_TO_TCHAR(std::string(Obj.via.str.ptr, Obj.via.str.size).c_str());
-        return MakeShareable(new FJsonValueString(StrValue));
+        // Convert UTF8 msgpack string to FString (handles non-null-terminated strings)
+        FUTF8ToTCHAR Converter(Obj.via.str.ptr, Obj.via.str.size);
+        return MakeShareable(new FJsonValueString(FString(Converter.Length(), Converter.Get())));
     }
 
     case msgpack::type::BIN:
@@ -288,6 +291,143 @@ bool FRshipMsgPack::Decode(const TArray<uint8>& Data, TSharedPtr<FJsonObject>& O
     catch (const std::exception& e)
     {
         UE_LOG(LogRshipExec, Warning, TEXT("FRshipMsgPack::Decode failed: %s"), UTF8_TO_TCHAR(e.what()));
+        return false;
+    }
+}
+
+// ============================================================================
+// Fast path: Direct msgpack parsing for batch commands
+// Avoids FJsonObject overhead for high-frequency batch action messages
+// ============================================================================
+
+// Helper: Find a key in a msgpack map and return pointer to value (nullptr if not found)
+static const msgpack::object* FindMapValue(const msgpack::object& MapObj, const char* Key, size_t KeyLen)
+{
+    if (MapObj.type != msgpack::type::MAP) return nullptr;
+
+    const msgpack::object_map& Map = MapObj.via.map;
+    for (uint32_t i = 0; i < Map.size; i++)
+    {
+        const msgpack::object& K = Map.ptr[i].key;
+        if (K.type == msgpack::type::STR &&
+            K.via.str.size == KeyLen &&
+            memcmp(K.via.str.ptr, Key, KeyLen) == 0)
+        {
+            return &Map.ptr[i].val;
+        }
+    }
+    return nullptr;
+}
+
+// Helper: Extract FString from msgpack string object
+static bool GetMsgpackString(const msgpack::object& Obj, FString& OutStr)
+{
+    if (Obj.type != msgpack::type::STR) return false;
+    FUTF8ToTCHAR Converter(Obj.via.str.ptr, Obj.via.str.size);
+    OutStr = FString(Converter.Length(), Converter.Get());
+    return true;
+}
+
+// Helper: Check if msgpack string equals a C string
+static bool MsgpackStringEquals(const msgpack::object& Obj, const char* Str, size_t Len)
+{
+    return Obj.type == msgpack::type::STR &&
+           Obj.via.str.size == Len &&
+           memcmp(Obj.via.str.ptr, Str, Len) == 0;
+}
+
+bool FRshipMsgPack::TryDecodeBatchCommand(const TArray<uint8>& Data, FRshipBatchCommand& OutCommand)
+{
+    if (Data.Num() == 0)
+    {
+        return false;
+    }
+
+    try
+    {
+        msgpack::object_handle Handle = msgpack::unpack(
+            reinterpret_cast<const char*>(Data.GetData()),
+            Data.Num()
+        );
+
+        const msgpack::object& Root = Handle.get();
+        if (Root.type != msgpack::type::MAP) return false;
+
+        // Check event type: must be "ws:m:command"
+        const msgpack::object* EventObj = FindMapValue(Root, "event", 5);
+        if (!EventObj || !MsgpackStringEquals(*EventObj, "ws:m:command", 12))
+        {
+            return false;  // Not a command, use normal path
+        }
+
+        // Get data object
+        const msgpack::object* DataObj = FindMapValue(Root, "data", 4);
+        if (!DataObj || DataObj->type != msgpack::type::MAP) return false;
+
+        // Check commandId: must be "BatchExecTargetActions"
+        const msgpack::object* CommandIdObj = FindMapValue(*DataObj, "commandId", 9);
+        if (!CommandIdObj || !MsgpackStringEquals(*CommandIdObj, "BatchExecTargetActions", 22))
+        {
+            return false;  // Not a batch command, use normal path
+        }
+
+        OutCommand.CommandId = TEXT("BatchExecTargetActions");
+
+        // Get command object
+        const msgpack::object* CommandObj = FindMapValue(*DataObj, "command", 7);
+        if (!CommandObj || CommandObj->type != msgpack::type::MAP) return false;
+
+        // Get transaction ID
+        const msgpack::object* TxObj = FindMapValue(*CommandObj, "tx", 2);
+        if (TxObj)
+        {
+            GetMsgpackString(*TxObj, OutCommand.TxId);
+        }
+
+        // Get actions array
+        const msgpack::object* ActionsObj = FindMapValue(*CommandObj, "actions", 7);
+        if (!ActionsObj || ActionsObj->type != msgpack::type::ARRAY) return false;
+
+        const msgpack::object_array& ActionsArray = ActionsObj->via.array;
+        OutCommand.Actions.Reserve(ActionsArray.size);
+
+        // Parse each action item directly
+        for (uint32_t i = 0; i < ActionsArray.size; i++)
+        {
+            const msgpack::object& Item = ActionsArray.ptr[i];
+            if (Item.type != msgpack::type::MAP) continue;
+
+            FRshipBatchActionItem ActionItem;
+
+            // Get action object: { id, targetId }
+            const msgpack::object* ActionObj = FindMapValue(Item, "action", 6);
+            if (ActionObj && ActionObj->type == msgpack::type::MAP)
+            {
+                const msgpack::object* IdObj = FindMapValue(*ActionObj, "id", 2);
+                if (IdObj) GetMsgpackString(*IdObj, ActionItem.ActionId);
+
+                const msgpack::object* TargetIdObj = FindMapValue(*ActionObj, "targetId", 8);
+                if (TargetIdObj) GetMsgpackString(*TargetIdObj, ActionItem.TargetId);
+            }
+
+            // Get data object - convert to FJsonObject (still needed for action handlers)
+            const msgpack::object* ItemDataObj = FindMapValue(Item, "data", 4);
+            if (ItemDataObj && ItemDataObj->type == msgpack::type::MAP)
+            {
+                ActionItem.Data = UnpackToJsonObject(*ItemDataObj);
+            }
+
+            if (!ActionItem.TargetId.IsEmpty() && !ActionItem.ActionId.IsEmpty())
+            {
+                OutCommand.Actions.Add(MoveTemp(ActionItem));
+            }
+        }
+
+        return OutCommand.Actions.Num() > 0;
+    }
+    catch (const std::exception& e)
+    {
+        UE_LOG(LogRshipExec, Warning, TEXT("FRshipMsgPack::TryDecodeBatchCommand failed: %s"), UTF8_TO_TCHAR(e.what()));
         return false;
     }
 }

@@ -38,7 +38,7 @@ FString Target::GetId()
 	return this->id;
 }
 
-bool Target::TakeAction(AActor *actor, FString actionId, const TSharedRef<FJsonObject> data)
+bool Target::TakeAction(AActor *actor, FString actionId, const TSharedPtr<FJsonObject>& data)
 {
 	if (!this->actions.Contains(actionId))
 	{

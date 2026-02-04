@@ -66,7 +66,11 @@ void URshipTargetComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
 }
 
 void URshipTargetComponent::OnDataReceived() {
-    this->OnRshipData.Broadcast();
+    // Only broadcast if something is actually listening (avoids delegate overhead)
+    if (this->OnRshipData.IsBound())
+    {
+        this->OnRshipData.Broadcast();
+    }
 }
 
 void URshipTargetComponent::Reconnect()

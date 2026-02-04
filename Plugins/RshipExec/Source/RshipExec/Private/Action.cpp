@@ -41,7 +41,7 @@ FString Action::GetName()
     return this->name;
 }
 
-bool Action::Take(AActor *actor, const TSharedRef<FJsonObject> data)
+bool Action::Take(AActor *actor, const TSharedPtr<FJsonObject>& data)
 {
     UE_LOG(LogRshipExec, Verbose, TEXT("Taking Action %s"), *this->id);
 

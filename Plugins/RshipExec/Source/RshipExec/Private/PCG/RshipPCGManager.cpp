@@ -260,7 +260,7 @@ void URshipPCGManager::ClearAllClassBindings()
 // ACTION ROUTING
 // ============================================================================
 
-bool URshipPCGManager::RouteAction(const FString& TargetPath, const FString& ActionId, const TSharedRef<FJsonObject>& Data)
+bool URshipPCGManager::RouteAction(const FString& TargetPath, const FString& ActionId, const TSharedPtr<FJsonObject>& Data)
 {
 	URshipPCGAutoBindComponent* Component = FindInstanceByPath(TargetPath);
 	if (!Component)

@@ -111,7 +111,17 @@ public:
     FOnRshipWebSocketBinaryMessage OnBinaryMessage;
     FOnRshipWebSocketMessageSent OnMessageSent;
 
+    // High-frequency message processing: Call this from a ticker to process queued messages
+    // Returns number of messages processed
+    int32 ProcessPendingMessages();
+
+    // Check if there are pending messages
+    bool HasPendingMessages() const;
+
 private:
+    // Thread-safe queue for incoming binary messages (bypasses AsyncTask latency)
+    TQueue<TArray<uint8>, EQueueMode::Mpsc> PendingBinaryMessages;
+    TQueue<FString, EQueueMode::Mpsc> PendingTextMessages;
 #if RSHIP_USE_IXWEBSOCKET
     // IXWebSocket implementation
     TUniquePtr<ix::WebSocket> IXSocket;

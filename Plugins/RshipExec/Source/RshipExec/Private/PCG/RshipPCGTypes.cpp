@@ -586,9 +586,9 @@ TSharedPtr<FJsonValue> PropertyToJson(FProperty* Property, const void* Container
 		else if (Struct == TBaseStructure<FRotator>::Get())
 		{
 			const FRotator* Rot = static_cast<const FRotator*>(ValuePtr);
-			JsonObj->SetNumberField(TEXT("pitch"), Rot->Pitch);
-			JsonObj->SetNumberField(TEXT("yaw"), Rot->Yaw);
-			JsonObj->SetNumberField(TEXT("roll"), Rot->Roll);
+			JsonObj->SetNumberField(TEXT("Pitch"), Rot->Pitch);
+			JsonObj->SetNumberField(TEXT("Yaw"), Rot->Yaw);
+			JsonObj->SetNumberField(TEXT("Roll"), Rot->Roll);
 		}
 		else if (Struct == TBaseStructure<FLinearColor>::Get())
 		{
@@ -780,9 +780,19 @@ bool JsonToProperty(FProperty* Property, void* ContainerPtr, const TSharedPtr<FJ
 		else if (Struct == TBaseStructure<FRotator>::Get())
 		{
 			FRotator* Rot = static_cast<FRotator*>(ValuePtr);
-			Rot->Pitch = (*JsonObj)->GetNumberField(TEXT("pitch"));
-			Rot->Yaw = (*JsonObj)->GetNumberField(TEXT("yaw"));
-			Rot->Roll = (*JsonObj)->GetNumberField(TEXT("roll"));
+			// Support both PascalCase (Pitch) and lowercase (pitch) for flexibility
+			if ((*JsonObj)->HasField(TEXT("Pitch")))
+			{
+				Rot->Pitch = (*JsonObj)->GetNumberField(TEXT("Pitch"));
+				Rot->Yaw = (*JsonObj)->GetNumberField(TEXT("Yaw"));
+				Rot->Roll = (*JsonObj)->GetNumberField(TEXT("Roll"));
+			}
+			else
+			{
+				Rot->Pitch = (*JsonObj)->GetNumberField(TEXT("pitch"));
+				Rot->Yaw = (*JsonObj)->GetNumberField(TEXT("yaw"));
+				Rot->Roll = (*JsonObj)->GetNumberField(TEXT("roll"));
+			}
 			return true;
 		}
 		else if (Struct == TBaseStructure<FLinearColor>::Get())

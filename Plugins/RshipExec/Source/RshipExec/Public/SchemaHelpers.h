@@ -12,4 +12,4 @@ void ConstructSchemaProp(FProperty* Property, SchemaNode& OutProp);
 // Build a UE ImportText-style argument list string (without function name) from JSON data
 // Example output for a single struct arg: (X=5.0,Y=5.0,Z=5.0)
 // bQuoteStrings: true for CallFunctionByNameWithArguments, false for ImportText_Direct
-FString BuildArgStringFromJson(const TDoubleLinkedList<SchemaNode>& Props, const TSharedRef<FJsonObject>& Data, bool bQuoteStrings = true);
+FString BuildArgStringFromJson(const TDoubleLinkedList<SchemaNode>& Props, const TSharedPtr<FJsonObject>& Data, bool bQuoteStrings = true);

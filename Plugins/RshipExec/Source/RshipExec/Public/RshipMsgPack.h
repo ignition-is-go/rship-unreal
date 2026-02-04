@@ -5,6 +5,27 @@
 #include "Dom/JsonValue.h"
 
 /**
+ * Struct for a single batch action item - parsed directly from msgpack
+ * without intermediate FJsonObject allocation
+ */
+struct FRshipBatchActionItem
+{
+    FString TargetId;
+    FString ActionId;
+    TSharedPtr<FJsonObject> Data;  // Action data still needs FJsonObject for flexibility
+};
+
+/**
+ * Struct for batch action command - parsed directly from msgpack
+ */
+struct FRshipBatchCommand
+{
+    FString CommandId;
+    FString TxId;
+    TArray<FRshipBatchActionItem> Actions;
+};
+
+/**
  * MessagePack encoder/decoder for FJsonObject using msgpack-c library.
  *
  * Provides efficient binary serialization over WebSocket to the rship server.
@@ -28,4 +49,13 @@ public:
      * @return true if decoding succeeded
      */
     static bool Decode(const TArray<uint8>& Data, TSharedPtr<FJsonObject>& OutObject);
+
+    /**
+     * Try to decode a batch action command directly from msgpack without full FJsonObject conversion.
+     * This is an optimized fast path for high-frequency batch commands.
+     * @param Data The binary data to decode
+     * @param OutCommand Output batch command struct
+     * @return true if this was a batch command and was decoded successfully, false to fall back to normal path
+     */
+    static bool TryDecodeBatchCommand(const TArray<uint8>& Data, FRshipBatchCommand& OutCommand);
 };

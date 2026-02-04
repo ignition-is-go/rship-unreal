@@ -25,12 +25,136 @@
 #include "EmitterHandler.h"
 #include "Logs.h"
 #include "RshipMsgPack.h"
+#include "Async/Async.h"
+
+// Profiling stats for performance analysis
+DECLARE_STATS_GROUP(TEXT("Rship"), STATGROUP_Rship, STATCAT_Advanced);
+DECLARE_CYCLE_STAT(TEXT("ProcessBatchActions"), STAT_Rship_ProcessBatchActions, STATGROUP_Rship);
+DECLARE_CYCLE_STAT(TEXT("ProcessBatchActions_CacheBuild"), STAT_Rship_BatchCacheBuild, STATGROUP_Rship);
+DECLARE_CYCLE_STAT(TEXT("ProcessBatchActions_Execute"), STAT_Rship_BatchExecute, STATGROUP_Rship);
+DECLARE_CYCLE_STAT(TEXT("MsgpackDecode"), STAT_Rship_MsgpackDecode, STATGROUP_Rship);
+DECLARE_CYCLE_STAT(TEXT("ProcessMessageDirect"), STAT_Rship_ProcessMessageDirect, STATGROUP_Rship);
+DECLARE_CYCLE_STAT(TEXT("TakeAction"), STAT_Rship_TakeAction, STATGROUP_Rship);
 
 #if WITH_EDITOR
 #include "Editor.h"
 #endif
 
 using namespace std;
+
+// ============================================================================
+// FRshipDecoderThread Implementation
+// ============================================================================
+
+FRshipDecoderThread::FRshipDecoderThread(URshipSubsystem* InSubsystem)
+    : Subsystem(InSubsystem)
+    , bShouldStop(false)
+    , Thread(nullptr)
+    , WakeEvent(nullptr)
+{
+    WakeEvent = FPlatformProcess::GetSynchEventFromPool(false);
+    Thread = FRunnableThread::Create(this, TEXT("RshipDecoderThread"), 0, TPri_AboveNormal);
+    UE_LOG(LogRshipExec, Log, TEXT("FRshipDecoderThread: Started background decoder thread"));
+}
+
+FRshipDecoderThread::~FRshipDecoderThread()
+{
+    Stop();
+
+    if (Thread)
+    {
+        Thread->WaitForCompletion();
+        delete Thread;
+        Thread = nullptr;
+    }
+
+    if (WakeEvent)
+    {
+        FPlatformProcess::ReturnSynchEventToPool(WakeEvent);
+        WakeEvent = nullptr;
+    }
+}
+
+bool FRshipDecoderThread::Init()
+{
+    return true;
+}
+
+uint32 FRshipDecoderThread::Run()
+{
+    while (!bShouldStop)
+    {
+        // Wait for data (1ms timeout for responsive shutdown)
+        WakeEvent->Wait(1);
+
+        if (bShouldStop)
+        {
+            break;
+        }
+
+        // Process all queued binary data
+        TArray<uint8> BinaryData;
+        while (InputQueue.Dequeue(BinaryData))
+        {
+            if (bShouldStop) break;
+
+            FRshipBatchCommand BatchCommand;
+            if (FRshipMsgPack::TryDecodeBatchCommand(BinaryData, BatchCommand))
+            {
+                // Dispatch batch command directly to game thread via AsyncTask
+                // This bypasses ticker-based polling for lower latency
+                AsyncTask(ENamedThreads::GameThread, [this, Cmd = MoveTemp(BatchCommand)]() mutable
+                {
+                    if (Subsystem && IsValid(Subsystem))
+                    {
+                        Subsystem->ProcessBatchActionsFast(Cmd);
+                    }
+                });
+            }
+            else
+            {
+                // Not a batch command - decode as generic JSON and dispatch
+                TSharedPtr<FJsonObject> JsonObject;
+                if (FRshipMsgPack::Decode(BinaryData, JsonObject) && JsonObject.IsValid())
+                {
+                    AsyncTask(ENamedThreads::GameThread, [this, Json = JsonObject]()
+                    {
+                        if (Subsystem && IsValid(Subsystem))
+                        {
+                            Subsystem->ProcessMessageDirect(Json);
+                        }
+                    });
+                }
+            }
+        }
+    }
+
+    return 0;
+}
+
+void FRshipDecoderThread::Stop()
+{
+    bShouldStop = true;
+    Subsystem = nullptr;  // Clear reference to prevent use-after-free
+    if (WakeEvent)
+    {
+        WakeEvent->Trigger();
+    }
+}
+
+void FRshipDecoderThread::Exit()
+{
+    UE_LOG(LogRshipExec, Log, TEXT("FRshipDecoderThread: Decoder thread exiting"));
+}
+
+void FRshipDecoderThread::QueueBinaryData(TArray<uint8>&& Data)
+{
+    InputQueue.Enqueue(MoveTemp(Data));
+    if (WakeEvent)
+    {
+        WakeEvent->Trigger();
+    }
+}
 
 void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
 {
@@ -74,6 +198,9 @@ void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
     // Initialize rate limiter
     InitializeRateLimiter();
 
+    // Start background decoder thread for msgpack processing
+    DecoderThread = MakeUnique<FRshipDecoderThread>(this);
+
     // Connect to server
     Reconnect();
 
@@ -97,12 +224,12 @@ void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
         UE_LOG(LogRshipExec, Log, TEXT("Started queue processing ticker (interval=%.3fs)"), Settings->QueueProcessInterval);
     }
 
-    // Start subsystem tick ticker (60Hz for smooth updates, works in editor)
+    // Start subsystem tick ticker (1000Hz for high-frequency message pumping)
     SubsystemTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
         FTickerDelegate::CreateUObject(this, &URshipSubsystem::OnSubsystemTick),
-        1.0f / 60.0f  // 60Hz tick rate
+        0.001f  // 1000Hz tick rate (1ms)
     );
-    UE_LOG(LogRshipExec, Log, TEXT("Started subsystem ticker (60Hz)"));
+    UE_LOG(LogRshipExec, Log, TEXT("Started subsystem ticker (1000Hz)"));
 }
 
 void URshipSubsystem::InitializeRateLimiter()
@@ -459,20 +586,29 @@ void URshipSubsystem::OnWebSocketMessage(const FString &Message)
 
 void URshipSubsystem::OnWebSocketBinaryMessage(const TArray<uint8>& Data)
 {
-    // Decode msgpack binary data
-    TSharedPtr<FJsonObject> JsonObject;
-    if (FRshipMsgPack::Decode(Data, JsonObject) && JsonObject.IsValid())
+    // Queue binary data to background decoder thread
+    // The decoder thread will parse msgpack and queue results for game thread processing
+    if (DecoderThread)
     {
-        // Convert to JSON string for ProcessMessage (reuses existing logic)
-        FString JsonString;
-        TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&JsonString);
-        FJsonSerializer::Serialize(JsonObject.ToSharedRef(), Writer);
-
-        ProcessMessage(JsonString);
+        // Make a copy for the decoder thread (Data is const ref)
+        TArray<uint8> DataCopy = Data;
+        DecoderThread->QueueBinaryData(MoveTemp(DataCopy));
     }
     else
     {
-        UE_LOG(LogRshipExec, Warning, TEXT("Failed to decode msgpack binary message (%d bytes)"), Data.Num());
+        // Fallback: process directly on game thread if decoder thread not available
+        FRshipBatchCommand BatchCommand;
+        if (FRshipMsgPack::TryDecodeBatchCommand(Data, BatchCommand))
+        {
+            ProcessBatchActionsFast(BatchCommand);
+            return;
+        }
+
+        TSharedPtr<FJsonObject> JsonObject;
+        if (FRshipMsgPack::Decode(Data, JsonObject) && JsonObject.IsValid())
+        {
+            ProcessMessageDirect(JsonObject);
+        }
     }
 }
 
@@ -587,6 +723,17 @@ bool URshipSubsystem::OnSubsystemTick(float DeltaTime)
     {
         return false;  // Stop ticking, object is being destroyed
     }
+
+    // High-frequency WebSocket message pump - process all pending messages
+    // This triggers OnBinaryMessage which queues to decoder thread
+    if (WebSocket.IsValid())
+    {
+        WebSocket->ProcessPendingMessages();
+    }
+
+    // Note: Batch commands are now dispatched directly from decoder thread via AsyncTask
+    // No polling needed here
+
     TickSubsystems();
     return true;  // Keep ticking
 }
@@ -798,6 +945,7 @@ void URshipSubsystem::SendJsonDirect(const FString& JsonString)
 
 void URshipSubsystem::ProcessMessage(const FString &message)
 {
+    // Parse JSON string and delegate to ProcessMessageDirect
     TSharedPtr<FJsonObject> obj = MakeShareable(new FJsonObject);
     TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(message);
 
@@ -806,10 +954,22 @@ void URshipSubsystem::ProcessMessage(const FString &message)
         return;
     }
 
+    ProcessMessageDirect(obj);
+}
+
+void URshipSubsystem::ProcessMessageDirect(TSharedPtr<FJsonObject> obj)
+{
+    SCOPE_CYCLE_COUNTER(STAT_Rship_ProcessMessageDirect);
+
+    if (!obj.IsValid())
+    {
+        return;
+    }
+
     TSharedRef<FJsonObject> objRef = obj.ToSharedRef();
 
     FString type = objRef->GetStringField(TEXT("event"));
-    UE_LOG(LogRshipExec, Log, TEXT("Received message: event=%s"), *type);
+    UE_LOG(LogRshipExec, Verbose, TEXT("Received message: event=%s"), *type);  // Changed to Verbose for performance
 
     // Handle ping response - diagnostic for verifying WebSocket send/receive path
     if (type == "ws:m:ping")
@@ -959,93 +1119,11 @@ void URshipSubsystem::ProcessMessage(const FString &message)
         }
         else if (commandId == "BatchExecTargetActions")
         {
-            // Batch action command - execute multiple actions in one message
+            // Batch action command - use optimized processing
             const TArray<TSharedPtr<FJsonValue>>* ActionsArray;
             if (command->TryGetArrayField(TEXT("actions"), ActionsArray))
             {
-                int32 SuccessCount = 0;
-                int32 TotalCount = ActionsArray->Num();
-
-                for (const TSharedPtr<FJsonValue>& ActionValue : *ActionsArray)
-                {
-                    TSharedPtr<FJsonObject> ActionItem = ActionValue->AsObject();
-                    if (!ActionItem.IsValid()) continue;
-
-                    // Batch action structure: { action: { id, targetId, ... }, data: { ... } }
-                    TSharedPtr<FJsonObject> ActionObj = ActionItem->GetObjectField(TEXT("action"));
-                    TSharedPtr<FJsonObject> ActionData = ActionItem->GetObjectField(TEXT("data"));
-
-                    if (!ActionObj.IsValid())
-                    {
-                        UE_LOG(LogRshipExec, Warning, TEXT("BatchExecTargetActions: Missing 'action' field in item"));
-                        continue;
-                    }
-
-                    FString TargetId = ActionObj->GetStringField(TEXT("targetId"));
-                    FString ActionId = ActionObj->GetStringField(TEXT("id"));
-
-                    bool ActionResult = false;
-
-                    // Check if this is a PCG target
-                    if (TargetId.StartsWith(TEXT("/pcg/")))
-                    {
-                        if (PCGManager)
-                        {
-                            ActionResult = PCGManager->RouteAction(TargetId, ActionId, ActionData.ToSharedRef());
-                        }
-                    }
-                    else
-                    {
-                        // Standard target component routing
-                        TArray<URshipTargetComponent*> Comps = FindAllTargetComponents(TargetId);
-                        for (URshipTargetComponent* Comp : Comps)
-                        {
-                            if (!Comp) continue;
-
-                            Target* TargetData = Comp->TargetData;
-                            AActor* Owner = Comp->GetOwner();
-
-                            // Skip Editor world
-                            if (Owner)
-                            {
-                                if (UWorld* World = Owner->GetWorld())
-                                {
-                                    if (World->WorldType == EWorldType::Editor)
-                                    {
-                                        continue;
-                                    }
-                                }
-                            }
-
-                            if (TargetData != nullptr)
-                            {
-                                bool TakeResult = TargetData->TakeAction(Owner, ActionId, ActionData.ToSharedRef());
-                                ActionResult |= TakeResult;
-                                Comp->OnDataReceived();
-                            }
-                        }
-                    }
-
-                    if (ActionResult)
-                    {
-                        SuccessCount++;
-                    }
-                }
-
-                UE_LOG(LogRshipExec, Log, TEXT("BatchExecTargetActions: %d/%d succeeded"), SuccessCount, TotalCount);
-
-                // Send single response for the batch
-                TSharedPtr<FJsonObject> ResponseData = MakeShareable(new FJsonObject);
-                ResponseData->SetStringField(TEXT("commandId"), commandId);
-                ResponseData->SetStringField(TEXT("tx"), txId);
-                ResponseData->SetNumberField(TEXT("successCount"), SuccessCount);
-                ResponseData->SetNumberField(TEXT("totalCount"), TotalCount);
-
-                TSharedPtr<FJsonObject> Response = MakeShareable(new FJsonObject);
-                Response->SetStringField(TEXT("event"), TEXT("ws:m:command-response"));
-                Response->SetObjectField(TEXT("data"), ResponseData);
-
-                QueueMessage(Response, ERshipMessagePriority::Critical, ERshipMessageType::CommandResponse);
+                ProcessBatchActions(*ActionsArray, txId, commandId);
             }
         }
         obj.Reset();
@@ -1055,6 +1133,367 @@ void URshipSubsystem::ProcessMessage(const FString &message)
         // Query response - route to callback
         ProcessQueryResponse(obj->GetObjectField(TEXT("data")));
     }
+}
+
+void URshipSubsystem::ProcessBatchActions(const TArray<TSharedPtr<FJsonValue>>& ActionsArray, const FString& TxId, const FString& CommandId)
+{
+    SCOPE_CYCLE_COUNTER(STAT_Rship_ProcessBatchActions);
+
+    const int32 TotalCount = ActionsArray.Num();
+    if (TotalCount == 0)
+    {
+        return;
+    }
+
+    const double StartTime = FPlatformTime::Seconds();
+
+    // ========================================================================
+    // PHASE 1: Pre-cache target lookups for all unique targets in this batch
+    // This avoids repeated TMultiMap lookups (O(log n) each) by doing one pass
+    // ========================================================================
+
+    // Cache: TargetId -> Component (for single-component targets, which is the common case)
+    // Also track which components are in valid (non-Editor) worlds
+    struct FCachedTarget
+    {
+        URshipTargetComponent* Component = nullptr;
+        Target* TargetData = nullptr;
+        AActor* Owner = nullptr;
+        bool bIsValidWorld = false;
+    };
+    TMap<FString, FCachedTarget> TargetCache;
+    TargetCache.Reserve(TotalCount);  // Reserve for worst case (all unique targets)
+
+    double Phase1Start = FPlatformTime::Seconds();
+    {
+        SCOPE_CYCLE_COUNTER(STAT_Rship_BatchCacheBuild);
+
+        // First pass: collect unique target IDs and pre-cache lookups
+        for (const TSharedPtr<FJsonValue>& ActionValue : ActionsArray)
+        {
+            TSharedPtr<FJsonObject> ActionItem = ActionValue->AsObject();
+            if (!ActionItem.IsValid()) continue;
+
+            TSharedPtr<FJsonObject> ActionObj = ActionItem->GetObjectField(TEXT("action"));
+            if (!ActionObj.IsValid()) continue;
+
+            FString TargetId = ActionObj->GetStringField(TEXT("targetId"));
+
+            // Skip if already cached or PCG target
+            if (TargetCache.Contains(TargetId) || TargetId.StartsWith(TEXT("/pcg/")))
+            {
+                continue;
+            }
+
+            // Look up the target component once
+            URshipTargetComponent* Comp = FindTargetComponent(TargetId);
+            if (Comp)
+            {
+                FCachedTarget Cached;
+                Cached.Component = Comp;
+                Cached.TargetData = Comp->TargetData;
+                Cached.Owner = Comp->GetOwner();
+
+                // Pre-check world type (avoid checking in tight loop)
+                if (Cached.Owner)
+                {
+                    if (UWorld* World = Cached.Owner->GetWorld())
+                    {
+                        Cached.bIsValidWorld = (World->WorldType != EWorldType::Editor);
+                    }
+                }
+
+                TargetCache.Add(TargetId, Cached);
+            }
+            else
+            {
+                // Add null entry to avoid repeated failed lookups
+                TargetCache.Add(TargetId, FCachedTarget());
+            }
+        }
+    }
+    double Phase1Time = (FPlatformTime::Seconds() - Phase1Start) * 1000.0;
+
+    // ========================================================================
+    // PHASE 2: Execute actions using cached lookups
+    // ========================================================================
+
+    int32 SuccessCount = 0;
+    double TakeActionTotalMs = 0.0;
+
+    double Phase2Start = FPlatformTime::Seconds();
+    {
+        SCOPE_CYCLE_COUNTER(STAT_Rship_BatchExecute);
+
+        // Check if all actions use the same actionId (common case for batch updates)
+        // This allows us to skip repeated string parsing
+        FString CommonActionId;
+        bool bSameActionId = true;
+        if (TotalCount > 1)
+        {
+            TSharedPtr<FJsonObject> FirstItem = ActionsArray[0]->AsObject();
+            if (FirstItem.IsValid())
+            {
+                TSharedPtr<FJsonObject> FirstAction = FirstItem->GetObjectField(TEXT("action"));
+                if (FirstAction.IsValid())
+                {
+                    CommonActionId = FirstAction->GetStringField(TEXT("id"));
+                }
+            }
+
+            // Quick check: sample a few items to see if actionId is consistent
+            for (int32 i = 1; i < FMath::Min(5, TotalCount) && bSameActionId; i++)
+            {
+                TSharedPtr<FJsonObject> Item = ActionsArray[i]->AsObject();
+                if (Item.IsValid())
+                {
+                    TSharedPtr<FJsonObject> ActionObj = Item->GetObjectField(TEXT("action"));
+                    if (ActionObj.IsValid() && ActionObj->GetStringField(TEXT("id")) != CommonActionId)
+                    {
+                        bSameActionId = false;
+                    }
+                }
+            }
+        }
+
+        for (const TSharedPtr<FJsonValue>& ActionValue : ActionsArray)
+        {
+            TSharedPtr<FJsonObject> ActionItem = ActionValue->AsObject();
+            if (!ActionItem.IsValid()) continue;
+
+            TSharedPtr<FJsonObject> ActionObj = ActionItem->GetObjectField(TEXT("action"));
+            TSharedPtr<FJsonObject> ActionData = ActionItem->GetObjectField(TEXT("data"));
+
+            if (!ActionObj.IsValid()) continue;
+
+            // Use pre-extracted actionId if all actions are the same (skip string parsing)
+            const FString& ActionId = bSameActionId ? CommonActionId : ActionObj->GetStringField(TEXT("id"));
+            const FString& TargetId = ActionObj->GetStringField(TEXT("targetId"));
+
+            bool ActionResult = false;
+
+            // Handle PCG targets separately (they have their own routing)
+            if (TargetId.StartsWith(TEXT("/pcg/")))
+            {
+                if (PCGManager && ActionData.IsValid())
+                {
+                    ActionResult = PCGManager->RouteAction(TargetId, ActionId, ActionData);
+                }
+            }
+            else
+            {
+                // Use cached lookup - O(1) instead of O(log n)
+                FCachedTarget* Cached = TargetCache.Find(TargetId);
+                if (Cached && Cached->Component && Cached->TargetData && Cached->bIsValidWorld && ActionData.IsValid())
+                {
+                    double ActionStart = FPlatformTime::Seconds();
+                    {
+                        SCOPE_CYCLE_COUNTER(STAT_Rship_TakeAction);
+                        ActionResult = Cached->TargetData->TakeAction(Cached->Owner, ActionId, ActionData);
+                    }
+                    TakeActionTotalMs += (FPlatformTime::Seconds() - ActionStart) * 1000.0;
+
+                    if (ActionResult)
+                    {
+                        Cached->Component->OnDataReceived();
+                    }
+                }
+            }
+
+            if (ActionResult)
+            {
+                SuccessCount++;
+            }
+        }
+    }
+    double Phase2Time = (FPlatformTime::Seconds() - Phase2Start) * 1000.0;
+    double TotalTime = (FPlatformTime::Seconds() - StartTime) * 1000.0;
+
+    // Log timing breakdown for performance analysis
+    UE_LOG(LogRshipExec, Log, TEXT("BatchActions: %d actions, %d targets | Cache=%.2fms Execute=%.2fms (TakeAction=%.2fms) Total=%.2fms"),
+        TotalCount, TargetCache.Num(), Phase1Time, Phase2Time, TakeActionTotalMs, TotalTime);
+
+    // Send single response for the batch
+    TSharedPtr<FJsonObject> ResponseData = MakeShareable(new FJsonObject);
+    ResponseData->SetStringField(TEXT("commandId"), CommandId);
+    ResponseData->SetStringField(TEXT("tx"), TxId);
+    ResponseData->SetNumberField(TEXT("successCount"), SuccessCount);
+    ResponseData->SetNumberField(TEXT("totalCount"), TotalCount);
+
+    TSharedPtr<FJsonObject> Response = MakeShareable(new FJsonObject);
+    Response->SetStringField(TEXT("event"), TEXT("ws:m:command-response"));
+    Response->SetObjectField(TEXT("data"), ResponseData);
+
+    QueueMessage(Response, ERshipMessagePriority::Critical, ERshipMessageType::CommandResponse);
+}
+
+void URshipSubsystem::ProcessBatchActionsFast(const FRshipBatchCommand& BatchCommand)
+{
+    SCOPE_CYCLE_COUNTER(STAT_Rship_ProcessBatchActions);
+
+    const int32 TotalCount = BatchCommand.Actions.Num();
+    if (TotalCount == 0)
+    {
+        return;
+    }
+
+    const double StartTime = FPlatformTime::Seconds();
+
+    // Track time since last batch to identify delays
+    static double LastBatchTime = 0.0;
+    double GapTime = (LastBatchTime > 0.0) ? (StartTime - LastBatchTime) * 1000.0 : 0.0;
+    LastBatchTime = StartTime;
+
+    // ========================================================================
+    // PHASE 1: Pre-cache target lookups with PCG flag
+    // ========================================================================
+
+    struct FCachedTarget
+    {
+        URshipTargetComponent* Component = nullptr;
+        Target* TargetData = nullptr;
+        AActor* Owner = nullptr;
+        bool bIsValidWorld = false;
+        bool bIsPCG = false;  // Cache the PCG check to avoid per-action StartsWith
+    };
+    TMap<FString, FCachedTarget> TargetCache;
+    TargetCache.Reserve(TotalCount);
+
+    // Collect components for batched OnDataReceived calls
+    TSet<URshipTargetComponent*> ComponentsToNotify;
+    ComponentsToNotify.Reserve(TotalCount);
+
+    double Phase1Start = FPlatformTime::Seconds();
+    {
+        SCOPE_CYCLE_COUNTER(STAT_Rship_BatchCacheBuild);
+
+        for (const FRshipBatchActionItem& Item : BatchCommand.Actions)
+        {
+            if (TargetCache.Contains(Item.TargetId))
+            {
+                continue;
+            }
+
+            // Check PCG prefix once per unique target
+            const bool bIsPCG = Item.TargetId.StartsWith(TEXT("/pcg/"));
+
+            if (bIsPCG)
+            {
+                // For PCG targets, just mark the flag
+                FCachedTarget Cached;
+                Cached.bIsPCG = true;
+                TargetCache.Add(Item.TargetId, Cached);
+            }
+            else
+            {
+                URshipTargetComponent* Comp = FindTargetComponent(Item.TargetId);
+                FCachedTarget Cached;
+                Cached.bIsPCG = false;
+
+                if (Comp)
+                {
+                    Cached.Component = Comp;
+                    Cached.TargetData = Comp->TargetData;
+                    Cached.Owner = Comp->GetOwner();
+
+                    if (Cached.Owner)
+                    {
+                        if (UWorld* World = Cached.Owner->GetWorld())
+                        {
+                            Cached.bIsValidWorld = (World->WorldType != EWorldType::Editor);
+                        }
+                    }
+                }
+
+                TargetCache.Add(Item.TargetId, Cached);
+            }
+        }
+    }
+    double Phase1Time = (FPlatformTime::Seconds() - Phase1Start) * 1000.0;
+
+    // ========================================================================
+    // PHASE 2: Execute actions - FAST PATH
+    // ========================================================================
+
+    int32 SuccessCount = 0;
+    const FRshipBatchActionItem* ActionsPtr = BatchCommand.Actions.GetData();
+    const int32 NumActions = BatchCommand.Actions.Num();
+
+    double Phase2Start = FPlatformTime::Seconds();
+    {
+        SCOPE_CYCLE_COUNTER(STAT_Rship_BatchExecute);
+
+        for (int32 i = 0; i < NumActions; ++i)
+        {
+            const FRshipBatchActionItem& Item = ActionsPtr[i];
+
+            if (!Item.Data.IsValid())
+            {
+                continue;
+            }
+
+            FCachedTarget* Cached = TargetCache.Find(Item.TargetId);
+            if (!Cached)
+            {
+                continue;
+            }
+
+            bool ActionResult = false;
+
+            if (Cached->bIsPCG)
+            {
+                if (PCGManager)
+                {
+                    ActionResult = PCGManager->RouteAction(Item.TargetId, Item.ActionId, Item.Data);
+                }
+            }
+            else if (Cached->Component && Cached->TargetData && Cached->bIsValidWorld)
+            {
+                ActionResult = Cached->TargetData->TakeAction(Cached->Owner, Item.ActionId, Item.Data);
+
+                if (ActionResult)
+                {
+                    // Defer notification - add to set (automatically dedupes)
+                    ComponentsToNotify.Add(Cached->Component);
+                }
+            }
+
+            if (ActionResult)
+            {
+                SuccessCount++;
+            }
+        }
+    }
+    double Phase2Time = (FPlatformTime::Seconds() - Phase2Start) * 1000.0;
+
+    // ========================================================================
+    // PHASE 3: Batch notify components (once per component, not per action)
+    // ========================================================================
+    double Phase3Start = FPlatformTime::Seconds();
+    for (URshipTargetComponent* Comp : ComponentsToNotify)
+    {
+        Comp->OnDataReceived();
+    }
+    double Phase3Time = (FPlatformTime::Seconds() - Phase3Start) * 1000.0;
+
+    double TotalTime = (FPlatformTime::Seconds() - StartTime) * 1000.0;
+
+    // Log timing breakdown (Gap = time since last batch arrived)
+    UE_LOG(LogRshipExec, Log, TEXT("BatchActionsFAST: %d actions | Gap=%.1fms Process=%.2fms (Cache=%.2f Exec=%.2f Notify=%.2f)"),
+        TotalCount, GapTime, TotalTime, Phase1Time, Phase2Time, Phase3Time);
+
+    // Send response
+    TSharedPtr<FJsonObject> ResponseData = MakeShareable(new FJsonObject);
+    ResponseData->SetStringField(TEXT("commandId"), BatchCommand.CommandId);
+    ResponseData->SetStringField(TEXT("tx"), BatchCommand.TxId);
+    ResponseData->SetNumberField(TEXT("successCount"), SuccessCount);
+    ResponseData->SetNumberField(TEXT("totalCount"), TotalCount);
+
+    TSharedPtr<FJsonObject> Response = MakeShareable(new FJsonObject);
+    Response->SetStringField(TEXT("event"), TEXT("ws:m:command-response"));
+    Response->SetObjectField(TEXT("data"), ResponseData);
+
+    QueueMessage(Response, ERshipMessagePriority::Critical, ERshipMessageType::CommandResponse);
 }
 
 void URshipSubsystem::Deinitialize()
@@ -1081,6 +1520,12 @@ void URshipSubsystem::Deinitialize()
     {
         FTSTicker::GetCoreTicker().RemoveTicker(ConnectionTimeoutTickerHandle);
         ConnectionTimeoutTickerHandle.Reset();
+    }
+
+    // Stop decoder thread
+    if (DecoderThread)
+    {
+        DecoderThread.Reset();
     }
 
     // Shutdown health monitor
@@ -1410,9 +1855,9 @@ void URshipSubsystem::ReinitializeAfterHotReload()
     {
         SubsystemTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
             FTickerDelegate::CreateUObject(this, &URshipSubsystem::OnSubsystemTick),
-            1.0f / 60.0f
+            0.001f  // 1000Hz
         );
-        UE_LOG(LogRshipExec, Log, TEXT("Restarted subsystem ticker"));
+        UE_LOG(LogRshipExec, Log, TEXT("Restarted subsystem ticker (1000Hz)"));
     }
 
     // Rebind rate limiter callback

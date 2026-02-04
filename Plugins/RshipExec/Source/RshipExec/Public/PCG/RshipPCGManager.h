@@ -102,7 +102,7 @@ public:
 	// ========================================================================
 
 	/** Route an action to the appropriate instance */
-	bool RouteAction(const FString& TargetPath, const FString& ActionId, const TSharedRef<FJsonObject>& Data);
+	bool RouteAction(const FString& TargetPath, const FString& ActionId, const TSharedPtr<FJsonObject>& Data);
 
 	/** Execute action on a specific instance */
 	UFUNCTION(BlueprintCallable, Category = "Rship|PCG")

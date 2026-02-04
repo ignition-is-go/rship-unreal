@@ -213,6 +213,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Rship|PCG|Properties")
 	bool SetVectorProperty(FName PropertyName, FVector Value);
 
+	/** Get rotator property value */
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Rship|PCG|Properties")
+	FRotator GetRotatorProperty(FName PropertyName, bool& bSuccess) const;
+
+	/** Set rotator property value */
+	UFUNCTION(BlueprintCallable, Category = "Rship|PCG|Properties")
+	bool SetRotatorProperty(FName PropertyName, FRotator Value);
+
 	/** Get color property value */
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Rship|PCG|Properties")
 	FLinearColor GetColorProperty(FName PropertyName, bool& bSuccess) const;
@@ -226,7 +234,7 @@ public:
 	// ========================================================================
 
 	/** Called when an action is received from rShip */
-	void HandleAction(const FString& ActionId, const TSharedRef<FJsonObject>& Data);
+	void HandleAction(const FString& ActionId, const TSharedPtr<FJsonObject>& Data);
 
 	/** Get the class bindings for this actor */
 	const FRshipPCGClassBindings* GetClassBindings() const { return ClassBindings; }
@@ -293,7 +301,7 @@ private:
 	bool FindPropertyAndOwner(FName PropertyName, const FRshipPCGPropertyDescriptor*& OutDesc, const UObject*& OutOwner) const;
 
 	/** Apply action value to property */
-	bool ApplyActionToProperty(const FRshipPCGPropertyDescriptor& Desc, UObject* Owner, const TSharedRef<FJsonObject>& Data);
+	bool ApplyActionToProperty(const FRshipPCGPropertyDescriptor& Desc, UObject* Owner, const TSharedPtr<FJsonObject>& Data);
 
 	/** Validate and clamp property value if range is specified */
 	void ClampPropertyValue(const FRshipPCGPropertyDescriptor& Desc, void* ValuePtr);

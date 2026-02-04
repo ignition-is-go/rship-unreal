@@ -202,6 +202,40 @@ int32 FRshipWebSocket::GetPendingSendCount() const
 #endif
 }
 
+bool FRshipWebSocket::HasPendingMessages() const
+{
+    return !PendingBinaryMessages.IsEmpty() || !PendingTextMessages.IsEmpty();
+}
+
+int32 FRshipWebSocket::ProcessPendingMessages()
+{
+    int32 ProcessedCount = 0;
+
+    // Process all pending binary messages
+    TArray<uint8> BinaryData;
+    while (PendingBinaryMessages.Dequeue(BinaryData))
+    {
+        if (OnBinaryMessage.IsBound())
+        {
+            OnBinaryMessage.Execute(BinaryData);
+        }
+        ProcessedCount++;
+    }
+
+    // Process all pending text messages
+    FString TextMessage;
+    while (PendingTextMessages.Dequeue(TextMessage))
+    {
+        if (OnMessage.IsBound())
+        {
+            OnMessage.Execute(TextMessage);
+        }
+        ProcessedCount++;
+    }
+
+    return ProcessedCount;
+}
+
 // ============================================================================
 // IXWebSocket Implementation
 // ============================================================================
@@ -297,26 +331,22 @@ void FRshipWebSocket::SetupIXWebSocket(const FRshipWebSocketConfig& Config)
             {
                 if (msg->binary)
                 {
-                    // Binary message (msgpack)
+                    // Binary message (msgpack) - queue for high-frequency processing
                     TArray<uint8> BinaryData;
                     BinaryData.Append(reinterpret_cast<const uint8*>(msg->str.data()), msg->str.size());
-                    UE_LOG(LogRshipExec, Verbose, TEXT("RshipWebSocket: Received binary message (%d bytes)"), BinaryData.Num());
+                    UE_LOG(LogRshipExec, Verbose, TEXT("RshipWebSocket: Queued binary message (%d bytes)"), BinaryData.Num());
 
-                    AsyncTask(ENamedThreads::GameThread, [this, BinaryData = MoveTemp(BinaryData)]()
-                    {
-                        OnBinaryMessage.ExecuteIfBound(BinaryData);
-                    });
+                    // Queue instead of AsyncTask for lower latency
+                    PendingBinaryMessages.Enqueue(MoveTemp(BinaryData));
                 }
                 else
                 {
-                    // Text message (JSON)
+                    // Text message (JSON) - queue for high-frequency processing
                     FString Message = UTF8_TO_TCHAR(msg->str.c_str());
-                    UE_LOG(LogRshipExec, Verbose, TEXT("RshipWebSocket: Received text message (%d bytes)"), Message.Len());
+                    UE_LOG(LogRshipExec, Verbose, TEXT("RshipWebSocket: Queued text message (%d bytes)"), Message.Len());
 
-                    AsyncTask(ENamedThreads::GameThread, [this, Message]()
-                    {
-                        OnMessage.ExecuteIfBound(Message);
-                    });
+                    // Queue instead of AsyncTask for lower latency
+                    PendingTextMessages.Enqueue(MoveTemp(Message));
                 }
             }
             break;
