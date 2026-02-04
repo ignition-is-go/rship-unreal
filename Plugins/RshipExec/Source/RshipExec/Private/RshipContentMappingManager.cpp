@@ -25,6 +25,11 @@
 #include "Serialization/JsonWriter.h"
 #include "Serialization/JsonSerializer.h"
 #include "Engine/Engine.h"
+#include "Engine/World.h"
+
+#if WITH_EDITOR
+#include "Editor.h"
+#endif
 
 static const FName ParamContextTexture(TEXT("RshipContextTexture"));
 static const FName ParamMappingMode(TEXT("RshipMappingMode"));
@@ -664,6 +669,72 @@ void URshipContentMappingManager::MarkCacheDirty()
     bCacheDirty = true;
 }
 
+UWorld* URshipContentMappingManager::GetBestWorld() const
+{
+    if (Subsystem)
+    {
+        if (UWorld* SubsystemWorld = Subsystem->GetWorld())
+        {
+            return SubsystemWorld;
+        }
+    }
+
+    if (!GEngine)
+    {
+        return nullptr;
+    }
+
+    const TArray<FWorldContext>& Contexts = GEngine->GetWorldContexts();
+    for (const FWorldContext& Context : Contexts)
+    {
+        UWorld* World = Context.World();
+        if (!World)
+        {
+            continue;
+        }
+
+        if (Context.WorldType == EWorldType::PIE || Context.WorldType == EWorldType::Game)
+        {
+            return World;
+        }
+    }
+
+#if WITH_EDITOR
+    for (const FWorldContext& Context : Contexts)
+    {
+        UWorld* World = Context.World();
+        if (!World)
+        {
+            continue;
+        }
+
+        if (Context.WorldType == EWorldType::Editor || Context.WorldType == EWorldType::EditorPreview)
+        {
+            return World;
+        }
+    }
+
+    if (GEditor)
+    {
+        UWorld* EditorWorld = GEditor->GetEditorWorldContext().World();
+        if (EditorWorld)
+        {
+            return EditorWorld;
+        }
+    }
+#endif
+
+    for (const FWorldContext& Context : Contexts)
+    {
+        if (UWorld* World = Context.World())
+        {
+            return World;
+        }
+    }
+
+    return nullptr;
+}
+
 void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState& ContextState)
 {
     ContextState.LastError.Empty();
@@ -690,7 +761,15 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
             return;
         }
 
-        UWorld* World = Subsystem ? Subsystem->GetWorld() : nullptr;
+        UWorld* World = nullptr;
+        if (ARshipCameraActor* ExistingCamera = ContextState.CameraActor.Get())
+        {
+            World = ExistingCamera->GetWorld();
+        }
+        if (!World)
+        {
+            World = GetBestWorld();
+        }
         if (!World)
         {
             ContextState.LastError = TEXT("World not available");

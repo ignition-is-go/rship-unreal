@@ -200,6 +200,7 @@ private:
 
     void MarkMappingsDirty();
     void MarkCacheDirty();
+    UWorld* GetBestWorld() const;
 
     void ResolveRenderContext(FRshipRenderContextState& ContextState);
     void ResolveMappingSurface(FRshipMappingSurfaceState& SurfaceState);
