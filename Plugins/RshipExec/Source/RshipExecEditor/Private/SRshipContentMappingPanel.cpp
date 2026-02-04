@@ -2049,6 +2049,88 @@ void SRshipContentMappingPanel::RefreshStatus()
 	const TArray<FRshipContentMappingState> Mappings = Manager->GetMappings();
 	RebuildPickerOptions(Contexts, Surfaces);
 
+	TArray<FRshipRenderContextState> SortedContexts = Contexts;
+	TArray<FRshipMappingSurfaceState> SortedSurfaces = Surfaces;
+	TArray<FRshipContentMappingState> SortedMappings = Mappings;
+	SortedContexts.Sort([](const FRshipRenderContextState& A, const FRshipRenderContextState& B) { return A.Id < B.Id; });
+	SortedSurfaces.Sort([](const FRshipMappingSurfaceState& A, const FRshipMappingSurfaceState& B) { return A.Id < B.Id; });
+	SortedMappings.Sort([](const FRshipContentMappingState& A, const FRshipContentMappingState& B) { return A.Id < B.Id; });
+
+	uint32 SnapshotHash = 0;
+	auto HashString = [&SnapshotHash](const FString& Value)
+	{
+		SnapshotHash = HashCombineFast(SnapshotHash, GetTypeHash(Value));
+	};
+	auto HashInt = [&SnapshotHash](int32 Value)
+	{
+		SnapshotHash = HashCombineFast(SnapshotHash, GetTypeHash(Value));
+	};
+	auto HashFloat = [&SnapshotHash](float Value)
+	{
+		SnapshotHash = HashCombineFast(SnapshotHash, GetTypeHash(Value));
+	};
+	auto HashBool = [&SnapshotHash](bool Value)
+	{
+		SnapshotHash = HashCombineFast(SnapshotHash, GetTypeHash(Value));
+	};
+
+	for (const FRshipRenderContextState& Context : SortedContexts)
+	{
+		HashString(Context.Id);
+		HashString(Context.Name);
+		HashString(Context.ProjectId);
+		HashString(Context.SourceType);
+		HashString(Context.CameraId);
+		HashString(Context.AssetId);
+		HashString(Context.CaptureMode);
+		HashInt(Context.Width);
+		HashInt(Context.Height);
+		HashBool(Context.bEnabled);
+	}
+
+	for (const FRshipMappingSurfaceState& Surface : SortedSurfaces)
+	{
+		HashString(Surface.Id);
+		HashString(Surface.Name);
+		HashString(Surface.ProjectId);
+		HashString(Surface.TargetId);
+		HashString(Surface.MeshComponentName);
+		HashInt(Surface.UVChannel);
+		HashBool(Surface.bEnabled);
+
+		TArray<int32> Slots = Surface.MaterialSlots;
+		Slots.Sort();
+		for (int32 Slot : Slots)
+		{
+			HashInt(Slot);
+		}
+	}
+
+	for (const FRshipContentMappingState& Mapping : SortedMappings)
+	{
+		HashString(Mapping.Id);
+		HashString(Mapping.Name);
+		HashString(Mapping.ProjectId);
+		HashString(Mapping.Type);
+		HashString(Mapping.ContextId);
+		HashBool(Mapping.bEnabled);
+		HashFloat(Mapping.Opacity);
+
+		TArray<FString> SurfaceIds = Mapping.SurfaceIds;
+		SurfaceIds.Sort();
+		for (const FString& SurfaceId : SurfaceIds)
+		{
+			HashString(SurfaceId);
+		}
+	}
+
+	const bool bRebuildLists = !bHasListHash || SnapshotHash != LastListHash;
+	if (bRebuildLists)
+	{
+		LastListHash = SnapshotHash;
+		bHasListHash = true;
+	}
+
 	if (CountsText.IsValid())
 	{
 		CountsText->SetText(FText::Format(
@@ -2058,10 +2140,10 @@ void SRshipContentMappingPanel::RefreshStatus()
 			FText::AsNumber(Mappings.Num())));
 	}
 
-	if (ContextList.IsValid())
+	if (ContextList.IsValid() && bRebuildLists)
 	{
 		ContextList->ClearChildren();
-		if (Contexts.Num() == 0)
+		if (SortedContexts.Num() == 0)
 		{
 			ContextList->AddSlot()[SNew(STextBlock).Text(LOCTEXT("NoContexts", "No render contexts"))];
 		}
@@ -2155,7 +2237,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 				];
 			}
 
-			for (const FRshipRenderContextState& Context : Contexts)
+			for (const FRshipRenderContextState& Context : SortedContexts)
 			{
 				const FString Name = Context.Name.IsEmpty() ? Context.Id : Context.Name;
 				const FString Status = Context.bEnabled ? TEXT("enabled") : TEXT("disabled");
@@ -2292,10 +2374,10 @@ void SRshipContentMappingPanel::RefreshStatus()
 		}
 	}
 
-	if (SurfaceList.IsValid())
+	if (SurfaceList.IsValid() && bRebuildLists)
 	{
 		SurfaceList->ClearChildren();
-		if (Surfaces.Num() == 0)
+		if (SortedSurfaces.Num() == 0)
 		{
 			SurfaceList->AddSlot()[SNew(STextBlock).Text(LOCTEXT("NoSurfaces", "No mapping surfaces"))];
 		}
@@ -2386,7 +2468,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 				];
 			}
 
-			for (const FRshipMappingSurfaceState& Surface : Surfaces)
+			for (const FRshipMappingSurfaceState& Surface : SortedSurfaces)
 			{
 				const FString Name = Surface.Name.IsEmpty() ? Surface.Id : Surface.Name;
 				const FString Status = Surface.bEnabled ? TEXT("enabled") : TEXT("disabled");
@@ -2519,10 +2601,10 @@ void SRshipContentMappingPanel::RefreshStatus()
 		}
 	}
 
-	if (MappingList.IsValid())
+	if (MappingList.IsValid() && bRebuildLists)
 	{
 		MappingList->ClearChildren();
-		if (Mappings.Num() == 0)
+		if (SortedMappings.Num() == 0)
 		{
 			MappingList->AddSlot()[SNew(STextBlock).Text(LOCTEXT("NoMappings", "No surface mappings"))];
 		}
@@ -2615,7 +2697,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 				];
 			}
 
-			for (const FRshipContentMappingState& Mapping : Mappings)
+			for (const FRshipContentMappingState& Mapping : SortedMappings)
 			{
 				const FString Name = Mapping.Name.IsEmpty() ? Mapping.Id : Mapping.Name;
 				const FString Status = Mapping.bEnabled ? TEXT("enabled") : TEXT("disabled");

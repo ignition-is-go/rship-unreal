@@ -141,4 +141,6 @@ private:
 
 	float TimeSinceLastRefresh = 0.0f;
 	float RefreshInterval = 1.0f;
+	uint32 LastListHash = 0;
+	bool bHasListHash = false;
 };
