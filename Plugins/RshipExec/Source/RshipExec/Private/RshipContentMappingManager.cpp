@@ -881,12 +881,24 @@ void URshipContentMappingManager::ResolveMappingSurface(FRshipMappingSurfaceStat
         return;
     }
 
-    URshipTargetComponent* TargetComponent = Subsystem->FindTargetComponent(SurfaceState.TargetId);
+    FString TargetId = SurfaceState.TargetId.TrimStartAndEnd();
+    if (!TargetId.Contains(TEXT(":")))
+    {
+        const FString ServiceId = Subsystem->GetServiceId();
+        if (!ServiceId.IsEmpty())
+        {
+            TargetId = ServiceId + TEXT(":") + TargetId;
+        }
+    }
+
+    URshipTargetComponent* TargetComponent = Subsystem->FindTargetComponent(TargetId);
     if (!TargetComponent)
     {
         SurfaceState.LastError = TEXT("Target component not found");
         return;
     }
+
+    SurfaceState.TargetId = TargetId;
 
     AActor* Owner = TargetComponent->GetOwner();
     if (!Owner)

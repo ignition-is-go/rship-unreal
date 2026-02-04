@@ -51,6 +51,8 @@ private:
 	void PopulateMappingForm(const struct FRshipContentMappingState& State);
 	void ResetForms();
 	class UWorld* GetEditorWorld() const;
+	FString ResolveTargetIdInput(const FString& InText) const;
+	static FString ShortTargetLabel(const FString& TargetId);
 
 	TSharedPtr<STextBlock> ConnectionText;
 	TSharedPtr<STextBlock> CountsText;

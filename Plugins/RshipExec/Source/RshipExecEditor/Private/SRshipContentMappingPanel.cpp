@@ -224,6 +224,89 @@ UWorld* SRshipContentMappingPanel::GetEditorWorld() const
 	return GEngine ? GEngine->GetWorld() : nullptr;
 }
 
+FString SRshipContentMappingPanel::ResolveTargetIdInput(const FString& InText) const
+{
+	const FString Trimmed = InText.TrimStartAndEnd();
+	if (Trimmed.IsEmpty())
+	{
+		return Trimmed;
+	}
+
+	if (Trimmed.Contains(TEXT(":")))
+	{
+		return Trimmed;
+	}
+
+	// Prefer explicit matches from current target options
+	for (const TSharedPtr<FRshipIdOption>& Option : TargetOptions)
+	{
+		if (!Option.IsValid())
+		{
+			continue;
+		}
+
+		if (Option->Id.Equals(Trimmed, ESearchCase::IgnoreCase))
+		{
+			return Option->ResolvedId.IsEmpty() ? Option->Id : Option->ResolvedId;
+		}
+
+		if (Option->Actor.IsValid())
+		{
+			const FString ActorLabel = Option->Actor->GetActorLabel();
+			if (!ActorLabel.IsEmpty() && ActorLabel.Equals(Trimmed, ESearchCase::IgnoreCase))
+			{
+				return Option->ResolvedId.IsEmpty() ? Option->Id : Option->ResolvedId;
+			}
+		}
+	}
+
+	URshipSubsystem* Subsystem = GEngine ? GEngine->GetEngineSubsystem<URshipSubsystem>() : nullptr;
+	if (Subsystem && Subsystem->TargetComponents)
+	{
+		for (auto& Pair : *Subsystem->TargetComponents)
+		{
+			URshipTargetComponent* Component = Pair.Value;
+			if (!Component)
+			{
+				continue;
+			}
+
+			const FString ShortId = Component->targetName;
+			if (!ShortId.IsEmpty() && ShortId.Equals(Trimmed, ESearchCase::IgnoreCase))
+			{
+				return Pair.Key;
+			}
+
+			if (AActor* Owner = Component->GetOwner())
+			{
+				const FString ActorLabel = Owner->GetActorLabel();
+				if (!ActorLabel.IsEmpty() && ActorLabel.Equals(Trimmed, ESearchCase::IgnoreCase))
+				{
+					return Pair.Key;
+				}
+			}
+		}
+
+		const FString ServiceId = Subsystem->GetServiceId();
+		if (!ServiceId.IsEmpty())
+		{
+			return ServiceId + TEXT(":") + Trimmed;
+		}
+	}
+
+	return Trimmed;
+}
+
+FString SRshipContentMappingPanel::ShortTargetLabel(const FString& TargetId)
+{
+	FString ShortId;
+	if (TargetId.Split(TEXT(":"), nullptr, &ShortId))
+	{
+		return ShortId;
+	}
+	return TargetId;
+}
+
 void SRshipContentMappingPanel::UpdatePreviewImage(UTexture* Texture, const FRshipContentMappingState& Mapping)
 {
 	if (!PreviewImage.IsValid())
@@ -321,9 +404,10 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildIdPickerMenu(const TArray<TS
 
 		const FString OptionId = Option->Id;
 		const FString OptionLabel = Option->Label;
+		const FString OptionTooltip = Option->ResolvedId.IsEmpty() ? OptionId : Option->ResolvedId;
 		MenuBuilder.AddMenuEntry(
 			FText::FromString(OptionLabel),
-			FText::FromString(OptionId),
+			FText::FromString(OptionTooltip),
 			FSlateIcon(),
 			FUIAction(FExecuteAction::CreateLambda([this, TargetInput, Option, OptionId, bAppend]()
 			{
@@ -406,9 +490,12 @@ void SRshipContentMappingPanel::RebuildPickerOptions(const TArray<FRshipRenderCo
 			}
 
 			const FString TargetId = Component->targetName;
+			const FString FullTargetId = Pair.Key;
 			const FString DisplayName = Component->GetOwner() ? Component->GetOwner()->GetActorLabel() : TargetId;
 			TSharedPtr<FRshipIdOption> Opt = MakeShared<FRshipIdOption>();
 			Opt->Id = TargetId;
+			Opt->ResolvedId = FullTargetId;
+			Opt->Actor = Component->GetOwner();
 			Opt->Label = DisplayName.IsEmpty() ? TargetId : FString::Printf(TEXT("%s (%s)"), *DisplayName, *TargetId);
 			TargetOptions.Add(Opt);
 		}
@@ -733,7 +820,7 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildQuickMappingSection()
 				+ SHorizontalBox::Slot().FillWidth(1.2f).Padding(0,0,4,0)
 				[
 					SAssignNew(QuickTargetIdInput, SEditableTextBox)
-					.HintText(LOCTEXT("QuickTargetHint", "TargetId"))
+					.HintText(LOCTEXT("QuickTargetHint", "Pick or type target name"))
 				]
 				+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,6,0)
 				[
@@ -831,7 +918,9 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildQuickMappingSection()
 
 						const FString ProjectId = QuickProjectIdInput.IsValid() ? QuickProjectIdInput->GetText().ToString().TrimStartAndEnd() : TEXT("");
 						const FString SourceId = QuickSourceIdInput.IsValid() ? QuickSourceIdInput->GetText().ToString().TrimStartAndEnd() : TEXT("");
-						const FString TargetId = QuickTargetIdInput.IsValid() ? QuickTargetIdInput->GetText().ToString().TrimStartAndEnd() : TEXT("");
+						const FString TargetIdInput = QuickTargetIdInput.IsValid() ? QuickTargetIdInput->GetText().ToString().TrimStartAndEnd() : TEXT("");
+						const FString TargetId = ResolveTargetIdInput(TargetIdInput);
+						const FString TargetLabel = ShortTargetLabel(TargetId);
 						const int32 Width = bQuickAdvanced && QuickWidthInput.IsValid() ? QuickWidthInput->GetValue() : 0;
 						const int32 Height = bQuickAdvanced && QuickHeightInput.IsValid() ? QuickHeightInput->GetValue() : 0;
 						const FString CaptureMode = bQuickAdvanced && QuickCaptureModeInput.IsValid() ? QuickCaptureModeInput->GetText().ToString().TrimStartAndEnd() : TEXT("");
@@ -843,7 +932,7 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildQuickMappingSection()
 						{
 							if (PreviewLabel.IsValid())
 							{
-								PreviewLabel->SetText(LOCTEXT("QuickMissing", "SourceId and TargetId are required."));
+								PreviewLabel->SetText(LOCTEXT("QuickMissing", "Source and target are required."));
 								PreviewLabel->SetColorAndOpacity(FLinearColor::Red);
 							}
 							return FReply::Handled();
@@ -937,7 +1026,7 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildQuickMappingSection()
 						if (SurfaceId.IsEmpty())
 						{
 							FRshipMappingSurfaceState NewSurface;
-							NewSurface.Name = FString::Printf(TEXT("Surface %s"), *TargetId);
+							NewSurface.Name = FString::Printf(TEXT("Surface %s"), *TargetLabel);
 							NewSurface.ProjectId = ProjectId;
 							NewSurface.TargetId = TargetId;
 							NewSurface.UVChannel = UVChannel;
@@ -971,7 +1060,7 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildQuickMappingSection()
 						if (MappingId.IsEmpty())
 						{
 							FRshipContentMappingState NewMapping;
-							NewMapping.Name = FString::Printf(TEXT("Map %s"), *TargetId);
+							NewMapping.Name = FString::Printf(TEXT("Map %s"), *TargetLabel);
 							NewMapping.ProjectId = ProjectId;
 							NewMapping.Type = QuickMappingType;
 							NewMapping.ContextId = ContextId;
@@ -1367,6 +1456,7 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildSurfaceForm()
 				+ SHorizontalBox::Slot().FillWidth(1.0f)
 				[
 					SAssignNew(SurfTargetInput, SEditableTextBox)
+					.HintText(LOCTEXT("SurfTargetHint", "Pick or type target name"))
 				]
 				+ SHorizontalBox::Slot().AutoWidth().Padding(6,0,0,0)
 				[
@@ -1447,7 +1537,8 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildSurfaceForm()
 							State.Id = SelectedSurfaceId;
 							State.Name = SurfNameInput.IsValid() ? SurfNameInput->GetText().ToString() : TEXT("");
 							State.ProjectId = SurfProjectInput.IsValid() ? SurfProjectInput->GetText().ToString() : TEXT("");
-							State.TargetId = SurfTargetInput.IsValid() ? SurfTargetInput->GetText().ToString() : TEXT("");
+							const FString TargetInput = SurfTargetInput.IsValid() ? SurfTargetInput->GetText().ToString() : TEXT("");
+							State.TargetId = ResolveTargetIdInput(TargetInput);
 							State.UVChannel = SurfUVInput.IsValid() ? SurfUVInput->GetValue() : 0;
 							State.MeshComponentName = SurfMeshInput.IsValid() ? SurfMeshInput->GetText().ToString() : TEXT("");
 							State.bEnabled = !SurfEnabledInput.IsValid() || SurfEnabledInput->IsChecked();
@@ -1819,7 +1910,7 @@ void SRshipContentMappingPanel::PopulateSurfaceForm(const FRshipMappingSurfaceSt
 	SelectedSurfaceId = State.Id;
 	if (SurfNameInput.IsValid()) SurfNameInput->SetText(FText::FromString(State.Name));
 	if (SurfProjectInput.IsValid()) SurfProjectInput->SetText(FText::FromString(State.ProjectId));
-	if (SurfTargetInput.IsValid()) SurfTargetInput->SetText(FText::FromString(State.TargetId));
+	if (SurfTargetInput.IsValid()) SurfTargetInput->SetText(FText::FromString(ShortTargetLabel(State.TargetId)));
 	if (SurfUVInput.IsValid()) SurfUVInput->SetValue(State.UVChannel);
 	if (SurfSlotsInput.IsValid())
 	{
@@ -2239,7 +2330,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 					]
 					+ SHorizontalBox::Slot().FillWidth(0.8f).Padding(0,0,4,0)
 					[
-						SAssignNew(TargetBox, SEditableTextBox).HintText(LOCTEXT("SurfTargetHint", "TargetId"))
+					SAssignNew(TargetBox, SEditableTextBox).HintText(LOCTEXT("SurfTargetHint", "Pick or type target name"))
 					]
 					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
 					[
@@ -2271,7 +2362,8 @@ void SRshipContentMappingPanel::RefreshStatus()
 									FRshipMappingSurfaceState State;
 									State.Name = NameBox.IsValid() ? NameBox->GetText().ToString() : TEXT("");
 									State.ProjectId = ProjectBox.IsValid() ? ProjectBox->GetText().ToString() : TEXT("");
-									State.TargetId = TargetBox.IsValid() ? TargetBox->GetText().ToString() : TEXT("");
+									const FString TargetInput = TargetBox.IsValid() ? TargetBox->GetText().ToString() : TEXT("");
+									State.TargetId = ResolveTargetIdInput(TargetInput);
 									State.UVChannel = UVBox.IsValid() ? UVBox->GetValue() : 0;
 									State.MeshComponentName = MeshBox.IsValid() ? MeshBox->GetText().ToString() : TEXT("");
 									State.bEnabled = !EnabledBox.IsValid() || EnabledBox->IsChecked();
@@ -2342,7 +2434,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 						]
 						+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
 						[
-							SAssignNew(TargetBox, SEditableTextBox).Text(FText::FromString(Surface.TargetId))
+							SAssignNew(TargetBox, SEditableTextBox).Text(FText::FromString(ShortTargetLabel(Surface.TargetId)))
 						]
 						+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
 						[
@@ -2378,7 +2470,11 @@ void SRshipContentMappingPanel::RefreshStatus()
 									FRshipMappingSurfaceState State = Surface;
 									State.Name = NameBox.IsValid() ? NameBox->GetText().ToString() : State.Name;
 									State.ProjectId = ProjectBox.IsValid() ? ProjectBox->GetText().ToString() : State.ProjectId;
-									State.TargetId = TargetBox.IsValid() ? TargetBox->GetText().ToString() : State.TargetId;
+									if (TargetBox.IsValid())
+									{
+										const FString TargetInput = TargetBox->GetText().ToString();
+										State.TargetId = ResolveTargetIdInput(TargetInput);
+									}
 									State.UVChannel = UVBox.IsValid() ? UVBox->GetValue() : State.UVChannel;
 									State.MeshComponentName = MeshBox.IsValid() ? MeshBox->GetText().ToString() : State.MeshComponentName;
 									State.MaterialSlots.Empty();
