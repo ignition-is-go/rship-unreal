@@ -39,6 +39,9 @@ static const FName ParamUVRotation(TEXT("RshipUVRotation"));
 static const FName ParamOpacity(TEXT("RshipOpacity"));
 static const FName ParamUVChannel(TEXT("RshipUVChannel"));
 static const FName ParamPreviewTint(TEXT("RshipPreviewTint"));
+static const FName ParamDebugCoverage(TEXT("RshipDebugCoverage"));
+static const FName ParamDebugUnmappedColor(TEXT("RshipDebugUnmappedColor"));
+static const FName ParamDebugMappedColor(TEXT("RshipDebugMappedColor"));
 
 static FString GetActionName(const FString& ActionId)
 {
@@ -256,6 +259,17 @@ void URshipContentMappingManager::SetDebugOverlayEnabled(bool bEnabled)
 bool URshipContentMappingManager::IsDebugOverlayEnabled() const
 {
     return bDebugOverlayEnabled;
+}
+
+void URshipContentMappingManager::SetCoveragePreviewEnabled(bool bEnabled)
+{
+    bCoveragePreviewEnabled = bEnabled;
+    MarkMappingsDirty();
+}
+
+bool URshipContentMappingManager::IsCoveragePreviewEnabled() const
+{
+    return bCoveragePreviewEnabled;
 }
 
 FString URshipContentMappingManager::CreateRenderContext(const FRshipRenderContextState& InState)
@@ -667,10 +681,16 @@ void URshipContentMappingManager::MarkCacheDirty()
 
 UWorld* URshipContentMappingManager::GetBestWorld() const
 {
+    if (LastValidWorld.IsValid())
+    {
+        return LastValidWorld.Get();
+    }
+
     if (Subsystem)
     {
         if (UWorld* SubsystemWorld = Subsystem->GetWorld())
         {
+            LastValidWorld = SubsystemWorld;
             return SubsystemWorld;
         }
     }
@@ -691,6 +711,7 @@ UWorld* URshipContentMappingManager::GetBestWorld() const
 
         if (Context.WorldType == EWorldType::PIE || Context.WorldType == EWorldType::Game)
         {
+            LastValidWorld = World;
             return World;
         }
     }
@@ -705,6 +726,7 @@ UWorld* URshipContentMappingManager::GetBestWorld() const
 
         if (Context.WorldType == EWorldType::Editor || Context.WorldType == EWorldType::EditorPreview)
         {
+            LastValidWorld = World;
             return World;
         }
     }
@@ -713,6 +735,7 @@ UWorld* URshipContentMappingManager::GetBestWorld() const
     {
         if (UWorld* World = Context.World())
         {
+            LastValidWorld = World;
             return World;
         }
     }
@@ -1129,6 +1152,17 @@ void URshipContentMappingManager::ApplyMaterialParameters(
     MID->SetVectorParameterValue(ParamPreviewTint, FLinearColor::White);
 
     MID->SetScalarParameterValue(ParamUVChannel, static_cast<float>(SurfaceState.UVChannel));
+
+    if (bCoveragePreviewEnabled)
+    {
+        MID->SetScalarParameterValue(ParamDebugCoverage, 1.0f);
+        MID->SetVectorParameterValue(ParamDebugUnmappedColor, FLinearColor(1.0f, 0.0f, 0.0f, 1.0f));
+        MID->SetVectorParameterValue(ParamDebugMappedColor, FLinearColor::White);
+    }
+    else
+    {
+        MID->SetScalarParameterValue(ParamDebugCoverage, 0.0f);
+    }
 
     if (ContextState && ContextState->ResolvedTexture)
     {

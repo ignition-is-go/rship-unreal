@@ -161,6 +161,8 @@ public:
 
     void SetDebugOverlayEnabled(bool bEnabled);
     bool IsDebugOverlayEnabled() const;
+    void SetCoveragePreviewEnabled(bool bEnabled);
+    bool IsCoveragePreviewEnabled() const;
 
     // CRUD helpers (used by editor panel)
     FString CreateRenderContext(const FRshipRenderContextState& InState);
@@ -196,7 +198,9 @@ private:
     bool bCacheDirty = false;
     bool bWasConnected = false;
     bool bDebugOverlayEnabled = false;
+    bool bCoveragePreviewEnabled = false;
     float DebugOverlayAccumulated = 0.0f;
+    mutable TWeakObjectPtr<UWorld> LastValidWorld;
 
     void MarkMappingsDirty();
     void MarkCacheDirty();
