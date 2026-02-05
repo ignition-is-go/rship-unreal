@@ -8,6 +8,17 @@ ARshipContentMappingPreviewActor::ARshipContentMappingPreviewActor()
     PrimaryActorTick.bCanEverTick = true;
     PrimaryActorTick.bStartWithTickEnabled = true;
     SetActorHiddenInGame(true);
+
+    Root = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
+    SetRootComponent(Root);
+
+    Arrow = CreateDefaultSubobject<UArrowComponent>(TEXT("ProjectorArrow"));
+    Arrow->SetupAttachment(Root);
+    Arrow->ArrowColor = LineColor;
+    Arrow->ArrowSize = 1.25f;
+    Arrow->SetHiddenInGame(true);
+    Arrow->SetIsVisualizationComponent(true);
+    Arrow->bIsScreenSizeScaled = true;
 }
 
 void ARshipContentMappingPreviewActor::Tick(float DeltaSeconds)
@@ -16,6 +27,14 @@ void ARshipContentMappingPreviewActor::Tick(float DeltaSeconds)
 
     UWorld* World = GetWorld();
     if (!World) return;
+
+    ProjectorPosition = GetActorLocation();
+    ProjectorRotation = GetActorRotation();
+
+    if (Arrow)
+    {
+        Arrow->ArrowColor = LineColor;
+    }
 
     const FVector Origin = ProjectorPosition;
     const FRotationMatrix Rot(ProjectorRotation);

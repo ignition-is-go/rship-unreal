@@ -24,12 +24,15 @@
 #include "Engine/Texture2D.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "EngineUtils.h"
+#include "Components/MeshComponent.h"
+#include "Engine/Selection.h"
 #include "RshipContentMappingPreviewActor.h"
 #include "Editor.h"
 #include "RshipTargetComponent.h"
 #include "RshipCameraManager.h"
 #include "RshipSceneConverter.h"
 #include "Camera/CameraActor.h"
+#include "Camera/CameraComponent.h"
 #include "RshipCameraActor.h"
 
 #define LOCTEXT_NAMESPACE "SRshipContentMappingPanel"
@@ -211,6 +214,7 @@ void SRshipContentMappingPanel::Construct(const FArguments& InArgs)
 
 SRshipContentMappingPanel::~SRshipContentMappingPanel()
 {
+	StopProjectionEdit();
 }
 
 UWorld* SRshipContentMappingPanel::GetEditorWorld() const
@@ -218,10 +222,38 @@ UWorld* SRshipContentMappingPanel::GetEditorWorld() const
 #if WITH_EDITOR
 	if (GEditor)
 	{
-		return GEditor->GetEditorWorldContext().World();
+		if (UWorld* EditorWorld = GEditor->GetEditorWorldContext().World())
+		{
+			return EditorWorld;
+		}
 	}
 #endif
-	return GEngine ? GEngine->GetWorld() : nullptr;
+	if (!GEngine)
+	{
+		return nullptr;
+	}
+
+	const TIndirectArray<FWorldContext>& Contexts = GEngine->GetWorldContexts();
+	for (const FWorldContext& Context : Contexts)
+	{
+		if (Context.WorldType == EWorldType::PIE || Context.WorldType == EWorldType::Editor)
+		{
+			if (UWorld* World = Context.World())
+			{
+				return World;
+			}
+		}
+	}
+
+	for (const FWorldContext& Context : Contexts)
+	{
+		if (UWorld* World = Context.World())
+		{
+			return World;
+		}
+	}
+
+	return nullptr;
 }
 
 FString SRshipContentMappingPanel::ResolveTargetIdInput(const FString& InText) const
@@ -258,6 +290,37 @@ FString SRshipContentMappingPanel::ResolveTargetIdInput(const FString& InText) c
 				return Option->ResolvedId.IsEmpty() ? Option->Id : Option->ResolvedId;
 			}
 		}
+	}
+
+	// Soft match if user typed a partial label (only accept if unambiguous)
+	TArray<TSharedPtr<FRshipIdOption>> PartialMatches;
+	for (const TSharedPtr<FRshipIdOption>& Option : TargetOptions)
+	{
+		if (!Option.IsValid())
+		{
+			continue;
+		}
+
+		if (Option->Id.Contains(Trimmed, ESearchCase::IgnoreCase)
+			|| Option->Label.Contains(Trimmed, ESearchCase::IgnoreCase))
+		{
+			PartialMatches.Add(Option);
+			continue;
+		}
+
+		if (Option->Actor.IsValid())
+		{
+			const FString ActorLabel = Option->Actor->GetActorLabel();
+			if (!ActorLabel.IsEmpty() && ActorLabel.Contains(Trimmed, ESearchCase::IgnoreCase))
+			{
+				PartialMatches.Add(Option);
+			}
+		}
+	}
+	if (PartialMatches.Num() == 1)
+	{
+		const TSharedPtr<FRshipIdOption>& Option = PartialMatches[0];
+		return Option->ResolvedId.IsEmpty() ? Option->Id : Option->ResolvedId;
 	}
 
 	URshipSubsystem* Subsystem = GEngine ? GEngine->GetEngineSubsystem<URshipSubsystem>() : nullptr;
@@ -297,6 +360,173 @@ FString SRshipContentMappingPanel::ResolveTargetIdInput(const FString& InText) c
 	return Trimmed;
 }
 
+FString SRshipContentMappingPanel::ResolveTargetIdForActor(AActor* Actor) const
+{
+	if (!Actor)
+	{
+		return TEXT("");
+	}
+
+	for (const TSharedPtr<FRshipIdOption>& Option : TargetOptions)
+	{
+		if (Option.IsValid() && Option->Actor.Get() == Actor)
+		{
+			return Option->Id.IsEmpty() ? Option->ResolvedId : Option->Id;
+		}
+	}
+
+	if (URshipTargetComponent* TargetComp = Actor->FindComponentByClass<URshipTargetComponent>())
+	{
+		URshipSubsystem* Subsystem = GEngine ? GEngine->GetEngineSubsystem<URshipSubsystem>() : nullptr;
+		if (Subsystem && Subsystem->TargetComponents)
+		{
+			for (auto& Pair : *Subsystem->TargetComponents)
+			{
+				if (Pair.Value == TargetComp)
+				{
+					return Pair.Key;
+				}
+			}
+		}
+
+		if (!TargetComp->targetName.IsEmpty())
+		{
+			return TargetComp->targetName;
+		}
+	}
+
+	return TEXT("");
+}
+
+FString SRshipContentMappingPanel::ResolveCameraIdForActor(AActor* Actor) const
+{
+	if (!Actor)
+	{
+		return TEXT("");
+	}
+
+	if (ARshipCameraActor* RshipCamera = Cast<ARshipCameraActor>(Actor))
+	{
+		return RshipCamera->CameraId;
+	}
+
+	for (const TSharedPtr<FRshipIdOption>& Option : CameraOptions)
+	{
+		if (!Option.IsValid())
+		{
+			continue;
+		}
+
+		if (Option->Actor.Get() == Actor)
+		{
+			if (Option->bRequiresConversion)
+			{
+				return ConvertSceneCamera(Actor);
+			}
+			return Option->ResolvedId.IsEmpty() ? Option->Id : Option->ResolvedId;
+		}
+	}
+
+	if (Actor->FindComponentByClass<UCameraComponent>())
+	{
+		return ConvertSceneCamera(Actor);
+	}
+
+	return TEXT("");
+}
+
+bool SRshipContentMappingPanel::TryApplySelectionToTarget(TSharedPtr<SEditableTextBox> TargetInput, bool bAppend)
+{
+#if WITH_EDITOR
+	if (!TargetInput.IsValid() || !GEditor)
+	{
+		return false;
+	}
+
+	USelection* Selection = GEditor->GetSelectedActors();
+	if (!Selection)
+	{
+		return false;
+	}
+
+	FString ResolvedId;
+	for (FSelectionIterator It(*Selection); It; ++It)
+	{
+		AActor* Actor = Cast<AActor>(*It);
+		if (!Actor)
+		{
+			continue;
+		}
+
+		ResolvedId = ResolveTargetIdForActor(Actor);
+		if (!ResolvedId.IsEmpty())
+		{
+			break;
+		}
+	}
+
+	if (ResolvedId.IsEmpty())
+	{
+		return false;
+	}
+
+	if (!bAppend)
+	{
+		TargetInput->SetText(FText::FromString(ResolvedId));
+		return true;
+	}
+
+	FString Current = TargetInput->GetText().ToString();
+	TArray<FString> Parts;
+	Current.ParseIntoArray(Parts, TEXT(","), true);
+	for (FString& Part : Parts)
+	{
+		Part = Part.TrimStartAndEnd();
+	}
+	if (!Parts.Contains(ResolvedId))
+	{
+		Parts.Add(ResolvedId);
+	}
+	TargetInput->SetText(FText::FromString(FString::Join(Parts, TEXT(","))));
+	return true;
+#else
+	return false;
+#endif
+}
+
+bool SRshipContentMappingPanel::TryApplySelectionToCamera(TSharedPtr<SEditableTextBox> CameraInput)
+{
+#if WITH_EDITOR
+	if (!CameraInput.IsValid() || !GEditor)
+	{
+		return false;
+	}
+
+	USelection* Selection = GEditor->GetSelectedActors();
+	if (!Selection)
+	{
+		return false;
+	}
+
+	for (FSelectionIterator It(*Selection); It; ++It)
+	{
+		AActor* Actor = Cast<AActor>(*It);
+		if (!Actor)
+		{
+			continue;
+		}
+
+		const FString CameraId = ResolveCameraIdForActor(Actor);
+		if (!CameraId.IsEmpty())
+		{
+			CameraInput->SetText(FText::FromString(CameraId));
+			return true;
+		}
+	}
+#endif
+	return false;
+}
+
 FString SRshipContentMappingPanel::ShortTargetLabel(const FString& TargetId)
 {
 	FString ShortId;
@@ -305,6 +535,314 @@ FString SRshipContentMappingPanel::ShortTargetLabel(const FString& TargetId)
 		return ShortId;
 	}
 	return TargetId;
+}
+
+FRshipContentMappingState* SRshipContentMappingPanel::FindMappingById(const FString& MappingId, TArray<FRshipContentMappingState>& Mappings) const
+{
+	for (FRshipContentMappingState& Mapping : Mappings)
+	{
+		if (Mapping.Id == MappingId)
+		{
+			return &Mapping;
+		}
+	}
+	return nullptr;
+}
+
+FRshipRenderContextState* SRshipContentMappingPanel::FindContextById(const FString& ContextId, TArray<FRshipRenderContextState>& Contexts) const
+{
+	for (FRshipRenderContextState& Context : Contexts)
+	{
+		if (Context.Id == ContextId)
+		{
+			return &Context;
+		}
+	}
+	return nullptr;
+}
+
+bool SRshipContentMappingPanel::IsProjectionEditActiveFor(const FString& MappingId) const
+{
+	return !ActiveProjectionMappingId.IsEmpty() && ActiveProjectionMappingId == MappingId;
+}
+
+void SRshipContentMappingPanel::StartProjectionEdit(const FRshipContentMappingState& Mapping)
+{
+	if (Mapping.Type != TEXT("surface-projection"))
+	{
+		return;
+	}
+
+	if (!GEngine)
+	{
+		return;
+	}
+
+	URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+	URshipContentMappingManager* Manager = Subsystem ? Subsystem->GetContentMappingManager() : nullptr;
+	if (!Manager)
+	{
+		return;
+	}
+
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	ActiveProjectionMappingId = Mapping.Id;
+	if (!bCoveragePreviewEnabled)
+	{
+		bCoveragePreviewEnabled = true;
+		Manager->SetCoveragePreviewEnabled(true);
+		if (PreviewLabel.IsValid())
+		{
+			PreviewLabel->SetText(LOCTEXT("CoveragePreviewAuto", "Coverage preview enabled: red = unmapped pixels, live image = mapped."));
+			PreviewLabel->SetColorAndOpacity(FLinearColor::White);
+		}
+	}
+
+	ARshipContentMappingPreviewActor* Actor = ProjectionActor.Get();
+	if (!Actor)
+	{
+		FActorSpawnParameters SpawnParams;
+		SpawnParams.Name = FName(*FString::Printf(TEXT("RshipContentMappingProjector_%s"), *Mapping.Id));
+		SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		SpawnParams.ObjectFlags |= RF_Transient;
+		Actor = World->SpawnActor<ARshipContentMappingPreviewActor>(SpawnParams);
+		if (Actor)
+		{
+			Actor->SetActorHiddenInGame(true);
+			Actor->SetIsTemporarilyHiddenInEditor(false);
+			Actor->SetActorEnableCollision(false);
+			ProjectionActor = Actor;
+		}
+	}
+
+	if (!Actor)
+	{
+		return;
+	}
+
+	TArray<FRshipRenderContextState> Contexts = Manager->GetRenderContexts();
+	FRshipRenderContextState* ContextState = FindContextById(Mapping.ContextId, Contexts);
+	const bool bHasProjectorConfig = Mapping.Config.IsValid() && Mapping.Config->HasTypedField<EJson::Object>(TEXT("projectorPosition"));
+	const bool bHasCameraContext = ContextState && ContextState->CameraActor.IsValid();
+	if (!bHasProjectorConfig && !bHasCameraContext)
+	{
+		FVector FallbackPos = FVector::ZeroVector;
+		FRotator FallbackRot = FRotator::ZeroRotator;
+		bool bFoundFallback = false;
+
+		TArray<FRshipMappingSurfaceState> Surfaces = Manager->GetMappingSurfaces();
+		for (const FString& SurfaceId : Mapping.SurfaceIds)
+		{
+			for (const FRshipMappingSurfaceState& Surface : Surfaces)
+			{
+				if (Surface.Id != SurfaceId)
+				{
+					continue;
+				}
+				if (UMeshComponent* Mesh = Surface.MeshComponent.Get())
+				{
+					const FBoxSphereBounds Bounds = Mesh->Bounds;
+					const FVector Forward = Mesh->GetOwner() ? Mesh->GetOwner()->GetActorForwardVector() : FVector::ForwardVector;
+					FallbackPos = Bounds.Origin + Forward * Bounds.SphereRadius * 1.5f;
+					FallbackRot = Forward.Rotation();
+					bFoundFallback = true;
+					break;
+				}
+			}
+			if (bFoundFallback)
+			{
+				break;
+			}
+		}
+
+		if (bFoundFallback)
+		{
+			Actor->SetActorLocation(FallbackPos);
+			Actor->SetActorRotation(FallbackRot);
+			Actor->ProjectorPosition = FallbackPos;
+			Actor->ProjectorRotation = FallbackRot;
+			Actor->LineColor = FColor::Cyan;
+			LastProjectorTransform = Actor->GetActorTransform();
+		}
+		else
+		{
+			SyncProjectionActorFromMapping(Mapping, ContextState);
+		}
+	}
+	else
+	{
+		SyncProjectionActorFromMapping(Mapping, ContextState);
+	}
+
+#if WITH_EDITOR
+	if (GEditor)
+	{
+		GEditor->SelectNone(false, true, false);
+		GEditor->SelectActor(Actor, true, true, true);
+		GEditor->NoteSelectionChange();
+	}
+#endif
+}
+
+void SRshipContentMappingPanel::StopProjectionEdit()
+{
+	ActiveProjectionMappingId.Reset();
+	LastProjectorTransform = FTransform::Identity;
+	ProjectorUpdateAccumulator = 0.0f;
+
+	if (ARshipContentMappingPreviewActor* Actor = ProjectionActor.Get())
+	{
+		Actor->Destroy();
+	}
+	ProjectionActor.Reset();
+}
+
+void SRshipContentMappingPanel::SyncProjectionActorFromMapping(const FRshipContentMappingState& Mapping, const FRshipRenderContextState* ContextState)
+{
+	ARshipContentMappingPreviewActor* Actor = ProjectionActor.Get();
+	if (!Actor)
+	{
+		return;
+	}
+
+	FVector Position = FVector::ZeroVector;
+	FRotator Rotation = FRotator::ZeroRotator;
+	float Fov = 60.0f;
+	float Aspect = 1.7778f;
+	float NearClip = 10.0f;
+	float FarClip = 10000.0f;
+
+	if (Mapping.Config.IsValid())
+	{
+		if (Mapping.Config->HasTypedField<EJson::Object>(TEXT("projectorPosition")))
+		{
+			const TSharedPtr<FJsonObject> PosObj = Mapping.Config->GetObjectField(TEXT("projectorPosition"));
+			Position.X = PosObj->GetNumberField(TEXT("x"));
+			Position.Y = PosObj->GetNumberField(TEXT("y"));
+			Position.Z = PosObj->GetNumberField(TEXT("z"));
+		}
+		if (Mapping.Config->HasTypedField<EJson::Object>(TEXT("projectorRotation")))
+		{
+			const TSharedPtr<FJsonObject> RotObj = Mapping.Config->GetObjectField(TEXT("projectorRotation"));
+			Rotation = FRotator::MakeFromEuler(FVector(
+				RotObj->GetNumberField(TEXT("x")),
+				RotObj->GetNumberField(TEXT("y")),
+				RotObj->GetNumberField(TEXT("z"))));
+		}
+		Fov = Mapping.Config->HasField(TEXT("fov")) ? Mapping.Config->GetNumberField(TEXT("fov")) : Fov;
+		Aspect = Mapping.Config->HasField(TEXT("aspectRatio")) ? Mapping.Config->GetNumberField(TEXT("aspectRatio")) : Aspect;
+		NearClip = Mapping.Config->HasField(TEXT("near")) ? Mapping.Config->GetNumberField(TEXT("near")) : NearClip;
+		FarClip = Mapping.Config->HasField(TEXT("far")) ? Mapping.Config->GetNumberField(TEXT("far")) : FarClip;
+	}
+	else if (ContextState && ContextState->CameraActor.IsValid())
+	{
+		const ARshipCameraActor* CameraActor = ContextState->CameraActor.Get();
+		Position = CameraActor->GetActorLocation();
+		Rotation = CameraActor->GetActorRotation();
+	}
+
+	Actor->SetActorLocation(Position);
+	Actor->SetActorRotation(Rotation);
+	Actor->ProjectorPosition = Position;
+	Actor->ProjectorRotation = Rotation;
+	Actor->FOV = Fov;
+	Actor->Aspect = Aspect;
+	Actor->NearClip = NearClip;
+	Actor->FarClip = FarClip;
+	Actor->LineColor = FColor::Cyan;
+	LastProjectorTransform = Actor->GetActorTransform();
+}
+
+void SRshipContentMappingPanel::UpdateProjectionFromActor(float DeltaTime)
+{
+	if (ActiveProjectionMappingId.IsEmpty())
+	{
+		return;
+	}
+
+	ARshipContentMappingPreviewActor* Actor = ProjectionActor.Get();
+	if (!Actor)
+	{
+		return;
+	}
+
+	const FTransform CurrentTransform = Actor->GetActorTransform();
+	const bool bTransformChanged = !CurrentTransform.Equals(LastProjectorTransform, 0.1f);
+	if (!bTransformChanged)
+	{
+		ProjectorUpdateAccumulator = 0.0f;
+		return;
+	}
+
+	ProjectorUpdateAccumulator += DeltaTime;
+	if (ProjectorUpdateAccumulator < 0.08f)
+	{
+		return;
+	}
+
+	ProjectorUpdateAccumulator = 0.0f;
+	LastProjectorTransform = CurrentTransform;
+
+	if (!GEngine)
+	{
+		return;
+	}
+
+	URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+	URshipContentMappingManager* Manager = Subsystem ? Subsystem->GetContentMappingManager() : nullptr;
+	if (!Manager)
+	{
+		return;
+	}
+
+	TArray<FRshipContentMappingState> Mappings = Manager->GetMappings();
+	FRshipContentMappingState* Mapping = FindMappingById(ActiveProjectionMappingId, Mappings);
+	if (!Mapping)
+	{
+		return;
+	}
+
+	if (Mapping->Type != TEXT("surface-projection"))
+	{
+		return;
+	}
+
+	TSharedPtr<FJsonObject> Config = Mapping->Config.IsValid() ? Mapping->Config : MakeShared<FJsonObject>();
+	FString ProjectionType = TEXT("perspective");
+	if (Config->HasTypedField<EJson::String>(TEXT("projectionType")))
+	{
+		ProjectionType = Config->GetStringField(TEXT("projectionType"));
+	}
+	Config->SetStringField(TEXT("projectionType"), ProjectionType);
+
+	const FVector Pos = CurrentTransform.GetLocation();
+	const FRotator Rot = CurrentTransform.Rotator();
+
+	TSharedPtr<FJsonObject> PosObj = MakeShared<FJsonObject>();
+	PosObj->SetNumberField(TEXT("x"), Pos.X);
+	PosObj->SetNumberField(TEXT("y"), Pos.Y);
+	PosObj->SetNumberField(TEXT("z"), Pos.Z);
+	Config->SetObjectField(TEXT("projectorPosition"), PosObj);
+
+	const FVector Euler = Rot.Euler();
+	TSharedPtr<FJsonObject> RotObj = MakeShared<FJsonObject>();
+	RotObj->SetNumberField(TEXT("x"), Euler.X);
+	RotObj->SetNumberField(TEXT("y"), Euler.Y);
+	RotObj->SetNumberField(TEXT("z"), Euler.Z);
+	Config->SetObjectField(TEXT("projectorRotation"), RotObj);
+
+	Config->SetNumberField(TEXT("fov"), Actor->FOV);
+	Config->SetNumberField(TEXT("aspectRatio"), Actor->Aspect);
+	Config->SetNumberField(TEXT("near"), Actor->NearClip);
+	Config->SetNumberField(TEXT("far"), Actor->FarClip);
+
+	Mapping->Config = Config;
+	Manager->UpdateMapping(*Mapping);
 }
 
 void SRshipContentMappingPanel::UpdatePreviewImage(UTexture* Texture, const FRshipContentMappingState& Mapping)
@@ -525,10 +1063,23 @@ void SRshipContentMappingPanel::RebuildPickerOptions(const TArray<FRshipRenderCo
 	if (World)
 	{
 		URshipSceneConverter* Converter = Subsystem ? Subsystem->GetSceneConverter() : nullptr;
+		TSet<const AActor*> AddedCameraActors;
+		for (const TSharedPtr<FRshipIdOption>& Existing : CameraOptions)
+		{
+			if (Existing.IsValid() && Existing->Actor.IsValid())
+			{
+				AddedCameraActors.Add(Existing->Actor.Get());
+			}
+		}
+
 		for (TActorIterator<ACameraActor> It(World); It; ++It)
 		{
 			ACameraActor* CameraActor = *It;
 			if (!CameraActor || CameraActor->IsA<ARshipCameraActor>())
+			{
+				continue;
+			}
+			if (AddedCameraActors.Contains(CameraActor))
 			{
 				continue;
 			}
@@ -557,6 +1108,47 @@ void SRshipContentMappingPanel::RebuildPickerOptions(const TArray<FRshipRenderCo
 				? FString::Printf(TEXT("%s: %s (convert)"), *Prefix, *ActorLabel)
 				: FString::Printf(TEXT("%s: %s (%s)"), *Prefix, *ActorLabel, *ConvertedId);
 			CameraOptions.Add(Opt);
+			AddedCameraActors.Add(CameraActor);
+		}
+
+		for (TActorIterator<AActor> It(World); It; ++It)
+		{
+			AActor* Actor = *It;
+			if (!Actor || Actor->IsA<ARshipCameraActor>() || AddedCameraActors.Contains(Actor))
+			{
+				continue;
+			}
+
+			if (!Actor->FindComponentByClass<UCameraComponent>())
+			{
+				continue;
+			}
+
+			FString ConvertedId;
+			if (Converter)
+			{
+				ConvertedId = Converter->GetConvertedEntityId(Actor);
+			}
+			if (!ConvertedId.IsEmpty() && ExistingCameraIds.Contains(ConvertedId))
+			{
+				continue;
+			}
+
+			const FString ActorLabel = Actor->GetActorLabel();
+			const FString ClassName = Actor->GetClass() ? Actor->GetClass()->GetName() : TEXT("CameraActor");
+			const bool bIsCine = ClassName.Contains(TEXT("CineCamera"));
+			TSharedPtr<FRshipIdOption> Opt = MakeShared<FRshipIdOption>();
+			Opt->bIsSceneCamera = true;
+			Opt->Actor = Actor;
+			Opt->ResolvedId = ConvertedId;
+			Opt->bRequiresConversion = ConvertedId.IsEmpty();
+			Opt->Id = ConvertedId.IsEmpty() ? ActorLabel : ConvertedId;
+			const FString Prefix = bIsCine ? TEXT("Scene CineCamera") : TEXT("Scene Camera");
+			Opt->Label = ConvertedId.IsEmpty()
+				? FString::Printf(TEXT("%s: %s (convert)"), *Prefix, *ActorLabel)
+				: FString::Printf(TEXT("%s: %s (%s)"), *Prefix, *ActorLabel, *ConvertedId);
+			CameraOptions.Add(Opt);
+			AddedCameraActors.Add(Actor);
 		}
 	}
 
@@ -661,6 +1253,8 @@ void SRshipContentMappingPanel::Tick(const FGeometry& AllottedGeometry, const do
 		TimeSinceLastRefresh = 0.0f;
 		RefreshStatus();
 	}
+
+	UpdateProjectionFromActor(InDeltaTime);
 }
 
 TSharedRef<SWidget> SRshipContentMappingPanel::BuildHeaderSection()
@@ -716,6 +1310,54 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildHeaderSection()
 			SNew(STextBlock)
 			.Text(LOCTEXT("HeaderNote", "Lightweight editor-side controls; full editing also available in rship client."))
 			.ColorAndOpacity(FLinearColor::Gray)
+		]
+
+		+ SVerticalBox::Slot()
+		.AutoHeight()
+		.Padding(0, 6, 0, 0)
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,8,0)
+			[
+				SNew(SCheckBox)
+				.Style(FAppStyle::Get(), "ToggleButtonCheckbox")
+				.IsChecked_Lambda([this]() { return bCoveragePreviewEnabled ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
+				.OnCheckStateChanged_Lambda([this](ECheckBoxState State)
+				{
+					bCoveragePreviewEnabled = (State == ECheckBoxState::Checked);
+					if (GEngine)
+					{
+						if (URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>())
+						{
+							if (URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager())
+							{
+								Manager->SetCoveragePreviewEnabled(bCoveragePreviewEnabled);
+							}
+						}
+					}
+					if (PreviewLabel.IsValid())
+					{
+						PreviewLabel->SetText(bCoveragePreviewEnabled
+							? LOCTEXT("CoveragePreviewOn", "Coverage preview enabled: red = unmapped pixels, live image = mapped.")
+							: LOCTEXT("CoveragePreviewOff", "Coverage preview disabled."));
+						PreviewLabel->SetColorAndOpacity(bCoveragePreviewEnabled ? FLinearColor::White : FLinearColor::Gray);
+					}
+				})
+				[
+					SNew(STextBlock).Text(LOCTEXT("CoveragePreviewToggle", "Coverage Preview"))
+				]
+			]
+			+ SHorizontalBox::Slot().AutoWidth()
+			[
+				SNew(SButton)
+				.Text(LOCTEXT("StopProjectionEdit", "Stop Projection Edit"))
+				.Visibility_Lambda([this]() { return ActiveProjectionMappingId.IsEmpty() ? EVisibility::Collapsed : EVisibility::Visible; })
+				.OnClicked_Lambda([this]()
+				{
+					StopProjectionEdit();
+					return FReply::Handled();
+				})
+			]
 		];
 }
 
@@ -784,6 +1426,10 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildQuickMappingSection()
 					{
 						return FText::FromString(QuickSourceType == TEXT("camera") ? TEXT("CameraId") : TEXT("AssetId"));
 					})
+					.Visibility_Lambda([this]()
+					{
+						return bQuickAdvanced ? EVisibility::Visible : EVisibility::Collapsed;
+					})
 				]
 				+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,6,0)
 				[
@@ -800,14 +1446,52 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildQuickMappingSection()
 						SNew(STextBlock)
 						.Text_Lambda([this]()
 						{
-							return QuickSourceType == TEXT("camera") ? LOCTEXT("QuickPickCamera", "Pick Camera") : LOCTEXT("QuickPickAsset", "Pick Asset");
+							const bool bIsCamera = QuickSourceType == TEXT("camera");
+							const FString Current = QuickSourceIdInput.IsValid() ? QuickSourceIdInput->GetText().ToString().TrimStartAndEnd() : TEXT("");
+							if (!Current.IsEmpty())
+							{
+								const TArray<TSharedPtr<FRshipIdOption>>& Options = bIsCamera ? CameraOptions : AssetOptions;
+								for (const TSharedPtr<FRshipIdOption>& Option : Options)
+								{
+									if (!Option.IsValid())
+									{
+										continue;
+									}
+									if (Option->Id.Equals(Current, ESearchCase::IgnoreCase) || Option->ResolvedId.Equals(Current, ESearchCase::IgnoreCase))
+									{
+										return FText::FromString(Option->Label);
+									}
+								}
+								return FText::FromString(Current);
+							}
+							return bIsCamera ? LOCTEXT("QuickPickCamera", "Pick Camera") : LOCTEXT("QuickPickAsset", "Pick Asset");
 						})
 					]
+				]
+				+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,6,0)
+				[
+					SNew(SButton)
+					.Visibility_Lambda([this]() { return QuickSourceType == TEXT("camera") ? EVisibility::Visible : EVisibility::Collapsed; })
+					.Text(LOCTEXT("QuickUseSelectedCamera", "Use Selected"))
+					.OnClicked_Lambda([this]()
+					{
+						const bool bOk = TryApplySelectionToCamera(QuickSourceIdInput);
+						if (!bOk && PreviewLabel.IsValid())
+						{
+							PreviewLabel->SetText(LOCTEXT("QuickSelectCameraFail", "Select a camera actor in the level to use it as the source."));
+							PreviewLabel->SetColorAndOpacity(FLinearColor::Yellow);
+						}
+						return FReply::Handled();
+					})
 				]
 				+ SHorizontalBox::Slot().FillWidth(0.6f)
 				[
 					SAssignNew(QuickProjectIdInput, SEditableTextBox)
 					.HintText(LOCTEXT("QuickProjectHint", "ProjectId (optional)"))
+					.Visibility_Lambda([this]()
+					{
+						return bQuickAdvanced ? EVisibility::Visible : EVisibility::Collapsed;
+					})
 				]
 			]
 			+ SVerticalBox::Slot().AutoHeight().Padding(0, 2)
@@ -821,6 +1505,10 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildQuickMappingSection()
 				[
 					SAssignNew(QuickTargetIdInput, SEditableTextBox)
 					.HintText(LOCTEXT("QuickTargetHint", "Pick or type target name"))
+					.Visibility_Lambda([this]()
+					{
+						return bQuickAdvanced ? EVisibility::Visible : EVisibility::Collapsed;
+					})
 				]
 				+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,6,0)
 				[
@@ -831,8 +1519,42 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildQuickMappingSection()
 					})
 					.ButtonContent()
 					[
-						SNew(STextBlock).Text(LOCTEXT("QuickPickTarget", "Pick Target"))
+						SNew(STextBlock).Text_Lambda([this]()
+						{
+							const FString Current = QuickTargetIdInput.IsValid() ? QuickTargetIdInput->GetText().ToString().TrimStartAndEnd() : TEXT("");
+							if (!Current.IsEmpty())
+							{
+								for (const TSharedPtr<FRshipIdOption>& Option : TargetOptions)
+								{
+									if (!Option.IsValid())
+									{
+										continue;
+									}
+									if (Option->Id.Equals(Current, ESearchCase::IgnoreCase) || Option->ResolvedId.Equals(Current, ESearchCase::IgnoreCase))
+									{
+										return FText::FromString(Option->Label);
+									}
+								}
+								return FText::FromString(Current);
+							}
+							return LOCTEXT("QuickPickTarget", "Pick Target");
+						})
 					]
+				]
+				+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,6,0)
+				[
+					SNew(SButton)
+					.Text(LOCTEXT("QuickUseSelectedTarget", "Use Selected"))
+					.OnClicked_Lambda([this]()
+					{
+						const bool bOk = TryApplySelectionToTarget(QuickTargetIdInput, false);
+						if (!bOk && PreviewLabel.IsValid())
+						{
+							PreviewLabel->SetText(LOCTEXT("QuickSelectTargetFail", "Select a target actor (with a RshipTargetComponent) in the level."));
+							PreviewLabel->SetColorAndOpacity(FLinearColor::Yellow);
+						}
+						return FReply::Handled();
+					})
 				]
 				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,4,0)
 				[
@@ -2044,6 +2766,8 @@ void SRshipContentMappingPanel::RefreshStatus()
 		return;
 	}
 
+	bCoveragePreviewEnabled = Manager->IsCoveragePreviewEnabled();
+
 	const TArray<FRshipRenderContextState> Contexts = Manager->GetRenderContexts();
 	const TArray<FRshipMappingSurfaceState> Surfaces = Manager->GetMappingSurfaces();
 	const TArray<FRshipContentMappingState> Mappings = Manager->GetMappings();
@@ -2055,6 +2779,27 @@ void SRshipContentMappingPanel::RefreshStatus()
 	SortedContexts.Sort([](const FRshipRenderContextState& A, const FRshipRenderContextState& B) { return A.Id < B.Id; });
 	SortedSurfaces.Sort([](const FRshipMappingSurfaceState& A, const FRshipMappingSurfaceState& B) { return A.Id < B.Id; });
 	SortedMappings.Sort([](const FRshipContentMappingState& A, const FRshipContentMappingState& B) { return A.Id < B.Id; });
+
+	if (!ActiveProjectionMappingId.IsEmpty())
+	{
+		bool bFoundActive = false;
+		for (const FRshipContentMappingState& Mapping : SortedMappings)
+		{
+			if (Mapping.Id == ActiveProjectionMappingId)
+			{
+				bFoundActive = true;
+				if (Mapping.Type != TEXT("surface-projection"))
+				{
+					StopProjectionEdit();
+				}
+				break;
+			}
+		}
+		if (!bFoundActive)
+		{
+			StopProjectionEdit();
+		}
+	}
 
 	uint32 SnapshotHash = 0;
 	auto HashString = [&SnapshotHash](const FString& Value)
@@ -2124,11 +2869,32 @@ void SRshipContentMappingPanel::RefreshStatus()
 		}
 	}
 
-	const bool bRebuildLists = !bHasListHash || SnapshotHash != LastListHash;
-	if (bRebuildLists)
+	bool bRebuildLists = false;
+	if (!bHasListHash)
 	{
 		LastListHash = SnapshotHash;
 		bHasListHash = true;
+		bHasPendingListHash = false;
+		bRebuildLists = true;
+	}
+	else if (SnapshotHash != LastListHash)
+	{
+		if (bHasPendingListHash && PendingListHash == SnapshotHash)
+		{
+			LastListHash = SnapshotHash;
+			bHasPendingListHash = false;
+			bRebuildLists = true;
+		}
+		else
+		{
+			PendingListHash = SnapshotHash;
+			bHasPendingListHash = true;
+			bRebuildLists = false;
+		}
+	}
+	else
+	{
+		bHasPendingListHash = false;
 	}
 
 	if (CountsText.IsValid())
@@ -2866,6 +3632,38 @@ void SRshipContentMappingPanel::RefreshStatus()
 								}
 								LastPreviewMappingId = Mapping.Id;
 								UpdatePreviewImage(Tex, Mapping);
+								return FReply::Handled();
+							})
+						]
+						+ SHorizontalBox::Slot().AutoWidth().Padding(4,0,0,0)
+						[
+							SNew(SButton)
+							.Text_Lambda([this, Mapping]()
+							{
+								if (Mapping.Type != TEXT("surface-projection"))
+								{
+									return LOCTEXT("MapEditProjDisabled", "Edit Projection");
+								}
+								return IsProjectionEditActiveFor(Mapping.Id)
+									? LOCTEXT("MapEditingProj", "Editing Projection")
+									: LOCTEXT("MapEditProj", "Edit Projection");
+							})
+							.IsEnabled(Mapping.Type == TEXT("surface-projection"))
+							.OnClicked_Lambda([this, Mapping]()
+							{
+								if (Mapping.Type != TEXT("surface-projection"))
+								{
+									return FReply::Handled();
+								}
+
+								if (IsProjectionEditActiveFor(Mapping.Id))
+								{
+									StopProjectionEdit();
+								}
+								else
+								{
+									StartProjectionEdit(Mapping);
+								}
 								return FReply::Handled();
 							})
 						]

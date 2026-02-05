@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "Components/ArrowComponent.h"
 #include "RshipContentMappingPreviewActor.generated.h"
 
 UCLASS(NotPlaceable)
@@ -13,6 +14,12 @@ class RSHIPEXECEDITOR_API ARshipContentMappingPreviewActor : public AActor
 
 public:
     ARshipContentMappingPreviewActor();
+
+    UPROPERTY(VisibleAnywhere, Category = "Rship|ContentMapping")
+    USceneComponent* Root = nullptr;
+
+    UPROPERTY(VisibleAnywhere, Category = "Rship|ContentMapping")
+    UArrowComponent* Arrow = nullptr;
 
     UPROPERTY(EditAnywhere, Category = "Rship|ContentMapping")
     FVector ProjectorPosition;

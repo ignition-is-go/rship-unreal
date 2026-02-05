@@ -52,7 +52,18 @@ private:
 	void ResetForms();
 	class UWorld* GetEditorWorld() const;
 	FString ResolveTargetIdInput(const FString& InText) const;
+	FString ResolveTargetIdForActor(class AActor* Actor) const;
+	FString ResolveCameraIdForActor(class AActor* Actor) const;
+	bool TryApplySelectionToTarget(TSharedPtr<class SEditableTextBox> TargetInput, bool bAppend);
+	bool TryApplySelectionToCamera(TSharedPtr<class SEditableTextBox> CameraInput);
 	static FString ShortTargetLabel(const FString& TargetId);
+	void StartProjectionEdit(const struct FRshipContentMappingState& Mapping);
+	void StopProjectionEdit();
+	void UpdateProjectionFromActor(float DeltaTime);
+	void SyncProjectionActorFromMapping(const struct FRshipContentMappingState& Mapping, const struct FRshipRenderContextState* ContextState);
+	struct FRshipContentMappingState* FindMappingById(const FString& MappingId, TArray<struct FRshipContentMappingState>& Mappings) const;
+	struct FRshipRenderContextState* FindContextById(const FString& ContextId, TArray<struct FRshipRenderContextState>& Contexts) const;
+	bool IsProjectionEditActiveFor(const FString& MappingId) const;
 
 	TSharedPtr<STextBlock> ConnectionText;
 	TSharedPtr<STextBlock> CountsText;
@@ -143,4 +154,12 @@ private:
 	float RefreshInterval = 1.0f;
 	uint32 LastListHash = 0;
 	bool bHasListHash = false;
+	uint32 PendingListHash = 0;
+	bool bHasPendingListHash = false;
+
+	bool bCoveragePreviewEnabled = false;
+	FString ActiveProjectionMappingId;
+	TWeakObjectPtr<class ARshipContentMappingPreviewActor> ProjectionActor;
+	FTransform LastProjectorTransform = FTransform::Identity;
+	float ProjectorUpdateAccumulator = 0.0f;
 };
