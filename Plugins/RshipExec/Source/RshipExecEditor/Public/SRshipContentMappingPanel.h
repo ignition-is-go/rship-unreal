@@ -10,6 +10,10 @@ class AActor;
 class SVerticalBox;
 class STextBlock;
 template<typename NumericType> class SSpinBox;
+class SRshipModeSelector;
+class SRshipMappingCanvas;
+class SRshipAngleMaskWidget;
+class SRshipContentModeSelector;
 
 class SRshipContentMappingPanel : public SCompoundWidget
 {
@@ -137,12 +141,34 @@ private:
 	TSharedPtr<SSpinBox<float>> MapUvOffsetUInput;
 	TSharedPtr<SSpinBox<float>> MapUvOffsetVInput;
 	TSharedPtr<SSpinBox<float>> MapUvRotInput;
+	TSharedPtr<SSpinBox<float>> MapParallelSizeWInput;
+	TSharedPtr<SSpinBox<float>> MapParallelSizeHInput;
+	TSharedPtr<SSpinBox<float>> MapSphRadiusInput;
+	TSharedPtr<SSpinBox<float>> MapSphHArcInput;
+	TSharedPtr<SSpinBox<float>> MapSphVArcInput;
+	TSharedPtr<SSpinBox<float>> MapFisheyeFovInput;
+	TSharedPtr<class SEditableTextBox> MapFisheyeLensInput;
+	TSharedPtr<SSpinBox<float>> MapMeshEyeXInput;
+	TSharedPtr<SSpinBox<float>> MapMeshEyeYInput;
+	TSharedPtr<SSpinBox<float>> MapMeshEyeZInput;
+	TSharedPtr<class SEditableTextBox> MapContentModeInput;
+	TSharedPtr<SSpinBox<float>> MapMaskStartInput;
+	TSharedPtr<SSpinBox<float>> MapMaskEndInput;
+	TSharedPtr<class SCheckBox> MapClipOutsideInput;
+	TSharedPtr<SSpinBox<float>> MapBorderExpansionInput;
 	TSharedPtr<SSpinBox<float>> MapFeedUInput;
 	TSharedPtr<SSpinBox<float>> MapFeedVInput;
 	TSharedPtr<SSpinBox<float>> MapFeedWInput;
 	TSharedPtr<SSpinBox<float>> MapFeedHInput;
 	TSharedPtr<SVerticalBox> MapFeedRectList;
 	TMap<FString, FFeedRect> MapFeedRectOverrides;
+
+	// Graphical widgets
+	TSharedPtr<SRshipModeSelector> QuickModeSelector;
+	TSharedPtr<SRshipModeSelector> MapModeSelector;
+	TSharedPtr<SRshipMappingCanvas> MappingCanvas;
+	TSharedPtr<SRshipAngleMaskWidget> AngleMaskWidget;
+	TSharedPtr<SRshipContentModeSelector> ContentModeSelector;
 
 	TArray<TSharedPtr<FRshipIdOption>> TargetOptions;
 	TArray<TSharedPtr<FRshipIdOption>> CameraOptions;

@@ -1,6 +1,10 @@
 // Copyright Rocketship. All Rights Reserved.
 
 #include "SRshipContentMappingPanel.h"
+#include "SRshipModeSelector.h"
+#include "SRshipMappingCanvas.h"
+#include "SRshipAngleMaskWidget.h"
+#include "SRshipContentModeSelector.h"
 #include "RshipSubsystem.h"
 #include "RshipContentMappingManager.h"
 
@@ -44,6 +48,10 @@ namespace
 	const FString MapModePerspective = TEXT("perspective");
 	const FString MapModeCylindrical = TEXT("cylindrical");
 	const FString MapModeSpherical = TEXT("spherical");
+	const FString MapModeParallel = TEXT("parallel");
+	const FString MapModeRadial = TEXT("radial");
+	const FString MapModeMesh = TEXT("mesh");
+	const FString MapModeFisheye = TEXT("fisheye");
 
 	FString NormalizeMapMode(const FString& InValue, const FString& DefaultValue)
 	{
@@ -55,6 +63,10 @@ namespace
 		if (InValue.Equals(MapModePerspective, ESearchCase::IgnoreCase)) return MapModePerspective;
 		if (InValue.Equals(MapModeCylindrical, ESearchCase::IgnoreCase)) return MapModeCylindrical;
 		if (InValue.Equals(MapModeSpherical, ESearchCase::IgnoreCase)) return MapModeSpherical;
+		if (InValue.Equals(MapModeParallel, ESearchCase::IgnoreCase)) return MapModeParallel;
+		if (InValue.Equals(MapModeRadial, ESearchCase::IgnoreCase)) return MapModeRadial;
+		if (InValue.Equals(MapModeMesh, ESearchCase::IgnoreCase)) return MapModeMesh;
+		if (InValue.Equals(MapModeFisheye, ESearchCase::IgnoreCase)) return MapModeFisheye;
 		return DefaultValue;
 	}
 
@@ -108,6 +120,10 @@ namespace
 		if (Mode == MapModeDirect) return LOCTEXT("MapModeDirectLabel", "Direct");
 		if (Mode == MapModeCylindrical) return LOCTEXT("MapModeCylLabel", "Cylindrical");
 		if (Mode == MapModeSpherical) return LOCTEXT("MapModeSphericalLabel", "Spherical");
+		if (Mode == MapModeParallel) return LOCTEXT("MapModeParallelLabel", "Parallel");
+		if (Mode == MapModeRadial) return LOCTEXT("MapModeRadialLabel", "Radial");
+		if (Mode == MapModeMesh) return LOCTEXT("MapModeMeshLabel", "Mesh");
+		if (Mode == MapModeFisheye) return LOCTEXT("MapModeFisheyeLabel", "Fisheye");
 		return LOCTEXT("MapModePerspectiveLabel", "Perspective");
 	}
 
@@ -118,12 +134,17 @@ namespace
 		if (Mode == MapModeDirect) return LOCTEXT("MapBadgeDirect", "DIR");
 		if (Mode == MapModeCylindrical) return LOCTEXT("MapBadgeCyl", "CYL");
 		if (Mode == MapModeSpherical) return LOCTEXT("MapBadgeSphere", "SPH");
+		if (Mode == MapModeParallel) return LOCTEXT("MapBadgeParallel", "PAR");
+		if (Mode == MapModeRadial) return LOCTEXT("MapBadgeRadial", "RAD");
+		if (Mode == MapModeMesh) return LOCTEXT("MapBadgeMesh", "MESH");
+		if (Mode == MapModeFisheye) return LOCTEXT("MapBadgeFisheye", "FISH");
 		return LOCTEXT("MapBadgePersp", "PERS");
 	}
 
 	bool IsProjectionMode(const FString& Mode)
 	{
-		return Mode == MapModePerspective || Mode == MapModeCylindrical || Mode == MapModeSpherical;
+		return Mode == MapModePerspective || Mode == MapModeCylindrical || Mode == MapModeSpherical
+			|| Mode == MapModeParallel || Mode == MapModeRadial || Mode == MapModeMesh || Mode == MapModeFisheye;
 	}
 }
 
@@ -200,27 +221,54 @@ void SRshipContentMappingPanel::Construct(const FArguments& InArgs)
 				.BorderImage(FAppStyle::GetBrush("ToolPanel.GroupBorder"))
 				.Padding(8.0f)
 				[
-					SNew(SHorizontalBox)
-					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Top).Padding(0,0,8,0)
+					SNew(SVerticalBox)
+
+					// Mapping Canvas
+					+ SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)
 					[
-						SAssignNew(PreviewBorder, SBorder)
-						.BorderImage(FAppStyle::GetBrush("WhiteBrush"))
-						.BorderBackgroundColor(FLinearColor(0.1f,0.1f,0.1f,1.f))
-						.Padding(2.0f)
+						SAssignNew(MappingCanvas, SRshipMappingCanvas)
+						.DesiredHeight(220.0f)
+						.OnFeedRectChanged_Lambda([this](float U, float V, float W, float H)
+						{
+							if (MapFeedUInput.IsValid()) MapFeedUInput->SetValue(U);
+							if (MapFeedVInput.IsValid()) MapFeedVInput->SetValue(V);
+							if (MapFeedWInput.IsValid()) MapFeedWInput->SetValue(W);
+							if (MapFeedHInput.IsValid()) MapFeedHInput->SetValue(H);
+						})
+						.OnUvTransformChanged_Lambda([this](float ScaleU, float ScaleV, float OffsetU, float OffsetV, float RotDeg)
+						{
+							if (MapUvScaleUInput.IsValid()) MapUvScaleUInput->SetValue(ScaleU);
+							if (MapUvScaleVInput.IsValid()) MapUvScaleVInput->SetValue(ScaleV);
+							if (MapUvOffsetUInput.IsValid()) MapUvOffsetUInput->SetValue(OffsetU);
+							if (MapUvOffsetVInput.IsValid()) MapUvOffsetVInput->SetValue(OffsetV);
+							if (MapUvRotInput.IsValid()) MapUvRotInput->SetValue(RotDeg);
+						})
+					]
+
+					// Original preview row
+					+ SVerticalBox::Slot().AutoHeight()
+					[
+						SNew(SHorizontalBox)
+						+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Top).Padding(0,0,8,0)
 						[
-							SAssignNew(PreviewImage, SImage)
-							.Image(FAppStyle::GetBrush("WhiteBrush"))
-							.ColorAndOpacity(FLinearColor::White)
-							.DesiredSizeOverride(FVector2D(160, 90))
+							SAssignNew(PreviewBorder, SBorder)
+							.BorderImage(FAppStyle::GetBrush("WhiteBrush"))
+							.BorderBackgroundColor(FLinearColor(0.1f,0.1f,0.1f,1.f))
+							.Padding(2.0f)
+							[
+								SAssignNew(PreviewImage, SImage)
+								.Image(FAppStyle::GetBrush("WhiteBrush"))
+								.ColorAndOpacity(FLinearColor::White)
+								.DesiredSizeOverride(FVector2D(160, 90))
+							]
 						]
-					]
-					+ SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center)
-					[
-						SAssignNew(PreviewLabel, STextBlock)
-						.Text(LOCTEXT("PreviewLabel", "Select a mapping to preview.\n(Currently shows last resolved texture or status only.)"))
-						.ColorAndOpacity(FLinearColor::Gray)
-						.AutoWrapText(true)
-					]
+						+ SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center)
+						[
+							SAssignNew(PreviewLabel, STextBlock)
+							.Text(LOCTEXT("PreviewLabel", "Select a mapping to preview.\n(Currently shows last resolved texture or status only.)"))
+							.ColorAndOpacity(FLinearColor::Gray)
+							.AutoWrapText(true)
+						]
 					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Top)
 					[
 						SNew(SVerticalBox)
@@ -954,6 +1002,10 @@ void SRshipContentMappingPanel::UpdatePreviewImage(UTexture* Texture, const FRsh
 			PreviewLabel->SetText(FText::FromString(FString::Printf(TEXT("No texture available for %s"), *Mapping.Name)));
 			PreviewLabel->SetColorAndOpacity(FLinearColor::Yellow);
 		}
+		if (MappingCanvas.IsValid())
+		{
+			MappingCanvas->SetBackgroundTexture(nullptr);
+		}
 		return;
 	}
 
@@ -973,6 +1025,12 @@ void SRshipContentMappingPanel::UpdatePreviewImage(UTexture* Texture, const FRsh
 		const int32 PreviewHeight = FMath::RoundToInt(Texture->GetSurfaceHeight());
 		PreviewLabel->SetText(FText::FromString(FString::Printf(TEXT("Previewing %s (%dx%d)"), *Mapping.Name, PreviewWidth, PreviewHeight)));
 		PreviewLabel->SetColorAndOpacity(FLinearColor::White);
+	}
+
+	// Forward texture to mapping canvas
+	if (MappingCanvas.IsValid())
+	{
+		MappingCanvas->SetBackgroundTexture(Texture);
 	}
 
 	// Update gizmo if present
@@ -1468,7 +1526,7 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildQuickMappingSection()
 			+ SVerticalBox::Slot().AutoHeight().Padding(0, 2, 0, 6)
 			[
 				SNew(STextBlock)
-				.Text(LOCTEXT("QuickNote", "Pick an input + screen, then choose a map mode (Direct/Feed/Perspective/Cylindrical/Spherical)."))
+				.Text(LOCTEXT("QuickNote", "Pick an input + screen, then choose a map mode."))
 				.ColorAndOpacity(FLinearColor::Gray)
 			]
 			+ SVerticalBox::Slot().AutoHeight().Padding(0, 2)
@@ -1668,91 +1726,12 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildQuickMappingSection()
 			]
 			+ SVerticalBox::Slot().AutoHeight().Padding(0, 2)
 			[
+				SAssignNew(QuickModeSelector, SRshipModeSelector)
+				.OnModeSelected_Lambda([this](const FString& Mode) { QuickMapMode = Mode; })
+			]
+			+ SVerticalBox::Slot().AutoHeight().Padding(0, 2)
+			[
 				SNew(SHorizontalBox)
-				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,6,0)
-				[
-					SNew(STextBlock).Text(LOCTEXT("QuickMapModeLabel", "Map Mode"))
-				]
-				+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
-				[
-					SNew(SCheckBox)
-					.Style(FAppStyle::Get(), "ToggleButtonCheckbox")
-					.IsChecked_Lambda([this]() { return QuickMapMode == TEXT("direct") ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
-					.OnCheckStateChanged_Lambda([this](ECheckBoxState State)
-					{
-						if (State == ECheckBoxState::Checked)
-						{
-							QuickMapMode = TEXT("direct");
-						}
-					})
-					[
-						SNew(STextBlock).Text(LOCTEXT("QuickModeDirect", "Direct"))
-					]
-				]
-				+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
-				[
-					SNew(SCheckBox)
-					.Style(FAppStyle::Get(), "ToggleButtonCheckbox")
-					.IsChecked_Lambda([this]() { return QuickMapMode == TEXT("feed") ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
-					.OnCheckStateChanged_Lambda([this](ECheckBoxState State)
-					{
-						if (State == ECheckBoxState::Checked)
-						{
-							QuickMapMode = TEXT("feed");
-						}
-					})
-					[
-						SNew(STextBlock).Text(LOCTEXT("QuickModeFeed", "Feed"))
-					]
-				]
-				+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
-				[
-					SNew(SCheckBox)
-					.Style(FAppStyle::Get(), "ToggleButtonCheckbox")
-					.IsChecked_Lambda([this]() { return QuickMapMode == TEXT("perspective") ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
-					.OnCheckStateChanged_Lambda([this](ECheckBoxState State)
-					{
-						if (State == ECheckBoxState::Checked)
-						{
-							QuickMapMode = TEXT("perspective");
-						}
-					})
-					[
-						SNew(STextBlock).Text(LOCTEXT("QuickModePerspective", "Perspective"))
-					]
-				]
-				+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
-				[
-					SNew(SCheckBox)
-					.Style(FAppStyle::Get(), "ToggleButtonCheckbox")
-					.IsChecked_Lambda([this]() { return QuickMapMode == TEXT("cylindrical") ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
-					.OnCheckStateChanged_Lambda([this](ECheckBoxState State)
-					{
-						if (State == ECheckBoxState::Checked)
-						{
-							QuickMapMode = TEXT("cylindrical");
-						}
-					})
-					[
-						SNew(STextBlock).Text(LOCTEXT("QuickModeCyl", "Cylindrical"))
-					]
-				]
-				+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,8,0)
-				[
-					SNew(SCheckBox)
-					.Style(FAppStyle::Get(), "ToggleButtonCheckbox")
-					.IsChecked_Lambda([this]() { return QuickMapMode == TEXT("spherical") ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
-					.OnCheckStateChanged_Lambda([this](ECheckBoxState State)
-					{
-						if (State == ECheckBoxState::Checked)
-						{
-							QuickMapMode = TEXT("spherical");
-						}
-					})
-					[
-						SNew(STextBlock).Text(LOCTEXT("QuickModeSpherical", "Spherical"))
-					]
-				]
 				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
 				[
 					SNew(SCheckBox)
@@ -1976,7 +1955,8 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildQuickMappingSection()
 							else
 							{
 								NewMapping.Config->SetStringField(TEXT("projectionType"), DesiredProjectionType.IsEmpty() ? TEXT("perspective") : DesiredProjectionType);
-								if (DesiredProjectionType.Equals(TEXT("cylindrical"), ESearchCase::IgnoreCase))
+								if (DesiredProjectionType.Equals(TEXT("cylindrical"), ESearchCase::IgnoreCase)
+									|| DesiredProjectionType.Equals(TEXT("radial"), ESearchCase::IgnoreCase))
 								{
 									TSharedPtr<FJsonObject> Cyl = MakeShared<FJsonObject>();
 									Cyl->SetStringField(TEXT("axis"), TEXT("y"));
@@ -1985,6 +1965,30 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildQuickMappingSection()
 									Cyl->SetNumberField(TEXT("startAngle"), 0.0);
 									Cyl->SetNumberField(TEXT("endAngle"), 90.0);
 									NewMapping.Config->SetObjectField(TEXT("cylindrical"), Cyl);
+								}
+								if (DesiredProjectionType.Equals(TEXT("spherical"), ESearchCase::IgnoreCase))
+								{
+									NewMapping.Config->SetNumberField(TEXT("sphereRadius"), 500.0);
+									NewMapping.Config->SetNumberField(TEXT("horizontalArc"), 360.0);
+									NewMapping.Config->SetNumberField(TEXT("verticalArc"), 180.0);
+								}
+								if (DesiredProjectionType.Equals(TEXT("parallel"), ESearchCase::IgnoreCase))
+								{
+									NewMapping.Config->SetNumberField(TEXT("sizeW"), 1000.0);
+									NewMapping.Config->SetNumberField(TEXT("sizeH"), 1000.0);
+								}
+								if (DesiredProjectionType.Equals(TEXT("mesh"), ESearchCase::IgnoreCase))
+								{
+									TSharedPtr<FJsonObject> EpObj = MakeShared<FJsonObject>();
+									EpObj->SetNumberField(TEXT("x"), 0.0);
+									EpObj->SetNumberField(TEXT("y"), 0.0);
+									EpObj->SetNumberField(TEXT("z"), 0.0);
+									NewMapping.Config->SetObjectField(TEXT("eyepoint"), EpObj);
+								}
+								if (DesiredProjectionType.Equals(TEXT("fisheye"), ESearchCase::IgnoreCase))
+								{
+									NewMapping.Config->SetNumberField(TEXT("fisheyeFov"), 180.0);
+									NewMapping.Config->SetStringField(TEXT("lensType"), TEXT("equidistant"));
 								}
 							}
 							MappingId = Manager->CreateMapping(NewMapping);
@@ -2211,96 +2215,16 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildContextForm()
 
 			+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
 			[
-				SNew(SHorizontalBox)
-				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,6,0)
-				[
-					SNew(STextBlock).Text(LOCTEXT("MapModeLabel", "Mode"))
-				]
-				+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
-				[
-					SNew(SCheckBox)
-					.Style(FAppStyle::Get(), "ToggleButtonCheckbox")
-					.IsChecked_Lambda([this]() { return MapMode == TEXT("direct") ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
-					.OnCheckStateChanged_Lambda([this](ECheckBoxState State)
+				SAssignNew(MapModeSelector, SRshipModeSelector)
+				.OnModeSelected_Lambda([this](const FString& Mode)
+				{
+					MapMode = Mode;
+					RebuildFeedRectList();
+					if (MappingCanvas.IsValid())
 					{
-						if (State == ECheckBoxState::Checked)
-						{
-							MapMode = TEXT("direct");
-							RebuildFeedRectList();
-						}
-					})
-					[
-						SNew(STextBlock).Text(LOCTEXT("MapModeDirect", "Direct"))
-					]
-				]
-				+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
-				[
-					SNew(SCheckBox)
-					.Style(FAppStyle::Get(), "ToggleButtonCheckbox")
-					.IsChecked_Lambda([this]() { return MapMode == TEXT("feed") ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
-					.OnCheckStateChanged_Lambda([this](ECheckBoxState State)
-					{
-						if (State == ECheckBoxState::Checked)
-						{
-							MapMode = TEXT("feed");
-							RebuildFeedRectList();
-						}
-					})
-					[
-						SNew(STextBlock).Text(LOCTEXT("MapModeFeed", "Feed"))
-					]
-				]
-				+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
-				[
-					SNew(SCheckBox)
-					.Style(FAppStyle::Get(), "ToggleButtonCheckbox")
-					.IsChecked_Lambda([this]() { return MapMode == TEXT("perspective") ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
-					.OnCheckStateChanged_Lambda([this](ECheckBoxState State)
-					{
-						if (State == ECheckBoxState::Checked)
-						{
-							MapMode = TEXT("perspective");
-							RebuildFeedRectList();
-						}
-					})
-					[
-						SNew(STextBlock).Text(LOCTEXT("MapModePerspective", "Perspective"))
-					]
-				]
-				+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
-				[
-					SNew(SCheckBox)
-					.Style(FAppStyle::Get(), "ToggleButtonCheckbox")
-					.IsChecked_Lambda([this]() { return MapMode == TEXT("cylindrical") ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
-					.OnCheckStateChanged_Lambda([this](ECheckBoxState State)
-					{
-						if (State == ECheckBoxState::Checked)
-						{
-							MapMode = TEXT("cylindrical");
-							RebuildFeedRectList();
-						}
-					})
-					[
-						SNew(STextBlock).Text(LOCTEXT("MapModeCyl", "Cylindrical"))
-					]
-				]
-				+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
-				[
-					SNew(SCheckBox)
-					.Style(FAppStyle::Get(), "ToggleButtonCheckbox")
-					.IsChecked_Lambda([this]() { return MapMode == TEXT("spherical") ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
-					.OnCheckStateChanged_Lambda([this](ECheckBoxState State)
-					{
-						if (State == ECheckBoxState::Checked)
-						{
-							MapMode = TEXT("spherical");
-							RebuildFeedRectList();
-						}
-					})
-					[
-						SNew(STextBlock).Text(LOCTEXT("MapModeSpherical", "Spherical"))
-					]
-				]
+						MappingCanvas->SetDisplayMode(Mode);
+					}
+				})
 			]
 
 			+ SVerticalBox::Slot().AutoHeight().Padding(0,4,0,2)
@@ -2321,10 +2245,33 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildContextForm()
 					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
 					[
 						SAssignNew(MapUvScaleUInput, SSpinBox<float>).MinValue(0.01f).MaxValue(100.0f).Delta(0.05f).Value(1.0f)
+						.OnValueChanged_Lambda([this](float Val)
+						{
+							if (MappingCanvas.IsValid())
+							{
+								MappingCanvas->SetUvTransform(Val,
+									MapUvScaleVInput.IsValid() ? MapUvScaleVInput->GetValue() : 1.0f,
+									MapUvOffsetUInput.IsValid() ? MapUvOffsetUInput->GetValue() : 0.0f,
+									MapUvOffsetVInput.IsValid() ? MapUvOffsetVInput->GetValue() : 0.0f,
+									MapUvRotInput.IsValid() ? MapUvRotInput->GetValue() : 0.0f);
+							}
+						})
 					]
 					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,8,0)
 					[
 						SAssignNew(MapUvScaleVInput, SSpinBox<float>).MinValue(0.01f).MaxValue(100.0f).Delta(0.05f).Value(1.0f)
+						.OnValueChanged_Lambda([this](float Val)
+						{
+							if (MappingCanvas.IsValid())
+							{
+								MappingCanvas->SetUvTransform(
+									MapUvScaleUInput.IsValid() ? MapUvScaleUInput->GetValue() : 1.0f,
+									Val,
+									MapUvOffsetUInput.IsValid() ? MapUvOffsetUInput->GetValue() : 0.0f,
+									MapUvOffsetVInput.IsValid() ? MapUvOffsetVInput->GetValue() : 0.0f,
+									MapUvRotInput.IsValid() ? MapUvRotInput->GetValue() : 0.0f);
+							}
+						})
 					]
 					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,6,0)
 					[
@@ -2333,10 +2280,34 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildContextForm()
 					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
 					[
 						SAssignNew(MapUvOffsetUInput, SSpinBox<float>).MinValue(-10.0f).MaxValue(10.0f).Delta(0.01f).Value(0.0f)
+						.OnValueChanged_Lambda([this](float Val)
+						{
+							if (MappingCanvas.IsValid())
+							{
+								MappingCanvas->SetUvTransform(
+									MapUvScaleUInput.IsValid() ? MapUvScaleUInput->GetValue() : 1.0f,
+									MapUvScaleVInput.IsValid() ? MapUvScaleVInput->GetValue() : 1.0f,
+									Val,
+									MapUvOffsetVInput.IsValid() ? MapUvOffsetVInput->GetValue() : 0.0f,
+									MapUvRotInput.IsValid() ? MapUvRotInput->GetValue() : 0.0f);
+							}
+						})
 					]
 					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,8,0)
 					[
 						SAssignNew(MapUvOffsetVInput, SSpinBox<float>).MinValue(-10.0f).MaxValue(10.0f).Delta(0.01f).Value(0.0f)
+						.OnValueChanged_Lambda([this](float Val)
+						{
+							if (MappingCanvas.IsValid())
+							{
+								MappingCanvas->SetUvTransform(
+									MapUvScaleUInput.IsValid() ? MapUvScaleUInput->GetValue() : 1.0f,
+									MapUvScaleVInput.IsValid() ? MapUvScaleVInput->GetValue() : 1.0f,
+									MapUvOffsetUInput.IsValid() ? MapUvOffsetUInput->GetValue() : 0.0f,
+									Val,
+									MapUvRotInput.IsValid() ? MapUvRotInput->GetValue() : 0.0f);
+							}
+						})
 					]
 					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,6,0)
 					[
@@ -2345,6 +2316,18 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildContextForm()
 					+ SHorizontalBox::Slot().AutoWidth()
 					[
 						SAssignNew(MapUvRotInput, SSpinBox<float>).MinValue(-360.0f).MaxValue(360.0f).Delta(1.0f).Value(0.0f)
+						.OnValueChanged_Lambda([this](float Val)
+						{
+							if (MappingCanvas.IsValid())
+							{
+								MappingCanvas->SetUvTransform(
+									MapUvScaleUInput.IsValid() ? MapUvScaleUInput->GetValue() : 1.0f,
+									MapUvScaleVInput.IsValid() ? MapUvScaleVInput->GetValue() : 1.0f,
+									MapUvOffsetUInput.IsValid() ? MapUvOffsetUInput->GetValue() : 0.0f,
+									MapUvOffsetVInput.IsValid() ? MapUvOffsetVInput->GetValue() : 0.0f,
+									Val);
+							}
+						})
 					]
 				]
 			]
@@ -2367,18 +2350,61 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildContextForm()
 					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
 					[
 						SAssignNew(MapFeedUInput, SSpinBox<float>).MinValue(-10.0f).MaxValue(10.0f).Delta(0.01f).Value(0.0f)
+						.OnValueChanged_Lambda([this](float Val)
+						{
+							if (MappingCanvas.IsValid())
+							{
+								MappingCanvas->SetFeedRect(Val,
+									MapFeedVInput.IsValid() ? MapFeedVInput->GetValue() : 0.0f,
+									MapFeedWInput.IsValid() ? MapFeedWInput->GetValue() : 1.0f,
+									MapFeedHInput.IsValid() ? MapFeedHInput->GetValue() : 1.0f);
+							}
+						})
 					]
 					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
 					[
 						SAssignNew(MapFeedVInput, SSpinBox<float>).MinValue(-10.0f).MaxValue(10.0f).Delta(0.01f).Value(0.0f)
+						.OnValueChanged_Lambda([this](float Val)
+						{
+							if (MappingCanvas.IsValid())
+							{
+								MappingCanvas->SetFeedRect(
+									MapFeedUInput.IsValid() ? MapFeedUInput->GetValue() : 0.0f,
+									Val,
+									MapFeedWInput.IsValid() ? MapFeedWInput->GetValue() : 1.0f,
+									MapFeedHInput.IsValid() ? MapFeedHInput->GetValue() : 1.0f);
+							}
+						})
 					]
 					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
 					[
 						SAssignNew(MapFeedWInput, SSpinBox<float>).MinValue(0.001f).MaxValue(10.0f).Delta(0.01f).Value(1.0f)
+						.OnValueChanged_Lambda([this](float Val)
+						{
+							if (MappingCanvas.IsValid())
+							{
+								MappingCanvas->SetFeedRect(
+									MapFeedUInput.IsValid() ? MapFeedUInput->GetValue() : 0.0f,
+									MapFeedVInput.IsValid() ? MapFeedVInput->GetValue() : 0.0f,
+									Val,
+									MapFeedHInput.IsValid() ? MapFeedHInput->GetValue() : 1.0f);
+							}
+						})
 					]
 					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,6,0)
 					[
 						SAssignNew(MapFeedHInput, SSpinBox<float>).MinValue(0.001f).MaxValue(10.0f).Delta(0.01f).Value(1.0f)
+						.OnValueChanged_Lambda([this](float Val)
+						{
+							if (MappingCanvas.IsValid())
+							{
+								MappingCanvas->SetFeedRect(
+									MapFeedUInput.IsValid() ? MapFeedUInput->GetValue() : 0.0f,
+									MapFeedVInput.IsValid() ? MapFeedVInput->GetValue() : 0.0f,
+									MapFeedWInput.IsValid() ? MapFeedWInput->GetValue() : 1.0f,
+									Val);
+							}
+						})
 					]
 					+ SHorizontalBox::Slot().AutoWidth()
 					[
@@ -2429,7 +2455,8 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildContextForm()
 				SNew(SVerticalBox)
 				.Visibility_Lambda([this]()
 				{
-					return (MapMode == TEXT("perspective") || MapMode == TEXT("cylindrical") || MapMode == TEXT("spherical"))
+					return (MapMode == TEXT("perspective") || MapMode == TEXT("cylindrical") || MapMode == TEXT("spherical")
+						|| MapMode == TEXT("parallel") || MapMode == TEXT("radial") || MapMode == TEXT("mesh") || MapMode == TEXT("fisheye"))
 						? EVisibility::Visible : EVisibility::Collapsed;
 				})
 				+ SVerticalBox::Slot().AutoHeight()
@@ -2503,7 +2530,7 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildContextForm()
 				+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
 				[
 					SNew(SHorizontalBox)
-					.Visibility_Lambda([this]() { return MapMode == TEXT("cylindrical") ? EVisibility::Visible : EVisibility::Collapsed; })
+					.Visibility_Lambda([this]() { return (MapMode == TEXT("cylindrical") || MapMode == TEXT("radial")) ? EVisibility::Visible : EVisibility::Collapsed; })
 					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,6,0)
 					[
 						SNew(STextBlock).Text(LOCTEXT("MapCylLabel", "Cylinder Axis/Radius/Height/Start/End"))
@@ -2527,6 +2554,231 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildContextForm()
 					+ SHorizontalBox::Slot().AutoWidth()
 					[
 						SAssignNew(MapCylEndInput, SSpinBox<float>).MinValue(-360.0f).MaxValue(360.0f).Delta(1.0f).Value(90.0f)
+					]
+				]
+			]
+
+
+			// Parallel-specific: Size W/H
+			+ SVerticalBox::Slot().AutoHeight().Padding(0,4,0,2)
+			[
+				SNew(SVerticalBox)
+				.Visibility_Lambda([this]() { return MapMode == TEXT("parallel") ? EVisibility::Visible : EVisibility::Collapsed; })
+				+ SVerticalBox::Slot().AutoHeight()
+				[
+					SNew(STextBlock).Text(LOCTEXT("MapParallelHeader", "Parallel Projection Size"))
+				]
+				+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
+				[
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,6,0)
+					[
+						SNew(STextBlock).Text(LOCTEXT("MapParallelWH", "Width / Height"))
+					]
+					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
+					[
+						SAssignNew(MapParallelSizeWInput, SSpinBox<float>).MinValue(0.01f).MaxValue(100000.0f).Delta(10.0f).Value(1000.0f)
+					]
+					+ SHorizontalBox::Slot().AutoWidth()
+					[
+						SAssignNew(MapParallelSizeHInput, SSpinBox<float>).MinValue(0.01f).MaxValue(100000.0f).Delta(10.0f).Value(1000.0f)
+					]
+				]
+			]
+
+			// Spherical-specific: Radius, HArc, VArc
+			+ SVerticalBox::Slot().AutoHeight().Padding(0,4,0,2)
+			[
+				SNew(SVerticalBox)
+				.Visibility_Lambda([this]() { return MapMode == TEXT("spherical") ? EVisibility::Visible : EVisibility::Collapsed; })
+				+ SVerticalBox::Slot().AutoHeight()
+				[
+					SNew(STextBlock).Text(LOCTEXT("MapSphHeader", "Spherical"))
+				]
+				+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
+				[
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,6,0)
+					[
+						SNew(STextBlock).Text(LOCTEXT("MapSphParams", "Radius / H-Arc / V-Arc"))
+					]
+					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
+					[
+						SAssignNew(MapSphRadiusInput, SSpinBox<float>).MinValue(0.01f).MaxValue(100000.0f).Delta(10.0f).Value(500.0f)
+					]
+					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
+					[
+						SAssignNew(MapSphHArcInput, SSpinBox<float>).MinValue(0.0f).MaxValue(360.0f).Delta(1.0f).Value(360.0f)
+					]
+					+ SHorizontalBox::Slot().AutoWidth()
+					[
+						SAssignNew(MapSphVArcInput, SSpinBox<float>).MinValue(0.0f).MaxValue(360.0f).Delta(1.0f).Value(180.0f)
+					]
+				]
+			]
+
+			// Mesh-specific: Eyepoint
+			+ SVerticalBox::Slot().AutoHeight().Padding(0,4,0,2)
+			[
+				SNew(SVerticalBox)
+				.Visibility_Lambda([this]() { return MapMode == TEXT("mesh") ? EVisibility::Visible : EVisibility::Collapsed; })
+				+ SVerticalBox::Slot().AutoHeight()
+				[
+					SNew(STextBlock).Text(LOCTEXT("MapMeshHeader", "Mesh Mapping"))
+				]
+				+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
+				[
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,6,0)
+					[
+						SNew(STextBlock).Text(LOCTEXT("MapMeshEye", "Eyepoint X/Y/Z"))
+					]
+					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
+					[
+						SAssignNew(MapMeshEyeXInput, SSpinBox<float>).MinValue(-100000.0f).MaxValue(100000.0f).Delta(1.0f).Value(0.0f)
+					]
+					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
+					[
+						SAssignNew(MapMeshEyeYInput, SSpinBox<float>).MinValue(-100000.0f).MaxValue(100000.0f).Delta(1.0f).Value(0.0f)
+					]
+					+ SHorizontalBox::Slot().AutoWidth()
+					[
+						SAssignNew(MapMeshEyeZInput, SSpinBox<float>).MinValue(-100000.0f).MaxValue(100000.0f).Delta(1.0f).Value(0.0f)
+					]
+				]
+			]
+
+			// Fisheye-specific: FOV, Lens Type
+			+ SVerticalBox::Slot().AutoHeight().Padding(0,4,0,2)
+			[
+				SNew(SVerticalBox)
+				.Visibility_Lambda([this]() { return MapMode == TEXT("fisheye") ? EVisibility::Visible : EVisibility::Collapsed; })
+				+ SVerticalBox::Slot().AutoHeight()
+				[
+					SNew(STextBlock).Text(LOCTEXT("MapFishHeader", "Fisheye"))
+				]
+				+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
+				[
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,6,0)
+					[
+						SNew(STextBlock).Text(LOCTEXT("MapFishFov", "FOV"))
+					]
+					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,8,0)
+					[
+						SAssignNew(MapFisheyeFovInput, SSpinBox<float>).MinValue(1.0f).MaxValue(360.0f).Delta(1.0f).Value(180.0f)
+					]
+					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,6,0)
+					[
+						SNew(STextBlock).Text(LOCTEXT("MapFishLens", "Lens Type"))
+					]
+					+ SHorizontalBox::Slot().FillWidth(1.0f)
+					[
+						SAssignNew(MapFisheyeLensInput, SEditableTextBox).Text(FText::FromString(TEXT("equidistant")))
+					]
+				]
+			]
+
+			// Content mode (UV modes)
+			+ SVerticalBox::Slot().AutoHeight().Padding(0,4,0,2)
+			[
+				SNew(SVerticalBox)
+				.Visibility_Lambda([this]() { return (MapMode == TEXT("direct") || MapMode == TEXT("feed")) ? EVisibility::Visible : EVisibility::Collapsed; })
+				+ SVerticalBox::Slot().AutoHeight()
+				[
+					SNew(STextBlock).Text(LOCTEXT("MapContentModeLabel", "Content Mode"))
+				]
+				+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
+				[
+					SAssignNew(ContentModeSelector, SRshipContentModeSelector)
+					.OnContentModeSelected_Lambda([this](const FString& Mode)
+					{
+						if (MapContentModeInput.IsValid())
+						{
+							MapContentModeInput->SetText(FText::FromString(Mode));
+						}
+					})
+				]
+				+ SVerticalBox::Slot().AutoHeight()
+				[
+					SAssignNew(MapContentModeInput, SEditableTextBox)
+					.Text(FText::FromString(TEXT("stretch")))
+					.Visibility(EVisibility::Collapsed)
+				]
+			]
+
+			// Masking (projection modes)
+			+ SVerticalBox::Slot().AutoHeight().Padding(0,4,0,2)
+			[
+				SNew(SVerticalBox)
+				.Visibility_Lambda([this]()
+				{
+					return (MapMode == TEXT("perspective") || MapMode == TEXT("cylindrical") || MapMode == TEXT("spherical")
+						|| MapMode == TEXT("parallel") || MapMode == TEXT("radial") || MapMode == TEXT("fisheye"))
+						? EVisibility::Visible : EVisibility::Collapsed;
+				})
+				+ SVerticalBox::Slot().AutoHeight()
+				[
+					SNew(STextBlock).Text(LOCTEXT("MapMaskHeader", "Masking"))
+				]
+				+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
+				[
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,8,0)
+					[
+						SAssignNew(AngleMaskWidget, SRshipAngleMaskWidget)
+						.OnAngleMaskChanged_Lambda([this](float StartDeg, float EndDeg)
+						{
+							if (MapMaskStartInput.IsValid()) MapMaskStartInput->SetValue(StartDeg);
+							if (MapMaskEndInput.IsValid()) MapMaskEndInput->SetValue(EndDeg);
+						})
+					]
+					+ SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center)
+					[
+						SNew(SVerticalBox)
+						+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
+						[
+							SNew(SHorizontalBox)
+							+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,6,0)
+							[
+								SNew(STextBlock).Text(LOCTEXT("MapMaskAngle", "Angle Start/End"))
+							]
+							+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
+							[
+								SAssignNew(MapMaskStartInput, SSpinBox<float>).MinValue(0.0f).MaxValue(360.0f).Delta(1.0f).Value(0.0f)
+								.OnValueChanged_Lambda([this](float Val)
+								{
+									if (AngleMaskWidget.IsValid()) AngleMaskWidget->SetAngles(Val, MapMaskEndInput.IsValid() ? MapMaskEndInput->GetValue() : 360.0f);
+								})
+							]
+							+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,8,0)
+							[
+								SAssignNew(MapMaskEndInput, SSpinBox<float>).MinValue(0.0f).MaxValue(360.0f).Delta(1.0f).Value(360.0f)
+								.OnValueChanged_Lambda([this](float Val)
+								{
+									if (AngleMaskWidget.IsValid()) AngleMaskWidget->SetAngles(MapMaskStartInput.IsValid() ? MapMaskStartInput->GetValue() : 0.0f, Val);
+								})
+							]
+						]
+						+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
+						[
+							SNew(SHorizontalBox)
+							+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,8,0)
+							[
+								SAssignNew(MapClipOutsideInput, SCheckBox)
+								[
+									SNew(STextBlock).Text(LOCTEXT("MapClipOutside", "Clip Outside"))
+								]
+							]
+							+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,6,0)
+							[
+								SNew(STextBlock).Text(LOCTEXT("MapBorderLabel", "Border Expansion"))
+							]
+							+ SHorizontalBox::Slot().AutoWidth()
+							[
+								SAssignNew(MapBorderExpansionInput, SSpinBox<float>).MinValue(0.0f).MaxValue(1.0f).Delta(0.01f).Value(0.0f)
+							]
+						]
 					]
 				]
 			]
@@ -3143,7 +3395,7 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildMappingForm()
 								Config->SetNumberField(TEXT("far"), MapProjFarInput.IsValid() ? MapProjFarInput->GetValue() : 10000.0);
 
 								const FString Axis = MapCylAxisInput.IsValid() ? MapCylAxisInput->GetText().ToString() : TEXT("");
-								if (NormalizedMode == MapModeCylindrical && !Axis.IsEmpty())
+								if ((NormalizedMode == MapModeCylindrical || NormalizedMode == MapModeRadial) && !Axis.IsEmpty())
 								{
 									TSharedPtr<FJsonObject> Cyl = MakeShared<FJsonObject>();
 									Cyl->SetStringField(TEXT("axis"), Axis);
@@ -3153,7 +3405,52 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildMappingForm()
 									Cyl->SetNumberField(TEXT("endAngle"), MapCylEndInput.IsValid() ? MapCylEndInput->GetValue() : 90.0);
 									Config->SetObjectField(TEXT("cylindrical"), Cyl);
 								}
+
+								if (NormalizedMode == MapModeParallel)
+								{
+									Config->SetNumberField(TEXT("sizeW"), MapParallelSizeWInput.IsValid() ? MapParallelSizeWInput->GetValue() : 1000.0);
+									Config->SetNumberField(TEXT("sizeH"), MapParallelSizeHInput.IsValid() ? MapParallelSizeHInput->GetValue() : 1000.0);
+								}
+
+								if (NormalizedMode == MapModeSpherical)
+								{
+									Config->SetNumberField(TEXT("sphereRadius"), MapSphRadiusInput.IsValid() ? MapSphRadiusInput->GetValue() : 500.0);
+									Config->SetNumberField(TEXT("horizontalArc"), MapSphHArcInput.IsValid() ? MapSphHArcInput->GetValue() : 360.0);
+									Config->SetNumberField(TEXT("verticalArc"), MapSphVArcInput.IsValid() ? MapSphVArcInput->GetValue() : 180.0);
+								}
+
+								if (NormalizedMode == MapModeMesh)
+								{
+									TSharedPtr<FJsonObject> EpObj = MakeShared<FJsonObject>();
+									EpObj->SetNumberField(TEXT("x"), MapMeshEyeXInput.IsValid() ? MapMeshEyeXInput->GetValue() : 0.0);
+									EpObj->SetNumberField(TEXT("y"), MapMeshEyeYInput.IsValid() ? MapMeshEyeYInput->GetValue() : 0.0);
+									EpObj->SetNumberField(TEXT("z"), MapMeshEyeZInput.IsValid() ? MapMeshEyeZInput->GetValue() : 0.0);
+									Config->SetObjectField(TEXT("eyepoint"), EpObj);
+								}
+
+								if (NormalizedMode == MapModeFisheye)
+								{
+									Config->SetNumberField(TEXT("fisheyeFov"), MapFisheyeFovInput.IsValid() ? MapFisheyeFovInput->GetValue() : 180.0);
+									Config->SetStringField(TEXT("lensType"), MapFisheyeLensInput.IsValid() ? MapFisheyeLensInput->GetText().ToString() : TEXT("equidistant"));
+								}
+
+								// Masking and border expansion (all projection modes)
+								Config->SetNumberField(TEXT("angleMaskStart"), MapMaskStartInput.IsValid() ? MapMaskStartInput->GetValue() : 0.0);
+								Config->SetNumberField(TEXT("angleMaskEnd"), MapMaskEndInput.IsValid() ? MapMaskEndInput->GetValue() : 360.0);
+								Config->SetBoolField(TEXT("clipOutsideRegion"), MapClipOutsideInput.IsValid() && MapClipOutsideInput->IsChecked());
+								Config->SetNumberField(TEXT("borderExpansion"), MapBorderExpansionInput.IsValid() ? MapBorderExpansionInput->GetValue() : 0.0);
 							}
+
+							// Content mode for UV mappings
+							if (bUvMode)
+							{
+								const FString ContentModeStr = MapContentModeInput.IsValid() ? MapContentModeInput->GetText().ToString().TrimStartAndEnd() : TEXT("stretch");
+								if (!ContentModeStr.IsEmpty() && !ContentModeStr.Equals(TEXT("stretch"), ESearchCase::IgnoreCase))
+								{
+									Config->SetStringField(TEXT("contentMode"), ContentModeStr);
+								}
+							}
+
 							State.Config = Config;
 
 							if (State.Id.IsEmpty())
@@ -3244,6 +3541,21 @@ void SRshipContentMappingPanel::ResetForms()
 	if (MapCylHeightInput.IsValid()) MapCylHeightInput->SetValue(1000.f);
 	if (MapCylStartInput.IsValid()) MapCylStartInput->SetValue(0.f);
 	if (MapCylEndInput.IsValid()) MapCylEndInput->SetValue(90.f);
+	if (MapParallelSizeWInput.IsValid()) MapParallelSizeWInput->SetValue(1000.f);
+	if (MapParallelSizeHInput.IsValid()) MapParallelSizeHInput->SetValue(1000.f);
+	if (MapSphRadiusInput.IsValid()) MapSphRadiusInput->SetValue(500.f);
+	if (MapSphHArcInput.IsValid()) MapSphHArcInput->SetValue(360.f);
+	if (MapSphVArcInput.IsValid()) MapSphVArcInput->SetValue(180.f);
+	if (MapFisheyeFovInput.IsValid()) MapFisheyeFovInput->SetValue(180.f);
+	if (MapFisheyeLensInput.IsValid()) MapFisheyeLensInput->SetText(FText::FromString(TEXT("equidistant")));
+	if (MapMeshEyeXInput.IsValid()) MapMeshEyeXInput->SetValue(0.f);
+	if (MapMeshEyeYInput.IsValid()) MapMeshEyeYInput->SetValue(0.f);
+	if (MapMeshEyeZInput.IsValid()) MapMeshEyeZInput->SetValue(0.f);
+	if (MapContentModeInput.IsValid()) MapContentModeInput->SetText(FText::FromString(TEXT("stretch")));
+	if (MapMaskStartInput.IsValid()) MapMaskStartInput->SetValue(0.f);
+	if (MapMaskEndInput.IsValid()) MapMaskEndInput->SetValue(360.f);
+	if (MapClipOutsideInput.IsValid()) MapClipOutsideInput->SetIsChecked(ECheckBoxState::Unchecked);
+	if (MapBorderExpansionInput.IsValid()) MapBorderExpansionInput->SetValue(0.f);
 	if (MapUvScaleUInput.IsValid()) MapUvScaleUInput->SetValue(1.f);
 	if (MapUvScaleVInput.IsValid()) MapUvScaleVInput->SetValue(1.f);
 	if (MapUvOffsetUInput.IsValid()) MapUvOffsetUInput->SetValue(0.f);
@@ -3255,6 +3567,19 @@ void SRshipContentMappingPanel::ResetForms()
 	if (MapFeedHInput.IsValid()) MapFeedHInput->SetValue(1.f);
 	MapFeedRectOverrides.Empty();
 	RebuildFeedRectList();
+
+	// Reset graphical widgets
+	if (QuickModeSelector.IsValid()) QuickModeSelector->SetSelectedMode(TEXT("direct"));
+	if (MapModeSelector.IsValid()) MapModeSelector->SetSelectedMode(TEXT("direct"));
+	if (MappingCanvas.IsValid())
+	{
+		MappingCanvas->SetFeedRect(0.0f, 0.0f, 1.0f, 1.0f);
+		MappingCanvas->SetUvTransform(1.0f, 1.0f, 0.0f, 0.0f, 0.0f);
+		MappingCanvas->SetDisplayMode(TEXT("direct"));
+		MappingCanvas->SetBackgroundTexture(nullptr);
+	}
+	if (AngleMaskWidget.IsValid()) AngleMaskWidget->SetAngles(0.0f, 360.0f);
+	if (ContentModeSelector.IsValid()) ContentModeSelector->SetSelectedMode(TEXT("stretch"));
 }
 
 void SRshipContentMappingPanel::PopulateContextForm(const FRshipRenderContextState& State)
@@ -3387,9 +3712,86 @@ void SRshipContentMappingPanel::PopulateMappingForm(const FRshipContentMappingSt
 				if (MapCylStartInput.IsValid()) MapCylStartInput->SetValue(GetNum(Cyl, TEXT("startAngle"), 0.0));
 				if (MapCylEndInput.IsValid()) MapCylEndInput->SetValue(GetNum(Cyl, TEXT("endAngle"), 90.0));
 			}
+
+			// Parallel
+			if (MapParallelSizeWInput.IsValid()) MapParallelSizeWInput->SetValue(GetNum(State.Config, TEXT("sizeW"), 1000.0));
+			if (MapParallelSizeHInput.IsValid()) MapParallelSizeHInput->SetValue(GetNum(State.Config, TEXT("sizeH"), 1000.0));
+
+			// Spherical
+			if (MapSphRadiusInput.IsValid()) MapSphRadiusInput->SetValue(GetNum(State.Config, TEXT("sphereRadius"), 500.0));
+			if (MapSphHArcInput.IsValid()) MapSphHArcInput->SetValue(GetNum(State.Config, TEXT("horizontalArc"), 360.0));
+			if (MapSphVArcInput.IsValid()) MapSphVArcInput->SetValue(GetNum(State.Config, TEXT("verticalArc"), 180.0));
+
+			// Mesh
+			if (State.Config->HasTypedField<EJson::Object>(TEXT("eyepoint")))
+			{
+				TSharedPtr<FJsonObject> Ep = State.Config->GetObjectField(TEXT("eyepoint"));
+				if (MapMeshEyeXInput.IsValid()) MapMeshEyeXInput->SetValue(GetNum(Ep, TEXT("x"), 0.0));
+				if (MapMeshEyeYInput.IsValid()) MapMeshEyeYInput->SetValue(GetNum(Ep, TEXT("y"), 0.0));
+				if (MapMeshEyeZInput.IsValid()) MapMeshEyeZInput->SetValue(GetNum(Ep, TEXT("z"), 0.0));
+			}
+
+			// Fisheye
+			if (MapFisheyeFovInput.IsValid()) MapFisheyeFovInput->SetValue(GetNum(State.Config, TEXT("fisheyeFov"), 180.0));
+			if (MapFisheyeLensInput.IsValid())
+			{
+				const FString LensStr = (State.Config->HasTypedField<EJson::String>(TEXT("lensType")))
+					? State.Config->GetStringField(TEXT("lensType")) : TEXT("equidistant");
+				MapFisheyeLensInput->SetText(FText::FromString(LensStr));
+			}
+
+			// Masking
+			if (MapMaskStartInput.IsValid()) MapMaskStartInput->SetValue(GetNum(State.Config, TEXT("angleMaskStart"), 0.0));
+			if (MapMaskEndInput.IsValid()) MapMaskEndInput->SetValue(GetNum(State.Config, TEXT("angleMaskEnd"), 360.0));
+			if (MapClipOutsideInput.IsValid())
+			{
+				bool bClip = State.Config->HasTypedField<EJson::Boolean>(TEXT("clipOutsideRegion"))
+					? State.Config->GetBoolField(TEXT("clipOutsideRegion")) : false;
+				MapClipOutsideInput->SetIsChecked(bClip ? ECheckBoxState::Checked : ECheckBoxState::Unchecked);
+			}
+			if (MapBorderExpansionInput.IsValid()) MapBorderExpansionInput->SetValue(GetNum(State.Config, TEXT("borderExpansion"), 0.0));
+		}
+
+		// Content mode
+		if (State.Config->HasTypedField<EJson::String>(TEXT("contentMode")))
+		{
+			if (MapContentModeInput.IsValid()) MapContentModeInput->SetText(FText::FromString(State.Config->GetStringField(TEXT("contentMode"))));
+		}
+		else
+		{
+			if (MapContentModeInput.IsValid()) MapContentModeInput->SetText(FText::FromString(TEXT("stretch")));
 		}
 	}
 	RebuildFeedRectList();
+
+	// Sync graphical widgets
+	if (MapModeSelector.IsValid()) MapModeSelector->SetSelectedMode(MapMode);
+	if (MappingCanvas.IsValid())
+	{
+		MappingCanvas->SetDisplayMode(MapMode);
+		MappingCanvas->SetFeedRect(
+			MapFeedUInput.IsValid() ? MapFeedUInput->GetValue() : 0.0f,
+			MapFeedVInput.IsValid() ? MapFeedVInput->GetValue() : 0.0f,
+			MapFeedWInput.IsValid() ? MapFeedWInput->GetValue() : 1.0f,
+			MapFeedHInput.IsValid() ? MapFeedHInput->GetValue() : 1.0f);
+		MappingCanvas->SetUvTransform(
+			MapUvScaleUInput.IsValid() ? MapUvScaleUInput->GetValue() : 1.0f,
+			MapUvScaleVInput.IsValid() ? MapUvScaleVInput->GetValue() : 1.0f,
+			MapUvOffsetUInput.IsValid() ? MapUvOffsetUInput->GetValue() : 0.0f,
+			MapUvOffsetVInput.IsValid() ? MapUvOffsetVInput->GetValue() : 0.0f,
+			MapUvRotInput.IsValid() ? MapUvRotInput->GetValue() : 0.0f);
+	}
+	if (AngleMaskWidget.IsValid())
+	{
+		AngleMaskWidget->SetAngles(
+			MapMaskStartInput.IsValid() ? MapMaskStartInput->GetValue() : 0.0f,
+			MapMaskEndInput.IsValid() ? MapMaskEndInput->GetValue() : 360.0f);
+	}
+	if (ContentModeSelector.IsValid())
+	{
+		const FString ContentMode = MapContentModeInput.IsValid() ? MapContentModeInput->GetText().ToString() : TEXT("stretch");
+		ContentModeSelector->SetSelectedMode(ContentMode);
+	}
 }
 
 void SRshipContentMappingPanel::RebuildFeedRectList()

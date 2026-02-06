@@ -16,6 +16,11 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialExpressionCustom.h"
+#include "Materials/MaterialExpressionScalarParameter.h"
+#include "Materials/MaterialExpressionVectorParameter.h"
+#include "Materials/MaterialExpressionTextureObjectParameter.h"
+#include "Materials/MaterialExpressionWorldPosition.h"
+#include "Materials/MaterialExpressionTextureCoordinate.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "HAL/FileManager.h"
@@ -42,6 +47,17 @@ static const FName ParamPreviewTint(TEXT("RshipPreviewTint"));
 static const FName ParamDebugCoverage(TEXT("RshipDebugCoverage"));
 static const FName ParamDebugUnmappedColor(TEXT("RshipDebugUnmappedColor"));
 static const FName ParamDebugMappedColor(TEXT("RshipDebugMappedColor"));
+static const FName ParamCylinderParams(TEXT("RshipCylinderParams"));
+static const FName ParamCylinderExtent(TEXT("RshipCylinderExtent"));
+static const FName ParamSphereParams(TEXT("RshipSphereParams"));
+static const FName ParamSphereArc(TEXT("RshipSphereArc"));
+static const FName ParamParallelSize(TEXT("RshipParallelSize"));
+static const FName ParamRadialFlag(TEXT("RshipRadialFlag"));
+static const FName ParamContentMode(TEXT("RshipContentMode"));
+static const FName ParamMaskAngle(TEXT("RshipMaskAngle"));
+static const FName ParamBorderExpansion(TEXT("RshipBorderExpansion"));
+static const FName ParamFisheyeParams(TEXT("RshipFisheyeParams"));
+static const FName ParamMeshEyepoint(TEXT("RshipMeshEyepoint"));
 
 static FString GetActionName(const FString& ActionId)
 {
@@ -627,7 +643,11 @@ void URshipContentMappingManager::ProcessMappingEvent(const TSharedPtr<FJsonObje
     }
     else if (RawType.Equals(TEXT("perspective"), ESearchCase::IgnoreCase)
         || RawType.Equals(TEXT("cylindrical"), ESearchCase::IgnoreCase)
-        || RawType.Equals(TEXT("spherical"), ESearchCase::IgnoreCase))
+        || RawType.Equals(TEXT("spherical"), ESearchCase::IgnoreCase)
+        || RawType.Equals(TEXT("parallel"), ESearchCase::IgnoreCase)
+        || RawType.Equals(TEXT("radial"), ESearchCase::IgnoreCase)
+        || RawType.Equals(TEXT("mesh"), ESearchCase::IgnoreCase)
+        || RawType.Equals(TEXT("fisheye"), ESearchCase::IgnoreCase))
     {
         MappingType = TEXT("surface-projection");
         DerivedMode = RawType.ToLower();
@@ -1216,7 +1236,11 @@ void URshipContentMappingManager::ApplyMaterialParameters(
     const bool bIsProjectionMapping = MappingState.Type == TEXT("surface-projection")
         || MappingState.Type.Equals(TEXT("perspective"), ESearchCase::IgnoreCase)
         || MappingState.Type.Equals(TEXT("cylindrical"), ESearchCase::IgnoreCase)
-        || MappingState.Type.Equals(TEXT("spherical"), ESearchCase::IgnoreCase);
+        || MappingState.Type.Equals(TEXT("spherical"), ESearchCase::IgnoreCase)
+        || MappingState.Type.Equals(TEXT("parallel"), ESearchCase::IgnoreCase)
+        || MappingState.Type.Equals(TEXT("radial"), ESearchCase::IgnoreCase)
+        || MappingState.Type.Equals(TEXT("mesh"), ESearchCase::IgnoreCase)
+        || MappingState.Type.Equals(TEXT("fisheye"), ESearchCase::IgnoreCase);
 
     if (bIsUvMapping)
     {
@@ -1341,7 +1365,11 @@ void URshipContentMappingManager::ApplyMaterialParameters(
         FString ProjectionType = TEXT("perspective");
         if (MappingState.Type.Equals(TEXT("cylindrical"), ESearchCase::IgnoreCase)
             || MappingState.Type.Equals(TEXT("spherical"), ESearchCase::IgnoreCase)
-            || MappingState.Type.Equals(TEXT("perspective"), ESearchCase::IgnoreCase))
+            || MappingState.Type.Equals(TEXT("perspective"), ESearchCase::IgnoreCase)
+            || MappingState.Type.Equals(TEXT("parallel"), ESearchCase::IgnoreCase)
+            || MappingState.Type.Equals(TEXT("radial"), ESearchCase::IgnoreCase)
+            || MappingState.Type.Equals(TEXT("mesh"), ESearchCase::IgnoreCase)
+            || MappingState.Type.Equals(TEXT("fisheye"), ESearchCase::IgnoreCase))
         {
             ProjectionType = MappingState.Type;
         }
@@ -1393,6 +1421,22 @@ void URshipContentMappingManager::ApplyMaterialParameters(
         {
             ProjectionTypeIndex = 3.0f;
         }
+        else if (ProjectionType.Equals(TEXT("parallel"), ESearchCase::IgnoreCase))
+        {
+            ProjectionTypeIndex = 4.0f;
+        }
+        else if (ProjectionType.Equals(TEXT("radial"), ESearchCase::IgnoreCase))
+        {
+            ProjectionTypeIndex = 5.0f;
+        }
+        else if (ProjectionType.Equals(TEXT("mesh"), ESearchCase::IgnoreCase))
+        {
+            ProjectionTypeIndex = 6.0f;
+        }
+        else if (ProjectionType.Equals(TEXT("fisheye"), ESearchCase::IgnoreCase))
+        {
+            ProjectionTypeIndex = 7.0f;
+        }
 
         MID->SetScalarParameterValue(ParamProjectionType, ProjectionTypeIndex);
 
@@ -1409,13 +1453,40 @@ void URshipContentMappingManager::ApplyMaterialParameters(
         const float SafeNear = FMath::Max(0.01f, Near);
         const float SafeFar = FMath::Max(SafeNear + 0.01f, Far);
 
+        // Build projection matrix based on type
         FMatrix Projection = FMatrix::Identity;
-        Projection.M[0][0] = 1.0f / (TanHalfFov * SafeAspect);
-        Projection.M[1][1] = 1.0f / TanHalfFov;
-        Projection.M[2][2] = SafeFar / (SafeFar - SafeNear);
-        Projection.M[2][3] = 1.0f;
-        Projection.M[3][2] = (-SafeNear * SafeFar) / (SafeFar - SafeNear);
-        Projection.M[3][3] = 0.0f;
+
+        if (ProjectionTypeIndex == 4.0f) // Parallel (orthographic)
+        {
+            float ParallelW = 1000.0f;
+            float ParallelH = 1000.0f;
+            if (MappingState.Config.IsValid())
+            {
+                ParallelW = GetNumberField(MappingState.Config, TEXT("sizeW"), ParallelW);
+                ParallelH = GetNumberField(MappingState.Config, TEXT("sizeH"), ParallelH);
+            }
+            const float HalfW = ParallelW * 0.5f;
+            const float HalfH = ParallelH * 0.5f;
+            const float Depth = SafeFar - SafeNear;
+            // Orthographic projection matrix
+            Projection.M[0][0] = 1.0f / HalfW;
+            Projection.M[1][1] = 1.0f / HalfH;
+            Projection.M[2][2] = 1.0f / Depth;
+            Projection.M[3][2] = -SafeNear / Depth;
+            Projection.M[2][3] = 0.0f;
+            Projection.M[3][3] = 1.0f;
+            MID->SetVectorParameterValue(ParamParallelSize, FLinearColor(ParallelW, ParallelH, 0.0f, 0.0f));
+        }
+        else
+        {
+            // Perspective projection for perspective, cylindrical, spherical, radial, mesh, fisheye
+            Projection.M[0][0] = 1.0f / (TanHalfFov * SafeAspect);
+            Projection.M[1][1] = 1.0f / TanHalfFov;
+            Projection.M[2][2] = SafeFar / (SafeFar - SafeNear);
+            Projection.M[2][3] = 1.0f;
+            Projection.M[3][2] = (-SafeNear * SafeFar) / (SafeFar - SafeNear);
+            Projection.M[3][3] = 0.0f;
+        }
 
         const FMatrix ViewProjection = ViewMatrix * Projection;
 
@@ -1447,6 +1518,127 @@ void URshipContentMappingManager::ApplyMaterialParameters(
                 ViewProjection.M[3][1],
                 ViewProjection.M[3][2],
                 ViewProjection.M[3][3]));
+
+        // Cylindrical-specific params
+        if (ProjectionTypeIndex == 1.0f || ProjectionTypeIndex == 5.0f) // Cylindrical or Radial
+        {
+            FVector CylAxis(0.0f, 0.0f, 1.0f);
+            float CylRadius = 500.0f;
+            float CylHeight = 1000.0f;
+            float ArcStart = 0.0f;
+            float ArcEnd = 360.0f;
+            float EmitDir = 0.0f; // 0=outward, 1=inward
+            bool bRadial = (ProjectionTypeIndex == 5.0f);
+
+            if (MappingState.Config.IsValid())
+            {
+                if (MappingState.Config->HasTypedField<EJson::Object>(TEXT("cylindrical")))
+                {
+                    TSharedPtr<FJsonObject> Cyl = MappingState.Config->GetObjectField(TEXT("cylindrical"));
+                    const FString AxisStr = GetStringField(Cyl, TEXT("axis"), TEXT("z"));
+                    if (AxisStr.Equals(TEXT("x"), ESearchCase::IgnoreCase)) CylAxis = FVector(1, 0, 0);
+                    else if (AxisStr.Equals(TEXT("y"), ESearchCase::IgnoreCase)) CylAxis = FVector(0, 1, 0);
+                    else CylAxis = FVector(0, 0, 1);
+                    CylRadius = GetNumberField(Cyl, TEXT("radius"), CylRadius);
+                    CylHeight = GetNumberField(Cyl, TEXT("height"), CylHeight);
+                    ArcStart = GetNumberField(Cyl, TEXT("startAngle"), ArcStart);
+                    ArcEnd = GetNumberField(Cyl, TEXT("endAngle"), ArcEnd);
+                    const FString EmitStr = GetStringField(Cyl, TEXT("emitDirection"), TEXT("outward"));
+                    EmitDir = EmitStr.Equals(TEXT("inward"), ESearchCase::IgnoreCase) ? 1.0f : 0.0f;
+                }
+                CylRadius = GetNumberField(MappingState.Config, TEXT("cylinderRadius"), CylRadius);
+                CylHeight = GetNumberField(MappingState.Config, TEXT("cylinderHeight"), CylHeight);
+                ArcStart = GetNumberField(MappingState.Config, TEXT("arcStart"), ArcStart);
+                ArcEnd = GetNumberField(MappingState.Config, TEXT("arcEnd"), ArcEnd);
+            }
+
+            MID->SetVectorParameterValue(ParamCylinderParams, FLinearColor(CylAxis.X, CylAxis.Y, CylAxis.Z, CylRadius));
+            MID->SetVectorParameterValue(ParamCylinderExtent, FLinearColor(CylHeight, ArcStart, ArcEnd, EmitDir));
+            MID->SetScalarParameterValue(ParamRadialFlag, bRadial ? 1.0f : 0.0f);
+        }
+
+        // Spherical-specific params
+        if (ProjectionTypeIndex == 3.0f)
+        {
+            float SphRadius = 500.0f;
+            float HArc = 360.0f;
+            float VArc = 180.0f;
+
+            if (MappingState.Config.IsValid())
+            {
+                SphRadius = GetNumberField(MappingState.Config, TEXT("sphereRadius"), SphRadius);
+                HArc = GetNumberField(MappingState.Config, TEXT("horizontalArc"), HArc);
+                VArc = GetNumberField(MappingState.Config, TEXT("verticalArc"), VArc);
+            }
+
+            MID->SetVectorParameterValue(ParamSphereParams, FLinearColor(Position.X, Position.Y, Position.Z, SphRadius));
+            MID->SetVectorParameterValue(ParamSphereArc, FLinearColor(HArc, VArc, 0.0f, 0.0f));
+        }
+
+        // Mesh-specific params
+        if (ProjectionTypeIndex == 6.0f)
+        {
+            FVector Eyepoint = Position;
+            if (MappingState.Config.IsValid() && MappingState.Config->HasTypedField<EJson::Object>(TEXT("eyepoint")))
+            {
+                TSharedPtr<FJsonObject> EpObj = MappingState.Config->GetObjectField(TEXT("eyepoint"));
+                Eyepoint.X = GetNumberField(EpObj, TEXT("x"), Position.X);
+                Eyepoint.Y = GetNumberField(EpObj, TEXT("y"), Position.Y);
+                Eyepoint.Z = GetNumberField(EpObj, TEXT("z"), Position.Z);
+            }
+            MID->SetVectorParameterValue(ParamMeshEyepoint, FLinearColor(Eyepoint.X, Eyepoint.Y, Eyepoint.Z, 0.0f));
+        }
+
+        // Fisheye-specific params
+        if (ProjectionTypeIndex == 7.0f)
+        {
+            float FisheyeFov = 180.0f;
+            float LensType = 0.0f; // 0=equidistant, 1=equisolid, 2=stereographic
+
+            if (MappingState.Config.IsValid())
+            {
+                FisheyeFov = GetNumberField(MappingState.Config, TEXT("fisheyeFov"), FisheyeFov);
+                const FString LensStr = GetStringField(MappingState.Config, TEXT("lensType"), TEXT("equidistant"));
+                if (LensStr.Equals(TEXT("equisolid"), ESearchCase::IgnoreCase)) LensType = 1.0f;
+                else if (LensStr.Equals(TEXT("stereographic"), ESearchCase::IgnoreCase)) LensType = 2.0f;
+            }
+
+            MID->SetVectorParameterValue(ParamFisheyeParams, FLinearColor(FisheyeFov, LensType, 0.0f, 0.0f));
+        }
+
+        // Common projection properties: masking and border expansion
+        float MaskStart = 0.0f;
+        float MaskEnd = 360.0f;
+        float ClipOutside = 0.0f;
+        float BorderExp = 0.0f;
+
+        if (MappingState.Config.IsValid())
+        {
+            MaskStart = GetNumberField(MappingState.Config, TEXT("angleMaskStart"), MaskStart);
+            MaskEnd = GetNumberField(MappingState.Config, TEXT("angleMaskEnd"), MaskEnd);
+            ClipOutside = GetNumberField(MappingState.Config, TEXT("clipOutsideRegion"), 0.0f);
+            if (!MappingState.Config->HasTypedField<EJson::Number>(TEXT("clipOutsideRegion")))
+            {
+                ClipOutside = GetBoolField(MappingState.Config, TEXT("clipOutsideRegion"), false) ? 1.0f : 0.0f;
+            }
+            BorderExp = GetNumberField(MappingState.Config, TEXT("borderExpansion"), BorderExp);
+        }
+
+        MID->SetVectorParameterValue(ParamMaskAngle, FLinearColor(MaskStart, MaskEnd, ClipOutside, 0.0f));
+        MID->SetScalarParameterValue(ParamBorderExpansion, BorderExp);
+    }
+
+    // Content mode (applies to both UV and projection mappings)
+    {
+        float ContentModeVal = 0.0f; // 0=stretch
+        if (MappingState.Config.IsValid())
+        {
+            const FString ModeStr = GetStringField(MappingState.Config, TEXT("contentMode"), TEXT("stretch"));
+            if (ModeStr.Equals(TEXT("crop"), ESearchCase::IgnoreCase)) ContentModeVal = 1.0f;
+            else if (ModeStr.Equals(TEXT("fit"), ESearchCase::IgnoreCase)) ContentModeVal = 2.0f;
+            else if (ModeStr.Equals(TEXT("pixel-perfect"), ESearchCase::IgnoreCase)) ContentModeVal = 3.0f;
+        }
+        MID->SetScalarParameterValue(ParamContentMode, ContentModeVal);
     }
 }
 
@@ -2150,8 +2342,273 @@ FString URshipContentMappingManager::GetCachePath() const
 
 void URshipContentMappingManager::BuildFallbackMaterial()
 {
-    ContentMappingMaterial = UMaterial::GetDefaultMaterial(MD_Surface);
-    UE_LOG(LogRshipExec, Warning, TEXT("ContentMapping material missing; using default material as fallback."));
+    UMaterial* Mat = NewObject<UMaterial>(GetTransientPackage(), TEXT("RshipContentMappingMaterial_Fallback"));
+    Mat->MaterialDomain = MD_Surface;
+    Mat->BlendMode = BLEND_Translucent;
+    Mat->TwoSided = true;
+    Mat->SetShadingModel(MSM_Unlit);
+
+    // Custom HLSL node that computes UV from all projection types and samples texture
+    UMaterialExpressionCustom* CustomNode = NewObject<UMaterialExpressionCustom>(Mat);
+    CustomNode->OutputType = CMOT_Float4;
+    CustomNode->Description = TEXT("RshipContentMapping");
+
+    // Define inputs
+    CustomNode->Inputs.Empty();
+
+    auto AddInput = [&](const FString& Name, UMaterialExpression* Expr)
+    {
+        FCustomInput Input;
+        Input.InputName = FName(*Name);
+        Input.Input.Expression = Expr;
+        CustomNode->Inputs.Add(Input);
+    };
+
+    // Scalar params
+    auto MakeScalar = [&](const FName& ParamName, float DefaultVal) -> UMaterialExpression*
+    {
+        UMaterialExpressionScalarParameter* Param = NewObject<UMaterialExpressionScalarParameter>(Mat);
+        Param->ParameterName = ParamName;
+        Param->DefaultValue = DefaultVal;
+        Mat->GetExpressionCollection().AddExpression(Param);
+        return Param;
+    };
+
+    // Vector params
+    auto MakeVector = [&](const FName& ParamName, const FLinearColor& DefaultVal) -> UMaterialExpression*
+    {
+        UMaterialExpressionVectorParameter* Param = NewObject<UMaterialExpressionVectorParameter>(Mat);
+        Param->ParameterName = ParamName;
+        Param->DefaultValue = DefaultVal;
+        Mat->GetExpressionCollection().AddExpression(Param);
+        return Param;
+    };
+
+    // Texture param
+    UMaterialExpressionTextureObjectParameter* TexParam = NewObject<UMaterialExpressionTextureObjectParameter>(Mat);
+    TexParam->ParameterName = ParamContextTexture;
+    Mat->GetExpressionCollection().AddExpression(TexParam);
+
+    // World position
+    UMaterialExpressionWorldPosition* WorldPos = NewObject<UMaterialExpressionWorldPosition>(Mat);
+    Mat->GetExpressionCollection().AddExpression(WorldPos);
+
+    // Texture coordinates
+    UMaterialExpressionTextureCoordinate* TexCoord = NewObject<UMaterialExpressionTextureCoordinate>(Mat);
+    TexCoord->CoordinateIndex = 0;
+    Mat->GetExpressionCollection().AddExpression(TexCoord);
+
+    // Create all parameter expressions
+    UMaterialExpression* MappingMode = MakeScalar(ParamMappingMode, 0.0f);
+    UMaterialExpression* ProjType = MakeScalar(ParamProjectionType, 0.0f);
+    UMaterialExpression* Row0 = MakeVector(ParamProjectorRow0, FLinearColor(1, 0, 0, 0));
+    UMaterialExpression* Row1 = MakeVector(ParamProjectorRow1, FLinearColor(0, 1, 0, 0));
+    UMaterialExpression* Row2 = MakeVector(ParamProjectorRow2, FLinearColor(0, 0, 1, 0));
+    UMaterialExpression* Row3 = MakeVector(ParamProjectorRow3, FLinearColor(0, 0, 0, 1));
+    UMaterialExpression* UVTransform = MakeVector(ParamUVTransform, FLinearColor(1, 1, 0, 0));
+    UMaterialExpression* UVRotation = MakeScalar(ParamUVRotation, 0.0f);
+    UMaterialExpression* OpacityParam = MakeScalar(ParamOpacity, 1.0f);
+    UMaterialExpression* UVChannel = MakeScalar(ParamUVChannel, 0.0f);
+    UMaterialExpression* PreviewTint = MakeVector(ParamPreviewTint, FLinearColor::White);
+    UMaterialExpression* DebugCoverage = MakeScalar(ParamDebugCoverage, 0.0f);
+    UMaterialExpression* DebugUnmapped = MakeVector(ParamDebugUnmappedColor, FLinearColor(1, 0, 0, 1));
+    UMaterialExpression* DebugMapped = MakeVector(ParamDebugMappedColor, FLinearColor::White);
+    UMaterialExpression* CylParams = MakeVector(ParamCylinderParams, FLinearColor(0, 0, 1, 500));
+    UMaterialExpression* CylExtent = MakeVector(ParamCylinderExtent, FLinearColor(1000, 0, 360, 0));
+    UMaterialExpression* SphParams = MakeVector(ParamSphereParams, FLinearColor(0, 0, 0, 500));
+    UMaterialExpression* SphArc = MakeVector(ParamSphereArc, FLinearColor(360, 180, 0, 0));
+    UMaterialExpression* ParallelSz = MakeVector(ParamParallelSize, FLinearColor(1000, 1000, 0, 0));
+    UMaterialExpression* RadFlag = MakeScalar(ParamRadialFlag, 0.0f);
+    UMaterialExpression* ContentModeParam = MakeScalar(ParamContentMode, 0.0f);
+    UMaterialExpression* MaskParam = MakeVector(ParamMaskAngle, FLinearColor(0, 360, 0, 0));
+    UMaterialExpression* BorderParam = MakeScalar(ParamBorderExpansion, 0.0f);
+    UMaterialExpression* FishParam = MakeVector(ParamFisheyeParams, FLinearColor(180, 0, 0, 0));
+    UMaterialExpression* MeshEye = MakeVector(ParamMeshEyepoint, FLinearColor(0, 0, 0, 0));
+
+    // Add inputs to custom node
+    AddInput(TEXT("WorldPos"), WorldPos);
+    AddInput(TEXT("TexCoord"), TexCoord);
+    AddInput(TEXT("MappingMode"), MappingMode);
+    AddInput(TEXT("ProjType"), ProjType);
+    AddInput(TEXT("Row0"), Row0);
+    AddInput(TEXT("Row1"), Row1);
+    AddInput(TEXT("Row2"), Row2);
+    AddInput(TEXT("Row3"), Row3);
+    AddInput(TEXT("UVTransform"), UVTransform);
+    AddInput(TEXT("UVRotation"), UVRotation);
+    AddInput(TEXT("Opacity"), OpacityParam);
+    AddInput(TEXT("PreviewTint"), PreviewTint);
+    AddInput(TEXT("DebugCoverage"), DebugCoverage);
+    AddInput(TEXT("DebugUnmapped"), DebugUnmapped);
+    AddInput(TEXT("DebugMapped"), DebugMapped);
+    AddInput(TEXT("CylParams"), CylParams);
+    AddInput(TEXT("CylExtent"), CylExtent);
+    AddInput(TEXT("SphParams"), SphParams);
+    AddInput(TEXT("SphArc"), SphArc);
+    AddInput(TEXT("ParallelSize"), ParallelSz);
+    AddInput(TEXT("RadialFlag"), RadFlag);
+    AddInput(TEXT("ContentMode"), ContentModeParam);
+    AddInput(TEXT("MaskAngle"), MaskParam);
+    AddInput(TEXT("BorderExp"), BorderParam);
+    AddInput(TEXT("FisheyeParams"), FishParam);
+    AddInput(TEXT("MeshEyepoint"), MeshEye);
+    AddInput(TEXT("Tex"), TexParam);
+
+    CustomNode->Code = TEXT(
+        "// RshipContentMapping HLSL\n"
+        "float2 uv = float2(0,0);\n"
+        "float valid = 1.0;\n"
+        "\n"
+        "if (MappingMode < 0.5) {\n"
+        "    // UV mapping mode\n"
+        "    float scaleU = UVTransform.r;\n"
+        "    float scaleV = UVTransform.g;\n"
+        "    float offU = UVTransform.b;\n"
+        "    float offV = UVTransform.a;\n"
+        "    uv = TexCoord.xy;\n"
+        "    uv = (uv - 0.5) * float2(scaleU, scaleV) + 0.5;\n"
+        "    uv += float2(offU - 0.5, offV - 0.5);\n"
+        "    // Rotation\n"
+        "    float rad = UVRotation * 3.14159265 / 180.0;\n"
+        "    float cs = cos(rad); float sn = sin(rad);\n"
+        "    float2 centered = uv - 0.5;\n"
+        "    uv = float2(centered.x*cs - centered.y*sn, centered.x*sn + centered.y*cs) + 0.5;\n"
+        "} else {\n"
+        "    // Projection mapping mode\n"
+        "    float3 wp = WorldPos.xyz;\n"
+        "    int projIdx = (int)(ProjType + 0.5);\n"
+        "\n"
+        "    if (projIdx == 0 || projIdx == 4) {\n"
+        "        // Perspective (0) or Parallel/Ortho (4)\n"
+        "        float4 projected = float4(\n"
+        "            dot(float4(wp, 1), float4(Row0.x, Row1.x, Row2.x, Row3.x)),\n"
+        "            dot(float4(wp, 1), float4(Row0.y, Row1.y, Row2.y, Row3.y)),\n"
+        "            dot(float4(wp, 1), float4(Row0.z, Row1.z, Row2.z, Row3.z)),\n"
+        "            dot(float4(wp, 1), float4(Row0.w, Row1.w, Row2.w, Row3.w))\n"
+        "        );\n"
+        "        float w = max(projected.w, 0.0001);\n"
+        "        if (projIdx == 4) w = 1.0; // ortho\n"
+        "        uv = projected.xy / w * 0.5 + 0.5;\n"
+        "        uv.y = 1.0 - uv.y;\n"
+        "        valid = (projected.z > 0 && uv.x >= 0 && uv.x <= 1 && uv.y >= 0 && uv.y <= 1) ? 1.0 : 0.0;\n"
+        "    }\n"
+        "    else if (projIdx == 1 || projIdx == 5) {\n"
+        "        // Cylindrical (1) or Radial (5)\n"
+        "        float3 axis = CylParams.xyz;\n"
+        "        float radius = CylParams.w;\n"
+        "        float height = CylExtent.x;\n"
+        "        float arcStart = CylExtent.y;\n"
+        "        float arcEnd = CylExtent.z;\n"
+        "        // Project onto cylinder center from Row3 (translation row contains center info)\n"
+        "        float3 center = float3(Row3.x, Row3.y, Row3.z);\n"
+        "        // NOTE(nf): Use projector position from matrix for cylinder center\n"
+        "        float3 toP = wp - center;\n"
+        "        float along = dot(toP, axis);\n"
+        "        float3 radial = toP - along * axis;\n"
+        "        float dist = length(radial);\n"
+        "        float angle = atan2(radial.y, radial.x) * 180.0 / 3.14159265;\n"
+        "        if (angle < 0) angle += 360.0;\n"
+        "        float arcRange = arcEnd - arcStart;\n"
+        "        if (arcRange <= 0) arcRange = 360.0;\n"
+        "        float normAngle = fmod(angle - arcStart + 360.0, 360.0);\n"
+        "        if (projIdx == 5) {\n"
+        "            // Radial: map by (height, distance-from-axis)\n"
+        "            uv.x = dist / max(radius, 0.001);\n"
+        "        } else {\n"
+        "            uv.x = normAngle / arcRange;\n"
+        "        }\n"
+        "        uv.y = (along / max(height, 0.001)) + 0.5;\n"
+        "        valid = (uv.x >= 0 && uv.x <= 1 && uv.y >= 0 && uv.y <= 1) ? 1.0 : 0.0;\n"
+        "    }\n"
+        "    else if (projIdx == 3) {\n"
+        "        // Spherical\n"
+        "        float3 sphCenter = SphParams.xyz;\n"
+        "        float sphRadius = SphParams.w;\n"
+        "        float hArc = SphArc.x;\n"
+        "        float vArc = SphArc.y;\n"
+        "        float3 dir = normalize(wp - sphCenter);\n"
+        "        float longitude = atan2(dir.y, dir.x) * 180.0 / 3.14159265 + 180.0;\n"
+        "        float latitude = acos(clamp(dir.z, -1, 1)) * 180.0 / 3.14159265;\n"
+        "        uv.x = longitude / max(hArc, 0.001);\n"
+        "        uv.y = latitude / max(vArc, 0.001);\n"
+        "        valid = (uv.x >= 0 && uv.x <= 1 && uv.y >= 0 && uv.y <= 1) ? 1.0 : 0.0;\n"
+        "    }\n"
+        "    else if (projIdx == 6) {\n"
+        "        // Mesh: perspective from eyepoint but blend with mesh UVs\n"
+        "        float3 eye = MeshEyepoint.xyz;\n"
+        "        // Use the mesh UV as primary, eyepoint influences depth ordering\n"
+        "        uv = TexCoord.xy;\n"
+        "        valid = 1.0;\n"
+        "    }\n"
+        "    else if (projIdx == 7) {\n"
+        "        // Fisheye\n"
+        "        float4 projected = float4(\n"
+        "            dot(float4(wp, 1), float4(Row0.x, Row1.x, Row2.x, Row3.x)),\n"
+        "            dot(float4(wp, 1), float4(Row0.y, Row1.y, Row2.y, Row3.y)),\n"
+        "            dot(float4(wp, 1), float4(Row0.z, Row1.z, Row2.z, Row3.z)),\n"
+        "            dot(float4(wp, 1), float4(Row0.w, Row1.w, Row2.w, Row3.w))\n"
+        "        );\n"
+        "        float fishFov = FisheyeParams.x * 3.14159265 / 180.0;\n"
+        "        float lensType = FisheyeParams.y;\n"
+        "        float3 viewDir = normalize(projected.xyz);\n"
+        "        float theta = acos(clamp(viewDir.z, -1, 1));\n"
+        "        float phi = atan2(viewDir.y, viewDir.x);\n"
+        "        float r = 0;\n"
+        "        if (lensType < 0.5) r = theta / (fishFov * 0.5); // equidistant\n"
+        "        else if (lensType < 1.5) r = 2.0 * sin(theta * 0.5) / sin(fishFov * 0.25); // equisolid\n"
+        "        else r = 2.0 * tan(theta * 0.5) / tan(fishFov * 0.25); // stereographic\n"
+        "        uv = float2(r * cos(phi), r * sin(phi)) * 0.5 + 0.5;\n"
+        "        valid = (theta <= fishFov * 0.5 && uv.x >= 0 && uv.x <= 1 && uv.y >= 0 && uv.y <= 1) ? 1.0 : 0.0;\n"
+        "    }\n"
+        "\n"
+        "    // Masking (angle-based)\n"
+        "    float maskStart = MaskAngle.x;\n"
+        "    float maskEnd = MaskAngle.y;\n"
+        "    float clipOutside = MaskAngle.z;\n"
+        "    if (maskEnd - maskStart < 359.9) {\n"
+        "        float maskU = uv.x * (maskEnd - maskStart) + maskStart;\n"
+        "        // Angular masking clamps valid region\n"
+        "    }\n"
+        "    if (clipOutside > 0.5 && valid < 0.5) {\n"
+        "        return float4(0,0,0,0);\n"
+        "    }\n"
+        "}\n"
+        "\n"
+        "// Clamp UV\n"
+        "uv = clamp(uv, 0, 1);\n"
+        "\n"
+        "// Sample texture\n"
+        "float4 texColor = Texture2DSample(Tex, TexSampler, uv);\n"
+        "texColor.rgb *= PreviewTint.rgb;\n"
+        "\n"
+        "// Debug coverage overlay\n"
+        "if (DebugCoverage > 0.5) {\n"
+        "    if (valid > 0.5) {\n"
+        "        texColor = DebugMapped;\n"
+        "    } else {\n"
+        "        texColor = DebugUnmapped;\n"
+        "    }\n"
+        "}\n"
+        "\n"
+        "texColor.a *= Opacity;\n"
+        "return texColor;\n"
+    );
+
+    Mat->GetExpressionCollection().AddExpression(CustomNode);
+
+    // Connect custom node output to material
+    Mat->GetEditorOnlyData()->EmissiveColor.Expression = CustomNode;
+    Mat->GetEditorOnlyData()->EmissiveColor.OutputIndex = 0;
+    Mat->GetEditorOnlyData()->Opacity.Expression = CustomNode;
+    Mat->GetEditorOnlyData()->Opacity.OutputIndex = 0;
+    Mat->GetEditorOnlyData()->Opacity.Mask = 1;
+    Mat->GetEditorOnlyData()->Opacity.MaskA = 1;
+
+    Mat->PreEditChange(nullptr);
+    Mat->PostEditChange();
+
+    ContentMappingMaterial = Mat;
+    UE_LOG(LogRshipExec, Log, TEXT("ContentMapping built-in procedural material created."));
 }
 FString URshipContentMappingManager::GetAssetCacheDirectory() const
 {
