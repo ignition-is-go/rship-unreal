@@ -3,7 +3,7 @@
 #include "SRshipModeSelector.h"
 #include "Rendering/DrawElements.h"
 #include "Styling/CoreStyle.h"
-#include "Widgets/Layout/SVerticalBox.h"
+#include "Widgets/SBoxPanel.h"
 #include "Widgets/Layout/SWrapBox.h"
 #include "Widgets/Text/STextBlock.h"
 #include "Styling/AppStyle.h"

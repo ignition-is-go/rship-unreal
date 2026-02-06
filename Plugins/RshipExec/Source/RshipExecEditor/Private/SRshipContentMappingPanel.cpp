@@ -341,6 +341,7 @@ void SRshipContentMappingPanel::Construct(const FArguments& InArgs)
 							]
 						]
 					]
+					]
 				]
 			]
 		]
