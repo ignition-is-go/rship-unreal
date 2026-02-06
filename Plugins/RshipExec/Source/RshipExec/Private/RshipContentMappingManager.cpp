@@ -611,7 +611,27 @@ void URshipContentMappingManager::ProcessMappingEvent(const TSharedPtr<FJsonObje
         return;
     }
 
-    const FString MappingType = GetStringField(Data, TEXT("type"));
+    const FString RawType = GetStringField(Data, TEXT("type"));
+    FString MappingType = RawType;
+    FString DerivedMode;
+    if (RawType.Equals(TEXT("direct"), ESearchCase::IgnoreCase))
+    {
+        MappingType = TEXT("surface-uv");
+        DerivedMode = TEXT("direct");
+    }
+    else if (RawType.Equals(TEXT("feed"), ESearchCase::IgnoreCase)
+        || RawType.Equals(TEXT("surface-feed"), ESearchCase::IgnoreCase))
+    {
+        MappingType = TEXT("surface-uv");
+        DerivedMode = TEXT("feed");
+    }
+    else if (RawType.Equals(TEXT("perspective"), ESearchCase::IgnoreCase)
+        || RawType.Equals(TEXT("cylindrical"), ESearchCase::IgnoreCase)
+        || RawType.Equals(TEXT("spherical"), ESearchCase::IgnoreCase))
+    {
+        MappingType = TEXT("surface-projection");
+        DerivedMode = RawType.ToLower();
+    }
     if (MappingType != TEXT("surface-uv") && MappingType != TEXT("surface-projection"))
     {
         FRshipContentMappingState Removed;
@@ -637,6 +657,22 @@ void URshipContentMappingManager::ProcessMappingEvent(const TSharedPtr<FJsonObje
     if (Data->HasTypedField<EJson::Object>(TEXT("config")))
     {
         State.Config = Data->GetObjectField(TEXT("config"));
+    }
+
+    if (!DerivedMode.IsEmpty())
+    {
+        if (!State.Config.IsValid())
+        {
+            State.Config = MakeShared<FJsonObject>();
+        }
+        if (MappingType == TEXT("surface-uv") && !State.Config->HasTypedField<EJson::String>(TEXT("uvMode")))
+        {
+            State.Config->SetStringField(TEXT("uvMode"), DerivedMode);
+        }
+        if (MappingType == TEXT("surface-projection") && !State.Config->HasTypedField<EJson::String>(TEXT("projectionType")))
+        {
+            State.Config->SetStringField(TEXT("projectionType"), DerivedMode);
+        }
     }
 
     FRshipContentMappingState& Stored = Mappings.FindOrAdd(Id);
@@ -1173,7 +1209,16 @@ void URshipContentMappingManager::ApplyMaterialParameters(
         MID->SetTextureParameterValue(ParamContextTexture, nullptr);
     }
 
-    if (MappingState.Type == TEXT("surface-uv"))
+    const bool bIsUvMapping = MappingState.Type == TEXT("surface-uv")
+        || MappingState.Type.Equals(TEXT("direct"), ESearchCase::IgnoreCase)
+        || MappingState.Type.Equals(TEXT("feed"), ESearchCase::IgnoreCase)
+        || MappingState.Type.Equals(TEXT("surface-feed"), ESearchCase::IgnoreCase);
+    const bool bIsProjectionMapping = MappingState.Type == TEXT("surface-projection")
+        || MappingState.Type.Equals(TEXT("perspective"), ESearchCase::IgnoreCase)
+        || MappingState.Type.Equals(TEXT("cylindrical"), ESearchCase::IgnoreCase)
+        || MappingState.Type.Equals(TEXT("spherical"), ESearchCase::IgnoreCase);
+
+    if (bIsUvMapping)
     {
         MID->SetScalarParameterValue(ParamMappingMode, 0.0f);
         MID->SetScalarParameterValue(ParamProjectionType, 0.0f);
@@ -1185,6 +1230,18 @@ void URshipContentMappingManager::ApplyMaterialParameters(
         float Rotation = 0.0f;
         float PivotU = 0.5f;
         float PivotV = 0.5f;
+        bool bFeedMode = false;
+        bool bFoundFeedRect = false;
+        float FeedU = 0.0f;
+        float FeedV = 0.0f;
+        float FeedW = 1.0f;
+        float FeedH = 1.0f;
+
+        if (MappingState.Type.Equals(TEXT("feed"), ESearchCase::IgnoreCase)
+            || MappingState.Type.Equals(TEXT("surface-feed"), ESearchCase::IgnoreCase))
+        {
+            bFeedMode = true;
+        }
 
         if (MappingState.Config.IsValid())
         {
@@ -1199,6 +1256,72 @@ void URshipContentMappingManager::ApplyMaterialParameters(
                 PivotU = GetNumberField(Transform, TEXT("pivotU"), 0.5f);
                 PivotV = GetNumberField(Transform, TEXT("pivotV"), 0.5f);
             }
+
+            const FString UvMode = GetStringField(MappingState.Config, TEXT("uvMode"), TEXT(""));
+            if (UvMode.Equals(TEXT("feed"), ESearchCase::IgnoreCase))
+            {
+                bFeedMode = true;
+            }
+
+            auto ReadFeedRect = [this](const TSharedPtr<FJsonObject>& RectObj, float& OutU, float& OutV, float& OutW, float& OutH)
+            {
+                if (!RectObj.IsValid())
+                {
+                    return false;
+                }
+                OutU = GetNumberField(RectObj, TEXT("u"), OutU);
+                OutV = GetNumberField(RectObj, TEXT("v"), OutV);
+                OutW = GetNumberField(RectObj, TEXT("width"), OutW);
+                OutH = GetNumberField(RectObj, TEXT("height"), OutH);
+                return true;
+            };
+
+            if (MappingState.Config->HasTypedField<EJson::Array>(TEXT("feedRects")))
+            {
+                const TArray<TSharedPtr<FJsonValue>> FeedRects = MappingState.Config->GetArrayField(TEXT("feedRects"));
+                for (const TSharedPtr<FJsonValue>& Value : FeedRects)
+                {
+                    if (!Value.IsValid() || Value->Type != EJson::Object)
+                    {
+                        continue;
+                    }
+                    TSharedPtr<FJsonObject> RectObj = Value->AsObject();
+                    if (!RectObj.IsValid() || !RectObj->HasTypedField<EJson::String>(TEXT("surfaceId")))
+                    {
+                        continue;
+                    }
+                    const FString SurfaceId = RectObj->GetStringField(TEXT("surfaceId"));
+                    if (SurfaceId == SurfaceState.Id)
+                    {
+                        if (ReadFeedRect(RectObj, FeedU, FeedV, FeedW, FeedH))
+                        {
+                            bFeedMode = true;
+                            bFoundFeedRect = true;
+                        }
+                        break;
+                    }
+                }
+            }
+
+            if (!bFoundFeedRect && MappingState.Config->HasTypedField<EJson::Object>(TEXT("feedRect")))
+            {
+                TSharedPtr<FJsonObject> RectObj = MappingState.Config->GetObjectField(TEXT("feedRect"));
+                if (ReadFeedRect(RectObj, FeedU, FeedV, FeedW, FeedH))
+                {
+                    bFeedMode = true;
+                    bFoundFeedRect = true;
+                }
+            }
+        }
+
+        if (bFeedMode)
+        {
+            const float SafeW = FMath::Max(0.0001f, FeedW);
+            const float SafeH = FMath::Max(0.0001f, FeedH);
+            ScaleU *= SafeW;
+            ScaleV *= SafeH;
+            OffsetU = FeedU + (OffsetU * SafeW);
+            OffsetV = FeedV + (OffsetV * SafeH);
         }
 
         OffsetU = OffsetU - PivotU + 0.5f;
@@ -1211,11 +1334,17 @@ void URshipContentMappingManager::ApplyMaterialParameters(
         return;
     }
 
-    if (MappingState.Type == TEXT("surface-projection"))
+    if (bIsProjectionMapping)
     {
         MID->SetScalarParameterValue(ParamMappingMode, 1.0f);
 
         FString ProjectionType = TEXT("perspective");
+        if (MappingState.Type.Equals(TEXT("cylindrical"), ESearchCase::IgnoreCase)
+            || MappingState.Type.Equals(TEXT("spherical"), ESearchCase::IgnoreCase)
+            || MappingState.Type.Equals(TEXT("perspective"), ESearchCase::IgnoreCase))
+        {
+            ProjectionType = MappingState.Type;
+        }
         FVector Position(0.0f, 0.0f, 0.0f);
         FVector Rotation(0.0f, 0.0f, 0.0f);
         float Fov = 60.0f;
@@ -1252,13 +1381,17 @@ void URshipContentMappingManager::ApplyMaterialParameters(
         }
 
         float ProjectionTypeIndex = 0.0f;
-        if (ProjectionType == TEXT("cylindrical"))
+        if (ProjectionType.Equals(TEXT("cylindrical"), ESearchCase::IgnoreCase))
         {
             ProjectionTypeIndex = 1.0f;
         }
-        else if (ProjectionType == TEXT("planar"))
+        else if (ProjectionType.Equals(TEXT("planar"), ESearchCase::IgnoreCase))
         {
             ProjectionTypeIndex = 2.0f;
+        }
+        else if (ProjectionType.Equals(TEXT("spherical"), ESearchCase::IgnoreCase))
+        {
+            ProjectionTypeIndex = 3.0f;
         }
 
         MID->SetScalarParameterValue(ParamProjectionType, ProjectionTypeIndex);

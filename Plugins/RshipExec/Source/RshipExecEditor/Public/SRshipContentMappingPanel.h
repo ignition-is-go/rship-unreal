@@ -64,6 +64,15 @@ private:
 	struct FRshipContentMappingState* FindMappingById(const FString& MappingId, TArray<struct FRshipContentMappingState>& Mappings) const;
 	struct FRshipRenderContextState* FindContextById(const FString& ContextId, TArray<struct FRshipRenderContextState>& Contexts) const;
 	bool IsProjectionEditActiveFor(const FString& MappingId) const;
+	void RebuildFeedRectList();
+
+	struct FFeedRect
+	{
+		float U = 0.0f;
+		float V = 0.0f;
+		float W = 1.0f;
+		float H = 1.0f;
+	};
 
 	TSharedPtr<STextBlock> ConnectionText;
 	TSharedPtr<STextBlock> CountsText;
@@ -77,6 +86,10 @@ private:
 	TSharedPtr<class SEditableTextBox> QuickMaterialSlotsInput;
 	TSharedPtr<class SEditableTextBox> QuickMeshNameInput;
 	TSharedPtr<SSpinBox<float>> QuickOpacityInput;
+	TSharedPtr<SSpinBox<float>> QuickFeedUInput;
+	TSharedPtr<SSpinBox<float>> QuickFeedVInput;
+	TSharedPtr<SSpinBox<float>> QuickFeedWInput;
+	TSharedPtr<SSpinBox<float>> QuickFeedHInput;
 	TSharedPtr<SVerticalBox> ContextList;
 	TSharedPtr<SVerticalBox> SurfaceList;
 	TSharedPtr<SVerticalBox> MappingList;
@@ -100,12 +113,10 @@ private:
 
 	TSharedPtr<class SEditableTextBox> MapNameInput;
 	TSharedPtr<class SEditableTextBox> MapProjectInput;
-	TSharedPtr<class SEditableTextBox> MapTypeInput;
 	TSharedPtr<class SEditableTextBox> MapContextInput;
 	TSharedPtr<class SEditableTextBox> MapSurfacesInput;
 	TSharedPtr<SSpinBox<float>> MapOpacityInput;
 	TSharedPtr<class SCheckBox> MapEnabledInput;
-	TSharedPtr<class SEditableTextBox> MapProjectionTypeInput;
 	TSharedPtr<SSpinBox<float>> MapProjPosXInput;
 	TSharedPtr<SSpinBox<float>> MapProjPosYInput;
 	TSharedPtr<SSpinBox<float>> MapProjPosZInput;
@@ -126,6 +137,12 @@ private:
 	TSharedPtr<SSpinBox<float>> MapUvOffsetUInput;
 	TSharedPtr<SSpinBox<float>> MapUvOffsetVInput;
 	TSharedPtr<SSpinBox<float>> MapUvRotInput;
+	TSharedPtr<SSpinBox<float>> MapFeedUInput;
+	TSharedPtr<SSpinBox<float>> MapFeedVInput;
+	TSharedPtr<SSpinBox<float>> MapFeedWInput;
+	TSharedPtr<SSpinBox<float>> MapFeedHInput;
+	TSharedPtr<SVerticalBox> MapFeedRectList;
+	TMap<FString, FFeedRect> MapFeedRectOverrides;
 
 	TArray<TSharedPtr<FRshipIdOption>> TargetOptions;
 	TArray<TSharedPtr<FRshipIdOption>> CameraOptions;
@@ -137,7 +154,8 @@ private:
 	FString SelectedSurfaceId;
 	FString SelectedMappingId;
 	FString QuickSourceType = TEXT("camera");
-	FString QuickMappingType = TEXT("surface-uv");
+	FString QuickMapMode = TEXT("direct");
+	FString MapMode = TEXT("direct");
 	bool bQuickAdvanced = false;
 
 	// Preview helpers
