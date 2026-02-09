@@ -21,7 +21,7 @@
 		{
 			"Name": "ConcertHostIdentity",
 			"Type": "Editor",
-			"LoadingPhase": "PostEngineInit"
+			"LoadingPhase": "PreDefault"
 		}
 	]
 }
