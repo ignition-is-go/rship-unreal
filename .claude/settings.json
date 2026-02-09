@@ -1,9 +1,21 @@
 {
   "permissions": {
     "allow": [
+      "Bash(\"C:\\\\Program Files\\\\Epic Games\\\\UE_5.6\\\\Engine\\\\Build\\\\BatchFiles\\\\Build.bat\" RshipSource Win64 Development \"C:\\\\Users\\\\Administrator\\\\Documents\\\\GitHub\\\\rship-unreal\\\\RshipSource.uproject\" -waitmutex)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(git rm:*)"
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\Administrator\\\\Documents\\\\GitHub\\\\rship-unreal\\\\Saved\\\\Logs\" -Filter \"*.log\")",
+      "Bash(Sort-Object LastWriteTime -Descending)",
+      "Bash(Select-Object -First 1)",
+      "Bash(ForEach-Object { Get-Content $_FullName -Tail 200 })",
+      "Bash(Get-ChildItem -Path \"$env:LOCALAPPDATA\\\\UnrealEngine\\\\5.5\\\\Saved\\\\Crashes\" -Recurse -Filter \"*.log\")",
+      "Bash(ForEach-Object { Get-Content $_FullName -Tail 150 })",
+      "Bash(powershell -Command:*)",
+      "Bash(\"C:\\\\Program Files\\\\Epic Games\\\\UE_5.6\\\\Engine\\\\Build\\\\BatchFiles\\\\Build.bat\" RshipSourceEditor Win64 Development -Project=\"C:\\\\Users\\\\Administrator\\\\Documents\\\\GitHub\\\\rship-unreal\\\\RshipSource.uproject\" -WaitMutex -FromMsBuild)",
+      "Bash(\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" rship.sln /t:Build /p:Configuration=\"Development Editor\" /p:Platform=Win64 /m /verbosity:minimal)",
+      "Bash(\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" rship-unreal.sln /t:Build /p:Configuration=\"Development Editor\" /p:Platform=Win64 /m /verbosity:minimal)",
+      "Bash(git fetch:*)",
+      "Bash(git merge:*)"
     ]
   }
 }

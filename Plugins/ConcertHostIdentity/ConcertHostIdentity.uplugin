@@ -1,0 +1,27 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "Concert Host Identity",
+	"Description": "Automatically sets Multi-User Editing display name and color from machine hostname",
+	"Category": "Editor",
+	"CreatedBy": "Rocketship",
+	"CanContainContent": false,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"EnabledByDefault": true,
+	"Plugins": [
+		{
+			"Name": "MultiUserClient",
+			"Enabled": true
+		}
+	],
+	"Modules": [
+		{
+			"Name": "ConcertHostIdentity",
+			"Type": "Editor",
+			"LoadingPhase": "PostEngineInit"
+		}
+	]
+}
