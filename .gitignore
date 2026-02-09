@@ -6,6 +6,7 @@
 # Unreal
 Saved/
 DerivedDataCache/
+nul
 
 # Claude Code local settings
 .claude/settings.local.json
