@@ -2,7 +2,7 @@
 	"FileVersion": 3,
 	"Version": 1,
 	"VersionName": "0.1.0",
-	"EngineVersion": "5.6.0",
+	"EngineVersion": "5.7.0",
 	"FriendlyName": "Rship Spatial Audio",
 	"Description": "Spatial audio and loudspeaker management system for large-scale installations. Supports VBAP, DBAP, and HOA rendering with phase-coherent panning, per-output DSP, and full rShip/Myko integration.",
 	"Category": "Audio",
