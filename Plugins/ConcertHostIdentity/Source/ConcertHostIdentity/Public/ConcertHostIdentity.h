@@ -12,4 +12,7 @@ class FConcertHostIdentityModule : public IModuleInterface
 public:
 	virtual void StartupModule() override;
 	virtual void ShutdownModule() override;
+
+	/** Deterministic color from a hostname string (case-insensitive) */
+	static FLinearColor ColorFromHostname(const FString& Hostname);
 };

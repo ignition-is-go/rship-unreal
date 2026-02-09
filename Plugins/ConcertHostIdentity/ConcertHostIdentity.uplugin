@@ -11,6 +11,12 @@
 	"IsExperimentalVersion": false,
 	"Installed": false,
 	"EnabledByDefault": true,
+	"Plugins": [
+		{
+			"Name": "MultiUserClient",
+			"Enabled": true
+		}
+	],
 	"Modules": [
 		{
 			"Name": "ConcertHostIdentity",

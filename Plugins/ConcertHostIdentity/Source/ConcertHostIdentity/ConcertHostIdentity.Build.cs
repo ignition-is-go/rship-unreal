@@ -15,7 +15,7 @@ public class ConcertHostIdentity : ModuleRules
 
 		if (Target.bBuildEditor)
 		{
-			PrivateDependencyModuleNames.Add("Concert");
+			PrivateDependencyModuleNames.Add("ConcertClient");
 		}
 	}
 }
