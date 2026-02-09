@@ -66,6 +66,7 @@ void FConcertHostIdentityModule::StartupModule()
 	Config->bInstallEditorToolbarButton = true;
 	Config->ClientSettings.DisplayName = Hostname;
 	Config->ClientSettings.AvatarColor = AvatarColor;
+	Config->SaveConfig();
 
 	UE_LOG(LogConcertHostIdentity, Log, TEXT("Set Concert display name to \"%s\" with color (R=%.2f G=%.2f B=%.2f)"),
 		*Hostname, AvatarColor.R, AvatarColor.G, AvatarColor.B);
