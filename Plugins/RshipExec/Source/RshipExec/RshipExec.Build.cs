@@ -171,6 +171,60 @@ public class RshipExec : ModuleRules
 			System.Console.WriteLine("RshipExec: RshipColorManagement plugin not found, color targets disabled");
 		}
 
+		// Rust display management library (optional)
+		string RustDisplayPath = Path.Combine(ModuleDirectory, "ThirdParty", "rship-display");
+		string RustDisplayRelease = Path.Combine(RustDisplayPath, "target", "release");
+		string RustDisplayInclude = Path.Combine(RustDisplayPath, "include");
+		string RustDisplayLibFile = "";
+		string RustDisplayBuildScript = "";
+
+		if (Target.Platform == UnrealTargetPlatform.Win64)
+		{
+			RustDisplayLibFile = Path.Combine(RustDisplayRelease, "rship_display.lib");
+			RustDisplayBuildScript = Path.Combine(RustDisplayPath, "build.bat");
+		}
+		else if (Target.Platform == UnrealTargetPlatform.Mac)
+		{
+			RustDisplayLibFile = Path.Combine(RustDisplayRelease, "librship_display.a");
+			RustDisplayBuildScript = Path.Combine(RustDisplayPath, "build.sh");
+		}
+		else if (Target.Platform == UnrealTargetPlatform.Linux)
+		{
+			RustDisplayLibFile = Path.Combine(RustDisplayRelease, "librship_display.a");
+			RustDisplayBuildScript = Path.Combine(RustDisplayPath, "build.sh");
+		}
+
+		System.Console.WriteLine("RshipExec: Checking for Rust display library at: " + RustDisplayLibFile);
+		System.Console.WriteLine("RshipExec: File exists: " + File.Exists(RustDisplayLibFile));
+
+		if (File.Exists(RustDisplayLibFile))
+		{
+			PublicDefinitions.Add("RSHIP_HAS_DISPLAY_RUST=1");
+			PublicIncludePaths.Add(RustDisplayInclude);
+			PublicAdditionalLibraries.Add(RustDisplayLibFile);
+
+			if (Target.Platform == UnrealTargetPlatform.Win64)
+			{
+				PublicSystemLibraries.AddRange(new string[] {
+					"User32.lib",
+					"Gdi32.lib",
+				});
+			}
+
+			System.Console.WriteLine("RshipExec: Rust display library FOUND");
+		}
+		else
+		{
+			PublicDefinitions.Add("RSHIP_HAS_DISPLAY_RUST=0");
+			System.Console.WriteLine("");
+			System.Console.WriteLine("================================================================================");
+			System.Console.WriteLine("  RshipExec: Rust display library NOT found - display orchestration falls back");
+			System.Console.WriteLine("  Expected at: " + RustDisplayLibFile);
+			System.Console.WriteLine("  To enable: run " + RustDisplayBuildScript);
+			System.Console.WriteLine("================================================================================");
+			System.Console.WriteLine("");
+		}
+
 		PrivateDependencyModuleNames.AddRange(
 			new string[]
 			{

@@ -3,6 +3,7 @@
 #include "RshipExec.h"
 #include "ISettingsModule.h"
 #include "RshipSettings.h"
+#include "Logs.h"
 
 // Old RshipEditorWidget.h dashboard deprecated - using RshipExecEditor's SRshipStatusPanel instead
 
@@ -20,6 +21,13 @@ void FRshipExecModule::StartupModule()
 	}
 
 // Dashboard panel now registered in RshipExecEditor module (SRshipStatusPanel)
+
+#if RSHIP_HAS_DISPLAY_RUST
+	UE_LOG(LogRshipExec, Log, TEXT("Rship display Rust runtime available (RSHIP_HAS_DISPLAY_RUST=1)"));
+#else
+	UE_LOG(LogRshipExec, Warning, TEXT("Rship display Rust runtime not found (RSHIP_HAS_DISPLAY_RUST=0)"));
+	UE_LOG(LogRshipExec, Warning, TEXT("Build optional runtime at Plugins/RshipExec/Source/RshipExec/ThirdParty/rship-display"));
+#endif
 }
 
 void FRshipExecModule::ShutdownModule()

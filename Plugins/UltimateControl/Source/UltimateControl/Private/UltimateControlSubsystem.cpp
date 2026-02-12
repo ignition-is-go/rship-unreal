@@ -31,6 +31,7 @@
 #include "Handlers/UltimateControlLiveCodingHandler.h"
 #include "Handlers/UltimateControlSessionHandler.h"
 #include "Handlers/UltimateControlEditorHandler.h"
+#include "Handlers/UltimateControlAgentHandler.h"
 
 #include "HttpServerModule.h"
 #include "IHttpRouter.h"
@@ -262,30 +263,70 @@ bool UUltimateControlSubsystem::HandleHttpRequest(const FHttpServerRequest& Requ
 
 	// Parse JSON body
 	FString BodyStr = UTF8_TO_TCHAR(reinterpret_cast<const char*>(Request.Body.GetData()));
+	TSharedPtr<FJsonValue> ResponseValue;
+
+	auto BuildErrorResponse = [this](int32 Code, const FString& Message, const TSharedPtr<FJsonValue>& IdValue) -> TSharedPtr<FJsonObject>
+	{
+		TSharedPtr<FJsonObject> ErrorResponse = MakeShared<FJsonObject>();
+		ErrorResponse->SetStringField(TEXT("jsonrpc"), TEXT("2.0"));
+		ErrorResponse->SetObjectField(TEXT("error"), MakeError(Code, Message));
+		ErrorResponse->SetField(TEXT("id"), IdValue.IsValid() ? IdValue : MakeShared<FJsonValueNull>());
+		return ErrorResponse;
+	};
+
 	TSharedPtr<FJsonObject> RequestObj;
-	TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(BodyStr);
-
-	TSharedPtr<FJsonObject> ResponseObj;
-
-	if (!FJsonSerializer::Deserialize(Reader, RequestObj) || !RequestObj.IsValid())
 	{
-		ResponseObj = MakeShared<FJsonObject>();
-		ResponseObj->SetStringField(TEXT("jsonrpc"), TEXT("2.0"));
-		ResponseObj->SetObjectField(TEXT("error"), MakeError(EJsonRpcError::ParseError, TEXT("Parse error")));
-		ResponseObj->SetField(TEXT("id"), MakeShared<FJsonValueNull>());
-		TotalErrorsReturned++;
+		TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(BodyStr);
+		if (FJsonSerializer::Deserialize(Reader, RequestObj) && RequestObj.IsValid())
+		{
+			ResponseValue = MakeShared<FJsonValueObject>(ProcessJsonRpcRequest(RequestObj));
+		}
 	}
-	else
+
+	if (!ResponseValue.IsValid())
 	{
-		// Check if it's a batch request (array)
-		// For now, handle single requests
-		ResponseObj = ProcessJsonRpcRequest(RequestObj);
+		TArray<TSharedPtr<FJsonValue>> BatchRequests;
+		TSharedRef<TJsonReader<>> BatchReader = TJsonReaderFactory<>::Create(BodyStr);
+		if (FJsonSerializer::Deserialize(BatchReader, BatchRequests))
+		{
+			if (BatchRequests.Num() == 0)
+			{
+				ResponseValue = MakeShared<FJsonValueObject>(
+					BuildErrorResponse(EJsonRpcError::InvalidRequest, TEXT("Batch request must contain at least one call"), MakeShared<FJsonValueNull>()));
+				TotalErrorsReturned++;
+			}
+			else
+			{
+				TArray<TSharedPtr<FJsonValue>> BatchResponses;
+				for (const TSharedPtr<FJsonValue>& BatchRequestValue : BatchRequests)
+				{
+					const TSharedPtr<FJsonObject>* BatchRequestObject = nullptr;
+					if (!BatchRequestValue.IsValid() || !BatchRequestValue->TryGetObject(BatchRequestObject) || !BatchRequestObject || !(*BatchRequestObject).IsValid())
+					{
+						BatchResponses.Add(MakeShared<FJsonValueObject>(
+							BuildErrorResponse(EJsonRpcError::InvalidRequest, TEXT("Batch element must be a JSON-RPC request object"), MakeShared<FJsonValueNull>())));
+						TotalErrorsReturned++;
+						continue;
+					}
+
+					BatchResponses.Add(MakeShared<FJsonValueObject>(ProcessJsonRpcRequest(*BatchRequestObject)));
+				}
+
+				ResponseValue = MakeShared<FJsonValueArray>(BatchResponses);
+			}
+		}
+		else
+		{
+			ResponseValue = MakeShared<FJsonValueObject>(
+				BuildErrorResponse(EJsonRpcError::ParseError, TEXT("Parse error"), MakeShared<FJsonValueNull>()));
+			TotalErrorsReturned++;
+		}
 	}
 
 	// Serialize response
 	FString ResponseStr;
 	TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&ResponseStr);
-	FJsonSerializer::Serialize(ResponseObj.ToSharedRef(), Writer);
+	FJsonSerializer::Serialize(ResponseValue.ToSharedRef(), Writer);
 
 	if (Settings && Settings->bLogResponses)
 	{
@@ -345,11 +386,19 @@ TSharedPtr<FJsonObject> UUltimateControlSubsystem::ProcessJsonRpcRequest(const T
 		return Response;
 	}
 
-	// Get params (can be object, array, or omitted)
-	TSharedPtr<FJsonObject> Params = RequestObj->GetObjectField(TEXT("params"));
-	if (!Params.IsValid())
+	// Get params (object or omitted)
+	TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
+	if (RequestObj->HasField(TEXT("params")))
 	{
-		Params = MakeShared<FJsonObject>();
+		const TSharedPtr<FJsonObject>* ParamsObj = nullptr;
+		if (!RequestObj->TryGetObjectField(TEXT("params"), ParamsObj) || !ParamsObj || !(*ParamsObj).IsValid())
+		{
+			Response->SetObjectField(TEXT("error"), MakeError(EJsonRpcError::InvalidParams, TEXT("params must be an object")));
+			TotalErrorsReturned++;
+			return Response;
+		}
+
+		Params = *ParamsObj;
 	}
 
 	// Execute handler
@@ -491,7 +540,10 @@ void UUltimateControlSubsystem::InitializeHandlers()
 	// Multi-user session handler
 	SessionHandler = MakeUnique<FUltimateControlSessionHandler>(this);
 
-	UE_LOG(LogUltimateControlServer, Log, TEXT("Initialized %d handler categories"), 27);
+	// Agent-team orchestration handler
+	AgentHandler = MakeUnique<FUltimateControlAgentHandler>(this);
+
+	UE_LOG(LogUltimateControlServer, Log, TEXT("Initialized %d handler categories"), 28);
 }
 
 void UUltimateControlSubsystem::CleanupHandlers()
@@ -524,6 +576,7 @@ void UUltimateControlSubsystem::CleanupHandlers()
 	LiveCodingHandler.Reset();
 	SessionHandler.Reset();
 	EditorHandler.Reset();
+	AgentHandler.Reset();
 }
 
 void UUltimateControlSubsystem::RegisterSystemMethods()
@@ -578,7 +631,7 @@ void UUltimateControlSubsystem::RegisterSystemMethods()
 		{
 			TSharedPtr<FJsonObject> InfoObj = MakeShared<FJsonObject>();
 
-			InfoObj->SetStringField(TEXT("serverVersion"), TEXT("1.0.0"));
+			InfoObj->SetStringField(TEXT("serverVersion"), TEXT("1.1.0"));
 			InfoObj->SetStringField(TEXT("engineVersion"), FEngineVersion::Current().ToString());
 			InfoObj->SetStringField(TEXT("platform"), FPlatformProperties::IniPlatformName());
 			InfoObj->SetNumberField(TEXT("port"), GetServerPort());
@@ -586,6 +639,8 @@ void UUltimateControlSubsystem::RegisterSystemMethods()
 			InfoObj->SetNumberField(TEXT("totalRequestsHandled"), TotalRequestsHandled);
 			InfoObj->SetNumberField(TEXT("totalErrorsReturned"), TotalErrorsReturned);
 			InfoObj->SetNumberField(TEXT("registeredMethods"), RegisteredMethods.Num());
+			InfoObj->SetBoolField(TEXT("supportsBatchRequests"), true);
+			InfoObj->SetBoolField(TEXT("supportsAgentOrchestration"), RegisteredMethods.Contains(TEXT("agent.register")));
 
 			// Feature flags
 			const UUltimateControlSettings* Settings = UUltimateControlSettings::Get();
@@ -608,6 +663,35 @@ void UUltimateControlSubsystem::RegisterSystemMethods()
 		});
 
 		RegisterMethod(TEXT("system.getInfo"), Info);
+	}
+
+	// system.health - Readiness/health check for automation and orchestration loops
+	{
+		FJsonRpcMethodInfo Info;
+		Info.Name = TEXT("system.health");
+		Info.Description = TEXT("Get readiness and health metrics for orchestration");
+		Info.Category = TEXT("System");
+
+		Info.Handler.BindLambda([this](const TSharedPtr<FJsonObject>& Params, TSharedPtr<FJsonValue>& OutResult, TSharedPtr<FJsonObject>& OutError) -> bool
+		{
+			const UUltimateControlSettings* Settings = UUltimateControlSettings::Get();
+
+			TSharedPtr<FJsonObject> HealthObj = MakeShared<FJsonObject>();
+			HealthObj->SetStringField(TEXT("status"), TEXT("ok"));
+			HealthObj->SetStringField(TEXT("timestamp"), FDateTime::UtcNow().ToIso8601());
+			HealthObj->SetBoolField(TEXT("isRunning"), IsServerRunning());
+			HealthObj->SetBoolField(TEXT("authRequired"), Settings ? Settings->bRequireAuth : false);
+			HealthObj->SetBoolField(TEXT("supportsBatchRequests"), true);
+			HealthObj->SetBoolField(TEXT("supportsAgentOrchestration"), RegisteredMethods.Contains(TEXT("agent.register")));
+			HealthObj->SetNumberField(TEXT("registeredMethods"), RegisteredMethods.Num());
+			HealthObj->SetNumberField(TEXT("totalRequestsHandled"), TotalRequestsHandled);
+			HealthObj->SetNumberField(TEXT("totalErrorsReturned"), TotalErrorsReturned);
+
+			OutResult = MakeShared<FJsonValueObject>(HealthObj);
+			return true;
+		});
+
+		RegisterMethod(TEXT("system.health"), Info);
 	}
 
 	// system.echo - Echo back params (for testing)

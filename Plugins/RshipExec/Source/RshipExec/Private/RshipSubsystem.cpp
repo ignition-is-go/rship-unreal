@@ -21,6 +21,7 @@
 #include "Action.h"
 #include "Target.h"
 #include "RshipContentMappingManager.h"
+#include "RshipDisplayManager.h"
 
 #include "Myko.h"
 #include "EmitterHandler.h"
@@ -67,6 +68,7 @@ void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
     ControlRigManager = nullptr;
     PCGManager = nullptr;
     ContentMappingManager = nullptr;
+    DisplayManager = nullptr;
     LastTickTime = 0.0;
 
     // Initialize rate limiter
@@ -112,6 +114,10 @@ void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
     if (Settings->bEnableContentMapping)
     {
         GetContentMappingManager();
+    }
+    if (Settings->bEnableDisplayManagement)
+    {
+        GetDisplayManager();
     }
 }
 
@@ -667,6 +673,12 @@ void URshipSubsystem::TickSubsystems()
         ContentMappingManager->Tick(DeltaTime);
     }
 
+    // Tick Display manager for monitor topology and pixel routing state
+    if (DisplayManager)
+    {
+        DisplayManager->Tick(DeltaTime);
+    }
+
     // Process message queue every tick to ensure messages are sent
     ProcessMessageQueue();
 }
@@ -815,8 +827,20 @@ void URshipSubsystem::ProcessMessage(const FString &message)
 
             bool result = false;
 
+            // Route display management targets
+            if (targetId.StartsWith(TEXT("/display-management/")))
+            {
+                if (URshipDisplayManager* Manager = GetDisplayManager())
+                {
+                    result = Manager->RouteAction(targetId, actionId, execData);
+                }
+                else
+                {
+                    UE_LOG(LogRshipExec, Warning, TEXT("Display action received but manager not initialized: %s"), *targetId);
+                }
+            }
             // Route content mapping targets
-            if (targetId.StartsWith(TEXT("/content-mapping/")))
+            else if (targetId.StartsWith(TEXT("/content-mapping/")))
             {
                 if (URshipContentMappingManager* MappingManager = GetContentMappingManager())
                 {
@@ -1038,6 +1062,13 @@ void URshipSubsystem::ProcessMessage(const FString &message)
             if (URshipContentMappingManager* MappingManager = GetContentMappingManager())
             {
                 MappingManager->ProcessMappingEvent(item, bIsDelete);
+            }
+        }
+        else if (itemType == TEXT("DisplayProfile"))
+        {
+            if (URshipDisplayManager* Manager = GetDisplayManager())
+            {
+                Manager->ProcessProfileEvent(item, bIsDelete);
             }
         }
     }
@@ -1263,6 +1294,13 @@ void URshipSubsystem::Deinitialize()
     {
         ContentMappingManager->Shutdown();
         ContentMappingManager = nullptr;
+    }
+
+    // Shutdown Display manager
+    if (DisplayManager)
+    {
+        DisplayManager->Shutdown();
+        DisplayManager = nullptr;
     }
 
     // Clear rate limiter
@@ -2307,6 +2345,24 @@ URshipContentMappingManager* URshipSubsystem::GetContentMappingManager()
         UE_LOG(LogRshipExec, Log, TEXT("ContentMappingManager initialized"));
     }
     return ContentMappingManager;
+}
+
+URshipDisplayManager* URshipSubsystem::GetDisplayManager()
+{
+    const URshipSettings* Settings = GetDefault<URshipSettings>();
+    if (Settings && !Settings->bEnableDisplayManagement)
+    {
+        return nullptr;
+    }
+
+    if (!DisplayManager)
+    {
+        DisplayManager = NewObject<URshipDisplayManager>(this);
+        DisplayManager->Initialize(this);
+
+        UE_LOG(LogRshipExec, Log, TEXT("DisplayManager initialized"));
+    }
+    return DisplayManager;
 }
 
 URshipSpatialAudioManager* URshipSubsystem::GetSpatialAudioManager()

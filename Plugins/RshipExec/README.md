@@ -18,6 +18,7 @@ Core Rocketship executor for Unreal Engine - connect your UE project to the rshi
 - **OSC Bridge** - Route OSC messages through rship bindings
 - **PCG Auto-Bind** - Automatic binding for procedurally spawned actors
 - **Recording** - Record and playback emitter/action sessions
+- **Display Management (Windows-first)** - Deterministic display snapshot/identity/planning via optional Rust runtime
 
 ## Quick Start
 
@@ -84,7 +85,31 @@ rship.targets         # List registered targets
 rship.validate        # Validate scene
 rship.reconnect       # Force reconnection
 rship.timecode        # Timecode status
+rship.display.snapshot# Collect deterministic display snapshot
+rship.display.resolve # Resolve canonical identities against current snapshot
+rship.display.validate# Validate active display profile
+rship.display.plan    # Build display plan from active profile
+rship.display.ledger  # Show latest pixel ledger (source -> canonical -> observed)
+rship.display.apply   # Apply current display plan (guarded mode by default)
 ```
+
+## Optional Rust Display Runtime
+
+To enable deterministic display orchestration features, build the Rust static library:
+
+```bash
+cd Plugins/RshipExec/Source/RshipExec/ThirdParty/rship-display
+./build.sh
+```
+
+On Windows:
+
+```bat
+cd Plugins\\RshipExec\\Source\\RshipExec\\ThirdParty\\rship-display
+build.bat
+```
+
+If the library is not present, RshipExec compiles with fallback mode and logs a warning at build time.
 
 ## Modules
 

@@ -94,8 +94,11 @@ private:
 	TSharedPtr<SSpinBox<float>> QuickFeedVInput;
 	TSharedPtr<SSpinBox<float>> QuickFeedWInput;
 	TSharedPtr<SSpinBox<float>> QuickFeedHInput;
+	TSharedPtr<class SEditableTextBox> ContextFilterInput;
 	TSharedPtr<SVerticalBox> ContextList;
+	TSharedPtr<class SEditableTextBox> SurfaceFilterInput;
 	TSharedPtr<SVerticalBox> SurfaceList;
+	TSharedPtr<class SEditableTextBox> MappingFilterInput;
 	TSharedPtr<SVerticalBox> MappingList;
 	TSharedPtr<class SEditableTextBox> CtxNameInput;
 	TSharedPtr<class SEditableTextBox> CtxProjectInput;
@@ -206,4 +209,14 @@ private:
 	TWeakObjectPtr<class ARshipContentMappingPreviewActor> ProjectionActor;
 	FTransform LastProjectorTransform = FTransform::Identity;
 	float ProjectorUpdateAccumulator = 0.0f;
+	FString ContextFilterText;
+	FString SurfaceFilterText;
+	FString MappingFilterText;
+	TSet<FString> SelectedContextRows;
+	TSet<FString> SelectedSurfaceRows;
+	TSet<FString> SelectedMappingRows;
+	TSet<FString> ExpandedMappingConfigRows;
+	bool bContextErrorsOnly = false;
+	bool bSurfaceErrorsOnly = false;
+	bool bMappingErrorsOnly = false;
 };

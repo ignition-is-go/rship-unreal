@@ -41,6 +41,7 @@ public class RshipExecEditor : ModuleRules
 				"LiveLink",          // For LiveLinkClient and LiveLink roles
 				"DesktopPlatform",   // For DesktopPlatformModule in SRshipAssetSyncPanel
 				"Json",              // For FJsonObject in SRshipTimecodePanel
+				"ApplicationCore",   // Clipboard API for mapping table copy/paste
 			}
 		);
 

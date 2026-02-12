@@ -205,6 +205,31 @@ public:
     bool bSpawnContentMappingDebugActors = false;
 
     // ============================================================================
+    // DISPLAY MANAGEMENT SETTINGS
+    // ============================================================================
+
+    UPROPERTY(EditAnywhere, config, Category = "Display Management", meta = (DisplayName = "Enable Display Management"))
+    bool bEnableDisplayManagement = true;
+
+    UPROPERTY(EditAnywhere, config, Category = "Display Management", meta = (DisplayName = "Collect Snapshot On Startup"))
+    bool bDisplayManagementCollectOnStartup = true;
+
+    UPROPERTY(EditAnywhere, config, Category = "Display Management", meta = (DisplayName = "Display Profile Path",
+        ToolTip = "Optional path to a JSON display profile loaded by the display manager at startup."))
+    FString DisplayManagementProfilePath;
+
+    UPROPERTY(EditAnywhere, config, Category = "Display Management", meta = (DisplayName = "Display State Cache Path",
+        ToolTip = "Optional path to persist canonical display identity state between runs."))
+    FString DisplayManagementStateCachePath;
+
+    UPROPERTY(EditAnywhere, config, Category = "Display Management", meta = (DisplayName = "Guarded Apply Mode",
+        ToolTip = "When enabled, apply operations run in guarded mode and avoid destructive topology mutations."))
+    bool bDisplayManagementGuardedApply = true;
+
+    UPROPERTY(EditAnywhere, config, Category = "Display Management", meta = (DisplayName = "Display Debug Overlay"))
+    bool bDisplayManagementDebugOverlay = false;
+
+    // ============================================================================
     // BACKOFF SETTINGS
     // Controls reconnection and rate-limit recovery behavior
     // ============================================================================

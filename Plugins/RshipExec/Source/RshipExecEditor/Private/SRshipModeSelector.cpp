@@ -295,6 +295,74 @@ void SRshipModeCard::DrawIllustration(const FGeometry& AllottedGeometry, FSlateW
 			FSlateDrawElement::MakeLines(OutDrawElements, LayerId, AllottedGeometry.ToPaintGeometry(), Ray, ESlateDrawEffect::None, LineColor * FLinearColor(1,1,1,0.5f), true, 1.0f);
 		}
 	}
+	else if (Mode == TEXT("camera-plate"))
+	{
+		// Camera icon plus plate line
+		const float BodyW = Scale * 1.0f;
+		const float BodyH = Scale * 0.55f;
+		const float L = CX - BodyW * 0.5f;
+		const float T = CY - BodyH * 0.35f;
+		TArray<FVector2D> Body;
+		Body.Add(FVector2D(L, T));
+		Body.Add(FVector2D(L + BodyW, T));
+		Body.Add(FVector2D(L + BodyW, T + BodyH));
+		Body.Add(FVector2D(L, T + BodyH));
+		Body.Add(FVector2D(L, T));
+		FSlateDrawElement::MakeLines(OutDrawElements, LayerId, AllottedGeometry.ToPaintGeometry(), Body, ESlateDrawEffect::None, LineColor, true, 1.5f);
+
+		const float LensR = Scale * 0.22f;
+		TArray<FVector2D> Lens;
+		const int32 Segments = 16;
+		for (int32 i = 0; i <= Segments; ++i)
+		{
+			const float Angle = 2.0f * PI * i / Segments;
+			Lens.Add(FVector2D(CX + FMath::Cos(Angle) * LensR, CY + FMath::Sin(Angle) * LensR));
+		}
+		FSlateDrawElement::MakeLines(OutDrawElements, LayerId, AllottedGeometry.ToPaintGeometry(), Lens, ESlateDrawEffect::None, LineColor, true, 1.0f);
+
+		TArray<FVector2D> Plate;
+		Plate.Add(FVector2D(CX + BodyW * 0.65f, CY - BodyH * 0.7f));
+		Plate.Add(FVector2D(CX + BodyW * 0.65f, CY + BodyH * 0.7f));
+		FSlateDrawElement::MakeLines(OutDrawElements, LayerId, AllottedGeometry.ToPaintGeometry(), Plate, ESlateDrawEffect::None, LineColor * FLinearColor(1,1,1,0.7f), true, 1.5f);
+	}
+	else if (Mode == TEXT("spatial"))
+	{
+		// World axis triad
+		TArray<FVector2D> XAxis;
+		XAxis.Add(FVector2D(CX, CY));
+		XAxis.Add(FVector2D(CX + Scale, CY));
+		FSlateDrawElement::MakeLines(OutDrawElements, LayerId, AllottedGeometry.ToPaintGeometry(), XAxis, ESlateDrawEffect::None, FLinearColor(1.0f, 0.45f, 0.2f, 1.0f), true, 1.5f);
+
+		TArray<FVector2D> YAxis;
+		YAxis.Add(FVector2D(CX, CY));
+		YAxis.Add(FVector2D(CX, CY - Scale));
+		FSlateDrawElement::MakeLines(OutDrawElements, LayerId, AllottedGeometry.ToPaintGeometry(), YAxis, ESlateDrawEffect::None, FLinearColor(0.3f, 1.0f, 0.45f, 1.0f), true, 1.5f);
+
+		TArray<FVector2D> ZAxis;
+		ZAxis.Add(FVector2D(CX, CY));
+		ZAxis.Add(FVector2D(CX - Scale * 0.65f, CY + Scale * 0.65f));
+		FSlateDrawElement::MakeLines(OutDrawElements, LayerId, AllottedGeometry.ToPaintGeometry(), ZAxis, ESlateDrawEffect::None, FLinearColor(0.35f, 0.65f, 1.0f, 1.0f), true, 1.5f);
+	}
+	else if (Mode == TEXT("depth-map"))
+	{
+		// Layered slices
+		const float Width = Scale * 1.25f;
+		const float Height = Scale * 0.35f;
+		for (int32 Slice = 0; Slice < 3; ++Slice)
+		{
+			const float Offset = Slice * Scale * 0.22f;
+			const float L = CX - Width * 0.5f + Offset * 0.5f;
+			const float T = CY - Height * 0.5f - Offset * 0.5f;
+			TArray<FVector2D> Rect;
+			Rect.Add(FVector2D(L, T));
+			Rect.Add(FVector2D(L + Width, T));
+			Rect.Add(FVector2D(L + Width, T + Height));
+			Rect.Add(FVector2D(L, T + Height));
+			Rect.Add(FVector2D(L, T));
+			const float Alpha = 1.0f - Slice * 0.2f;
+			FSlateDrawElement::MakeLines(OutDrawElements, LayerId, AllottedGeometry.ToPaintGeometry(), Rect, ESlateDrawEffect::None, LineColor * FLinearColor(1,1,1,Alpha), true, 1.0f);
+		}
+	}
 }
 
 // --- SRshipModeSelector ---
@@ -318,15 +386,18 @@ void SRshipModeSelector::Construct(const FArguments& InArgs)
 
 	const TArray<FModeInfo> ProjectionModes = {
 		{ TEXT("perspective"), LOCTEXT("Perspective", "Persp"), LOCTEXT("PerspTip", "Perspective projection from a virtual camera") },
+		{ TEXT("camera-plate"), LOCTEXT("CameraPlate", "CamPlate"), LOCTEXT("CameraPlateTip", "Camera plate projection mapped from camera frustum onto a plate") },
 		{ TEXT("cylindrical"), LOCTEXT("Cylindrical", "Cyl"), LOCTEXT("CylTip", "Cylindrical projection wrapping around an axis") },
 		{ TEXT("spherical"), LOCTEXT("Spherical", "Sphere"), LOCTEXT("SphereTip", "Spherical projection for dome or full-sphere content") },
 		{ TEXT("parallel"), LOCTEXT("Parallel", "Parallel"), LOCTEXT("ParallelTip", "Parallel (orthographic) projection with fixed size") },
 		{ TEXT("radial"), LOCTEXT("Radial", "Radial"), LOCTEXT("RadialTip", "Radial projection emanating from center point") },
+		{ TEXT("spatial"), LOCTEXT("Spatial", "Spatial"), LOCTEXT("SpatialTip", "Spatial projection in world space with camera/origin controls") },
 	};
 
 	const TArray<FModeInfo> SpecialModes = {
 		{ TEXT("mesh"), LOCTEXT("Mesh", "Mesh"), LOCTEXT("MeshTip", "Mesh UV mapping from eyepoint direction") },
 		{ TEXT("fisheye"), LOCTEXT("Fisheye", "Fisheye"), LOCTEXT("FisheyeTip", "Fisheye lens projection for dome content") },
+		{ TEXT("depth-map"), LOCTEXT("DepthMap", "Depth"), LOCTEXT("DepthMapTip", "Depth map reprojection workflow") },
 	};
 
 	auto MakeWrapBox = [this](const TArray<FModeInfo>& Modes) -> TSharedRef<SWrapBox>

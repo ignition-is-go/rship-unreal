@@ -647,10 +647,28 @@ void URshipContentMappingManager::ProcessMappingEvent(const TSharedPtr<FJsonObje
         || RawType.Equals(TEXT("parallel"), ESearchCase::IgnoreCase)
         || RawType.Equals(TEXT("radial"), ESearchCase::IgnoreCase)
         || RawType.Equals(TEXT("mesh"), ESearchCase::IgnoreCase)
-        || RawType.Equals(TEXT("fisheye"), ESearchCase::IgnoreCase))
+        || RawType.Equals(TEXT("fisheye"), ESearchCase::IgnoreCase)
+        || RawType.Equals(TEXT("camera-plate"), ESearchCase::IgnoreCase)
+        || RawType.Equals(TEXT("camera plate"), ESearchCase::IgnoreCase)
+        || RawType.Equals(TEXT("cameraplate"), ESearchCase::IgnoreCase)
+        || RawType.Equals(TEXT("spatial"), ESearchCase::IgnoreCase)
+        || RawType.Equals(TEXT("depth-map"), ESearchCase::IgnoreCase)
+        || RawType.Equals(TEXT("depth map"), ESearchCase::IgnoreCase)
+        || RawType.Equals(TEXT("depthmap"), ESearchCase::IgnoreCase))
     {
         MappingType = TEXT("surface-projection");
-        DerivedMode = RawType.ToLower();
+        if (RawType.Equals(TEXT("camera plate"), ESearchCase::IgnoreCase) || RawType.Equals(TEXT("cameraplate"), ESearchCase::IgnoreCase))
+        {
+            DerivedMode = TEXT("camera-plate");
+        }
+        else if (RawType.Equals(TEXT("depth map"), ESearchCase::IgnoreCase) || RawType.Equals(TEXT("depthmap"), ESearchCase::IgnoreCase))
+        {
+            DerivedMode = TEXT("depth-map");
+        }
+        else
+        {
+            DerivedMode = RawType.ToLower();
+        }
     }
     if (MappingType != TEXT("surface-uv") && MappingType != TEXT("surface-projection"))
     {
@@ -1436,6 +1454,13 @@ void URshipContentMappingManager::ApplyMaterialParameters(
         else if (ProjectionType.Equals(TEXT("fisheye"), ESearchCase::IgnoreCase))
         {
             ProjectionTypeIndex = 7.0f;
+        }
+        else if (ProjectionType.Equals(TEXT("camera-plate"), ESearchCase::IgnoreCase)
+            || ProjectionType.Equals(TEXT("spatial"), ESearchCase::IgnoreCase)
+            || ProjectionType.Equals(TEXT("depth-map"), ESearchCase::IgnoreCase))
+        {
+            // Current runtime fallback: treat advanced families as perspective until dedicated shaders are wired.
+            ProjectionTypeIndex = 0.0f;
         }
 
         MID->SetScalarParameterValue(ParamProjectionType, ProjectionTypeIndex);

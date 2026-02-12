@@ -45,6 +45,7 @@
 // Forward declaration for optional SpatialAudio plugin
 class URshipSpatialAudioManager;
 class URshipContentMappingManager;
+class URshipDisplayManager;
 #include "Containers/List.h"
 #include "Target.h"
 #include "RshipRateLimiter.h"
@@ -83,6 +84,7 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     friend class URshipSpatialAudioManager;
     friend class URshipTargetComponent;
     friend class URshipContentMappingManager;
+    friend class URshipDisplayManager;
 
     AEmitterHandler *EmitterHandler;
 
@@ -226,6 +228,10 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     // Content mapping manager for render contexts and projection mappings (lazy initialized)
     UPROPERTY()
     URshipContentMappingManager* ContentMappingManager;
+
+    // Display management manager for deterministic monitor topology and pixel routing (lazy initialized)
+    UPROPERTY()
+    URshipDisplayManager* DisplayManager;
 
     // Spatial Audio manager for loudspeaker management and spatialization (lazy initialized)
     // Note: Returns nullptr if RshipSpatialAudio plugin is not enabled
@@ -456,6 +462,10 @@ public:
     /** Get the Content Mapping manager for render contexts and surface mappings */
     UFUNCTION(BlueprintCallable, Category = "Rship|ContentMapping")
     URshipContentMappingManager* GetContentMappingManager();
+
+    /** Get the Display manager for deterministic monitor topology and pixel routing */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Display")
+    URshipDisplayManager* GetDisplayManager();
 
     // ========================================================================
     // SELECTION (for bulk operations)

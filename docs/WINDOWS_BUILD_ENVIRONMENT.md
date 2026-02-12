@@ -51,6 +51,27 @@ git submodule update --init --recursive
 **Windows System Libraries (auto-linked):**
 - `Ws2_32.lib` (Windows Sockets)
 
+#### Optional: Rust Display Management Runtime
+
+RshipExec can optionally link a Rust static library for deterministic Windows display management:
+
+```bash
+cd Plugins/RshipExec/Source/RshipExec/ThirdParty/rship-display
+cargo build --release -p rship-display-ffi
+```
+
+Or use helper script:
+
+```bash
+cd Plugins/RshipExec/Source/RshipExec/ThirdParty/rship-display
+build.bat
+```
+
+When built successfully, expected artifact:
+- `Plugins/RshipExec/Source/RshipExec/ThirdParty/rship-display/target/release/rship_display.lib`
+
+If missing, RshipExec still compiles with `RSHIP_HAS_DISPLAY_RUST=0` and display orchestration runs in fallback mode.
+
 ---
 
 ### RshipNDI (NDI Streaming)
