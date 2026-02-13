@@ -472,10 +472,10 @@ void SRship2110MappingPanel::RefreshStreams()
 	}
 
 	// Keep stream selection stable between refreshes
-	if (SelectedStream.IsValid())
-	{
-		const FString PreviousStreamId = SelectedStream->StreamId;
-		SelectedStream.Reset();
+		if (SelectedStream.IsValid())
+		{
+			const FString PreviousStreamId = SelectedStream->StreamId;
+			SelectedStream.Reset();
 		for (const TSharedPtr<FRship2110MappingStreamItem>& Item : StreamItems)
 		{
 			if (Item->StreamId == PreviousStreamId)
@@ -486,10 +486,11 @@ void SRship2110MappingPanel::RefreshStreams()
 					StreamListView->SetItemSelection(Item, true);
 				}
 				break;
+				}
 			}
 		}
+#endif
 	}
-}
 
 void SRship2110MappingPanel::RefreshContexts()
 {
@@ -624,16 +625,12 @@ void SRship2110MappingPanel::UpdateSelectionDetails()
 			FText::FromString(SelectedStream->ColorFormat),
 			FText::FromString(SelectedStream->BitDepth)));
 
-		SelectedStreamStatsText->SetText(FText::Format(
-			LOCTEXT("StreamStatsFmt", "Frames sent: {0}  | Dropped: {1}  | Late: {2}  | Bitrate: {3} Mbps"),
-			FText::AsNumber(SelectedStream->FramesSent),
-			FText::AsNumber(SelectedStream->FramesDropped),
-			FText::AsNumber(SelectedStream->LateFrames),
-<<<<<<< HEAD
-			FText::AsNumber(SelectedStream->BitrateMbps, &BitrateNumberFormat)));
-=======
-			FText::FromString(FString::Printf(TEXT("%.2f"), SelectedStream->BitrateMbps))));
->>>>>>> 98293ec (Fix UE 5.7 build breaks and packaging script)
+			SelectedStreamStatsText->SetText(FText::Format(
+				LOCTEXT("StreamStatsFmt", "Frames sent: {0}  | Dropped: {1}  | Late: {2}  | Bitrate: {3} Mbps"),
+				FText::AsNumber(SelectedStream->FramesSent),
+				FText::AsNumber(SelectedStream->FramesDropped),
+				FText::AsNumber(SelectedStream->LateFrames),
+				FText::AsNumber(SelectedStream->BitrateMbps, &BitrateNumberFormat)));
 
 		if (!SelectedStream->BoundContextId.IsEmpty())
 		{
@@ -1651,21 +1648,12 @@ TSharedRef<ITableRow> SRship2110MappingPanel::OnGenerateStreamRow(TSharedPtr<FRs
 				.Text(FText::FromString(Item->BoundContextId.IsEmpty() ? TEXT("unbound") : Item->BoundContextId))
 				.ColorAndOpacity(Item->BoundContextId.IsEmpty() ? FLinearColor::Yellow : FLinearColor::Green)
 			]
-<<<<<<< HEAD
-			+ SHorizontalBox::Slot().FillWidth(0.10f)
-			[
-				SNew(STextBlock)
-				.Text(FText::AsNumber(Item->BitrateMbps, &BitrateNumberFormat))
-			]
-		];
-=======
 				+ SHorizontalBox::Slot().FillWidth(0.10f)
 				[
 					SNew(STextBlock)
-					.Text(FText::FromString(FString::Printf(TEXT("%.2f"), Item->BitrateMbps)))
+					.Text(FText::AsNumber(Item->BitrateMbps, &BitrateNumberFormat))
 				]
 			];
->>>>>>> 98293ec (Fix UE 5.7 build breaks and packaging script)
 }
 
 TSharedRef<ITableRow> SRship2110MappingPanel::OnGenerateContextRow(TSharedPtr<FRship2110RenderContextItem> Item, const TSharedRef<STableViewBase>& OwnerTable)

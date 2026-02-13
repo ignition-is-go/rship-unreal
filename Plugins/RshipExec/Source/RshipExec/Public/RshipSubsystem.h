@@ -248,6 +248,7 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     FTimerHandle SubsystemTickTimerHandle;
     FTimerHandle ConnectionTimeoutHandle;
     double LastTickTime;
+    float ControlSyncRateHz = 60.0f;
 
     struct FRshipInboundQueuedMessage
     {
@@ -266,6 +267,7 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     int32 InboundTargetFilteredMessages = 0;
     int64 InboundAppliedMessages = 0;
     double InboundAppliedLatencyMsTotal = 0.0;
+    int32 InboundApplyLeadFrames = 1;
     bool bInboundAuthorityOnly = true;
     bool bIsAuthorityIngestNode = true;
     bool bLoggedInboundAuthorityDrop = false;
@@ -545,6 +547,19 @@ public:
 
     UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
     bool IsAuthoritativeIngestNode() const;
+
+    // Runtime timing controls (live, no restart required)
+    UFUNCTION(BlueprintCallable, Category = "Rship|Timing")
+    void SetControlSyncRateHz(float SyncRateHz);
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Timing")
+    float GetControlSyncRateHz() const { return ControlSyncRateHz; }
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Timing")
+    void SetInboundApplyLeadFrames(int32 LeadFrames);
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Timing")
+    int32 GetInboundApplyLeadFrames() const { return InboundApplyLeadFrames; }
 
     // Throughput metrics
     UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")

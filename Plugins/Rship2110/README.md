@@ -165,6 +165,17 @@ Core API hooks:
   - `OnClusterAckOutbound`
   - `OnClusterCommitOutbound`
 
+### Multi-rate timing (sync + local pacing)
+
+To keep deterministic cluster apply while allowing faster local output pacing:
+
+- Keep `ClusterSyncRateHz` the same on all nodes in the cluster.
+- Keep `RshipExec` `ControlSyncRateHz` the same on all nodes.
+- Optionally raise `LocalRenderSubsteps` only on nodes that should run faster local output/transmit pacing.
+- Increase `InboundApplyLeadFrames` (RshipExec) for larger clusters or noisy networks.
+
+This gives you a shared authoritative apply timeline with optional per-node local pacing multipliers.
+
 ### Editor workflow (live, no MRQ)
 
 Use this when you want to map a 2110 stream without creating custom camera projection code.
@@ -195,6 +206,11 @@ rship.cluster.node <node_id>                       # Set local node id
 rship.cluster.assign <stream_id> <node_id>         # Assign stream ownership
 rship.cluster.promote                              # Promote local node to authority
 rship.cluster.heartbeat <authority_node> <e> <v>   # Record authority heartbeat
+rship.cluster.timing.sync <hz>                     # Set default cluster sync rate live
+rship.cluster.timing.substeps <n>                  # Set local render pacing multiplier live
+rship.cluster.timing.catchup <n>                   # Set max sync catch-up steps live
+rship.cluster.domain.active <domain_id>            # Set active sync domain for outbound data
+rship.cluster.domain.rate <domain_id> <hz>         # Set independent sync rate for a domain
 ```
 
 ## Network Requirements

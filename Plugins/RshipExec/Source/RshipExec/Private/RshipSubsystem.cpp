@@ -44,6 +44,18 @@ static TAutoConsoleVariable<int32> CVarRshipInboundAuthorityOnly(
     TEXT("If non-zero, only the configured authoritative node ingests live websocket state."),
     ECVF_Default);
 
+static TAutoConsoleVariable<float> CVarRshipControlSyncRateHz(
+    TEXT("r.Rship.ControlSyncRateHz"),
+    0.0f,
+    TEXT("Override deterministic control/apply sync tick rate in Hz. <=0 uses project settings."),
+    ECVF_Default);
+
+static TAutoConsoleVariable<int32> CVarRshipInboundApplyLeadFrames(
+    TEXT("r.Rship.Inbound.ApplyLeadFrames"),
+    0,
+    TEXT("Override inbound apply lead frames. <=0 uses project settings."),
+    ECVF_Default);
+
 namespace
 {
 void RshipAddTargetIdTokens(const FString& RawValue, TArray<FString>& OutTargetIds)
@@ -155,6 +167,21 @@ void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
     bLoggedInboundAuthorityDrop = false;
     InitializeInboundMessagePolicy();
 
+    const URshipSettings* Settings = GetDefault<URshipSettings>();
+    ControlSyncRateHz = FMath::Max(1.0f, Settings->ControlSyncRateHz);
+    InboundApplyLeadFrames = FMath::Max(1, Settings->InboundApplyLeadFrames);
+
+    const float CVarSyncRateHz = CVarRshipControlSyncRateHz.GetValueOnGameThread();
+    if (CVarSyncRateHz > 0.0f)
+    {
+        ControlSyncRateHz = FMath::Max(1.0f, CVarSyncRateHz);
+    }
+    const int32 CVarLeadFrames = CVarRshipInboundApplyLeadFrames.GetValueOnGameThread();
+    if (CVarLeadFrames > 0)
+    {
+        InboundApplyLeadFrames = FMath::Max(1, CVarLeadFrames);
+    }
+
     // Initialize rate limiter
     InitializeRateLimiter();
 
@@ -171,7 +198,6 @@ void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
     this->TargetComponents = new TMap<FString, URshipTargetComponent*>;
 
     // Start queue processing timer
-    const URshipSettings *Settings = GetDefault<URshipSettings>();
     if (Settings->bEnableRateLimiting && world != nullptr)
     {
         world->GetTimerManager().SetTimer(
@@ -190,7 +216,7 @@ void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
             SubsystemTickTimerHandle,
             this,
             &URshipSubsystem::TickSubsystems,
-            1.0f / 60.0f,  // 60Hz tick rate
+            1.0f / ControlSyncRateHz,
             true  // Looping
         );
     }
@@ -694,7 +720,7 @@ void URshipSubsystem::EnqueueInboundMessage(const FString& Message, bool bBypass
     {
         FScopeLock Lock(&InboundQueueMutex);
         Queued.Sequence = NextInboundSequence++;
-        const int64 NextFrame = InboundFrameCounter + 1;
+        const int64 NextFrame = InboundFrameCounter + FMath::Max<int64>(1, InboundApplyLeadFrames);
         Queued.ApplyFrame = (TargetApplyFrame == INDEX_NONE) ? NextFrame : FMath::Max(TargetApplyFrame, NextFrame);
         AssignedApplyFrame = Queued.ApplyFrame;
         Queued.EnqueueTimeSeconds = FPlatformTime::Seconds();
@@ -876,6 +902,18 @@ void URshipSubsystem::ProcessMessageQueue()
 
 void URshipSubsystem::TickSubsystems()
 {
+    const float CVarSyncRateHz = CVarRshipControlSyncRateHz.GetValueOnGameThread();
+    if (CVarSyncRateHz > 0.0f && !FMath::IsNearlyEqual(ControlSyncRateHz, FMath::Max(1.0f, CVarSyncRateHz)))
+    {
+        SetControlSyncRateHz(CVarSyncRateHz);
+    }
+
+    const int32 CVarLeadFrames = CVarRshipInboundApplyLeadFrames.GetValueOnGameThread();
+    if (CVarLeadFrames > 0 && InboundApplyLeadFrames != FMath::Max(1, CVarLeadFrames))
+    {
+        SetInboundApplyLeadFrames(CVarLeadFrames);
+    }
+
     ++InboundFrameCounter;
     ProcessInboundMessageQueue();
 
@@ -2787,4 +2825,24 @@ float URshipSubsystem::GetInboundAverageApplyLatencyMs() const
 bool URshipSubsystem::IsAuthoritativeIngestNode() const
 {
     return !bInboundAuthorityOnly || bIsAuthorityIngestNode;
+}
+
+void URshipSubsystem::SetControlSyncRateHz(float SyncRateHz)
+{
+    ControlSyncRateHz = FMath::Max(1.0f, SyncRateHz);
+
+    if (UWorld* World = GetWorld())
+    {
+        World->GetTimerManager().SetTimer(
+            SubsystemTickTimerHandle,
+            this,
+            &URshipSubsystem::TickSubsystems,
+            1.0f / ControlSyncRateHz,
+            true);
+    }
+}
+
+void URshipSubsystem::SetInboundApplyLeadFrames(int32 LeadFrames)
+{
+    InboundApplyLeadFrames = FMath::Max(1, LeadFrames);
 }

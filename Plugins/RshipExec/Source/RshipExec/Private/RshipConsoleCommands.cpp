@@ -268,6 +268,80 @@ static FAutoConsoleCommand CmdRshipStatus(
     })
 );
 
+static FAutoConsoleCommand CmdRshipSyncStatus(
+    TEXT("rship.sync"),
+    TEXT("Show deterministic control sync settings"),
+    FConsoleCommandDelegate::CreateLambda([]()
+    {
+        if (!GEngine) return;
+        URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+        if (!Subsystem)
+        {
+            UE_LOG(LogRshipExec, Warning, TEXT("RshipSubsystem not available"));
+            return;
+        }
+
+        UE_LOG(LogRshipExec, Log, TEXT("ControlSyncRateHz: %.2f"), Subsystem->GetControlSyncRateHz());
+        UE_LOG(LogRshipExec, Log, TEXT("InboundApplyLeadFrames: %d"), Subsystem->GetInboundApplyLeadFrames());
+    })
+);
+
+static FAutoConsoleCommand CmdRshipSyncRate(
+    TEXT("rship.sync.rate"),
+    TEXT("Set deterministic control sync rate in Hz - Usage: rship.sync.rate <hz>"),
+    FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+    {
+        if (!GEngine) return;
+        URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+        if (!Subsystem)
+        {
+            return;
+        }
+
+        if (Args.Num() < 1)
+        {
+            UE_LOG(LogRshipExec, Log, TEXT("Usage: rship.sync.rate <hz>"));
+            return;
+        }
+
+        const float Hz = FCString::Atof(*Args[0]);
+        Subsystem->SetControlSyncRateHz(Hz);
+        if (IConsoleVariable* ControlSyncCVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.Rship.ControlSyncRateHz")))
+        {
+            ControlSyncCVar->Set(Subsystem->GetControlSyncRateHz());
+        }
+        UE_LOG(LogRshipExec, Log, TEXT("Control sync rate set to %.2f Hz"), Subsystem->GetControlSyncRateHz());
+    })
+);
+
+static FAutoConsoleCommand CmdRshipSyncLead(
+    TEXT("rship.sync.lead"),
+    TEXT("Set inbound apply lead frames - Usage: rship.sync.lead <frames>"),
+    FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+    {
+        if (!GEngine) return;
+        URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+        if (!Subsystem)
+        {
+            return;
+        }
+
+        if (Args.Num() < 1)
+        {
+            UE_LOG(LogRshipExec, Log, TEXT("Usage: rship.sync.lead <frames>"));
+            return;
+        }
+
+        const int32 LeadFrames = FCString::Atoi(*Args[0]);
+        Subsystem->SetInboundApplyLeadFrames(LeadFrames);
+        if (IConsoleVariable* InboundLeadCVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.Rship.Inbound.ApplyLeadFrames")))
+        {
+            InboundLeadCVar->Set(Subsystem->GetInboundApplyLeadFrames());
+        }
+        UE_LOG(LogRshipExec, Log, TEXT("Inbound apply lead frames set to %d"), Subsystem->GetInboundApplyLeadFrames());
+    })
+);
+
 static FAutoConsoleCommand CmdRshipReconnect(
     TEXT("rship.reconnect"),
     TEXT("Reconnect to the rship server using current settings"),
@@ -880,6 +954,9 @@ static FAutoConsoleCommand CmdRshipHelp(
         UE_LOG(LogRshipExec, Log, TEXT(""));
         UE_LOG(LogRshipExec, Log, TEXT("Connection:"));
         UE_LOG(LogRshipExec, Log, TEXT("  rship.status         - Show connection and queue status"));
+        UE_LOG(LogRshipExec, Log, TEXT("  rship.sync           - Show sync timing settings"));
+        UE_LOG(LogRshipExec, Log, TEXT("  rship.sync.rate <hz> - Set sync rate live"));
+        UE_LOG(LogRshipExec, Log, TEXT("  rship.sync.lead <n>  - Set inbound lead frames live"));
         UE_LOG(LogRshipExec, Log, TEXT("  rship.reconnect      - Reconnect using current settings"));
         UE_LOG(LogRshipExec, Log, TEXT("  rship.connect <h> <p>- Connect to host:port"));
         UE_LOG(LogRshipExec, Log, TEXT(""));

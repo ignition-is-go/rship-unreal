@@ -264,6 +264,39 @@ namespace
 		}
 		return MatrixObj;
 	}
+
+	struct FQuickCreateDefaults
+	{
+		bool bHasValue = false;
+		bool bQuickAdvanced = false;
+		FString SourceType = TEXT("camera");
+		FString MapMode = TEXT("direct");
+		FString ProjectId;
+		FString SourceId;
+		FString TargetId;
+		int32 Width = 1920;
+		int32 Height = 1080;
+		FString CaptureMode = TEXT("FinalColorLDR");
+		int32 UvChannel = 0;
+		FString MaterialSlots;
+		FString MeshName;
+		float Opacity = 1.0f;
+		float FeedU = 0.0f;
+		float FeedV = 0.0f;
+		float FeedW = 1.0f;
+		float FeedH = 1.0f;
+	};
+
+	FQuickCreateDefaults GQuickCreateDefaults;
+
+	FText MakeBulkScopeLabel(int32 SelectedCount, int32 VisibleCount)
+	{
+		if (SelectedCount > 0)
+		{
+			return FText::Format(LOCTEXT("BulkScopeSelectedFmt", "Scope: Selected ({0})"), FText::AsNumber(SelectedCount));
+		}
+		return FText::Format(LOCTEXT("BulkScopeVisibleFmt", "Scope: Visible ({0})"), FText::AsNumber(VisibleCount));
+	}
 }
 
 void SRshipContentMappingPanel::Construct(const FArguments& InArgs)
@@ -468,6 +501,7 @@ void SRshipContentMappingPanel::Construct(const FArguments& InArgs)
 	];
 
 	ResetForms();
+	ApplyStoredQuickCreateDefaults();
 	RefreshStatus();
 }
 
@@ -1527,6 +1561,259 @@ void SRshipContentMappingPanel::Tick(const FGeometry& AllottedGeometry, const do
 	UpdateProjectionFromActor(InDeltaTime);
 }
 
+FReply SRshipContentMappingPanel::OnKeyDown(const FGeometry& MyGeometry, const FKeyEvent& InKeyEvent)
+{
+	const bool bCommandLike = InKeyEvent.IsCommandDown() || InKeyEvent.IsControlDown();
+	if (!bCommandLike)
+	{
+		return SCompoundWidget::OnKeyDown(MyGeometry, InKeyEvent);
+	}
+
+	const FKey Key = InKeyEvent.GetKey();
+	if (Key == EKeys::Enter)
+	{
+		ExecuteQuickCreateMapping();
+		return FReply::Handled();
+	}
+	if (Key == EKeys::D)
+	{
+		if (DuplicateSelectedMappings())
+		{
+			return FReply::Handled();
+		}
+	}
+	if (Key == EKeys::E)
+	{
+		if (ToggleSelectedMappingsEnabled())
+		{
+			return FReply::Handled();
+		}
+	}
+	if (Key == EKeys::RightBracket)
+	{
+		SetSelectedMappingsConfigExpanded(true);
+		return FReply::Handled();
+	}
+	if (Key == EKeys::LeftBracket)
+	{
+		SetSelectedMappingsConfigExpanded(false);
+		return FReply::Handled();
+	}
+
+	return SCompoundWidget::OnKeyDown(MyGeometry, InKeyEvent);
+}
+
+void SRshipContentMappingPanel::StoreQuickCreateDefaults()
+{
+	GQuickCreateDefaults.bHasValue = true;
+	GQuickCreateDefaults.bQuickAdvanced = bQuickAdvanced;
+	GQuickCreateDefaults.SourceType = QuickSourceType;
+	GQuickCreateDefaults.MapMode = QuickMapMode;
+	GQuickCreateDefaults.ProjectId = QuickProjectIdInput.IsValid() ? QuickProjectIdInput->GetText().ToString().TrimStartAndEnd() : TEXT("");
+	GQuickCreateDefaults.SourceId = QuickSourceIdInput.IsValid() ? QuickSourceIdInput->GetText().ToString().TrimStartAndEnd() : TEXT("");
+	GQuickCreateDefaults.TargetId = QuickTargetIdInput.IsValid() ? QuickTargetIdInput->GetText().ToString().TrimStartAndEnd() : TEXT("");
+	GQuickCreateDefaults.Width = QuickWidthInput.IsValid() ? QuickWidthInput->GetValue() : 1920;
+	GQuickCreateDefaults.Height = QuickHeightInput.IsValid() ? QuickHeightInput->GetValue() : 1080;
+	GQuickCreateDefaults.CaptureMode = QuickCaptureModeInput.IsValid() ? QuickCaptureModeInput->GetText().ToString().TrimStartAndEnd() : TEXT("FinalColorLDR");
+	GQuickCreateDefaults.UvChannel = QuickUvChannelInput.IsValid() ? QuickUvChannelInput->GetValue() : 0;
+	GQuickCreateDefaults.MaterialSlots = QuickMaterialSlotsInput.IsValid() ? QuickMaterialSlotsInput->GetText().ToString().TrimStartAndEnd() : TEXT("");
+	GQuickCreateDefaults.MeshName = QuickMeshNameInput.IsValid() ? QuickMeshNameInput->GetText().ToString().TrimStartAndEnd() : TEXT("");
+	GQuickCreateDefaults.Opacity = QuickOpacityInput.IsValid() ? QuickOpacityInput->GetValue() : 1.0f;
+	GQuickCreateDefaults.FeedU = QuickFeedUInput.IsValid() ? QuickFeedUInput->GetValue() : 0.0f;
+	GQuickCreateDefaults.FeedV = QuickFeedVInput.IsValid() ? QuickFeedVInput->GetValue() : 0.0f;
+	GQuickCreateDefaults.FeedW = QuickFeedWInput.IsValid() ? QuickFeedWInput->GetValue() : 1.0f;
+	GQuickCreateDefaults.FeedH = QuickFeedHInput.IsValid() ? QuickFeedHInput->GetValue() : 1.0f;
+}
+
+void SRshipContentMappingPanel::ApplyStoredQuickCreateDefaults()
+{
+	if (!GQuickCreateDefaults.bHasValue)
+	{
+		return;
+	}
+
+	bQuickAdvanced = GQuickCreateDefaults.bQuickAdvanced;
+	QuickSourceType = GQuickCreateDefaults.SourceType.IsEmpty() ? TEXT("camera") : GQuickCreateDefaults.SourceType;
+	QuickMapMode = GQuickCreateDefaults.MapMode.IsEmpty() ? TEXT("direct") : GQuickCreateDefaults.MapMode;
+
+	if (QuickProjectIdInput.IsValid()) QuickProjectIdInput->SetText(FText::FromString(GQuickCreateDefaults.ProjectId));
+	if (QuickSourceIdInput.IsValid()) QuickSourceIdInput->SetText(FText::FromString(GQuickCreateDefaults.SourceId));
+	if (QuickTargetIdInput.IsValid()) QuickTargetIdInput->SetText(FText::FromString(GQuickCreateDefaults.TargetId));
+	if (QuickWidthInput.IsValid()) QuickWidthInput->SetValue(GQuickCreateDefaults.Width);
+	if (QuickHeightInput.IsValid()) QuickHeightInput->SetValue(GQuickCreateDefaults.Height);
+	if (QuickCaptureModeInput.IsValid()) QuickCaptureModeInput->SetText(FText::FromString(GQuickCreateDefaults.CaptureMode));
+	if (QuickUvChannelInput.IsValid()) QuickUvChannelInput->SetValue(GQuickCreateDefaults.UvChannel);
+	if (QuickMaterialSlotsInput.IsValid()) QuickMaterialSlotsInput->SetText(FText::FromString(GQuickCreateDefaults.MaterialSlots));
+	if (QuickMeshNameInput.IsValid()) QuickMeshNameInput->SetText(FText::FromString(GQuickCreateDefaults.MeshName));
+	if (QuickOpacityInput.IsValid()) QuickOpacityInput->SetValue(GQuickCreateDefaults.Opacity);
+	if (QuickFeedUInput.IsValid()) QuickFeedUInput->SetValue(GQuickCreateDefaults.FeedU);
+	if (QuickFeedVInput.IsValid()) QuickFeedVInput->SetValue(GQuickCreateDefaults.FeedV);
+	if (QuickFeedWInput.IsValid()) QuickFeedWInput->SetValue(GQuickCreateDefaults.FeedW);
+	if (QuickFeedHInput.IsValid()) QuickFeedHInput->SetValue(GQuickCreateDefaults.FeedH);
+	if (QuickModeSelector.IsValid()) QuickModeSelector->SetSelectedMode(QuickMapMode);
+}
+
+bool SRshipContentMappingPanel::DuplicateSelectedMappings()
+{
+	if (!GEngine)
+	{
+		return false;
+	}
+
+	URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+	if (!Subsystem)
+	{
+		return false;
+	}
+
+	URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
+	if (!Manager)
+	{
+		return false;
+	}
+
+	TSet<FString> SourceIds = SelectedMappingRows;
+	if (SourceIds.Num() == 0 && !SelectedMappingId.IsEmpty())
+	{
+		SourceIds.Add(SelectedMappingId);
+	}
+	if (SourceIds.Num() == 0)
+	{
+		return false;
+	}
+
+	const TArray<FRshipContentMappingState> Mappings = Manager->GetMappings();
+	SelectedMappingRows.Empty();
+
+	int32 DuplicatedCount = 0;
+	for (const FRshipContentMappingState& Mapping : Mappings)
+	{
+		if (!SourceIds.Contains(Mapping.Id))
+		{
+			continue;
+		}
+
+		FRshipContentMappingState Duplicated = Mapping;
+		Duplicated.Id.Reset();
+		Duplicated.Name = Mapping.Name.IsEmpty()
+			? FString::Printf(TEXT("%s Copy"), *Mapping.Id)
+			: FString::Printf(TEXT("%s Copy"), *Mapping.Name);
+
+		const FString NewMappingId = Manager->CreateMapping(Duplicated);
+		if (!NewMappingId.IsEmpty())
+		{
+			++DuplicatedCount;
+			SelectedMappingRows.Add(NewMappingId);
+			SelectedMappingId = NewMappingId;
+		}
+	}
+
+	if (DuplicatedCount == 0)
+	{
+		return false;
+	}
+
+	if (PreviewLabel.IsValid())
+	{
+		PreviewLabel->SetText(FText::FromString(FString::Printf(TEXT("Duplicated %d mapping(s)"), DuplicatedCount)));
+		PreviewLabel->SetColorAndOpacity(FLinearColor::White);
+	}
+
+	bHasListHash = false;
+	bHasPendingListHash = false;
+	RefreshStatus();
+	return true;
+}
+
+bool SRshipContentMappingPanel::ToggleSelectedMappingsEnabled()
+{
+	if (!GEngine)
+	{
+		return false;
+	}
+
+	URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+	if (!Subsystem)
+	{
+		return false;
+	}
+
+	URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
+	if (!Manager)
+	{
+		return false;
+	}
+
+	TSet<FString> TargetIds = SelectedMappingRows;
+	if (TargetIds.Num() == 0 && !SelectedMappingId.IsEmpty())
+	{
+		TargetIds.Add(SelectedMappingId);
+	}
+	if (TargetIds.Num() == 0)
+	{
+		return false;
+	}
+
+	int32 UpdatedCount = 0;
+	for (const FRshipContentMappingState& Mapping : Manager->GetMappings())
+	{
+		if (!TargetIds.Contains(Mapping.Id))
+		{
+			continue;
+		}
+
+		FRshipContentMappingState Updated = Mapping;
+		Updated.bEnabled = !Mapping.bEnabled;
+		if (Manager->UpdateMapping(Updated))
+		{
+			++UpdatedCount;
+		}
+	}
+
+	if (UpdatedCount == 0)
+	{
+		return false;
+	}
+
+	if (PreviewLabel.IsValid())
+	{
+		PreviewLabel->SetText(FText::FromString(FString::Printf(TEXT("Toggled enabled state on %d mapping(s)"), UpdatedCount)));
+		PreviewLabel->SetColorAndOpacity(FLinearColor::White);
+	}
+
+	RefreshStatus();
+	return true;
+}
+
+void SRshipContentMappingPanel::SetSelectedMappingsConfigExpanded(bool bExpanded)
+{
+	TSet<FString> TargetIds = SelectedMappingRows;
+	if (TargetIds.Num() == 0 && !SelectedMappingId.IsEmpty())
+	{
+		TargetIds.Add(SelectedMappingId);
+	}
+	if (TargetIds.Num() == 0)
+	{
+		return;
+	}
+
+	for (const FString& MappingId : TargetIds)
+	{
+		if (bExpanded)
+		{
+			ExpandedMappingConfigRows.Add(MappingId);
+		}
+		else
+		{
+			ExpandedMappingConfigRows.Remove(MappingId);
+		}
+	}
+
+	bHasListHash = false;
+	bHasPendingListHash = false;
+	RefreshStatus();
+}
+
 TSharedRef<SWidget> SRshipContentMappingPanel::BuildHeaderSection()
 {
 	return SNew(SVerticalBox)
@@ -1629,6 +1916,287 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildHeaderSection()
 				})
 			]
 		];
+}
+
+bool SRshipContentMappingPanel::ExecuteQuickCreateMapping()
+{
+	if (!GEngine)
+	{
+		return false;
+	}
+
+	URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+	if (!Subsystem)
+	{
+		return false;
+	}
+
+	URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
+	if (!Manager)
+	{
+		return false;
+	}
+
+	const FString ProjectId = QuickProjectIdInput.IsValid() ? QuickProjectIdInput->GetText().ToString().TrimStartAndEnd() : TEXT("");
+	const FString SourceId = QuickSourceIdInput.IsValid() ? QuickSourceIdInput->GetText().ToString().TrimStartAndEnd() : TEXT("");
+	const FString TargetIdInput = QuickTargetIdInput.IsValid() ? QuickTargetIdInput->GetText().ToString().TrimStartAndEnd() : TEXT("");
+	const FString TargetId = ResolveTargetIdInput(TargetIdInput);
+	const FString TargetLabel = ShortTargetLabel(TargetId);
+	const int32 Width = bQuickAdvanced && QuickWidthInput.IsValid() ? QuickWidthInput->GetValue() : 0;
+	const int32 Height = bQuickAdvanced && QuickHeightInput.IsValid() ? QuickHeightInput->GetValue() : 0;
+	const FString CaptureMode = bQuickAdvanced && QuickCaptureModeInput.IsValid() ? QuickCaptureModeInput->GetText().ToString().TrimStartAndEnd() : TEXT("");
+	const int32 UVChannel = QuickUvChannelInput.IsValid() ? QuickUvChannelInput->GetValue() : 0;
+	const float Opacity = QuickOpacityInput.IsValid() ? QuickOpacityInput->GetValue() : 1.0f;
+	const FString MeshName = bQuickAdvanced && QuickMeshNameInput.IsValid() ? QuickMeshNameInput->GetText().ToString().TrimStartAndEnd() : TEXT("");
+
+	if (SourceId.IsEmpty() || TargetId.IsEmpty())
+	{
+		if (PreviewLabel.IsValid())
+		{
+			PreviewLabel->SetText(LOCTEXT("QuickMissing", "Source and target are required."));
+			PreviewLabel->SetColorAndOpacity(FLinearColor::Red);
+		}
+		return false;
+	}
+
+	auto ParseSlots = [](const FString& Text)
+	{
+		TArray<int32> Out;
+		TArray<FString> Parts;
+		Text.ParseIntoArray(Parts, TEXT(","), true);
+		for (const FString& Part : Parts)
+		{
+			const int32 Value = FCString::Atoi(*Part);
+			Out.Add(Value);
+		}
+		Out.Sort();
+		return Out;
+	};
+
+	const FString SlotsText = bQuickAdvanced && QuickMaterialSlotsInput.IsValid() ? QuickMaterialSlotsInput->GetText().ToString() : TEXT("");
+	TArray<int32> RequestedSlots = SlotsText.IsEmpty() ? TArray<int32>() : ParseSlots(SlotsText);
+
+	FString ContextId;
+	const TArray<FRshipRenderContextState> Contexts = Manager->GetRenderContexts();
+	for (const FRshipRenderContextState& Ctx : Contexts)
+	{
+		if (ProjectId.IsEmpty())
+		{
+			if (!Ctx.ProjectId.IsEmpty()) continue;
+		}
+		else if (Ctx.ProjectId != ProjectId)
+		{
+			continue;
+		}
+		if (Ctx.SourceType != QuickSourceType) continue;
+		if (QuickSourceType == TEXT("camera") && Ctx.CameraId != SourceId) continue;
+		if (QuickSourceType == TEXT("asset-store") && Ctx.AssetId != SourceId) continue;
+		if (Width > 0 && Ctx.Width != Width) continue;
+		if (Height > 0 && Ctx.Height != Height) continue;
+		if (!CaptureMode.IsEmpty() && Ctx.CaptureMode != CaptureMode) continue;
+		ContextId = Ctx.Id;
+		break;
+	}
+
+	if (ContextId.IsEmpty())
+	{
+		FRshipRenderContextState NewCtx;
+		NewCtx.Name = FString::Printf(TEXT("Ctx %s"), *SourceId);
+		NewCtx.ProjectId = ProjectId;
+		NewCtx.SourceType = QuickSourceType;
+		if (QuickSourceType == TEXT("camera"))
+		{
+			NewCtx.CameraId = SourceId;
+		}
+		else
+		{
+			NewCtx.AssetId = SourceId;
+		}
+		NewCtx.Width = Width;
+		NewCtx.Height = Height;
+		NewCtx.CaptureMode = CaptureMode.IsEmpty() ? TEXT("FinalColorLDR") : CaptureMode;
+		NewCtx.bEnabled = true;
+		ContextId = Manager->CreateRenderContext(NewCtx);
+	}
+
+	FString SurfaceId;
+	const TArray<FRshipMappingSurfaceState> Surfaces = Manager->GetMappingSurfaces();
+	for (const FRshipMappingSurfaceState& Surface : Surfaces)
+	{
+		if (ProjectId.IsEmpty())
+		{
+			if (!Surface.ProjectId.IsEmpty()) continue;
+		}
+		else if (Surface.ProjectId != ProjectId)
+		{
+			continue;
+		}
+		if (Surface.TargetId != TargetId) continue;
+		if (Surface.UVChannel != UVChannel) continue;
+		if (!MeshName.IsEmpty() && Surface.MeshComponentName != MeshName) continue;
+		if (RequestedSlots.Num() > 0)
+		{
+			TArray<int32> ExistingSlots = Surface.MaterialSlots;
+			ExistingSlots.Sort();
+			if (ExistingSlots != RequestedSlots) continue;
+		}
+		SurfaceId = Surface.Id;
+		break;
+	}
+
+	if (SurfaceId.IsEmpty())
+	{
+		FRshipMappingSurfaceState NewSurface;
+		NewSurface.Name = FString::Printf(TEXT("Screen %s"), *TargetLabel);
+		NewSurface.ProjectId = ProjectId;
+		NewSurface.TargetId = TargetId;
+		NewSurface.UVChannel = UVChannel;
+		NewSurface.MaterialSlots = RequestedSlots;
+		NewSurface.MeshComponentName = MeshName;
+		NewSurface.bEnabled = true;
+		SurfaceId = Manager->CreateMappingSurface(NewSurface);
+	}
+
+	const bool bQuickIsUv = QuickMapMode == TEXT("direct") || QuickMapMode == TEXT("feed");
+	const FString DesiredType = bQuickIsUv ? TEXT("surface-uv") : TEXT("surface-projection");
+	const FString DesiredProjectionType = bQuickIsUv ? TEXT("") : QuickMapMode;
+	const FString DesiredUvMode = (QuickMapMode == TEXT("feed")) ? TEXT("feed") : TEXT("direct");
+
+	FString MappingId;
+	const TArray<FRshipContentMappingState> Mappings = Manager->GetMappings();
+	for (const FRshipContentMappingState& Mapping : Mappings)
+	{
+		if (ProjectId.IsEmpty())
+		{
+			if (!Mapping.ProjectId.IsEmpty()) continue;
+		}
+		else if (Mapping.ProjectId != ProjectId)
+		{
+			continue;
+		}
+		if (Mapping.Type != DesiredType) continue;
+		if (DesiredType == TEXT("surface-uv"))
+		{
+			const FString ExistingUvMode = Mapping.Config.IsValid() && Mapping.Config->HasTypedField<EJson::String>(TEXT("uvMode"))
+				? Mapping.Config->GetStringField(TEXT("uvMode"))
+				: TEXT("direct");
+			if (DesiredUvMode == TEXT("feed") && !ExistingUvMode.Equals(TEXT("feed"), ESearchCase::IgnoreCase)) continue;
+			if (DesiredUvMode == TEXT("direct") && ExistingUvMode.Equals(TEXT("feed"), ESearchCase::IgnoreCase)) continue;
+		}
+		else
+		{
+			const FString ExistingProj = GetProjectionModeFromConfig(Mapping.Config);
+			if (NormalizeMapMode(ExistingProj, MapModePerspective) != NormalizeMapMode(DesiredProjectionType, MapModePerspective)) continue;
+		}
+		if (Mapping.ContextId != ContextId) continue;
+		if (Mapping.SurfaceIds.Num() == 1 && Mapping.SurfaceIds[0] == SurfaceId)
+		{
+			MappingId = Mapping.Id;
+			break;
+		}
+	}
+
+	if (MappingId.IsEmpty())
+	{
+		FRshipContentMappingState NewMapping;
+		NewMapping.Name = FString::Printf(TEXT("Map %s"), *TargetLabel);
+		NewMapping.ProjectId = ProjectId;
+		NewMapping.Type = DesiredType;
+		NewMapping.ContextId = ContextId;
+		NewMapping.SurfaceIds = { SurfaceId };
+		NewMapping.Opacity = Opacity;
+		NewMapping.bEnabled = true;
+		NewMapping.Config = MakeShared<FJsonObject>();
+		if (DesiredType == TEXT("surface-uv"))
+		{
+			NewMapping.Config->SetStringField(TEXT("uvMode"), DesiredUvMode);
+			TSharedPtr<FJsonObject> Uv = MakeShared<FJsonObject>();
+			Uv->SetNumberField(TEXT("scaleU"), 1.0);
+			Uv->SetNumberField(TEXT("scaleV"), 1.0);
+			Uv->SetNumberField(TEXT("offsetU"), 0.0);
+			Uv->SetNumberField(TEXT("offsetV"), 0.0);
+			Uv->SetNumberField(TEXT("rotationDeg"), 0.0);
+			NewMapping.Config->SetObjectField(TEXT("uvTransform"), Uv);
+			if (DesiredUvMode == TEXT("feed"))
+			{
+				TSharedPtr<FJsonObject> Feed = MakeShared<FJsonObject>();
+				Feed->SetNumberField(TEXT("u"), QuickFeedUInput.IsValid() ? QuickFeedUInput->GetValue() : 0.0);
+				Feed->SetNumberField(TEXT("v"), QuickFeedVInput.IsValid() ? QuickFeedVInput->GetValue() : 0.0);
+				Feed->SetNumberField(TEXT("width"), QuickFeedWInput.IsValid() ? QuickFeedWInput->GetValue() : 1.0);
+				Feed->SetNumberField(TEXT("height"), QuickFeedHInput.IsValid() ? QuickFeedHInput->GetValue() : 1.0);
+				NewMapping.Config->SetObjectField(TEXT("feedRect"), Feed);
+			}
+		}
+		else
+		{
+			NewMapping.Config->SetStringField(TEXT("projectionType"), DesiredProjectionType.IsEmpty() ? TEXT("perspective") : DesiredProjectionType);
+			if (DesiredProjectionType.Equals(MapModeCustomMatrix, ESearchCase::IgnoreCase))
+			{
+				NewMapping.Config->SetObjectField(TEXT("customProjectionMatrix"), BuildDefaultCustomProjectionMatrixObject());
+			}
+			if (DesiredProjectionType.Equals(TEXT("cylindrical"), ESearchCase::IgnoreCase)
+				|| DesiredProjectionType.Equals(TEXT("radial"), ESearchCase::IgnoreCase))
+			{
+				TSharedPtr<FJsonObject> Cyl = MakeShared<FJsonObject>();
+				Cyl->SetStringField(TEXT("axis"), TEXT("y"));
+				Cyl->SetNumberField(TEXT("radius"), 100.0);
+				Cyl->SetNumberField(TEXT("height"), 1000.0);
+				Cyl->SetNumberField(TEXT("startAngle"), 0.0);
+				Cyl->SetNumberField(TEXT("endAngle"), 90.0);
+				NewMapping.Config->SetObjectField(TEXT("cylindrical"), Cyl);
+			}
+			if (DesiredProjectionType.Equals(TEXT("spherical"), ESearchCase::IgnoreCase))
+			{
+				NewMapping.Config->SetNumberField(TEXT("sphereRadius"), 500.0);
+				NewMapping.Config->SetNumberField(TEXT("horizontalArc"), 360.0);
+				NewMapping.Config->SetNumberField(TEXT("verticalArc"), 180.0);
+			}
+			if (DesiredProjectionType.Equals(TEXT("parallel"), ESearchCase::IgnoreCase))
+			{
+				NewMapping.Config->SetNumberField(TEXT("sizeW"), 1000.0);
+				NewMapping.Config->SetNumberField(TEXT("sizeH"), 1000.0);
+			}
+			if (DesiredProjectionType.Equals(TEXT("mesh"), ESearchCase::IgnoreCase))
+			{
+				TSharedPtr<FJsonObject> EpObj = MakeShared<FJsonObject>();
+				EpObj->SetNumberField(TEXT("x"), 0.0);
+				EpObj->SetNumberField(TEXT("y"), 0.0);
+				EpObj->SetNumberField(TEXT("z"), 0.0);
+				NewMapping.Config->SetObjectField(TEXT("eyepoint"), EpObj);
+			}
+			if (DesiredProjectionType.Equals(TEXT("fisheye"), ESearchCase::IgnoreCase))
+			{
+				NewMapping.Config->SetNumberField(TEXT("fisheyeFov"), 180.0);
+				NewMapping.Config->SetStringField(TEXT("lensType"), TEXT("equidistant"));
+			}
+		}
+		MappingId = Manager->CreateMapping(NewMapping);
+	}
+	else
+	{
+		FRshipContentMappingState UpdateMapping;
+		for (const FRshipContentMappingState& Mapping : Mappings)
+		{
+			if (Mapping.Id == MappingId)
+			{
+				UpdateMapping = Mapping;
+				break;
+			}
+		}
+		UpdateMapping.Opacity = Opacity;
+		Manager->UpdateMapping(UpdateMapping);
+	}
+
+	SelectedMappingId = MappingId;
+	LastPreviewMappingId = MappingId;
+	StoreQuickCreateDefaults();
+	if (PreviewLabel.IsValid())
+	{
+		PreviewLabel->SetText(LOCTEXT("QuickCreated", "Mapping created (context/surface reused when possible)."));
+		PreviewLabel->SetColorAndOpacity(FLinearColor::White);
+	}
+	RefreshStatus();
+	return true;
 }
 
 TSharedRef<SWidget> SRshipContentMappingPanel::BuildQuickMappingSection()
@@ -1870,275 +2438,28 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildQuickMappingSection()
 					SNew(SSpacer)
 				]
 				+ SHorizontalBox::Slot().AutoWidth()
+				.Padding(0,0,6,0)
 				[
 					SNew(SButton)
-					.Text(LOCTEXT("QuickCreateButton", "Create Mapping"))
+					.Text(LOCTEXT("QuickReuseLastButton", "Reuse Last"))
 					.OnClicked_Lambda([this]()
 					{
-						if (!GEngine) return FReply::Handled();
-						URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
-						if (!Subsystem) return FReply::Handled();
-						URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
-						if (!Manager) return FReply::Handled();
-
-						const FString ProjectId = QuickProjectIdInput.IsValid() ? QuickProjectIdInput->GetText().ToString().TrimStartAndEnd() : TEXT("");
-						const FString SourceId = QuickSourceIdInput.IsValid() ? QuickSourceIdInput->GetText().ToString().TrimStartAndEnd() : TEXT("");
-						const FString TargetIdInput = QuickTargetIdInput.IsValid() ? QuickTargetIdInput->GetText().ToString().TrimStartAndEnd() : TEXT("");
-						const FString TargetId = ResolveTargetIdInput(TargetIdInput);
-						const FString TargetLabel = ShortTargetLabel(TargetId);
-						const int32 Width = bQuickAdvanced && QuickWidthInput.IsValid() ? QuickWidthInput->GetValue() : 0;
-						const int32 Height = bQuickAdvanced && QuickHeightInput.IsValid() ? QuickHeightInput->GetValue() : 0;
-						const FString CaptureMode = bQuickAdvanced && QuickCaptureModeInput.IsValid() ? QuickCaptureModeInput->GetText().ToString().TrimStartAndEnd() : TEXT("");
-						const int32 UVChannel = QuickUvChannelInput.IsValid() ? QuickUvChannelInput->GetValue() : 0;
-						const float Opacity = QuickOpacityInput.IsValid() ? QuickOpacityInput->GetValue() : 1.0f;
-						const FString MeshName = bQuickAdvanced && QuickMeshNameInput.IsValid() ? QuickMeshNameInput->GetText().ToString().TrimStartAndEnd() : TEXT("");
-
-						if (SourceId.IsEmpty() || TargetId.IsEmpty())
-						{
-							if (PreviewLabel.IsValid())
-							{
-								PreviewLabel->SetText(LOCTEXT("QuickMissing", "Source and target are required."));
-								PreviewLabel->SetColorAndOpacity(FLinearColor::Red);
-							}
-							return FReply::Handled();
-						}
-
-						auto ParseSlots = [](const FString& Text)
-						{
-							TArray<int32> Out;
-							TArray<FString> Parts;
-							Text.ParseIntoArray(Parts, TEXT(","), true);
-							for (const FString& Part : Parts)
-							{
-								const int32 Value = FCString::Atoi(*Part);
-								Out.Add(Value);
-							}
-							Out.Sort();
-							return Out;
-						};
-
-						const FString SlotsText = bQuickAdvanced && QuickMaterialSlotsInput.IsValid() ? QuickMaterialSlotsInput->GetText().ToString() : TEXT("");
-						TArray<int32> RequestedSlots = SlotsText.IsEmpty() ? TArray<int32>() : ParseSlots(SlotsText);
-
-						FString ContextId;
-						const TArray<FRshipRenderContextState> Contexts = Manager->GetRenderContexts();
-						for (const FRshipRenderContextState& Ctx : Contexts)
-						{
-							if (ProjectId.IsEmpty())
-							{
-								if (!Ctx.ProjectId.IsEmpty()) continue;
-							}
-							else if (Ctx.ProjectId != ProjectId)
-							{
-								continue;
-							}
-							if (Ctx.SourceType != QuickSourceType) continue;
-							if (QuickSourceType == TEXT("camera") && Ctx.CameraId != SourceId) continue;
-							if (QuickSourceType == TEXT("asset-store") && Ctx.AssetId != SourceId) continue;
-							if (Width > 0 && Ctx.Width != Width) continue;
-							if (Height > 0 && Ctx.Height != Height) continue;
-							if (!CaptureMode.IsEmpty() && Ctx.CaptureMode != CaptureMode) continue;
-							ContextId = Ctx.Id;
-							break;
-						}
-
-						if (ContextId.IsEmpty())
-						{
-							FRshipRenderContextState NewCtx;
-							NewCtx.Name = FString::Printf(TEXT("Ctx %s"), *SourceId);
-							NewCtx.ProjectId = ProjectId;
-							NewCtx.SourceType = QuickSourceType;
-							if (QuickSourceType == TEXT("camera"))
-							{
-								NewCtx.CameraId = SourceId;
-							}
-							else
-							{
-								NewCtx.AssetId = SourceId;
-							}
-							NewCtx.Width = Width;
-							NewCtx.Height = Height;
-							NewCtx.CaptureMode = CaptureMode.IsEmpty() ? TEXT("FinalColorLDR") : CaptureMode;
-							NewCtx.bEnabled = true;
-							ContextId = Manager->CreateRenderContext(NewCtx);
-						}
-
-						FString SurfaceId;
-						const TArray<FRshipMappingSurfaceState> Surfaces = Manager->GetMappingSurfaces();
-						for (const FRshipMappingSurfaceState& Surface : Surfaces)
-						{
-							if (ProjectId.IsEmpty())
-							{
-								if (!Surface.ProjectId.IsEmpty()) continue;
-							}
-							else if (Surface.ProjectId != ProjectId)
-							{
-								continue;
-							}
-							if (Surface.TargetId != TargetId) continue;
-							if (Surface.UVChannel != UVChannel) continue;
-							if (!MeshName.IsEmpty() && Surface.MeshComponentName != MeshName) continue;
-							if (RequestedSlots.Num() > 0)
-							{
-								TArray<int32> ExistingSlots = Surface.MaterialSlots;
-								ExistingSlots.Sort();
-								if (ExistingSlots != RequestedSlots) continue;
-							}
-							SurfaceId = Surface.Id;
-							break;
-						}
-
-						if (SurfaceId.IsEmpty())
-						{
-							FRshipMappingSurfaceState NewSurface;
-							NewSurface.Name = FString::Printf(TEXT("Screen %s"), *TargetLabel);
-							NewSurface.ProjectId = ProjectId;
-							NewSurface.TargetId = TargetId;
-							NewSurface.UVChannel = UVChannel;
-							NewSurface.MaterialSlots = RequestedSlots;
-							NewSurface.MeshComponentName = MeshName;
-							NewSurface.bEnabled = true;
-							SurfaceId = Manager->CreateMappingSurface(NewSurface);
-						}
-
-						const bool bQuickIsUv = QuickMapMode == TEXT("direct") || QuickMapMode == TEXT("feed");
-						const FString DesiredType = bQuickIsUv ? TEXT("surface-uv") : TEXT("surface-projection");
-						const FString DesiredProjectionType = bQuickIsUv ? TEXT("") : QuickMapMode;
-						const FString DesiredUvMode = (QuickMapMode == TEXT("feed")) ? TEXT("feed") : TEXT("direct");
-
-						FString MappingId;
-						const TArray<FRshipContentMappingState> Mappings = Manager->GetMappings();
-						for (const FRshipContentMappingState& Mapping : Mappings)
-						{
-							if (ProjectId.IsEmpty())
-							{
-								if (!Mapping.ProjectId.IsEmpty()) continue;
-							}
-							else if (Mapping.ProjectId != ProjectId)
-							{
-								continue;
-							}
-							if (Mapping.Type != DesiredType) continue;
-							if (DesiredType == TEXT("surface-uv"))
-							{
-								const FString ExistingUvMode = Mapping.Config.IsValid() && Mapping.Config->HasTypedField<EJson::String>(TEXT("uvMode"))
-									? Mapping.Config->GetStringField(TEXT("uvMode"))
-									: TEXT("direct");
-								if (DesiredUvMode == TEXT("feed") && !ExistingUvMode.Equals(TEXT("feed"), ESearchCase::IgnoreCase)) continue;
-								if (DesiredUvMode == TEXT("direct") && ExistingUvMode.Equals(TEXT("feed"), ESearchCase::IgnoreCase)) continue;
-							}
-							else
-							{
-								const FString ExistingProj = GetProjectionModeFromConfig(Mapping.Config);
-								if (NormalizeMapMode(ExistingProj, MapModePerspective) != NormalizeMapMode(DesiredProjectionType, MapModePerspective)) continue;
-							}
-							if (Mapping.ContextId != ContextId) continue;
-							if (Mapping.SurfaceIds.Num() == 1 && Mapping.SurfaceIds[0] == SurfaceId)
-							{
-								MappingId = Mapping.Id;
-								break;
-							}
-						}
-
-						if (MappingId.IsEmpty())
-						{
-							FRshipContentMappingState NewMapping;
-							NewMapping.Name = FString::Printf(TEXT("Map %s"), *TargetLabel);
-							NewMapping.ProjectId = ProjectId;
-							NewMapping.Type = DesiredType;
-							NewMapping.ContextId = ContextId;
-							NewMapping.SurfaceIds = { SurfaceId };
-							NewMapping.Opacity = Opacity;
-							NewMapping.bEnabled = true;
-							NewMapping.Config = MakeShared<FJsonObject>();
-							if (DesiredType == TEXT("surface-uv"))
-							{
-								NewMapping.Config->SetStringField(TEXT("uvMode"), DesiredUvMode);
-								TSharedPtr<FJsonObject> Uv = MakeShared<FJsonObject>();
-								Uv->SetNumberField(TEXT("scaleU"), 1.0);
-								Uv->SetNumberField(TEXT("scaleV"), 1.0);
-								Uv->SetNumberField(TEXT("offsetU"), 0.0);
-								Uv->SetNumberField(TEXT("offsetV"), 0.0);
-								Uv->SetNumberField(TEXT("rotationDeg"), 0.0);
-								NewMapping.Config->SetObjectField(TEXT("uvTransform"), Uv);
-								if (DesiredUvMode == TEXT("feed"))
-								{
-									TSharedPtr<FJsonObject> Feed = MakeShared<FJsonObject>();
-									Feed->SetNumberField(TEXT("u"), QuickFeedUInput.IsValid() ? QuickFeedUInput->GetValue() : 0.0);
-									Feed->SetNumberField(TEXT("v"), QuickFeedVInput.IsValid() ? QuickFeedVInput->GetValue() : 0.0);
-									Feed->SetNumberField(TEXT("width"), QuickFeedWInput.IsValid() ? QuickFeedWInput->GetValue() : 1.0);
-									Feed->SetNumberField(TEXT("height"), QuickFeedHInput.IsValid() ? QuickFeedHInput->GetValue() : 1.0);
-									NewMapping.Config->SetObjectField(TEXT("feedRect"), Feed);
-								}
-							}
-							else
-							{
-								NewMapping.Config->SetStringField(TEXT("projectionType"), DesiredProjectionType.IsEmpty() ? TEXT("perspective") : DesiredProjectionType);
-								if (DesiredProjectionType.Equals(MapModeCustomMatrix, ESearchCase::IgnoreCase))
-								{
-									NewMapping.Config->SetObjectField(TEXT("customProjectionMatrix"), BuildDefaultCustomProjectionMatrixObject());
-								}
-								if (DesiredProjectionType.Equals(TEXT("cylindrical"), ESearchCase::IgnoreCase)
-									|| DesiredProjectionType.Equals(TEXT("radial"), ESearchCase::IgnoreCase))
-								{
-									TSharedPtr<FJsonObject> Cyl = MakeShared<FJsonObject>();
-									Cyl->SetStringField(TEXT("axis"), TEXT("y"));
-									Cyl->SetNumberField(TEXT("radius"), 100.0);
-									Cyl->SetNumberField(TEXT("height"), 1000.0);
-									Cyl->SetNumberField(TEXT("startAngle"), 0.0);
-									Cyl->SetNumberField(TEXT("endAngle"), 90.0);
-									NewMapping.Config->SetObjectField(TEXT("cylindrical"), Cyl);
-								}
-								if (DesiredProjectionType.Equals(TEXT("spherical"), ESearchCase::IgnoreCase))
-								{
-									NewMapping.Config->SetNumberField(TEXT("sphereRadius"), 500.0);
-									NewMapping.Config->SetNumberField(TEXT("horizontalArc"), 360.0);
-									NewMapping.Config->SetNumberField(TEXT("verticalArc"), 180.0);
-								}
-								if (DesiredProjectionType.Equals(TEXT("parallel"), ESearchCase::IgnoreCase))
-								{
-									NewMapping.Config->SetNumberField(TEXT("sizeW"), 1000.0);
-									NewMapping.Config->SetNumberField(TEXT("sizeH"), 1000.0);
-								}
-								if (DesiredProjectionType.Equals(TEXT("mesh"), ESearchCase::IgnoreCase))
-								{
-									TSharedPtr<FJsonObject> EpObj = MakeShared<FJsonObject>();
-									EpObj->SetNumberField(TEXT("x"), 0.0);
-									EpObj->SetNumberField(TEXT("y"), 0.0);
-									EpObj->SetNumberField(TEXT("z"), 0.0);
-									NewMapping.Config->SetObjectField(TEXT("eyepoint"), EpObj);
-								}
-								if (DesiredProjectionType.Equals(TEXT("fisheye"), ESearchCase::IgnoreCase))
-								{
-									NewMapping.Config->SetNumberField(TEXT("fisheyeFov"), 180.0);
-									NewMapping.Config->SetStringField(TEXT("lensType"), TEXT("equidistant"));
-								}
-							}
-							MappingId = Manager->CreateMapping(NewMapping);
-						}
-						else
-						{
-							FRshipContentMappingState UpdateMapping;
-							for (const FRshipContentMappingState& Mapping : Mappings)
-							{
-								if (Mapping.Id == MappingId)
-								{
-									UpdateMapping = Mapping;
-									break;
-								}
-							}
-							UpdateMapping.Opacity = Opacity;
-							Manager->UpdateMapping(UpdateMapping);
-						}
-
-						SelectedMappingId = MappingId;
-						LastPreviewMappingId = MappingId;
+						ApplyStoredQuickCreateDefaults();
 						if (PreviewLabel.IsValid())
 						{
-							PreviewLabel->SetText(LOCTEXT("QuickCreated", "Mapping created (context/surface reused when possible)."));
+							PreviewLabel->SetText(LOCTEXT("QuickReuseLastNote", "Loaded last quick-create values."));
 							PreviewLabel->SetColorAndOpacity(FLinearColor::White);
 						}
-						RefreshStatus();
+						return FReply::Handled();
+					})
+				]
+				+ SHorizontalBox::Slot().AutoWidth()
+				[
+					SNew(SButton)
+					.Text(LOCTEXT("QuickCreateButton", "Create Mapping (Cmd/Ctrl+Enter)"))
+					.OnClicked_Lambda([this]()
+					{
+						ExecuteQuickCreateMapping();
 						return FReply::Handled();
 					})
 				]
@@ -4981,6 +5302,14 @@ void SRshipContentMappingPanel::RefreshStatus()
 							return FText::Format(LOCTEXT("CtxBulkSelectedFmt", "Selected {0}"), FText::AsNumber(SelectedContextRows.Num()));
 						})
 					]
+					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,10,0).VAlign(VAlign_Center)
+					[
+						SNew(STextBlock)
+						.Text_Lambda([this, VisibleCount = VisibleContexts.Num()]()
+						{
+							return MakeBulkScopeLabel(SelectedContextRows.Num(), VisibleCount);
+						})
+					]
 					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
 					[
 						SNew(SButton)
@@ -5359,6 +5688,14 @@ void SRshipContentMappingPanel::RefreshStatus()
 							return FText::Format(LOCTEXT("SurfBulkSelectedFmt", "Selected {0}"), FText::AsNumber(SelectedSurfaceRows.Num()));
 						})
 					]
+					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,10,0).VAlign(VAlign_Center)
+					[
+						SNew(STextBlock)
+						.Text_Lambda([this, VisibleCount = VisibleSurfaces.Num()]()
+						{
+							return MakeBulkScopeLabel(SelectedSurfaceRows.Num(), VisibleCount);
+						})
+					]
 					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
 					[
 						SNew(SButton)
@@ -5734,6 +6071,14 @@ void SRshipContentMappingPanel::RefreshStatus()
 						.Text_Lambda([this]()
 						{
 							return FText::Format(LOCTEXT("MapBulkSelectedFmt", "Selected {0}"), FText::AsNumber(SelectedMappingRows.Num()));
+						})
+					]
+					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,10,0).VAlign(VAlign_Center)
+					[
+						SNew(STextBlock)
+						.Text_Lambda([this, VisibleCount = VisibleMappings.Num()]()
+						{
+							return MakeBulkScopeLabel(SelectedMappingRows.Num(), VisibleCount);
 						})
 					]
 					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)

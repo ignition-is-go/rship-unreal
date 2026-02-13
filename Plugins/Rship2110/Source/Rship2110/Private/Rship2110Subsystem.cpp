@@ -15,6 +15,9 @@
 #include "Misc/Crc.h"
 #include "Misc/Parse.h"
 #include "Containers/Set.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
+#include "HAL/IConsoleManager.h"
 
 // Include RshipExec for integration
 #include "RshipSubsystem.h"
@@ -22,6 +25,54 @@
 
 DECLARE_STATS_GROUP(TEXT("Rship2110"), STATGROUP_Rship2110, STATCAT_Advanced);
 DECLARE_CYCLE_STAT(TEXT("Rship2110 Tick"), STAT_Rship2110Tick, STATGROUP_Rship2110);
+
+static TAutoConsoleVariable<float> CVarRship2110ClusterSyncRateHz(
+    TEXT("r.Rship2110.ClusterSyncRateHz"),
+    0.0f,
+    TEXT("Override default cluster sync rate in Hz. <=0 uses project settings/runtime API."),
+    ECVF_Default);
+
+static TAutoConsoleVariable<int32> CVarRship2110LocalRenderSubsteps(
+    TEXT("r.Rship2110.LocalRenderSubsteps"),
+    0,
+    TEXT("Override local render substeps. <=0 uses project settings/runtime API."),
+    ECVF_Default);
+
+static TAutoConsoleVariable<int32> CVarRship2110MaxSyncCatchupSteps(
+    TEXT("r.Rship2110.MaxSyncCatchupSteps"),
+    0,
+    TEXT("Override max cluster sync catch-up steps. <=0 uses project settings/runtime API."),
+    ECVF_Default);
+
+namespace
+{
+FString ExtractSyncDomainIdFromPayload(const FString& Payload)
+{
+    TSharedPtr<FJsonObject> JsonObject;
+    TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Payload);
+    if (!FJsonSerializer::Deserialize(Reader, JsonObject) || !JsonObject.IsValid())
+    {
+        return FString();
+    }
+
+    FString SyncDomainId;
+    if (JsonObject->TryGetStringField(TEXT("syncDomainId"), SyncDomainId))
+    {
+        return SyncDomainId.TrimStartAndEnd();
+    }
+
+    const TSharedPtr<FJsonObject>* DataObjectPtr = nullptr;
+    if (JsonObject->TryGetObjectField(TEXT("data"), DataObjectPtr) && DataObjectPtr && DataObjectPtr->IsValid())
+    {
+        if ((*DataObjectPtr)->TryGetStringField(TEXT("syncDomainId"), SyncDomainId))
+        {
+            return SyncDomainId.TrimStartAndEnd();
+        }
+    }
+
+    return FString();
+}
+}
 
 void URship2110Subsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
@@ -31,6 +82,15 @@ void URship2110Subsystem::Initialize(FSubsystemCollectionBase& Collection)
 
     // Load settings
     URship2110Settings* Settings = URship2110Settings::Get();
+    if (Settings)
+    {
+        ClusterSyncRateHz = FMath::Max(1.0f, Settings->ClusterSyncRateHz);
+        LocalRenderSubsteps = FMath::Max(1, Settings->LocalRenderSubsteps);
+        MaxSyncCatchupSteps = FMath::Max(1, Settings->MaxSyncCatchupSteps);
+    }
+    ClusterSyncFrameAccumulator = 0.0;
+    LocalRenderStepCounter = 0;
+    ActiveSyncDomainId = DefaultSyncDomainId;
 
     // Initialize services based on settings
     if (Settings && Settings->bEnablePTP)
@@ -69,6 +129,9 @@ void URship2110Subsystem::Initialize(FSubsystemCollectionBase& Collection)
 
     bIsInitialized = true;
 
+    UE_LOG(LogRship2110, Log, TEXT("Cluster timing: syncRate=%.2fHz renderSubsteps=%d maxCatchup=%d"),
+        ClusterSyncRateHz, LocalRenderSubsteps, MaxSyncCatchupSteps);
+
     UE_LOG(LogRship2110, Log, TEXT("Rship2110Subsystem: Initialized"));
 }
 
@@ -106,12 +169,17 @@ void URship2110Subsystem::Deinitialize()
     StreamToIPMXSender.Empty();
     StreamToContextBinding.Empty();
     PendingClusterStates.Empty();
-    PendingClusterDataMessages.Empty();
-    LastAppliedClusterDataSequenceByAuthority.Empty();
+    SyncDomains.Empty();
     StreamOwnerNodeCache.Empty();
     ActiveClusterState = FRship2110ClusterState();
+    ActiveSyncDomainId = DefaultSyncDomainId;
+    LocalRenderStepCounter = 0;
     ClusterFrameCounter = 0;
     ClusterDataSequenceCounter = 0;
+    ClusterSyncFrameAccumulator = 0.0;
+    ClusterSyncRateHz = 60.0f;
+    LocalRenderSubsteps = 1;
+    MaxSyncCatchupSteps = 4;
 
     if (URshipSubsystem* RshipSubsystem = GetRshipSubsystem())
     {
@@ -136,13 +204,53 @@ bool URship2110Subsystem::ShouldCreateSubsystem(UObject* Outer) const
 void URship2110Subsystem::Tick(float DeltaTime)
 {
     SCOPE_CYCLE_COUNTER(STAT_Rship2110Tick);
+    const float CVarSyncRateHz = CVarRship2110ClusterSyncRateHz.GetValueOnGameThread();
+    if (CVarSyncRateHz > 0.0f && !FMath::IsNearlyEqual(ClusterSyncRateHz, FMath::Max(1.0f, CVarSyncRateHz)))
+    {
+        SetClusterSyncRateHz(CVarSyncRateHz);
+    }
+    const int32 CVarRenderSubsteps = CVarRship2110LocalRenderSubsteps.GetValueOnGameThread();
+    if (CVarRenderSubsteps > 0 && LocalRenderSubsteps != FMath::Max(1, CVarRenderSubsteps))
+    {
+        SetLocalRenderSubsteps(CVarRenderSubsteps);
+    }
+    const int32 CVarCatchupSteps = CVarRship2110MaxSyncCatchupSteps.GetValueOnGameThread();
+    if (CVarCatchupSteps > 0 && MaxSyncCatchupSteps != FMath::Max(1, CVarCatchupSteps))
+    {
+        SetMaxSyncCatchupSteps(CVarCatchupSteps);
+    }
+
+    const int32 RenderSubsteps = FMath::Max(1, LocalRenderSubsteps);
 
     if (bIsInitialized)
     {
-        ++ClusterFrameCounter;
-        PurgeExpiredPreparedStates();
-        ProcessPendingClusterStates();
-        ProcessPendingClusterDataMessages();
+        LocalRenderStepCounter += RenderSubsteps;
+
+        const double SyncRateHz = FMath::Max(1.0, static_cast<double>(ClusterSyncRateHz));
+        ClusterSyncFrameAccumulator += static_cast<double>(DeltaTime) * SyncRateHz;
+        const int32 RawSyncSteps = FMath::FloorToInt(ClusterSyncFrameAccumulator);
+        const int32 MaxSteps = FMath::Max(1, MaxSyncCatchupSteps);
+        int32 SyncSteps = FMath::Min(RawSyncSteps, MaxSteps);
+
+        if (RawSyncSteps > MaxSteps)
+        {
+            UE_LOG(LogRship2110, VeryVerbose, TEXT("Cluster sync catch-up clamped (requested=%d applied=%d)"), RawSyncSteps, SyncSteps);
+            ClusterSyncFrameAccumulator = 0.0;
+        }
+        else
+        {
+            ClusterSyncFrameAccumulator -= static_cast<double>(SyncSteps);
+        }
+
+        for (int32 Step = 0; Step < SyncSteps; ++Step)
+        {
+            ++ClusterFrameCounter;
+            PurgeExpiredPreparedStates();
+            ProcessPendingClusterStates();
+            ProcessPendingClusterDataMessages();
+        }
+
+        TickNonDefaultSyncDomains(DeltaTime);
     }
 
     if (PTPService)
@@ -152,7 +260,11 @@ void URship2110Subsystem::Tick(float DeltaTime)
 
     if (RivermaxManager)
     {
-        RivermaxManager->Tick(DeltaTime);
+        const float SubstepDelta = DeltaTime / static_cast<float>(RenderSubsteps);
+        for (int32 Step = 0; Step < RenderSubsteps; ++Step)
+        {
+            RivermaxManager->Tick(SubstepDelta);
+        }
     }
 
     if (IPMXService)
@@ -404,6 +516,16 @@ void URship2110Subsystem::RefreshStreamRenderContextBindings()
         return;
     }
 
+    TMap<FString, UTextureRenderTarget2D*> RenderContextTargets;
+    RenderContextTargets.Reserve(RenderContexts.Num());
+    for (const FRshipRenderContextState& ContextState : RenderContexts)
+    {
+        if (UTextureRenderTarget2D* RenderTarget = Cast<UTextureRenderTarget2D>(ContextState.ResolvedTexture))
+        {
+            RenderContextTargets.Add(ContextState.Id, RenderTarget);
+        }
+    }
+
     TArray<FString> ToUnbind;
     for (const TPair<FString, FRship2110RenderContextBinding>& Binding : StreamToContextBinding)
     {
@@ -427,22 +549,13 @@ void URship2110Subsystem::RefreshStreamRenderContextBindings()
             continue;
         }
 
-        UTextureRenderTarget2D* RenderTarget = nullptr;
-        for (const FRshipRenderContextState& ContextState : RenderContexts)
-        {
-            if (ContextState.Id == RenderContextId)
-            {
-                RenderTarget = Cast<UTextureRenderTarget2D>(ContextState.ResolvedTexture);
-                break;
-            }
-        }
-
-        if (!RenderTarget)
+        UTextureRenderTarget2D* const* FoundRenderTarget = RenderContextTargets.Find(RenderContextId);
+        if (!FoundRenderTarget || !*FoundRenderTarget)
         {
             continue;
         }
 
-        Sender->SetRenderTarget(RenderTarget);
+        Sender->SetRenderTarget(*FoundRenderTarget);
         if (BoundContext.bUseCaptureRect)
         {
             Sender->SetCaptureRect(BoundContext.CaptureRect);
@@ -977,6 +1090,11 @@ bool URship2110Subsystem::ReceiveClusterStateCommit(const FRship2110ClusterCommi
 
 bool URship2110Subsystem::SubmitAuthorityClusterDataMessage(const FString& Payload, int64 ApplyFrame)
 {
+    return SubmitAuthorityClusterDataMessageForDomain(Payload, ActiveSyncDomainId, ApplyFrame);
+}
+
+bool URship2110Subsystem::SubmitAuthorityClusterDataMessageForDomain(const FString& Payload, const FString& SyncDomainId, int64 ApplyFrame)
+{
     if (!IsLocalNodeAuthority())
     {
         return false;
@@ -989,12 +1107,19 @@ bool URship2110Subsystem::SubmitAuthorityClusterDataMessage(const FString& Paylo
     }
 
     FRship2110ClusterDataMessage DataMessage;
+    const FString ResolvedSyncDomainId = ResolveSyncDomainId(SyncDomainId.IsEmpty() ? ActiveSyncDomainId : SyncDomainId);
+    FRship2110SyncDomainRuntime& SyncDomain = GetOrCreateSyncDomain(ResolvedSyncDomainId);
+    const int64 DomainFrameCounter = ResolvedSyncDomainId.Equals(DefaultSyncDomainId, ESearchCase::IgnoreCase)
+        ? ClusterFrameCounter
+        : SyncDomain.FrameCounter;
+
     DataMessage.AuthorityNodeId = LocalClusterNodeId;
     DataMessage.Epoch = ActiveClusterState.Epoch;
     DataMessage.Sequence = ++ClusterDataSequenceCounter;
+    DataMessage.SyncDomainId = ResolvedSyncDomainId;
     DataMessage.ApplyFrame = (ApplyFrame == INDEX_NONE)
-        ? (ClusterFrameCounter + 1)
-        : FMath::Max<int64>(ApplyFrame, ClusterFrameCounter + 1);
+        ? (DomainFrameCounter + 1)
+        : FMath::Max<int64>(ApplyFrame, DomainFrameCounter + 1);
     DataMessage.Payload = TrimmedPayload;
 
     OnClusterDataOutbound.Broadcast(DataMessage);
@@ -1035,24 +1160,31 @@ bool URship2110Subsystem::ReceiveClusterDataMessage(const FRship2110ClusterDataM
         return false;
     }
 
-    const int64 LastAppliedSequence = LastAppliedClusterDataSequenceByAuthority.FindRef(DataMessage.AuthorityNodeId);
+    const FString ResolvedSyncDomainId = ResolveSyncDomainId(DataMessage.SyncDomainId);
+    FRship2110SyncDomainRuntime& SyncDomain = GetOrCreateSyncDomain(ResolvedSyncDomainId);
+    const int64 LastAppliedSequence = SyncDomain.LastAppliedSequenceByAuthority.FindRef(DataMessage.AuthorityNodeId);
     if (DataMessage.Sequence <= LastAppliedSequence)
     {
         return false;
     }
 
     FRship2110ClusterDataMessage Queued = DataMessage;
-    if (Queued.ApplyFrame <= ClusterFrameCounter)
+    Queued.SyncDomainId = ResolvedSyncDomainId;
+
+    const int64 DomainFrameCounter = ResolvedSyncDomainId.Equals(DefaultSyncDomainId, ESearchCase::IgnoreCase)
+        ? ClusterFrameCounter
+        : SyncDomain.FrameCounter;
+    if (Queued.ApplyFrame <= DomainFrameCounter)
     {
-        Queued.ApplyFrame = ClusterFrameCounter + 1;
+        Queued.ApplyFrame = DomainFrameCounter + 1;
     }
 
-    PendingClusterDataMessages.RemoveAll([&Queued](const FRship2110ClusterDataMessage& Existing)
+    SyncDomain.PendingDataMessages.RemoveAll([&Queued](const FRship2110ClusterDataMessage& Existing)
     {
         return Existing.AuthorityNodeId == Queued.AuthorityNodeId && Existing.Sequence == Queued.Sequence;
     });
-    PendingClusterDataMessages.Add(MoveTemp(Queued));
-    PendingClusterDataMessages.Sort([](const FRship2110ClusterDataMessage& A, const FRship2110ClusterDataMessage& B)
+    SyncDomain.PendingDataMessages.Add(MoveTemp(Queued));
+    SyncDomain.PendingDataMessages.Sort([](const FRship2110ClusterDataMessage& A, const FRship2110ClusterDataMessage& B)
     {
         if (A.ApplyFrame != B.ApplyFrame)
         {
@@ -1228,9 +1360,15 @@ void URship2110Subsystem::InitializeClusterState()
     ActiveClusterState.FailoverPriority = { LocalClusterNodeId };
 
     PendingClusterStates.Empty();
-    PendingClusterDataMessages.Empty();
+    SyncDomains.Empty();
     PreparedClusterStates.Empty();
-    LastAppliedClusterDataSequenceByAuthority.Empty();
+    FRship2110SyncDomainRuntime& DefaultDomain = GetOrCreateSyncDomain(DefaultSyncDomainId);
+    DefaultDomain.SyncRateHz = ClusterSyncRateHz;
+    DefaultDomain.FrameCounter = 0;
+    DefaultDomain.FrameAccumulator = 0.0;
+    DefaultDomain.PendingDataMessages.Empty();
+    DefaultDomain.LastAppliedSequenceByAuthority.Empty();
+    ActiveSyncDomainId = DefaultSyncDomainId;
     ClusterFrameCounter = 0;
     ClusterDataSequenceCounter = 0;
     LastAuthorityHeartbeatTime = FPlatformTime::Seconds();
@@ -1269,6 +1407,133 @@ FString URship2110Subsystem::ResolveLocalClusterNodeId() const
     return FPlatformProcess::ComputerName();
 }
 
+FString URship2110Subsystem::ResolveSyncDomainId(const FString& SyncDomainId) const
+{
+    const FString Trimmed = SyncDomainId.TrimStartAndEnd();
+    return Trimmed.IsEmpty() ? DefaultSyncDomainId : Trimmed;
+}
+
+URship2110Subsystem::FRship2110SyncDomainRuntime& URship2110Subsystem::GetOrCreateSyncDomain(const FString& SyncDomainId)
+{
+    const FString ResolvedSyncDomainId = ResolveSyncDomainId(SyncDomainId);
+    FRship2110SyncDomainRuntime& Domain = SyncDomains.FindOrAdd(ResolvedSyncDomainId);
+    if (Domain.SyncRateHz <= 0.0f)
+    {
+        Domain.SyncRateHz = ClusterSyncRateHz;
+    }
+    return Domain;
+}
+
+const URship2110Subsystem::FRship2110SyncDomainRuntime* URship2110Subsystem::FindSyncDomain(const FString& SyncDomainId) const
+{
+    return SyncDomains.Find(ResolveSyncDomainId(SyncDomainId));
+}
+
+void URship2110Subsystem::TickNonDefaultSyncDomains(float DeltaTime)
+{
+    for (TPair<FString, FRship2110SyncDomainRuntime>& Pair : SyncDomains)
+    {
+        if (Pair.Key.Equals(DefaultSyncDomainId, ESearchCase::IgnoreCase))
+        {
+            continue;
+        }
+
+        FRship2110SyncDomainRuntime& Domain = Pair.Value;
+        const double DomainRateHz = FMath::Max(1.0, static_cast<double>(Domain.SyncRateHz));
+        Domain.FrameAccumulator += static_cast<double>(DeltaTime) * DomainRateHz;
+
+        const int32 RawSyncSteps = FMath::FloorToInt(Domain.FrameAccumulator);
+        const int32 MaxSteps = FMath::Max(1, MaxSyncCatchupSteps);
+        const int32 SyncSteps = FMath::Min(RawSyncSteps, MaxSteps);
+
+        if (RawSyncSteps > MaxSteps)
+        {
+            Domain.FrameAccumulator = 0.0;
+        }
+        else
+        {
+            Domain.FrameAccumulator -= static_cast<double>(SyncSteps);
+        }
+
+        Domain.FrameCounter += SyncSteps;
+        ProcessPendingClusterDataMessagesForDomain(Pair.Key, Domain);
+    }
+}
+
+int64 URship2110Subsystem::GetClusterFrameCounterForDomain(const FString& SyncDomainId) const
+{
+    const FString ResolvedSyncDomainId = ResolveSyncDomainId(SyncDomainId);
+    if (ResolvedSyncDomainId.Equals(DefaultSyncDomainId, ESearchCase::IgnoreCase))
+    {
+        return ClusterFrameCounter;
+    }
+
+    const FRship2110SyncDomainRuntime* Domain = FindSyncDomain(ResolvedSyncDomainId);
+    return Domain ? Domain->FrameCounter : 0;
+}
+
+void URship2110Subsystem::SetClusterSyncRateHz(float InSyncRateHz)
+{
+    ClusterSyncRateHz = FMath::Max(1.0f, InSyncRateHz);
+    FRship2110SyncDomainRuntime& DefaultDomain = GetOrCreateSyncDomain(DefaultSyncDomainId);
+    DefaultDomain.SyncRateHz = ClusterSyncRateHz;
+}
+
+void URship2110Subsystem::SetLocalRenderSubsteps(int32 InSubsteps)
+{
+    LocalRenderSubsteps = FMath::Max(1, InSubsteps);
+}
+
+void URship2110Subsystem::SetMaxSyncCatchupSteps(int32 InMaxSteps)
+{
+    MaxSyncCatchupSteps = FMath::Max(1, InMaxSteps);
+}
+
+void URship2110Subsystem::SetActiveSyncDomainId(const FString& SyncDomainId)
+{
+    ActiveSyncDomainId = ResolveSyncDomainId(SyncDomainId);
+    GetOrCreateSyncDomain(ActiveSyncDomainId);
+}
+
+bool URship2110Subsystem::SetSyncDomainRateHz(const FString& SyncDomainId, float SyncRateHz)
+{
+    if (SyncRateHz <= 0.0f)
+    {
+        return false;
+    }
+
+    const FString ResolvedSyncDomainId = ResolveSyncDomainId(SyncDomainId);
+    if (ResolvedSyncDomainId.Equals(DefaultSyncDomainId, ESearchCase::IgnoreCase))
+    {
+        SetClusterSyncRateHz(SyncRateHz);
+        return true;
+    }
+
+    FRship2110SyncDomainRuntime& Domain = GetOrCreateSyncDomain(ResolvedSyncDomainId);
+    Domain.SyncRateHz = FMath::Max(1.0f, SyncRateHz);
+    return true;
+}
+
+float URship2110Subsystem::GetSyncDomainRateHz(const FString& SyncDomainId) const
+{
+    const FString ResolvedSyncDomainId = ResolveSyncDomainId(SyncDomainId);
+    if (ResolvedSyncDomainId.Equals(DefaultSyncDomainId, ESearchCase::IgnoreCase))
+    {
+        return ClusterSyncRateHz;
+    }
+
+    const FRship2110SyncDomainRuntime* Domain = FindSyncDomain(ResolvedSyncDomainId);
+    return Domain ? Domain->SyncRateHz : 0.0f;
+}
+
+TArray<FString> URship2110Subsystem::GetSyncDomainIds() const
+{
+    TArray<FString> DomainIds;
+    SyncDomains.GetKeys(DomainIds);
+    DomainIds.Sort();
+    return DomainIds;
+}
+
 void URship2110Subsystem::ProcessPendingClusterStates()
 {
     if (PendingClusterStates.Num() == 0)
@@ -1295,17 +1560,28 @@ void URship2110Subsystem::ProcessPendingClusterStates()
 
 void URship2110Subsystem::ProcessPendingClusterDataMessages()
 {
-    if (PendingClusterDataMessages.Num() == 0)
+    FRship2110SyncDomainRuntime& DefaultDomain = GetOrCreateSyncDomain(DefaultSyncDomainId);
+    DefaultDomain.SyncRateHz = ClusterSyncRateHz;
+    DefaultDomain.FrameCounter = ClusterFrameCounter;
+    ProcessPendingClusterDataMessagesForDomain(DefaultSyncDomainId, DefaultDomain);
+}
+
+void URship2110Subsystem::ProcessPendingClusterDataMessagesForDomain(const FString& SyncDomainId, FRship2110SyncDomainRuntime& DomainRuntime)
+{
+    if (DomainRuntime.PendingDataMessages.Num() == 0)
     {
         return;
     }
 
-    TArray<FRship2110ClusterDataMessage> Remaining;
-    Remaining.Reserve(PendingClusterDataMessages.Num());
+    const bool bIsDefaultDomain = ResolveSyncDomainId(SyncDomainId).Equals(DefaultSyncDomainId, ESearchCase::IgnoreCase);
+    const int64 DomainFrameCounter = bIsDefaultDomain ? ClusterFrameCounter : DomainRuntime.FrameCounter;
 
-    for (const FRship2110ClusterDataMessage& DataMessage : PendingClusterDataMessages)
+    TArray<FRship2110ClusterDataMessage> Remaining;
+    Remaining.Reserve(DomainRuntime.PendingDataMessages.Num());
+
+    for (const FRship2110ClusterDataMessage& DataMessage : DomainRuntime.PendingDataMessages)
     {
-        if (DataMessage.ApplyFrame > ClusterFrameCounter)
+        if (DataMessage.ApplyFrame > DomainFrameCounter)
         {
             Remaining.Add(DataMessage);
             continue;
@@ -1318,8 +1594,9 @@ void URship2110Subsystem::ProcessPendingClusterDataMessages()
             continue;
         }
 
-        RshipSubsystem->EnqueueReplicatedInboundMessage(DataMessage.Payload, DataMessage.ApplyFrame);
-        LastAppliedClusterDataSequenceByAuthority.Add(DataMessage.AuthorityNodeId, DataMessage.Sequence);
+        const int64 RshipApplyFrame = bIsDefaultDomain ? DataMessage.ApplyFrame : INDEX_NONE;
+        RshipSubsystem->EnqueueReplicatedInboundMessage(DataMessage.Payload, RshipApplyFrame);
+        DomainRuntime.LastAppliedSequenceByAuthority.Add(DataMessage.AuthorityNodeId, DataMessage.Sequence);
         OnClusterDataApplied.Broadcast(
             DataMessage.AuthorityNodeId,
             DataMessage.Epoch,
@@ -1327,7 +1604,7 @@ void URship2110Subsystem::ProcessPendingClusterDataMessages()
             DataMessage.ApplyFrame);
     }
 
-    PendingClusterDataMessages = MoveTemp(Remaining);
+    DomainRuntime.PendingDataMessages = MoveTemp(Remaining);
 }
 
 bool URship2110Subsystem::ApplyClusterStateNow(const FRship2110ClusterState& ClusterState)
@@ -1445,7 +1722,11 @@ bool URship2110Subsystem::IsStreamOwnedByLocalNode(const FString& StreamId) cons
 
 void URship2110Subsystem::HandleAuthoritativeRshipInbound(const FString& Payload, int64 SuggestedApplyFrame)
 {
-    SubmitAuthorityClusterDataMessage(Payload, SuggestedApplyFrame);
+    const FString PayloadSyncDomainId = ResolveSyncDomainId(ExtractSyncDomainIdFromPayload(Payload));
+    const int64 DomainApplyFrame = PayloadSyncDomainId.Equals(DefaultSyncDomainId, ESearchCase::IgnoreCase)
+        ? SuggestedApplyFrame
+        : INDEX_NONE;
+    SubmitAuthorityClusterDataMessageForDomain(Payload, PayloadSyncDomainId, DomainApplyFrame);
 }
 
 FString URship2110Subsystem::GetFailoverCandidateNodeId(const FRship2110ClusterState& ClusterState) const

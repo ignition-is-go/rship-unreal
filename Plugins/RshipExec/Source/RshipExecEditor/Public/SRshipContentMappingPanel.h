@@ -25,6 +25,8 @@ public:
 	virtual ~SRshipContentMappingPanel();
 
 	virtual void Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime) override;
+	virtual bool SupportsKeyboardFocus() const override { return true; }
+	virtual FReply OnKeyDown(const FGeometry& MyGeometry, const FKeyEvent& InKeyEvent) override;
 
 private:
 	struct FRshipIdOption
@@ -68,6 +70,12 @@ private:
 	struct FRshipContentMappingState* FindMappingById(const FString& MappingId, TArray<struct FRshipContentMappingState>& Mappings) const;
 	struct FRshipRenderContextState* FindContextById(const FString& ContextId, TArray<struct FRshipRenderContextState>& Contexts) const;
 	bool IsProjectionEditActiveFor(const FString& MappingId) const;
+	bool ExecuteQuickCreateMapping();
+	void StoreQuickCreateDefaults();
+	void ApplyStoredQuickCreateDefaults();
+	bool DuplicateSelectedMappings();
+	bool ToggleSelectedMappingsEnabled();
+	void SetSelectedMappingsConfigExpanded(bool bExpanded);
 	void RebuildFeedRectList();
 
 	struct FFeedRect

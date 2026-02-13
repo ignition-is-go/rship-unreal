@@ -85,6 +85,9 @@ public class Rship2110 : ModuleRules
             );
         }
 
+        bool bPlatformSupportsRivermax = Target.Platform == UnrealTargetPlatform.Win64 || Target.Platform == UnrealTargetPlatform.Linux;
+        bool bPlatformSupportsPTP = bPlatformSupportsRivermax;
+
         // Platform-specific configuration
         if (Target.Platform == UnrealTargetPlatform.Win64)
         {
@@ -96,16 +99,15 @@ public class Rship2110 : ModuleRules
         }
         else
         {
-            // Other platforms - Rivermax not supported
-            PublicDefinitions.Add("RSHIP_RIVERMAX_AVAILABLE=0");
-            PublicDefinitions.Add("RSHIP_PTP_AVAILABLE=0");
+            // Other platforms - Rivermax/PTP are unavailable; keep GPU-direct macro defined.
+            PublicDefinitions.Add("RSHIP_GPUDIRECT_AVAILABLE=0");
             System.Console.WriteLine("Rship2110: Platform not supported for Rivermax/PTP");
         }
 
         // Define availability macros
         // We compile with Rivermax support if SDK is found, and use delay-loading
         // so the module can still load even if rivermax.dll isn't present at runtime
-        bool bEnableRivermax = bRivermaxAvailable;
+        bool bEnableRivermax = bPlatformSupportsRivermax && bRivermaxAvailable;
         if (Target.Platform == UnrealTargetPlatform.Win64 && bRivermaxAvailable && !bRivermaxDLLsFound)
         {
             System.Console.WriteLine("Rship2110: Rivermax SDK found but DLLs not detected at build time");
@@ -115,7 +117,6 @@ public class Rship2110 : ModuleRules
         if (bEnableRivermax)
         {
             PublicDefinitions.Add("RSHIP_RIVERMAX_AVAILABLE=1");
-            PublicDefinitions.Add("RSHIP_PTP_AVAILABLE=1");
 
             if (bRivermaxLicenseFound)
             {
@@ -131,13 +132,14 @@ public class Rship2110 : ModuleRules
         else
         {
             PublicDefinitions.Add("RSHIP_RIVERMAX_AVAILABLE=0");
-            PublicDefinitions.Add("RSHIP_PTP_AVAILABLE=1");  // PTP can work without Rivermax
             if (!bRivermaxAvailable)
             {
                 System.Console.WriteLine("Rship2110: Rivermax SDK not found, using stub implementations");
                 System.Console.WriteLine("Rship2110: To enable full 2110 support, populate ThirdParty/Rivermax/ with SDK files");
             }
         }
+
+        PublicDefinitions.Add(bPlatformSupportsPTP ? "RSHIP_PTP_AVAILABLE=1" : "RSHIP_PTP_AVAILABLE=0");
 
         // IPMX/NMOS support (always available - uses HTTP REST)
         PublicDefinitions.Add("RSHIP_IPMX_AVAILABLE=1");

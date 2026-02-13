@@ -361,6 +361,54 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Rship|2110|Cluster")
     int64 GetClusterFrameCounter() const { return ClusterFrameCounter; }
 
+    /** Get frame counter for a specific sync domain (empty = default). */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Cluster")
+    int64 GetClusterFrameCounterForDomain(const FString& SyncDomainId) const;
+
+    /** Set shared default cluster sync rate in Hz (live). */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Cluster")
+    void SetClusterSyncRateHz(float InSyncRateHz);
+
+    /** Get shared default cluster sync rate in Hz. */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Cluster")
+    float GetClusterSyncRateHz() const { return ClusterSyncRateHz; }
+
+    /** Set local render pacing multiplier (live). */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Cluster")
+    void SetLocalRenderSubsteps(int32 InSubsteps);
+
+    /** Get local render pacing multiplier. */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Cluster")
+    int32 GetLocalRenderSubsteps() const { return LocalRenderSubsteps; }
+
+    /** Set max sync catch-up steps per engine tick (live). */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Cluster")
+    void SetMaxSyncCatchupSteps(int32 InMaxSteps);
+
+    /** Get max sync catch-up steps. */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Cluster")
+    int32 GetMaxSyncCatchupSteps() const { return MaxSyncCatchupSteps; }
+
+    /** Set current active sync domain used for local authoritative outbound payloads. */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Cluster")
+    void SetActiveSyncDomainId(const FString& SyncDomainId);
+
+    /** Get current active sync domain id used for local authoritative outbound payloads. */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Cluster")
+    FString GetActiveSyncDomainId() const { return ActiveSyncDomainId; }
+
+    /** Set a specific sync domain frame rate in Hz (non-default domains can run independently). */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Cluster")
+    bool SetSyncDomainRateHz(const FString& SyncDomainId, float SyncRateHz);
+
+    /** Get a specific sync domain frame rate in Hz. */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Cluster")
+    float GetSyncDomainRateHz(const FString& SyncDomainId) const;
+
+    /** List known sync domains. */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Cluster")
+    TArray<FString> GetSyncDomainIds() const;
+
     /**
      * Queue an authoritative cluster state update to apply at ClusterState.ApplyFrame.
      * Update is ignored if stale (older epoch/version).
@@ -459,7 +507,10 @@ public:
      * Emits OnClusterDataOutbound for transport forwarding.
      */
     UFUNCTION(BlueprintCallable, Category = "Rship|2110|Cluster")
-    bool SubmitAuthorityClusterDataMessage(const FString& Payload, int64 ApplyFrame = INDEX_NONE);
+    bool SubmitAuthorityClusterDataMessage(const FString& Payload, int64 ApplyFrame = -1);
+
+    /** Authority entrypoint for deterministic control payload replication with explicit sync domain id. */
+    bool SubmitAuthorityClusterDataMessageForDomain(const FString& Payload, const FString& SyncDomainId, int64 ApplyFrame = INDEX_NONE);
 
     /**
      * Receive replicated authoritative control payload from transport.
@@ -530,11 +581,26 @@ private:
     FString LocalClusterNodeId;
     FRship2110ClusterState ActiveClusterState;
     TArray<FRship2110ClusterState> PendingClusterStates;
-    TArray<FRship2110ClusterDataMessage> PendingClusterDataMessages;
-    TMap<FString, int64> LastAppliedClusterDataSequenceByAuthority;
+    struct FRship2110SyncDomainRuntime
+    {
+        int64 FrameCounter = 0;
+        double FrameAccumulator = 0.0;
+        float SyncRateHz = 60.0f;
+        TArray<FRship2110ClusterDataMessage> PendingDataMessages;
+        TMap<FString, int64> LastAppliedSequenceByAuthority;
+    };
+
+    TMap<FString, FRship2110SyncDomainRuntime> SyncDomains;
+    FString DefaultSyncDomainId = TEXT("default");
+    FString ActiveSyncDomainId = TEXT("default");
     TMap<FString, FString> StreamOwnerNodeCache; // Stream ID -> Owner node ID
+    int64 LocalRenderStepCounter = 0;
     int64 ClusterFrameCounter = 0;
     int64 ClusterDataSequenceCounter = 0;
+    double ClusterSyncFrameAccumulator = 0.0;
+    float ClusterSyncRateHz = 60.0f;
+    int32 LocalRenderSubsteps = 1;
+    int32 MaxSyncCatchupSteps = 4;
     double LastAuthorityHeartbeatTime = 0.0;
     FDelegateHandle RshipAuthoritativeInboundHandle;
 
@@ -571,6 +637,11 @@ private:
     FString ResolveLocalClusterNodeId() const;
     void ProcessPendingClusterStates();
     void ProcessPendingClusterDataMessages();
+    void ProcessPendingClusterDataMessagesForDomain(const FString& SyncDomainId, FRship2110SyncDomainRuntime& DomainRuntime);
+    FString ResolveSyncDomainId(const FString& SyncDomainId) const;
+    FRship2110SyncDomainRuntime& GetOrCreateSyncDomain(const FString& SyncDomainId);
+    const FRship2110SyncDomainRuntime* FindSyncDomain(const FString& SyncDomainId) const;
+    void TickNonDefaultSyncDomains(float DeltaTime);
     bool ApplyClusterStateNow(const FRship2110ClusterState& ClusterState);
     bool IsClusterStateStale(const FRship2110ClusterState& ClusterState) const;
     FString MakePreparedStateKey(int32 Epoch, int32 Version, const FString& StateHash) const;

@@ -299,6 +299,16 @@ public:
     // Controls timing and threading behavior
     // ============================================================================
 
+    UPROPERTY(EditAnywhere, config, Category = "Processing", meta = (DisplayName = "Control Sync Rate (Hz)",
+        ClampMin = "1.0", ClampMax = "240.0",
+        ToolTip = "Deterministic control/apply tick rate shared across nodes. Keep this identical across the cluster."))
+    float ControlSyncRateHz = 60.0f;
+
+    UPROPERTY(EditAnywhere, config, Category = "Processing", meta = (DisplayName = "Inbound Apply Lead Frames",
+        ClampMin = "1", ClampMax = "16",
+        ToolTip = "Minimum sync-frame lead time before applying inbound payloads. Higher values improve jitter tolerance at the cost of control latency."))
+    int32 InboundApplyLeadFrames = 1;
+
     UPROPERTY(EditAnywhere, config, Category = "Processing", meta = (DisplayName = "Queue Process Interval (Seconds)",
         ClampMin = "0.001", ClampMax = "1.0",
         ToolTip = "How often to process the message queue. Lower values = more responsive but higher CPU. Default 0.016 (~60Hz)."))
