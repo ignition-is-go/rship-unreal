@@ -75,6 +75,7 @@ Access via **Window > Rship**:
 | Materials | Material parameter bindings |
 | Fixtures | Lighting fixture management |
 | NDI | Camera NDI streaming (requires RshipNDI) |
+| SMPTE 2110 Mapping | Bind 2110 streams to content-mapped render contexts |
 | Test | Offline testing and validation |
 
 ## Console Commands

@@ -99,6 +99,15 @@ private:
     /** Spawn the Content Mapping panel tab */
     TSharedRef<class SDockTab> SpawnContentMappingPanelTab(const class FSpawnTabArgs& Args);
 
+    /** Register the 2110 mapping panel tab spawner */
+    void Register2110MappingPanel();
+
+    /** Unregister the 2110 mapping panel tab spawner */
+    void Unregister2110MappingPanel();
+
+    /** Spawn the 2110 mapping panel tab */
+    TSharedRef<class SDockTab> Spawn2110MappingPanelTab(const class FSpawnTabArgs& Args);
+
     /** Register menu extensions */
     void RegisterMenus();
 };

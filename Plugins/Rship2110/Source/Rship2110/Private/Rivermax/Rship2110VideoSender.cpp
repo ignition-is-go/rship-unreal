@@ -7,6 +7,7 @@
 #include "RenderGraphBuilder.h"
 #include "RenderGraphUtils.h"
 #include "Engine/TextureRenderTarget2D.h"
+#include "TextureResource.h"
 #include "SocketSubsystem.h"
 #include "Sockets.h"
 #include "IPAddress.h"
@@ -257,6 +258,27 @@ void URship2110VideoSender::SetRenderTarget(UTextureRenderTarget2D* RenderTarget
     CaptureSource = ERship2110CaptureSource::RenderTarget;
 }
 
+void URship2110VideoSender::SetCaptureRect(const FIntRect& InCaptureRect)
+{
+    CaptureRect = InCaptureRect;
+    bUseCaptureRect = true;
+}
+
+void URship2110VideoSender::ClearCaptureRect()
+{
+    bUseCaptureRect = false;
+    CaptureRect = FIntRect(0, 0, 0, 0);
+}
+
+FIntRect URship2110VideoSender::GetCaptureRect() const
+{
+    if (!bUseCaptureRect)
+    {
+        return FIntRect();
+    }
+    return CaptureRect;
+}
+
 bool URship2110VideoSender::SubmitFrame(const void* FrameData, int64 DataSize, const FRshipPTPTimestamp& PTPTimestamp)
 {
     if (State != ERship2110StreamState::Running)
@@ -396,9 +418,105 @@ void URship2110VideoSender::CaptureFrame()
         case ERship2110CaptureSource::RenderTarget:
             if (SourceRenderTarget)
             {
-                // Read render target
-                // TODO: Implement async readback
-                UE_LOG(LogRship2110, VeryVerbose, TEXT("VideoSender: Capturing from render target"));
+                const int32 SourceWidth = SourceRenderTarget->SizeX;
+                const int32 SourceHeight = SourceRenderTarget->SizeY;
+                const FIntRect ActiveRect = ResolveCaptureRect(SourceWidth, SourceHeight);
+                const int32 CaptureWidth = FMath::Max(0, ActiveRect.Width());
+                const int32 CaptureHeight = FMath::Max(0, ActiveRect.Height());
+                const int32 ExpectedBytes = GetExpectedCaptureBytes(CaptureWidth, CaptureHeight);
+                const int64 ConfiguredBytes = VideoFormat.GetFrameSizeBytes();
+
+                if (VideoFormat.GetBitDepthInt() != 8)
+                {
+                    UE_LOG(LogRship2110, Warning, TEXT("VideoSender: RenderTarget capture supports 8-bit only (stream %s)"),
+                        *StreamId);
+                    break;
+                }
+
+                if (CaptureWidth != VideoFormat.Width || CaptureHeight != VideoFormat.Height)
+                {
+                    UE_LOG(LogRship2110, VeryVerbose, TEXT("VideoSender: RenderTarget size %dx%d does not match stream %s format %dx%d"),
+                        CaptureWidth, CaptureHeight, *StreamId, VideoFormat.Width, VideoFormat.Height);
+                    break;
+                }
+
+                if (ExpectedBytes != ConfiguredBytes)
+                {
+                    UE_LOG(LogRship2110, Warning, TEXT("VideoSender: RenderTarget conversion bytes %d != configured frame bytes %lld for stream %s"),
+                        ExpectedBytes, ConfiguredBytes, *StreamId);
+                    break;
+                }
+
+                TArray<FColor> Pixels;
+                if (!ReadRenderTargetPixels(SourceRenderTarget, Pixels))
+                {
+                    UE_LOG(LogRship2110, VeryVerbose, TEXT("VideoSender: Failed to read render target for stream %s"), *StreamId);
+                    break;
+                }
+
+                int32 FreeBufferIndex = FindFreeFrameBufferIndex();
+                if (FreeBufferIndex < 0)
+                {
+                    UE_LOG(LogRship2110, VeryVerbose, TEXT("VideoSender: All frame buffers in flight for stream %s"), *StreamId);
+                    break;
+                }
+
+                const int32 PixelCount = CaptureWidth * CaptureHeight;
+                const int32 PixelByteCount = PixelCount * 4;
+                if (CaptureBuffer.Num() < PixelByteCount)
+                {
+                    CaptureBuffer.SetNumZeroed(PixelByteCount);
+                }
+                if (CaptureWidth == SourceWidth && CaptureHeight == SourceHeight)
+                {
+                    FMemory::Memcpy(CaptureBuffer.GetData(), Pixels.GetData(), PixelByteCount);
+                }
+                else
+                {
+                    for (int32 Row = 0; Row < CaptureHeight; ++Row)
+                    {
+                        const int32 SrcY = ActiveRect.Min.Y + Row;
+                        const int32 SrcStartIndex = (SrcY * SourceWidth + ActiveRect.Min.X) * 4;
+                        const int32 DstStartIndex = Row * CaptureWidth * 4;
+                        FMemory::Memcpy(CaptureBuffer.GetData() + DstStartIndex, Pixels.GetData() + SrcStartIndex, CaptureWidth * 4);
+                    }
+                }
+
+                FFrameBuffer& TargetBuffer = FrameBuffers[FreeBufferIndex];
+                TargetBuffer.bInUse = true;
+                TargetBuffer.Timestamp = FrameTimestamp;
+                TargetBuffer.Size = static_cast<size_t>(ExpectedBytes);
+                CurrentBufferIndex = FreeBufferIndex;
+
+                uint8* Dest = static_cast<uint8*>(TargetBuffer.Data);
+                const uint8* Src = CaptureBuffer.GetData();
+
+                switch (VideoFormat.ColorFormat)
+                {
+                    case ERship2110ColorFormat::RGB_444:
+                        for (int32 i = 0; i < PixelCount; ++i)
+                        {
+                            Dest[i * 3 + 0] = Src[i * 4 + 0];
+                            Dest[i * 3 + 1] = Src[i * 4 + 1];
+                            Dest[i * 3 + 2] = Src[i * 4 + 2];
+                        }
+                        break;
+
+                    case ERship2110ColorFormat::RGBA_4444:
+                        FMemory::Memcpy(Dest, Src, PixelByteCount);
+                        break;
+
+                    case ERship2110ColorFormat::YCbCr_422:
+                        ConvertRGBAToYCbCr422(Src, Dest, CaptureWidth, CaptureHeight);
+                        break;
+
+                    case ERship2110ColorFormat::YCbCr_444:
+                        ConvertRGBAToYCbCr444(Src, Dest, CaptureWidth, CaptureHeight);
+                        break;
+
+                    default:
+                        break;
+                }
             }
             break;
 
@@ -460,6 +578,91 @@ void URship2110VideoSender::TransmitFrame()
     // Move to next buffer
     Buffer.bInUse = false;
     CurrentBufferIndex = (CurrentBufferIndex + 1) % FrameBuffers.Num();
+}
+
+bool URship2110VideoSender::ReadRenderTargetPixels(UTextureRenderTarget2D* RenderTarget, TArray<FColor>& OutPixels) const
+{
+    if (!RenderTarget)
+    {
+        return false;
+    }
+
+    FTextureRenderTargetResource* RenderTargetResource = RenderTarget->GameThread_GetRenderTargetResource();
+    if (!RenderTargetResource)
+    {
+        UE_LOG(LogRship2110, Warning, TEXT("VideoSender: Failed to get render target resource for stream %s"), *StreamId);
+        return false;
+    }
+
+    const int32 Width = RenderTarget->SizeX;
+    const int32 Height = RenderTarget->SizeY;
+    if (Width <= 0 || Height <= 0)
+    {
+        return false;
+    }
+
+    OutPixels.SetNumUninitialized(Width * Height);
+    FReadSurfaceDataFlags ReadFlags(RCM_UNorm);
+    RenderTargetResource->ReadPixels(OutPixels, ReadFlags);
+    return true;
+}
+
+FIntRect URship2110VideoSender::ResolveCaptureRect(int32 SourceWidth, int32 SourceHeight) const
+{
+    if (!bUseCaptureRect || SourceWidth <= 0 || SourceHeight <= 0 || CaptureRect.Area() <= 0)
+    {
+        return FIntRect(0, 0, SourceWidth, SourceHeight);
+    }
+
+    const int32 ClampedX = FMath::Clamp(CaptureRect.Min.X, 0, SourceWidth - 1);
+    const int32 ClampedY = FMath::Clamp(CaptureRect.Min.Y, 0, SourceHeight - 1);
+    const int32 MaxX = FMath::Clamp(CaptureRect.Max.X, ClampedX + 1, SourceWidth);
+    const int32 MaxY = FMath::Clamp(CaptureRect.Max.Y, ClampedY + 1, SourceHeight);
+
+    return FIntRect(ClampedX, ClampedY, MaxX, MaxY);
+}
+
+int32 URship2110VideoSender::FindFreeFrameBufferIndex() const
+{
+    if (FrameBuffers.Num() == 0)
+    {
+        return -1;
+    }
+
+    for (int32 IndexOffset = 1; IndexOffset <= FrameBuffers.Num(); ++IndexOffset)
+    {
+        int32 Candidate = (CurrentBufferIndex + IndexOffset) % FrameBuffers.Num();
+        if (!FrameBuffers[Candidate].bInUse)
+        {
+            return Candidate;
+        }
+    }
+
+    return -1;
+}
+
+int64 URship2110VideoSender::GetExpectedCaptureBytes(int32 Width, int32 Height) const
+{
+    if (Width <= 0 || Height <= 0)
+    {
+        return 0;
+    }
+
+    const int64 PixelCount = static_cast<int64>(Width) * static_cast<int64>(Height);
+
+    switch (VideoFormat.ColorFormat)
+    {
+        case ERship2110ColorFormat::YCbCr_422:
+            return PixelCount * 2; // 4:2:2 packed approximation (8-bit path)
+        case ERship2110ColorFormat::YCbCr_444:
+            return PixelCount * 3; // 4:4:4 packed approximation (8-bit path)
+        case ERship2110ColorFormat::RGB_444:
+            return PixelCount * 3;
+        case ERship2110ColorFormat::RGBA_4444:
+            return PixelCount * 4;
+        default:
+            return PixelCount * 4;
+    }
 }
 
 bool URship2110VideoSender::AllocateBuffers()

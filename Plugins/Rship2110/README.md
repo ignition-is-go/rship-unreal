@@ -94,6 +94,63 @@ if (Status.bSynchronized)
 
 For production, use a dedicated PTP grandmaster. For testing, software PTP (ptp4l on Linux) can work.
 
+## Live editor workflow: bind a content-mapped render context to a 2110 stream
+
+This path uses the existing `RshipExec` content mapping output texture (camera contexts) directly as a 2110 source, with no extra scene capture stage in 2110.
+
+- Keep `RshipExec` content mapping enabled and create a `RenderContext` with `sourceType = camera`.
+- Match the 2110 stream format dimensions to the context render target size.
+- Create the stream in 2110 and bind it to the context:
+
+```cpp
+URship2110Subsystem* Subsystem = GetWorld()->GetGameInstance()->GetSubsystem<URship2110Subsystem>();
+FRship2110VideoFormat VideoFormat;
+VideoFormat.Width = 1920;
+VideoFormat.Height = 1080;
+VideoFormat.FrameRateNumerator = 60;
+VideoFormat.FrameRateDenominator = 1;
+VideoFormat.ColorFormat = ERship2110ColorFormat::RGBA_4444;
+VideoFormat.BitDepth = ERship2110BitDepth::Bits_8;
+
+FRship2110TransportParams TransportParams;
+TransportParams.DestinationIP = TEXT("239.0.0.1");
+TransportParams.DestinationPort = 5004;
+
+FString StreamId = Subsystem->CreateVideoStream(VideoFormat, TransportParams);
+if (Subsystem->BindVideoStreamToRenderContext(StreamId, TEXT("context-id-guid")))
+{
+    Subsystem->StartStream(StreamId);
+}
+```
+
+```cpp
+// Optional: send a crop of the source context (x, y, width, height in pixels)
+FIntRect CaptureRect(200, 100, 1680, 880);
+Subsystem->BindVideoStreamToRenderContextWithRect(StreamId, TEXT("context-id-guid"), CaptureRect);
+```
+
+Notes:
+- This stays active in-editor as long as the bound context remains in `RshipExec` and refreshes its render target.
+- If you need partial output, keep one context and set `CaptureRect` on the stream bind instead of duplicating mesh UV splits.
+- If a context is not found or its texture is not a render target, binding fails and the stream keeps its previous source.
+
+### Editor workflow (live, no MRQ)
+
+Use this when you want to map a 2110 stream without creating custom camera projection code.
+
+1. Enable `RshipExec` + `Rship2110` and open **Window > Rship > Rship 2110 Mapping**.
+2. In the panel:
+   - Pick an active 2110 stream.
+   - Pick a render context.
+   - Optional: set capture rectangle `x, y, w, h`.
+3. Press **Bind Stream -> Context**.
+4. Press **Start** on the stream.
+
+Capture rectangle rules:
+- Coordinates are in render-target pixel space (origin top-left).
+- Leave all fields blank to send the full context.
+- If set, `w` and `h` must match the stream output dimensions; otherwise streaming is rejected by the sender.
+
 ## Console Commands
 
 ```

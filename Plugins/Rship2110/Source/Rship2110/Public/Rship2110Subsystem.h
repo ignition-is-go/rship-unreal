@@ -26,6 +26,7 @@ class URship2110VideoSender;
 class URship2110VideoCapture;
 class URship2110Settings;
 class URshipSubsystem;
+class UTextureRenderTarget2D;
 
 /**
  * Main subsystem for SMPTE 2110 streaming.
@@ -182,6 +183,52 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Rship|2110|Streams")
     bool StopStream(const FString& StreamId);
 
+    /**
+     * Bind a video stream to an RshipExec render context.
+     * The stream uses the context's resolved render target every tick.
+     * @param StreamId Stream ID to bind
+     * @param RenderContextId Render context ID from content mapping
+     * @return true if binding was created
+     */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Streams")
+    bool BindVideoStreamToRenderContext(const FString& StreamId, const FString& RenderContextId);
+
+    /**
+     * Bind a video stream to an RshipExec render context with an explicit capture region.
+     * @param StreamId Stream ID to bind
+     * @param RenderContextId Render context ID from content mapping
+     * @param CaptureRect Capture region in source render target pixels (min inclusive, max exclusive)
+     * @return true if binding was created
+     */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Streams")
+    bool BindVideoStreamToRenderContextWithRect(const FString& StreamId, const FString& RenderContextId, const FIntRect& CaptureRect);
+
+    /**
+     * Remove any render context binding from a stream.
+     * @param StreamId Stream ID to unbind
+     * @return true if binding existed
+     */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Streams")
+    bool UnbindVideoStreamFromRenderContext(const FString& StreamId);
+
+    /**
+     * Query which render context is currently bound to a stream.
+     * @param StreamId Stream ID
+     * @return Bound render context ID (empty if unbound)
+     */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Streams")
+    FString GetBoundRenderContextForStream(const FString& StreamId) const;
+
+    /**
+     * Query full stream-to-context binding metadata.
+     * @param StreamId Stream ID
+     * @param OutRenderContextId Output render context ID
+     * @param OutCaptureRect Output capture rectangle in source render target pixels
+     * @param bOutUseCaptureRect true when stream is bound to a clipped region
+     * @return true if stream is currently bound
+     */
+    bool GetBoundRenderContextBinding(const FString& StreamId, FString& OutRenderContextId, FIntRect& OutCaptureRect, bool& bOutUseCaptureRect) const;
+
     // ========================================================================
     // QUICK ACCESS - IPMX
     // ========================================================================
@@ -316,14 +363,25 @@ private:
     // State
     bool bIsInitialized = false;
 
+    struct FRship2110RenderContextBinding
+    {
+        FString RenderContextId;
+        FIntRect CaptureRect = FIntRect(0, 0, 0, 0);
+        bool bUseCaptureRect = false;
+    };
+
     // Stream to IPMX mapping
     TMap<FString, FString> StreamToIPMXSender;  // Stream ID -> IPMX Sender ID
+    // Stream to content context mapping
+    TMap<FString, FRship2110RenderContextBinding> StreamToContextBinding;  // Stream ID -> Context binding
 
     // Initialization helpers
     void InitializePTPService();
     void InitializeRivermaxManager();
     void InitializeIPMXService();
     void InitializeVideoCapture();
+    void RefreshStreamRenderContextBindings();
+    bool ResolveRenderContextRenderTarget(const FString& ContextId, UTextureRenderTarget2D*& OutRenderTarget);
 
     // Event handlers (UFUNCTION required for AddDynamic)
     UFUNCTION()

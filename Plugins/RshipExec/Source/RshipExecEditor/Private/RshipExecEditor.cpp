@@ -10,6 +10,9 @@
 #include "SRshipTestPanel.h"
 #include "SRshipNDIPanel.h"
 #include "SRshipContentMappingPanel.h"
+#if RSHIP_EDITOR_HAS_2110
+#include "SRship2110MappingPanel.h"
+#endif
 #include "RshipStatusPanelStyle.h"
 #include "RshipStatusPanelCommands.h"
 
@@ -31,6 +34,7 @@ static const FName RshipFixturePanelTabName("RshipFixturePanel");
 static const FName RshipTestPanelTabName("RshipTestPanel");
 static const FName RshipNDIPanelTabName("RshipNDIPanel");
 static const FName RshipContentMappingPanelTabName("RshipContentMappingPanel");
+static const FName Rship2110MappingPanelTabName("Rship2110MappingPanel");
 
 void FRshipExecEditorModule::StartupModule()
 {
@@ -53,6 +57,9 @@ void FRshipExecEditorModule::StartupModule()
     RegisterTestPanel();
     RegisterNDIPanel();
     RegisterContentMappingPanel();
+#if RSHIP_EDITOR_HAS_2110
+    Register2110MappingPanel();
+#endif
 
     // Register menus after ToolMenus is ready
     UToolMenus::RegisterStartupCallback(FSimpleMulticastDelegate::FDelegate::CreateRaw(this, &FRshipExecEditorModule::RegisterMenus));
@@ -75,6 +82,9 @@ void FRshipExecEditorModule::ShutdownModule()
     UnregisterTestPanel();
     UnregisterNDIPanel();
     UnregisterContentMappingPanel();
+#if RSHIP_EDITOR_HAS_2110
+    Unregister2110MappingPanel();
+#endif
 }
 
 FRshipExecEditorModule& FRshipExecEditorModule::Get()
@@ -280,6 +290,25 @@ void FRshipExecEditorModule::UnregisterContentMappingPanel()
     FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(RshipContentMappingPanelTabName);
 }
 
+void FRshipExecEditorModule::Register2110MappingPanel()
+{
+#if RSHIP_EDITOR_HAS_2110
+    FGlobalTabmanager::Get()->RegisterNomadTabSpawner(Rship2110MappingPanelTabName,
+        FOnSpawnTab::CreateRaw(this, &FRshipExecEditorModule::Spawn2110MappingPanelTab))
+        .SetDisplayName(LOCTEXT("Rship2110MappingPanelTabTitle", "Rship 2110 Mapping"))
+        .SetTooltipText(LOCTEXT("Rship2110MappingPanelTooltip", "Open Rocketship SMPTE 2110 Mapping Panel"))
+        .SetGroup(WorkspaceMenu::GetMenuStructure().GetLevelEditorCategory())
+        .SetIcon(FSlateIcon(FRshipStatusPanelStyle::GetStyleSetName(), "Rship.StatusPanel.TabIcon"));
+#endif
+}
+
+void FRshipExecEditorModule::Unregister2110MappingPanel()
+{
+#if RSHIP_EDITOR_HAS_2110
+    FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(Rship2110MappingPanelTabName);
+#endif
+}
+
 TSharedRef<SDockTab> FRshipExecEditorModule::SpawnContentMappingPanelTab(const FSpawnTabArgs& Args)
 {
     return SNew(SDockTab)
@@ -287,6 +316,28 @@ TSharedRef<SDockTab> FRshipExecEditorModule::SpawnContentMappingPanelTab(const F
         [
             SNew(SRshipContentMappingPanel)
         ];
+}
+
+TSharedRef<SDockTab> FRshipExecEditorModule::Spawn2110MappingPanelTab(const FSpawnTabArgs& Args)
+{
+#if RSHIP_EDITOR_HAS_2110
+    return SNew(SDockTab)
+        .TabRole(ETabRole::NomadTab)
+        [
+            SNew(SRship2110MappingPanel)
+        ];
+#else
+    return SNew(SDockTab)
+        .TabRole(ETabRole::NomadTab)
+        [
+            SNew(SVerticalBox)
+            + SVerticalBox::Slot()
+            .AutoHeight()
+            [
+                SNew(STextBlock).Text(LOCTEXT("Rship2110MappingUnavailable", "Rship 2110 plugin is not available."))
+            ]
+        ];
+#endif
 }
 
 TSharedRef<SDockTab> FRshipExecEditorModule::SpawnStatusPanelTab(const FSpawnTabArgs& Args)
