@@ -261,29 +261,42 @@ int32 FRshipRateLimiter::ProcessQueue()
                 int32 CriticalSent = 0;
                 for (int32 i = 0; i < MessageQueue.Num(); ++i)
                 {
-                    if (MessageQueue[i].Priority == ERshipMessagePriority::Critical)
+                    if (MessageQueue[i].Priority != ERshipMessagePriority::Critical)
                     {
-                        // Send critical message immediately
-                        FString JsonString = SerializeMessage(MessageQueue[i].Payload);
-                        if (!JsonString.IsEmpty() && OnMessageReadyToSend.IsBound())
-                        {
-                            OnMessageReadyToSend.Execute(JsonString);
-                            CriticalSent++;
-
-                            int32 BytesSent = JsonString.Len();
-                            RecentSendTimes.Add(Now);
-                            RecentSendBytes.Add(BytesSent);
-                        }
-
-                        QueueBytesEstimate -= MessageQueue[i].EstimatedBytes;
-                        MessageQueue.RemoveAt(i);
-                        --i;
+                        continue;
                     }
+
+                    if (!HasSufficientTokens(MessageQueue[i].EstimatedBytes))
+                    {
+                        bBackpressureDetected = true;
+                        break;
+                    }
+
+                    ConsumeMessageToken();
+                    ConsumeBytesTokens(MessageQueue[i].EstimatedBytes);
+
+                    // Send critical message immediately
+                    FString JsonString = SerializeMessage(MessageQueue[i].Payload);
+                    if (!JsonString.IsEmpty() && OnMessageReadyToSend.IsBound())
+                    {
+                        OnMessageReadyToSend.Execute(JsonString);
+                        CriticalSent++;
+
+                        int32 BytesSent = JsonString.Len();
+                        RecentSendTimes.Add(Now);
+                        RecentSendBytes.Add(BytesSent);
+                    }
+
+                    QueueBytesEstimate -= MessageQueue[i].EstimatedBytes;
+                    MessageQueue.RemoveAt(i);
+                    --i;
                 }
+
                 if (CriticalSent > 0)
                 {
                     LogMessage(2, FString::Printf(TEXT("Sent %d critical messages during backoff"), CriticalSent));
                 }
+
                 return CriticalSent;
             }
 

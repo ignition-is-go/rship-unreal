@@ -256,6 +256,7 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
         int64 ApplyFrame = 0;
         double EnqueueTimeSeconds = 0.0;
         FString Payload;
+        TSharedPtr<FJsonObject> ParsedPayload;
     };
 
     // Deterministic inbound ingest/apply state
@@ -271,6 +272,8 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     bool bInboundAuthorityOnly = true;
     bool bIsAuthorityIngestNode = true;
     bool bLoggedInboundAuthorityDrop = false;
+    int32 InboundQueueMaxLength = 500;
+    bool bLoggedInboundQueueCapacityDrop = false;
     FString InboundNodeId;
     FString InboundAuthorityNodeId;
     FOnRshipAuthoritativeInboundQueued OnAuthoritativeInboundQueuedDelegate;
@@ -283,7 +286,7 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     void SendAction(Action* action, FString targetId);
     void SendEmitter(EmitterContainer* emitter, FString targetId);
     void SendTargetStatus(Target* target, bool online);
-    void ProcessMessage(const FString& message);
+    void ProcessMessage(const FString& Message, const TSharedPtr<FJsonObject>& ParsedPayload = nullptr);
 
     // Queue a message through rate limiter (preferred method)
     void QueueMessage(TSharedPtr<FJsonObject> Payload, ERshipMessagePriority Priority = ERshipMessagePriority::Normal,
@@ -299,8 +302,12 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     void OnConnectionTimeout();
     void InitializeInboundMessagePolicy();
     bool IsInboundMessageTargetedToLocalNode(const FString& Message) const;
-    void EnqueueInboundMessage(const FString& Message, bool bBypassAuthorityGate, int64 TargetApplyFrame = INDEX_NONE);
+    bool IsInboundMessageTargetedToLocalNode(const TSharedPtr<FJsonObject>& JsonObject) const;
+    void EnqueueInboundMessage(const FString& Message, bool bBypassAuthorityGate, int64 TargetApplyFrame = INDEX_NONE,
+                             const TSharedPtr<FJsonObject>& ParsedPayload = nullptr);
     void ProcessInboundMessageQueue();
+    void ClearQueueProcessTimer();
+    void ScheduleQueueProcessTimer(float IntervalSeconds, bool bLooping = true);
 
     // WebSocket event handlers
     void OnWebSocketConnected();

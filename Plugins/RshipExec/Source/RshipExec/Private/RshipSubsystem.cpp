@@ -192,11 +192,13 @@ void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
     InboundAppliedMessages = 0;
     InboundAppliedLatencyMsTotal = 0.0;
     bLoggedInboundAuthorityDrop = false;
+    bLoggedInboundQueueCapacityDrop = false;
     InitializeInboundMessagePolicy();
 
     const URshipSettings* Settings = GetDefault<URshipSettings>();
     ControlSyncRateHz = FMath::Max(1.0f, Settings->ControlSyncRateHz);
     InboundApplyLeadFrames = FMath::Max(1, Settings->InboundApplyLeadFrames);
+    InboundQueueMaxLength = FMath::Max(1, Settings->MaxQueueLength);
 
     const float CVarSyncRateHz = CVarRshipControlSyncRateHz.GetValueOnGameThread();
     if (CVarSyncRateHz > 0.0f)
@@ -223,18 +225,6 @@ void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
     }
 
     this->TargetComponents = new TMap<FString, URshipTargetComponent*>;
-
-    // Start queue processing timer
-    if (Settings->bEnableRateLimiting && world != nullptr)
-    {
-        world->GetTimerManager().SetTimer(
-            QueueProcessTimerHandle,
-            this,
-            &URshipSubsystem::ProcessMessageQueue,
-            Settings->QueueProcessInterval,
-            true  // Looping
-        );
-    }
 
     // Start subsystem tick timer (60Hz for smooth updates)
     if (world != nullptr)
@@ -551,19 +541,11 @@ void URshipSubsystem::OnWebSocketConnected()
 
     // Ensure queue processing timer is running (may have failed during early init)
     const URshipSettings* Settings = GetDefault<URshipSettings>();
-    if (Settings->bEnableRateLimiting && !QueueProcessTimerHandle.IsValid())
+    const int32 PendingOutboundMessages = RateLimiter ? RateLimiter->GetQueueLength() : 0;
+    if (Settings->bEnableRateLimiting && PendingOutboundMessages > 0)
     {
-        if (UWorld* World = GetWorld())
-        {
-            UE_LOG(LogRshipExec, Log, TEXT("Starting queue processing timer (was not running)"));
-            World->GetTimerManager().SetTimer(
-                QueueProcessTimerHandle,
-                this,
-                &URshipSubsystem::ProcessMessageQueue,
-                Settings->QueueProcessInterval,
-                true  // Looping
-            );
-        }
+        UE_LOG(LogRshipExec, Log, TEXT("Starting queue processing timer (was not running)"));
+        ScheduleQueueProcessTimer(Settings->QueueProcessInterval, true);
     }
 }
 
@@ -574,6 +556,7 @@ void URshipSubsystem::OnWebSocketConnectionError(const FString &Error)
     ConnectionState = ERshipConnectionState::Disconnected;
 
     // Clear connection timeout
+    ClearQueueProcessTimer();
     if (auto World = GetWorld())
     {
         World->GetTimerManager().ClearTimer(ConnectionTimeoutHandle);
@@ -589,6 +572,7 @@ void URshipSubsystem::OnWebSocketConnectionError(const FString &Error)
     const URshipSettings *Settings = GetDefault<URshipSettings>();
     if (Settings->bAutoReconnect)
     {
+        ClearQueueProcessTimer();
         ScheduleReconnect();
     }
 }
@@ -610,6 +594,8 @@ void URshipSubsystem::OnWebSocketClosed(int32 StatusCode, const FString &Reason,
         }
     }
 
+    ClearQueueProcessTimer();
+
     // Schedule reconnection if enabled and this wasn't a clean close
     const URshipSettings *Settings = GetDefault<URshipSettings>();
     if (Settings->bAutoReconnect && !bWasClean)
@@ -620,7 +606,20 @@ void URshipSubsystem::OnWebSocketClosed(int32 StatusCode, const FString &Reason,
 
 void URshipSubsystem::OnWebSocketMessage(const FString &Message)
 {
-    EnqueueInboundMessage(Message, false);
+    if (Message.IsEmpty())
+    {
+        return;
+    }
+
+    TSharedPtr<FJsonObject> ParsedPayload;
+    TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Message);
+    if (FJsonSerializer::Deserialize(Reader, ParsedPayload) && ParsedPayload.IsValid())
+    {
+        EnqueueInboundMessage(Message, false, INDEX_NONE, ParsedPayload);
+        return;
+    }
+
+    EnqueueInboundMessage(Message, false, INDEX_NONE, nullptr);
 }
 
 void URshipSubsystem::InitializeInboundMessagePolicy()
@@ -681,6 +680,16 @@ bool URshipSubsystem::IsInboundMessageTargetedToLocalNode(const FString& Message
         return true;
     }
 
+    return IsInboundMessageTargetedToLocalNode(JsonObject);
+}
+
+bool URshipSubsystem::IsInboundMessageTargetedToLocalNode(const TSharedPtr<FJsonObject>& JsonObject) const
+{
+    if (InboundNodeId.IsEmpty() || !JsonObject.IsValid())
+    {
+        return true;
+    }
+
     bool bHasTargetFilter = false;
     if (RshipObjectTargetsLocalNode(JsonObject, InboundNodeId, bHasTargetFilter))
     {
@@ -696,22 +705,25 @@ bool URshipSubsystem::IsInboundMessageTargetedToLocalNode(const FString& Message
         }
     }
 
-    if (!bHasTargetFilter)
-    {
-        return true;
-    }
-
-    return false;
+    return !bHasTargetFilter;
 }
 
-void URshipSubsystem::EnqueueInboundMessage(const FString& Message, bool bBypassAuthorityGate, int64 TargetApplyFrame)
+void URshipSubsystem::EnqueueInboundMessage(const FString& Message, bool bBypassAuthorityGate, int64 TargetApplyFrame,
+                                           const TSharedPtr<FJsonObject>& ParsedPayload)
 {
     if (Message.IsEmpty())
     {
         return;
     }
 
-    if (!bBypassAuthorityGate && !IsInboundMessageTargetedToLocalNode(Message))
+    TSharedPtr<FJsonObject> EffectivePayload = ParsedPayload;
+    if (!bBypassAuthorityGate && !EffectivePayload.IsValid())
+    {
+        TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Message);
+        FJsonSerializer::Deserialize(Reader, EffectivePayload);
+    }
+
+    if (!bBypassAuthorityGate && !IsInboundMessageTargetedToLocalNode(EffectivePayload))
     {
         FScopeLock Lock(&InboundQueueMutex);
         ++InboundDroppedMessages;
@@ -744,14 +756,33 @@ void URshipSubsystem::EnqueueInboundMessage(const FString& Message, bool bBypass
 
     FRshipInboundQueuedMessage Queued;
     int64 AssignedApplyFrame = 0;
+    bool bShouldLogDrop = false;
+
     {
         FScopeLock Lock(&InboundQueueMutex);
+        if (InboundQueue.Num() >= InboundQueueMaxLength)
+        {
+            const int32 NumToDrop = InboundQueue.Num() - InboundQueueMaxLength + 1;
+            if (NumToDrop > 0)
+            {
+                InboundQueue.RemoveAt(0, NumToDrop, false);
+                InboundDroppedMessages += NumToDrop;
+
+                if (!bLoggedInboundQueueCapacityDrop)
+                {
+                    bLoggedInboundQueueCapacityDrop = true;
+                    bShouldLogDrop = true;
+                }
+            }
+        }
+
         Queued.Sequence = NextInboundSequence++;
         const int64 NextFrame = InboundFrameCounter + FMath::Max<int64>(1, InboundApplyLeadFrames);
         Queued.ApplyFrame = (TargetApplyFrame == INDEX_NONE) ? NextFrame : FMath::Max(TargetApplyFrame, NextFrame);
         AssignedApplyFrame = Queued.ApplyFrame;
         Queued.EnqueueTimeSeconds = FPlatformTime::Seconds();
         Queued.Payload = Message;
+        Queued.ParsedPayload = EffectivePayload;
 
         int32 Low = 0;
         int32 High = InboundQueue.Num();
@@ -768,6 +799,12 @@ void URshipSubsystem::EnqueueInboundMessage(const FString& Message, bool bBypass
             }
         }
         InboundQueue.Insert(MoveTemp(Queued), FMath::Clamp(Low, 0, InboundQueue.Num()));
+    }
+
+    if (bShouldLogDrop)
+    {
+        UE_LOG(LogRshipExec, Warning,
+            TEXT("Inbound queue full (max=%d), dropped oldest message(s). Enqueuing continues at capacity."), InboundQueueMaxLength);
     }
 
     if (!bBypassAuthorityGate && bInboundAuthorityOnly && bIsAuthorityIngestNode)
@@ -811,11 +848,20 @@ void URshipSubsystem::ProcessInboundMessageQueue()
     }
 
     const double ApplyTimeSeconds = FPlatformTime::Seconds();
+    double LatencyAccumMs = 0.0;
+    int64 AppliedCount = 0;
     for (const FRshipInboundQueuedMessage& Message : MessagesToApply)
     {
-        InboundAppliedLatencyMsTotal += FMath::Max(0.0, (ApplyTimeSeconds - Message.EnqueueTimeSeconds) * 1000.0);
-        ++InboundAppliedMessages;
-        ProcessMessage(Message.Payload);
+        LatencyAccumMs += FMath::Max(0.0, (ApplyTimeSeconds - Message.EnqueueTimeSeconds) * 1000.0);
+        ++AppliedCount;
+        ProcessMessage(Message.Payload, Message.ParsedPayload);
+    }
+
+    if (AppliedCount > 0)
+    {
+        FScopeLock Lock(&InboundQueueMutex);
+        InboundAppliedMessages += AppliedCount;
+        InboundAppliedLatencyMsTotal += LatencyAccumMs;
     }
 
     if (RemainingCount > 0)
@@ -900,6 +946,11 @@ void URshipSubsystem::OnConnectionTimeout()
     }
 
     ConnectionState = ERshipConnectionState::Disconnected;
+    ClearQueueProcessTimer();
+    if (auto World = GetWorld())
+    {
+        World->GetTimerManager().ClearTimer(ConnectionTimeoutHandle);
+    }
 
     // Schedule reconnection if enabled
     const URshipSettings* Settings = GetDefault<URshipSettings>();
@@ -923,22 +974,48 @@ void URshipSubsystem::OnRateLimiterStatusChanged(bool bIsBackingOff, float Backo
 
 void URshipSubsystem::ProcessMessageQueue()
 {
-    if (!RateLimiter || ConnectionState != ERshipConnectionState::Connected)
+    if (!RateLimiter)
     {
         return;
     }
 
-    int32 QueueSize = RateLimiter->GetQueueLength();
+    const int32 QueueSize = RateLimiter->GetQueueLength();
+    const bool bConnected = (ConnectionState == ERshipConnectionState::Connected);
+    const URshipSettings* Settings = GetDefault<URshipSettings>();
+    const float Interval = Settings ? Settings->QueueProcessInterval : 0.016f;
+    if (!bConnected)
+    {
+        ClearQueueProcessTimer();
+        return;
+    }
+
     if (QueueSize > 0)
     {
         UE_LOG(LogRshipExec, Log, TEXT("ProcessMessageQueue: Queue has %d messages, processing..."), QueueSize);
     }
 
     int32 Sent = RateLimiter->ProcessQueue();
+    const int32 RemainingQueueSize = RateLimiter->GetQueueLength();
 
     if (Sent > 0 || QueueSize > 0)
     {
-        UE_LOG(LogRshipExec, Log, TEXT("ProcessMessageQueue: Sent %d messages, %d remaining"), Sent, RateLimiter->GetQueueLength());
+        UE_LOG(LogRshipExec, Log, TEXT("ProcessMessageQueue: Sent %d messages, %d remaining"), Sent, RemainingQueueSize);
+    }
+
+    if (RemainingQueueSize == 0)
+    {
+        ClearQueueProcessTimer();
+        return;
+    }
+
+    if (RateLimiter && RateLimiter->IsBackingOff())
+    {
+        const float BackoffRemaining = FMath::Max(0.05f, RateLimiter->GetBackoffRemaining());
+        ScheduleQueueProcessTimer(BackoffRemaining, false);
+    }
+    else
+    {
+        ScheduleQueueProcessTimer(Interval, true);
     }
 }
 
@@ -1073,7 +1150,35 @@ void URshipSubsystem::QueueMessage(TSharedPtr<FJsonObject> Payload, ERshipMessag
     }
     else
     {
+        if (ConnectionState == ERshipConnectionState::Connected)
+        {
+            ScheduleQueueProcessTimer(Settings->QueueProcessInterval, true);
+        }
+
         UE_LOG(LogRshipExec, Log, TEXT("Enqueued message (Key=%s, QueueLen=%d)"), *CoalesceKey, RateLimiter->GetQueueLength());
+    }
+}
+
+void URshipSubsystem::ClearQueueProcessTimer()
+{
+    if (auto World = GetWorld())
+    {
+        World->GetTimerManager().ClearTimer(QueueProcessTimerHandle);
+    }
+}
+
+void URshipSubsystem::ScheduleQueueProcessTimer(float IntervalSeconds, bool bLooping)
+{
+    const float SafeInterval = FMath::Max(0.001f, IntervalSeconds);
+    if (auto World = GetWorld())
+    {
+        World->GetTimerManager().SetTimer(
+            QueueProcessTimerHandle,
+            this,
+            &URshipSubsystem::ProcessMessageQueue,
+            SafeInterval,
+            bLooping
+        );
     }
 }
 
@@ -1136,14 +1241,18 @@ void URshipSubsystem::SendJsonDirect(const FString& JsonString)
     }
 }
 
-void URshipSubsystem::ProcessMessage(const FString &message)
+void URshipSubsystem::ProcessMessage(const FString &message, const TSharedPtr<FJsonObject>& ParsedPayload)
 {
-    TSharedPtr<FJsonObject> obj = MakeShareable(new FJsonObject);
-    TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(message);
-
-    if (!(FJsonSerializer::Deserialize(Reader, obj) && obj.IsValid()))
+    TSharedPtr<FJsonObject> obj = ParsedPayload;
+    if (!obj.IsValid())
     {
-        return;
+        obj = MakeShareable(new FJsonObject);
+        TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(message);
+
+        if (!(FJsonSerializer::Deserialize(Reader, obj) && obj.IsValid()))
+        {
+            return;
+        }
     }
 
     TSharedRef<FJsonObject> objRef = obj.ToSharedRef();
@@ -2860,6 +2969,7 @@ int32 URshipSubsystem::GetInboundTargetFilteredMessages() const
 
 float URshipSubsystem::GetInboundAverageApplyLatencyMs() const
 {
+    FScopeLock Lock(&InboundQueueMutex);
     if (InboundAppliedMessages <= 0)
     {
         return 0.0f;
