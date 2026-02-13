@@ -15,25 +15,34 @@ PLUGIN_DIR="$REPO_ROOT/Plugins/RshipExec"
 UE_VERSION="${1:-5.6}"
 OUTPUT_DIR="${2:-$REPO_ROOT/dist}"
 
-# Detect platform and UE installation
+# Detect platform and UE installation.
+# Allow overriding UE path via UE_ROOT env var for non-standard installs.
 if [[ "$OSTYPE" == "darwin"* ]]; then
     PLATFORM="Mac"
-    UE_ROOT="/Users/Shared/Epic Games/UE_$UE_VERSION"
+    if [[ -z "${UE_ROOT:-}" ]]; then
+        if [[ -d "/Users/Shared/Epic Games/UE_$UE_VERSION" ]]; then
+            UE_ROOT="/Users/Shared/Epic Games/UE_$UE_VERSION"
+        elif [[ -d "/Users/Shared/EpicGames/UE_$UE_VERSION" ]]; then
+            UE_ROOT="/Users/Shared/EpicGames/UE_$UE_VERSION"
+        else
+            UE_ROOT="/Users/Shared/Epic Games/UE_$UE_VERSION"
+        fi
+    fi
     UAT="$UE_ROOT/Engine/Build/BatchFiles/RunUAT.sh"
 elif [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" ]]; then
     PLATFORM="Win64"
-    UE_ROOT="C:/Program Files/Epic Games/UE_$UE_VERSION"
+    UE_ROOT="${UE_ROOT:-C:/Program Files/Epic Games/UE_$UE_VERSION}"
     UAT="$UE_ROOT/Engine/Build/BatchFiles/RunUAT.bat"
 else
     PLATFORM="Linux"
-    UE_ROOT="/opt/UnrealEngine/UE_$UE_VERSION"
+    UE_ROOT="${UE_ROOT:-/opt/UnrealEngine/UE_$UE_VERSION}"
     UAT="$UE_ROOT/Engine/Build/BatchFiles/RunUAT.sh"
 fi
 
 # Verify UE installation
 if [ ! -f "$UAT" ]; then
     echo "Error: Unreal Engine $UE_VERSION not found at $UE_ROOT"
-    echo "Please install UE $UE_VERSION or specify correct path"
+    echo "Please install UE $UE_VERSION or set UE_ROOT to your engine path"
     exit 1
 fi
 
