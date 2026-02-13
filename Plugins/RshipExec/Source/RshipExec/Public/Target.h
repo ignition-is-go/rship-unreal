@@ -25,8 +25,8 @@ public:
 
 	FString GetId();
 
-	TMap<FString, Action *> GetActions();
-	TMap<FString, EmitterContainer *> GetEmitters();
+	const TMap<FString, Action*>& GetActions() const;
+	const TMap<FString, EmitterContainer*>& GetEmitters() const;
 
 	bool TakeAction(AActor *actor, FString actionId, const TSharedRef<FJsonObject> data);
 };

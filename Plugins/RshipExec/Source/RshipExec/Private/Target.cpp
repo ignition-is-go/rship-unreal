@@ -10,25 +10,57 @@ Target::Target(FString id)
 
 Target::~Target()
 {
+	for (auto& Entry : this->actions)
+	{
+		delete Entry.Value;
+	}
+
+	for (auto& Entry : this->emitters)
+	{
+		delete Entry.Value;
+	}
 }
 
 void Target::AddAction(Action *action)
 {
+	if (!action)
+	{
+		return;
+	}
+
+	const FString ActionId = action->GetId();
+	if (Action* Existing = this->actions.FindRef(ActionId))
+	{
+		delete Existing;
+		this->actions.Remove(ActionId);
+	}
 
 	this->actions.Add(action->GetId(), action);
 }
 
 void Target::AddEmitter(EmitterContainer *emitter)
 {
+	if (!emitter)
+	{
+		return;
+	}
+
+	const FString EmitterId = emitter->GetId();
+	if (EmitterContainer* Existing = this->emitters.FindRef(EmitterId))
+	{
+		delete Existing;
+		this->emitters.Remove(EmitterId);
+	}
+
 	this->emitters.Add(emitter->GetId(), emitter);
 }
 
-TMap<FString, Action *> Target::GetActions()
+const TMap<FString, Action*>& Target::GetActions() const
 {
 	return this->actions;
 }
 
-TMap<FString, EmitterContainer *> Target::GetEmitters()
+const TMap<FString, EmitterContainer*>& Target::GetEmitters() const
 {
 	return this->emitters;
 }

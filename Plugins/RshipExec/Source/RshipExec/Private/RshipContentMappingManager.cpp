@@ -70,6 +70,94 @@ static FString GetActionName(const FString& ActionId)
     return ActionId;
 }
 
+namespace
+{
+    FString JsonToString(const TSharedPtr<FJsonObject>& JsonObj)
+    {
+        if (!JsonObj.IsValid())
+        {
+            return FString();
+        }
+
+        FString Out;
+        TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Out);
+        FJsonSerializer::Serialize(JsonObj.ToSharedRef(), Writer);
+        return Out;
+    }
+
+    bool AreJsonObjectsEqual(const TSharedPtr<FJsonObject>& A, const TSharedPtr<FJsonObject>& B)
+    {
+        return JsonToString(A) == JsonToString(B);
+    }
+
+    bool AreIntArraysEqual(const TArray<int32>& A, const TArray<int32>& B)
+    {
+        if (A.Num() != B.Num())
+        {
+            return false;
+        }
+
+        TArray<int32> SortedA = A;
+        TArray<int32> SortedB = B;
+        SortedA.Sort();
+        SortedB.Sort();
+        return SortedA == SortedB;
+    }
+
+    bool AreStringArraysEqual(const TArray<FString>& A, const TArray<FString>& B)
+    {
+        if (A.Num() != B.Num())
+        {
+            return false;
+        }
+
+        TArray<FString> SortedA = A;
+        TArray<FString> SortedB = B;
+        SortedA.Sort();
+        SortedB.Sort();
+        return SortedA == SortedB;
+    }
+
+    bool AreRenderContextStatesEquivalent(const FRshipRenderContextState& A, const FRshipRenderContextState& B)
+    {
+        return A.Id == B.Id
+            && A.Name == B.Name
+            && A.ProjectId == B.ProjectId
+            && A.SourceType == B.SourceType
+            && A.CameraId == B.CameraId
+            && A.AssetId == B.AssetId
+            && A.Width == B.Width
+            && A.Height == B.Height
+            && A.CaptureMode == B.CaptureMode
+            && A.bEnabled == B.bEnabled;
+    }
+
+    bool AreMappingSurfaceStatesEquivalent(const FRshipMappingSurfaceState& A, const FRshipMappingSurfaceState& B)
+    {
+        return A.Id == B.Id
+            && A.Name == B.Name
+            && A.ProjectId == B.ProjectId
+            && A.TargetId == B.TargetId
+            && A.bEnabled == B.bEnabled
+            && A.UVChannel == B.UVChannel
+            && A.MeshComponentName == B.MeshComponentName
+            && AreIntArraysEqual(A.MaterialSlots, B.MaterialSlots);
+    }
+
+    bool AreMappingStatesEquivalent(const FRshipContentMappingState& A, const FRshipContentMappingState& B)
+    {
+        return A.Id == B.Id
+            && A.Name == B.Name
+            && A.ProjectId == B.ProjectId
+            && A.Type == B.Type
+            && A.ContextId == B.ContextId
+            && FMath::IsNearlyEqual(A.Opacity, B.Opacity)
+            && A.bEnabled == B.bEnabled
+            && AreStringArraysEqual(A.SurfaceIds, B.SurfaceIds)
+            && AreJsonObjectsEqual(A.Config, B.Config);
+    }
+}
+
 void URshipContentMappingManager::Initialize(URshipSubsystem* InSubsystem)
 {
     Subsystem = InSubsystem;
@@ -315,9 +403,20 @@ bool URshipContentMappingManager::UpdateRenderContext(const FRshipRenderContextS
     {
         return false;
     }
+    FRshipRenderContextState Clamped = InState;
+    if (const FRshipRenderContextState* Existing = RenderContexts.Find(InState.Id))
+    {
+        if (AreRenderContextStatesEquivalent(*Existing, Clamped))
+        {
+            return true;
+        }
+    }
+
     FRshipRenderContextState& Stored = RenderContexts[InState.Id];
+
+
     TWeakObjectPtr<ARshipCameraActor> PreviousCamera = Stored.CameraActor;
-    Stored = InState;
+    Stored = Clamped;
     if (PreviousCamera.IsValid())
     {
         if (Stored.SourceType == TEXT("camera"))
@@ -392,6 +491,11 @@ bool URshipContentMappingManager::UpdateMappingSurface(const FRshipMappingSurfac
         return false;
     }
     FRshipMappingSurfaceState& Stored = MappingSurfaces[InState.Id];
+    if (AreMappingSurfaceStatesEquivalent(Stored, InState))
+    {
+        return true;
+    }
+
     if (Stored.MeshComponent.IsValid())
     {
         RestoreSurfaceMaterials(Stored);
@@ -458,6 +562,14 @@ bool URshipContentMappingManager::UpdateMapping(const FRshipContentMappingState&
     }
     FRshipContentMappingState Clamped = InState;
     Clamped.Opacity = FMath::Clamp(Clamped.Opacity, 0.0f, 1.0f);
+    if (const FRshipContentMappingState* Existing = Mappings.Find(InState.Id))
+    {
+        if (AreMappingStatesEquivalent(*Existing, Clamped))
+        {
+            return true;
+        }
+    }
+
     Mappings[InState.Id] = Clamped;
     RegisterMappingTarget(Mappings[InState.Id]);
     EmitMappingState(Mappings[InState.Id]);
@@ -531,6 +643,14 @@ void URshipContentMappingManager::ProcessRenderContextEvent(const TSharedPtr<FJs
     State.CaptureMode = GetStringField(Data, TEXT("captureMode"));
     State.bEnabled = GetBoolField(Data, TEXT("enabled"), true);
 
+    if (const FRshipRenderContextState* Existing = RenderContexts.Find(Id))
+    {
+        if (AreRenderContextStatesEquivalent(*Existing, State))
+        {
+            return;
+        }
+    }
+
     FRshipRenderContextState& Stored = RenderContexts.FindOrAdd(Id);
     TWeakObjectPtr<ARshipCameraActor> PreviousCamera = Stored.CameraActor;
     Stored = State;
@@ -589,6 +709,14 @@ void URshipContentMappingManager::ProcessMappingSurfaceEvent(const TSharedPtr<FJ
     State.MaterialSlots = GetIntArrayField(Data, TEXT("materialSlots"));
     State.MeshComponentName = GetStringField(Data, TEXT("meshComponentName"));
 
+    if (const FRshipMappingSurfaceState* Existing = MappingSurfaces.Find(Id))
+    {
+        if (AreMappingSurfaceStatesEquivalent(*Existing, State))
+        {
+            return;
+        }
+    }
+
     FRshipMappingSurfaceState& Stored = MappingSurfaces.FindOrAdd(Id);
     if (Stored.MeshComponent.IsValid())
     {
@@ -618,6 +746,11 @@ void URshipContentMappingManager::ProcessMappingEvent(const TSharedPtr<FJsonObje
 
     if (bIsDelete)
     {
+        if (!Mappings.Contains(Id))
+        {
+            return;
+        }
+
         FRshipContentMappingState Removed;
         if (Mappings.RemoveAndCopyValue(Id, Removed))
         {
@@ -682,6 +815,11 @@ void URshipContentMappingManager::ProcessMappingEvent(const TSharedPtr<FJsonObje
     }
     if (MappingType != TEXT("surface-uv") && MappingType != TEXT("surface-projection"))
     {
+        if (!Mappings.Contains(Id))
+        {
+            return;
+        }
+
         FRshipContentMappingState Removed;
         if (Mappings.RemoveAndCopyValue(Id, Removed))
         {
@@ -720,6 +858,14 @@ void URshipContentMappingManager::ProcessMappingEvent(const TSharedPtr<FJsonObje
         if (MappingType == TEXT("surface-projection") && !State.Config->HasTypedField<EJson::String>(TEXT("projectionType")))
         {
             State.Config->SetStringField(TEXT("projectionType"), DerivedMode);
+        }
+    }
+
+    if (const FRshipContentMappingState* Existing = Mappings.Find(Id))
+    {
+        if (AreMappingStatesEquivalent(*Existing, State))
+        {
+            return;
         }
     }
 

@@ -58,12 +58,12 @@ static TAutoConsoleVariable<int32> CVarRshipInboundApplyLeadFrames(
 
 namespace
 {
-void RshipAddTargetIdTokens(const FString& RawValue, TArray<FString>& OutTargetIds)
+bool RshipTargetTokenMatchesLocalNode(const FString& RawValue, const FString& NodeId)
 {
     FString Trimmed = RawValue.TrimStartAndEnd();
     if (Trimmed.IsEmpty())
     {
-        return;
+        return false;
     }
 
     Trimmed.ReplaceInline(TEXT(";"), TEXT(","));
@@ -76,43 +76,70 @@ void RshipAddTargetIdTokens(const FString& RawValue, TArray<FString>& OutTargetI
 
     for (FString Token : Tokens)
     {
-        Token = Token.TrimStartAndEnd();
-        if (!Token.IsEmpty())
+        const FString TrimmedToken = Token.TrimStartAndEnd();
+        if (TrimmedToken.IsEmpty())
         {
-            OutTargetIds.AddUnique(Token);
+            continue;
+        }
+        if (TrimmedToken == TEXT("*") || TrimmedToken.Equals(TEXT("all"), ESearchCase::IgnoreCase))
+        {
+            return true;
+        }
+        if (TrimmedToken.Equals(NodeId, ESearchCase::IgnoreCase))
+        {
+            return true;
         }
     }
+
+    return false;
 }
 
-void RshipExtractTargetIdsFromJsonObject(const TSharedPtr<FJsonObject>& JsonObject, TArray<FString>& OutTargetIds)
+bool RshipObjectTargetsLocalNode(
+    const TSharedPtr<FJsonObject>& JsonObject,
+    const FString& NodeId,
+    bool& bHasTargetFilter)
 {
-    if (!JsonObject.IsValid())
-    {
-        return;
-    }
-
     static const TCHAR* TargetFields[] = { TEXT("targetNodeId"), TEXT("targetNodeIds"), TEXT("targetIds") };
+
     for (const TCHAR* FieldName : TargetFields)
     {
         FString StringValue;
         if (JsonObject->TryGetStringField(FieldName, StringValue))
         {
-            RshipAddTargetIdTokens(StringValue, OutTargetIds);
+            bHasTargetFilter = true;
+            if (RshipTargetTokenMatchesLocalNode(StringValue, NodeId))
+            {
+                return true;
+            }
         }
 
         const TArray<TSharedPtr<FJsonValue>>* ArrayValues = nullptr;
         if (JsonObject->TryGetArrayField(FieldName, ArrayValues) && ArrayValues)
         {
+            bHasTargetFilter = true;
             for (const TSharedPtr<FJsonValue>& Value : *ArrayValues)
             {
                 FString Element;
-                if (Value.IsValid() && Value->TryGetString(Element))
+                if (Value.IsValid() && Value->TryGetString(Element) &&
+                    RshipTargetTokenMatchesLocalNode(Element, NodeId))
                 {
-                    RshipAddTargetIdTokens(Element, OutTargetIds);
+                    return true;
                 }
             }
         }
     }
+
+    return false;
+}
+
+bool URshipInboundQueuedMessageSortLess(const FRshipSubsystem::FRshipInboundQueuedMessage& A,
+    const FRshipSubsystem::FRshipInboundQueuedMessage& B)
+{
+    if (A.ApplyFrame != B.ApplyFrame)
+    {
+        return A.ApplyFrame < B.ApplyFrame;
+    }
+    return A.Sequence < B.Sequence;
 }
 }
 
@@ -641,6 +668,11 @@ bool URshipSubsystem::IsInboundMessageTargetedToLocalNode(const FString& Message
         return true;
     }
 
+    if (Message.IsEmpty())
+    {
+        return true;
+    }
+
     TSharedPtr<FJsonObject> JsonObject;
     TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Message);
     if (!FJsonSerializer::Deserialize(Reader, JsonObject) || !JsonObject.IsValid())
@@ -648,30 +680,24 @@ bool URshipSubsystem::IsInboundMessageTargetedToLocalNode(const FString& Message
         return true;
     }
 
-    TArray<FString> TargetIds;
-    RshipExtractTargetIdsFromJsonObject(JsonObject, TargetIds);
-
-    const TSharedPtr<FJsonObject>* DataObjectPtr = nullptr;
-    if (JsonObject->TryGetObjectField(TEXT("data"), DataObjectPtr) && DataObjectPtr && DataObjectPtr->IsValid())
-    {
-        RshipExtractTargetIdsFromJsonObject(*DataObjectPtr, TargetIds);
-    }
-
-    if (TargetIds.Num() == 0)
+    bool bHasTargetFilter = false;
+    if (RshipObjectTargetsLocalNode(JsonObject, InboundNodeId, bHasTargetFilter))
     {
         return true;
     }
 
-    for (const FString& TargetId : TargetIds)
+    const TSharedPtr<FJsonObject>* DataObjectPtr = nullptr;
+    if (JsonObject->TryGetObjectField(TEXT("data"), DataObjectPtr) && DataObjectPtr && DataObjectPtr->IsValid())
     {
-        if (TargetId == TEXT("*") || TargetId.Equals(TEXT("all"), ESearchCase::IgnoreCase))
+        if (RshipObjectTargetsLocalNode(*DataObjectPtr, InboundNodeId, bHasTargetFilter))
         {
             return true;
         }
-        if (TargetId.Equals(InboundNodeId, ESearchCase::IgnoreCase))
-        {
-            return true;
-        }
+    }
+
+    if (!bHasTargetFilter)
+    {
+        return true;
     }
 
     return false;
@@ -725,7 +751,22 @@ void URshipSubsystem::EnqueueInboundMessage(const FString& Message, bool bBypass
         AssignedApplyFrame = Queued.ApplyFrame;
         Queued.EnqueueTimeSeconds = FPlatformTime::Seconds();
         Queued.Payload = Message;
-        InboundQueue.Add(MoveTemp(Queued));
+
+        int32 Low = 0;
+        int32 High = InboundQueue.Num();
+        while (Low < High)
+        {
+            const int32 Mid = (Low + High) / 2;
+            if (URshipInboundQueuedMessageSortLess(InboundQueue[Mid], Queued))
+            {
+                Low = Mid + 1;
+            }
+            else
+            {
+                High = Mid;
+            }
+        }
+        InboundQueue.Insert(MoveTemp(Queued), FMath::Clamp(Low, 0, InboundQueue.Num()));
     }
 
     if (!bBypassAuthorityGate && bInboundAuthorityOnly && bIsAuthorityIngestNode)
@@ -747,19 +788,10 @@ void URshipSubsystem::ProcessInboundMessageQueue()
             return;
         }
 
-        InboundQueue.Sort([](const FRshipInboundQueuedMessage& A, const FRshipInboundQueuedMessage& B)
-        {
-            if (A.ApplyFrame != B.ApplyFrame)
-            {
-                return A.ApplyFrame < B.ApplyFrame;
-            }
-            return A.Sequence < B.Sequence;
-        });
-
         int32 ApplyCount = 0;
-        const int32 CandidateCount = FMath::Min(MaxMessagesPerTick, InboundQueue.Num());
-        MessagesToApply.Reserve(CandidateCount);
-        for (int32 Index = 0; Index < CandidateCount; ++Index)
+        const int32 MaxCandidates = FMath::Min(MaxMessagesPerTick, InboundQueue.Num());
+        MessagesToApply.Reserve(MaxCandidates);
+        for (int32 Index = 0; Index < MaxCandidates; ++Index)
         {
             if (InboundQueue[Index].ApplyFrame > InboundFrameCounter)
             {

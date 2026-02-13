@@ -4855,6 +4855,147 @@ void SRshipContentMappingPanel::RefreshStatus()
 	const TArray<FRshipContentMappingState> Mappings = Manager->GetMappings();
 	RebuildPickerOptions(Contexts, Surfaces);
 
+	auto HashString = [](uint32& Hash, const FString& Value)
+	{
+		Hash = HashCombineFast(Hash, GetTypeHash(Value));
+	};
+	auto HashInt = [](uint32& Hash, int32 Value)
+	{
+		Hash = HashCombineFast(Hash, GetTypeHash(Value));
+	};
+	auto HashFloat = [](uint32& Hash, float Value)
+	{
+		Hash = HashCombineFast(Hash, GetTypeHash(Value));
+	};
+	auto HashBool = [](uint32& Hash, bool Value)
+	{
+		Hash = HashCombineFast(Hash, GetTypeHash(Value));
+	};
+	auto GetNumField = [](const TSharedPtr<FJsonObject>& Obj, const FString& Field, float DefaultValue) -> float
+	{
+		return (Obj.IsValid() && Obj->HasTypedField<EJson::Number>(Field)) ? static_cast<float>(Obj->GetNumberField(Field)) : DefaultValue;
+	};
+
+	uint32 SnapshotHash = 0;
+	HashString(SnapshotHash, ContextFilterText);
+	HashString(SnapshotHash, SurfaceFilterText);
+	HashString(SnapshotHash, MappingFilterText);
+	HashBool(SnapshotHash, bContextErrorsOnly);
+	HashBool(SnapshotHash, bSurfaceErrorsOnly);
+	HashBool(SnapshotHash, bMappingErrorsOnly);
+
+	for (const FRshipRenderContextState& Context : Contexts)
+	{
+		HashString(SnapshotHash, Context.Id);
+		HashString(SnapshotHash, Context.Name);
+		HashString(SnapshotHash, Context.ProjectId);
+		HashString(SnapshotHash, Context.SourceType);
+		HashString(SnapshotHash, Context.CameraId);
+		HashString(SnapshotHash, Context.AssetId);
+		HashString(SnapshotHash, Context.CaptureMode);
+		HashString(SnapshotHash, Context.LastError);
+		HashInt(SnapshotHash, Context.Width);
+		HashInt(SnapshotHash, Context.Height);
+		HashBool(SnapshotHash, Context.bEnabled);
+	}
+
+	for (const FRshipMappingSurfaceState& Surface : Surfaces)
+	{
+		HashString(SnapshotHash, Surface.Id);
+		HashString(SnapshotHash, Surface.Name);
+		HashString(SnapshotHash, Surface.ProjectId);
+		HashString(SnapshotHash, Surface.TargetId);
+		HashString(SnapshotHash, Surface.MeshComponentName);
+		HashString(SnapshotHash, Surface.LastError);
+		HashInt(SnapshotHash, Surface.UVChannel);
+		HashBool(SnapshotHash, Surface.bEnabled);
+		TArray<int32> Slots = Surface.MaterialSlots;
+		Slots.Sort();
+		for (int32 Slot : Slots)
+		{
+			HashInt(SnapshotHash, Slot);
+		}
+	}
+
+	for (const FRshipContentMappingState& Mapping : Mappings)
+	{
+		HashString(SnapshotHash, Mapping.Id);
+		HashString(SnapshotHash, Mapping.Name);
+		HashString(SnapshotHash, Mapping.ProjectId);
+		HashString(SnapshotHash, Mapping.Type);
+		HashString(SnapshotHash, Mapping.ContextId);
+		HashString(SnapshotHash, Mapping.LastError);
+		HashBool(SnapshotHash, Mapping.bEnabled);
+		HashFloat(SnapshotHash, Mapping.Opacity);
+		if (Mapping.Config.IsValid())
+		{
+			if (Mapping.Config->HasTypedField<EJson::String>(TEXT("projectionType")))
+			{
+				HashString(SnapshotHash, Mapping.Config->GetStringField(TEXT("projectionType")));
+			}
+			if (Mapping.Config->HasTypedField<EJson::String>(TEXT("uvMode")))
+			{
+				HashString(SnapshotHash, Mapping.Config->GetStringField(TEXT("uvMode")));
+			}
+			if (Mapping.Config->HasTypedField<EJson::Object>(TEXT("feedRect")))
+			{
+				const TSharedPtr<FJsonObject> FeedRect = Mapping.Config->GetObjectField(TEXT("feedRect"));
+				HashFloat(SnapshotHash, GetNumField(FeedRect, TEXT("u"), 0.0f));
+				HashFloat(SnapshotHash, GetNumField(FeedRect, TEXT("v"), 0.0f));
+				HashFloat(SnapshotHash, GetNumField(FeedRect, TEXT("width"), 1.0f));
+				HashFloat(SnapshotHash, GetNumField(FeedRect, TEXT("height"), 1.0f));
+			}
+			const TSharedPtr<FJsonObject> MatrixObj = GetCustomProjectionMatrixObject(Mapping.Config);
+			if (MatrixObj.IsValid())
+			{
+				for (int32 Index = 0; Index < CustomProjectionMatrixElementCount; ++Index)
+				{
+					const FString FieldName = GetCustomProjectionMatrixFieldName(Index);
+					HashFloat(SnapshotHash, GetNumField(MatrixObj, *FieldName, GetDefaultCustomProjectionMatrixValue(Index)));
+				}
+			}
+		}
+		TArray<FString> SurfaceIds = Mapping.SurfaceIds;
+		SurfaceIds.Sort();
+		for (const FString& SurfaceId : SurfaceIds)
+		{
+			HashString(SnapshotHash, SurfaceId);
+		}
+	}
+
+	bool bRebuildLists = false;
+	if (!bHasListHash)
+	{
+		LastListHash = SnapshotHash;
+		bHasListHash = true;
+		bHasPendingListHash = false;
+		bRebuildLists = true;
+	}
+	else if (SnapshotHash != LastListHash)
+	{
+		if (bHasPendingListHash && PendingListHash == SnapshotHash)
+		{
+			LastListHash = SnapshotHash;
+			bHasPendingListHash = false;
+			bRebuildLists = true;
+		}
+		else
+		{
+			PendingListHash = SnapshotHash;
+			bHasPendingListHash = true;
+			bRebuildLists = false;
+		}
+	}
+	else
+	{
+		bHasPendingListHash = false;
+	}
+
+	if (!bRebuildLists)
+	{
+		return;
+	}
+
 	TArray<FRshipRenderContextState> SortedContexts = Contexts;
 	TArray<FRshipMappingSurfaceState> SortedSurfaces = Surfaces;
 	TArray<FRshipContentMappingState> SortedMappings = Mappings;
@@ -5025,141 +5166,6 @@ void SRshipContentMappingPanel::RefreshStatus()
 		{
 			StopProjectionEdit();
 		}
-	}
-
-	uint32 SnapshotHash = 0;
-	auto HashString = [&SnapshotHash](const FString& Value)
-	{
-		SnapshotHash = HashCombineFast(SnapshotHash, GetTypeHash(Value));
-	};
-	auto HashInt = [&SnapshotHash](int32 Value)
-	{
-		SnapshotHash = HashCombineFast(SnapshotHash, GetTypeHash(Value));
-	};
-	auto HashFloat = [&SnapshotHash](float Value)
-	{
-		SnapshotHash = HashCombineFast(SnapshotHash, GetTypeHash(Value));
-	};
-	auto HashBool = [&SnapshotHash](bool Value)
-	{
-		SnapshotHash = HashCombineFast(SnapshotHash, GetTypeHash(Value));
-	};
-	HashString(ContextFilterText);
-	HashString(SurfaceFilterText);
-	HashString(MappingFilterText);
-	HashBool(bContextErrorsOnly);
-	HashBool(bSurfaceErrorsOnly);
-	HashBool(bMappingErrorsOnly);
-
-	for (const FRshipRenderContextState& Context : SortedContexts)
-	{
-		HashString(Context.Id);
-		HashString(Context.Name);
-		HashString(Context.ProjectId);
-		HashString(Context.SourceType);
-		HashString(Context.CameraId);
-		HashString(Context.AssetId);
-		HashString(Context.CaptureMode);
-		HashInt(Context.Width);
-		HashInt(Context.Height);
-		HashBool(Context.bEnabled);
-	}
-
-	for (const FRshipMappingSurfaceState& Surface : SortedSurfaces)
-	{
-		HashString(Surface.Id);
-		HashString(Surface.Name);
-		HashString(Surface.ProjectId);
-		HashString(Surface.TargetId);
-		HashString(Surface.MeshComponentName);
-		HashInt(Surface.UVChannel);
-		HashBool(Surface.bEnabled);
-
-		TArray<int32> Slots = Surface.MaterialSlots;
-		Slots.Sort();
-		for (int32 Slot : Slots)
-		{
-			HashInt(Slot);
-		}
-	}
-
-	for (const FRshipContentMappingState& Mapping : SortedMappings)
-	{
-		auto GetNumField = [](const TSharedPtr<FJsonObject>& Obj, const FString& Field, float DefaultValue) -> float
-		{
-			return (Obj.IsValid() && Obj->HasTypedField<EJson::Number>(Field)) ? static_cast<float>(Obj->GetNumberField(Field)) : DefaultValue;
-		};
-
-		HashString(Mapping.Id);
-		HashString(Mapping.Name);
-		HashString(Mapping.ProjectId);
-		HashString(Mapping.Type);
-		HashString(Mapping.ContextId);
-		HashBool(Mapping.bEnabled);
-		HashFloat(Mapping.Opacity);
-		if (Mapping.Config.IsValid())
-		{
-			if (Mapping.Config->HasTypedField<EJson::String>(TEXT("projectionType")))
-			{
-				HashString(Mapping.Config->GetStringField(TEXT("projectionType")));
-			}
-			if (Mapping.Config->HasTypedField<EJson::String>(TEXT("uvMode")))
-			{
-				HashString(Mapping.Config->GetStringField(TEXT("uvMode")));
-			}
-			if (Mapping.Config->HasTypedField<EJson::Object>(TEXT("feedRect")))
-			{
-				TSharedPtr<FJsonObject> FeedRect = Mapping.Config->GetObjectField(TEXT("feedRect"));
-				HashFloat(GetNumField(FeedRect, TEXT("u"), 0.0f));
-				HashFloat(GetNumField(FeedRect, TEXT("v"), 0.0f));
-				HashFloat(GetNumField(FeedRect, TEXT("width"), 1.0f));
-				HashFloat(GetNumField(FeedRect, TEXT("height"), 1.0f));
-			}
-			const TSharedPtr<FJsonObject> MatrixObj = GetCustomProjectionMatrixObject(Mapping.Config);
-			if (MatrixObj.IsValid())
-			{
-				for (int32 Index = 0; Index < CustomProjectionMatrixElementCount; ++Index)
-				{
-					const FString FieldName = GetCustomProjectionMatrixFieldName(Index);
-					HashFloat(GetNumField(MatrixObj, *FieldName, GetDefaultCustomProjectionMatrixValue(Index)));
-				}
-			}
-		}
-
-		TArray<FString> SurfaceIds = Mapping.SurfaceIds;
-		SurfaceIds.Sort();
-		for (const FString& SurfaceId : SurfaceIds)
-		{
-			HashString(SurfaceId);
-		}
-	}
-
-	bool bRebuildLists = false;
-	if (!bHasListHash)
-	{
-		LastListHash = SnapshotHash;
-		bHasListHash = true;
-		bHasPendingListHash = false;
-		bRebuildLists = true;
-	}
-	else if (SnapshotHash != LastListHash)
-	{
-		if (bHasPendingListHash && PendingListHash == SnapshotHash)
-		{
-			LastListHash = SnapshotHash;
-			bHasPendingListHash = false;
-			bRebuildLists = true;
-		}
-		else
-		{
-			PendingListHash = SnapshotHash;
-			bHasPendingListHash = true;
-			bRebuildLists = false;
-		}
-	}
-	else
-	{
-		bHasPendingListHash = false;
 	}
 
 	if (CountsText.IsValid())

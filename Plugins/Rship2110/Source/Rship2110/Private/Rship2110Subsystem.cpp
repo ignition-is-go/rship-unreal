@@ -729,12 +729,7 @@ bool URship2110Subsystem::QueueClusterStateUpdate(const FRship2110ClusterState& 
         Update.FailoverTimeoutSeconds = 0.1f;
     }
 
-    PendingClusterStates.RemoveAll([&Update](const FRship2110ClusterState& Existing)
-    {
-        return Existing.Epoch == Update.Epoch && Existing.Version == Update.Version;
-    });
-    PendingClusterStates.Add(Update);
-    PendingClusterStates.Sort([](const FRship2110ClusterState& A, const FRship2110ClusterState& B)
+    auto IsQueuedStateLess = [](const FRship2110ClusterState& A, const FRship2110ClusterState& B)
     {
         if (A.ApplyFrame != B.ApplyFrame)
         {
@@ -745,7 +740,32 @@ bool URship2110Subsystem::QueueClusterStateUpdate(const FRship2110ClusterState& 
             return A.Epoch < B.Epoch;
         }
         return A.Version < B.Version;
-    });
+    };
+
+    for (int32 Index = PendingClusterStates.Num() - 1; Index >= 0; --Index)
+    {
+        if (PendingClusterStates[Index].Epoch == Update.Epoch && PendingClusterStates[Index].Version == Update.Version)
+        {
+            PendingClusterStates.RemoveAt(Index);
+        }
+    }
+
+    int32 Low = 0;
+    int32 High = PendingClusterStates.Num();
+    while (Low < High)
+    {
+        const int32 Mid = (Low + High) / 2;
+        if (IsQueuedStateLess(PendingClusterStates[Mid], Update))
+        {
+            Low = Mid + 1;
+        }
+        else
+        {
+            High = Mid;
+        }
+    }
+
+    PendingClusterStates.Insert(Update, FMath::Clamp(Low, 0, PendingClusterStates.Num()));
     return true;
 }
 
@@ -1179,12 +1199,7 @@ bool URship2110Subsystem::ReceiveClusterDataMessage(const FRship2110ClusterDataM
         Queued.ApplyFrame = DomainFrameCounter + 1;
     }
 
-    SyncDomain.PendingDataMessages.RemoveAll([&Queued](const FRship2110ClusterDataMessage& Existing)
-    {
-        return Existing.AuthorityNodeId == Queued.AuthorityNodeId && Existing.Sequence == Queued.Sequence;
-    });
-    SyncDomain.PendingDataMessages.Add(MoveTemp(Queued));
-    SyncDomain.PendingDataMessages.Sort([](const FRship2110ClusterDataMessage& A, const FRship2110ClusterDataMessage& B)
+    auto IsQueuedDataMessageLess = [](const FRship2110ClusterDataMessage& A, const FRship2110ClusterDataMessage& B)
     {
         if (A.ApplyFrame != B.ApplyFrame)
         {
@@ -1195,7 +1210,33 @@ bool URship2110Subsystem::ReceiveClusterDataMessage(const FRship2110ClusterDataM
             return A.AuthorityNodeId < B.AuthorityNodeId;
         }
         return A.Sequence < B.Sequence;
-    });
+    };
+
+    for (int32 Index = SyncDomain.PendingDataMessages.Num() - 1; Index >= 0; --Index)
+    {
+        const FRship2110ClusterDataMessage& Existing = SyncDomain.PendingDataMessages[Index];
+        if (Existing.AuthorityNodeId == Queued.AuthorityNodeId && Existing.Sequence == Queued.Sequence)
+        {
+            SyncDomain.PendingDataMessages.RemoveAt(Index);
+        }
+    }
+
+    int32 Low = 0;
+    int32 High = SyncDomain.PendingDataMessages.Num();
+    while (Low < High)
+    {
+        const int32 Mid = (Low + High) / 2;
+        if (IsQueuedDataMessageLess(SyncDomain.PendingDataMessages[Mid], Queued))
+        {
+            Low = Mid + 1;
+        }
+        else
+        {
+            High = Mid;
+        }
+    }
+
+    SyncDomain.PendingDataMessages.Insert(MoveTemp(Queued), FMath::Clamp(Low, 0, SyncDomain.PendingDataMessages.Num()));
     return true;
 }
 
@@ -1541,21 +1582,23 @@ void URship2110Subsystem::ProcessPendingClusterStates()
         return;
     }
 
-    TArray<FRship2110ClusterState> Remaining;
-    Remaining.Reserve(PendingClusterStates.Num());
-
-    for (const FRship2110ClusterState& State : PendingClusterStates)
+    int32 ApplyCount = 0;
+    const int32 NumPending = PendingClusterStates.Num();
+    for (int32 Index = 0; Index < NumPending; ++Index)
     {
-        if (State.ApplyFrame <= ClusterFrameCounter)
+        if (PendingClusterStates[Index].ApplyFrame > ClusterFrameCounter)
         {
-            ApplyClusterStateNow(State);
+            break;
         }
-        else
-        {
-            Remaining.Add(State);
-        }
+
+        ApplyClusterStateNow(PendingClusterStates[Index]);
+        ++ApplyCount;
     }
-    PendingClusterStates = MoveTemp(Remaining);
+
+    if (ApplyCount > 0)
+    {
+        PendingClusterStates.RemoveAt(0, ApplyCount, false);
+    }
 }
 
 void URship2110Subsystem::ProcessPendingClusterDataMessages()
@@ -1575,23 +1618,20 @@ void URship2110Subsystem::ProcessPendingClusterDataMessagesForDomain(const FStri
 
     const bool bIsDefaultDomain = ResolveSyncDomainId(SyncDomainId).Equals(DefaultSyncDomainId, ESearchCase::IgnoreCase);
     const int64 DomainFrameCounter = bIsDefaultDomain ? ClusterFrameCounter : DomainRuntime.FrameCounter;
-
-    TArray<FRship2110ClusterDataMessage> Remaining;
-    Remaining.Reserve(DomainRuntime.PendingDataMessages.Num());
-
-    for (const FRship2110ClusterDataMessage& DataMessage : DomainRuntime.PendingDataMessages)
+    URshipSubsystem* RshipSubsystem = GetRshipSubsystem();
+    if (!RshipSubsystem)
     {
+        return;
+    }
+
+    int32 ApplyCount = 0;
+    const int32 NumPending = DomainRuntime.PendingDataMessages.Num();
+    for (int32 Index = 0; Index < NumPending; ++Index)
+    {
+        const FRship2110ClusterDataMessage& DataMessage = DomainRuntime.PendingDataMessages[Index];
         if (DataMessage.ApplyFrame > DomainFrameCounter)
         {
-            Remaining.Add(DataMessage);
-            continue;
-        }
-
-        URshipSubsystem* RshipSubsystem = GetRshipSubsystem();
-        if (!RshipSubsystem)
-        {
-            Remaining.Add(DataMessage);
-            continue;
+            break;
         }
 
         const int64 RshipApplyFrame = bIsDefaultDomain ? DataMessage.ApplyFrame : INDEX_NONE;
@@ -1602,9 +1642,14 @@ void URship2110Subsystem::ProcessPendingClusterDataMessagesForDomain(const FStri
             DataMessage.Epoch,
             DataMessage.Sequence,
             DataMessage.ApplyFrame);
+
+        ++ApplyCount;
     }
 
-    DomainRuntime.PendingDataMessages = MoveTemp(Remaining);
+    if (ApplyCount > 0)
+    {
+        DomainRuntime.PendingDataMessages.RemoveAt(0, ApplyCount, false);
+    }
 }
 
 bool URship2110Subsystem::ApplyClusterStateNow(const FRship2110ClusterState& ClusterState)

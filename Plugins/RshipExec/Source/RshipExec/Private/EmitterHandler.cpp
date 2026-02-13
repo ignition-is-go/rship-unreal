@@ -132,8 +132,8 @@ static TSharedPtr<FJsonValue> ExtractValueFromArgs(const SchemaNode &Node, const
 // Sets default values
 AEmitterHandler::AEmitterHandler()
 {
-	// Set this actor to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
-	PrimaryActorTick.bCanEverTick = true;
+	// Emitters are callback-driven; disable actor tick for lower runtime overhead.
+	PrimaryActorTick.bCanEverTick = false;
 }
 
 void AEmitterHandler::ProcessEmitter(
@@ -204,14 +204,25 @@ void AEmitterHandler::ProcessEmitter(
 		arg30,
 		arg31};
 
-	URshipSubsystem *subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
-
-	EmitterContainer *emitter = subsystem->GetEmitterInfo(this->targetId, this->emitterId);
-
 	if (this->targetId.IsEmpty() || this->emitterId.IsEmpty())
 	{
 		return;
 	}
+
+	if (!GEngine)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Emitter callback received while GEngine is unavailable"));
+		return;
+	}
+
+	URshipSubsystem *subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+	if (!subsystem)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Emitter callback received while subsystem is unavailable"));
+		return;
+	}
+
+	EmitterContainer *emitter = subsystem->GetEmitterInfo(this->targetId, this->emitterId);
 
 	if (emitter == nullptr)
 	{
@@ -220,9 +231,6 @@ void AEmitterHandler::ProcessEmitter(
 	}
 
 	auto props = emitter->GetProps();
-	int32 PropCount = 0;
-	for (const auto& _ : *props) { (void)_; ++PropCount; }
-	UE_LOG(LogTemp, Verbose, TEXT("Emitter props count: %d"), PropCount);
 
 	TSharedPtr<FJsonObject> json = MakeShareable(new FJsonObject);
 

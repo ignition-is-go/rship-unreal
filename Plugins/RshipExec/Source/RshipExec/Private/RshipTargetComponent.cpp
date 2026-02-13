@@ -2,7 +2,6 @@
 
 #include "RshipTargetComponent.h"
 #include "RshipTargetGroup.h"
-#include <iostream>
 #include "Engine/World.h"
 #include "Engine/Engine.h"
 #include "RshipSubsystem.h"
@@ -11,16 +10,13 @@
 #include "Util.h"
 #include "Logs.h"
 
-using namespace std;
-
 // Sets default values for this component's properties
 void URshipTargetComponent::OnRegister()
 {
 
     Super::OnRegister();
-    // Set this component to be initialized when the game starts, and to be ticked every frame.  You can turn these features
-    // off to improve performance if you don't need them.
-    PrimaryComponentTick.bCanEverTick = true;
+    // Keep registration lightweight; no per-frame work is required from this component.
+    PrimaryComponentTick.bCanEverTick = false;
 
     Register();
 }
@@ -71,7 +67,19 @@ void URshipTargetComponent::OnDataReceived() {
 
 void URshipTargetComponent::Reconnect()
 {
+    if (!GEngine)
+    {
+        UE_LOG(LogRshipExec, Warning, TEXT("Reconnect called before engine is available"));
+        return;
+    }
+
     URshipSubsystem *subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+    if (!subsystem)
+    {
+        UE_LOG(LogRshipExec, Warning, TEXT("Reconnect called before subsystem is available"));
+        return;
+    }
+
     subsystem->Reconnect();
 }
 
@@ -114,14 +122,31 @@ void URshipTargetComponent::RegisterProperty(UObject* owner, FProperty* prop, FS
 
 void URshipTargetComponent::Register()
 {
+    if (!GEngine)
+    {
+        UE_LOG(LogRshipExec, Warning, TEXT("Register failed: engine not initialized"));
+        return;
+    }
 
     URshipSubsystem *subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+    if (!subsystem)
+    {
+        UE_LOG(LogRshipExec, Warning, TEXT("Register failed: subsystem unavailable"));
+        return;
+    }
 
     AActor *parent = GetOwner();
 
     if (!parent)
     {
-        UE_LOG(LogRshipExec, Warning, TEXT("Parent not found"));
+        UE_LOG(LogRshipExec, Warning, TEXT("Register failed: parent actor not found"));
+        return;
+    }
+
+    if (TargetData != nullptr)
+    {
+        UE_LOG(LogRshipExec, Warning, TEXT("Register called on already-registered target: %s"), *this->targetName);
+        return;
     }
 
     FString outlinerName = parent->GetName();
