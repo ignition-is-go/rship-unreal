@@ -318,7 +318,11 @@ int32 FRshipRateLimiter::ProcessQueue()
             // Flush any existing batch first
             if (CurrentBatch.Num() > 0)
             {
-                FlushBatch();
+                if (!FlushBatch())
+                {
+                    bBackpressureDetected = true;
+                    break;
+                }
             }
 
             // Send critical message immediately without batching
@@ -358,7 +362,11 @@ int32 FRshipRateLimiter::ProcessQueue()
             // No tokens available - check if we should flush partial batch
             if (Config.bEnableBatching && CurrentBatch.Num() > 0)
             {
-                FlushBatch();
+                if (!FlushBatch())
+                {
+                    bBackpressureDetected = true;
+                    break;
+                }
             }
             bBackpressureDetected = true;
             break;
@@ -367,10 +375,36 @@ int32 FRshipRateLimiter::ProcessQueue()
         // Batching logic
         if (Config.bEnableBatching)
         {
+            // Flush if the next message would overflow batch limits
+            if (CurrentBatch.Num() > 0 &&
+                CurrentBatchBytes + Msg.EstimatedBytes > Config.MaxBatchBytes)
+            {
+                if (!FlushBatch())
+                {
+                    bBackpressureDetected = true;
+                    break;
+                }
+
+                // Re-evaluate this message against fresh token state after flush
+                continue;
+            }
+
             // Check if batch should be flushed before adding this message
             if (ShouldFlushBatch())
             {
-                FlushBatch();
+                if (!FlushBatch())
+                {
+                    bBackpressureDetected = true;
+                    break;
+                }
+            }
+
+            // New batch entries consume only the batch token once and
+            // must respect cumulative byte budget on the current batch.
+            if (!HasSufficientBatchAppendTokens(Msg))
+            {
+                bBackpressureDetected = true;
+                break;
             }
 
             // Add to batch
@@ -404,7 +438,10 @@ int32 FRshipRateLimiter::ProcessQueue()
     // Check if batch should be flushed due to time
     if (Config.bEnableBatching && ShouldFlushBatch())
     {
-        FlushBatch();
+        if (!FlushBatch())
+        {
+            bBackpressureDetected = true;
+        }
     }
 
     // Update metrics
@@ -471,20 +508,49 @@ bool FRshipRateLimiter::ShouldFlushBatch() const
     return false;
 }
 
-void FRshipRateLimiter::FlushBatch()
+bool FRshipRateLimiter::HasSufficientBatchAppendTokens(const FRshipQueuedMessage& Msg) const
 {
     if (CurrentBatch.Num() == 0)
     {
-        return;
+        return HasSufficientTokens(Msg.EstimatedBytes);
     }
 
-    // Consume tokens for the batch (counts as 1 message for rate limiting)
+    if (!Config.bEnableBytesRateLimiting)
+    {
+        return true;
+    }
+
+    return (CurrentBatchBytes + Msg.EstimatedBytes) <= BytesTokens;
+}
+
+bool FRshipRateLimiter::HasSufficientBatchTokens() const
+{
+    return CurrentBatch.Num() > 0 &&
+        MessageTokens >= 1.0f &&
+        (!Config.bEnableBytesRateLimiting || BytesTokens >= CurrentBatchBytes);
+}
+
+bool FRshipRateLimiter::FlushBatch()
+{
+    if (CurrentBatch.Num() == 0)
+    {
+        return false;
+    }
+
+    if (!HasSufficientBatchTokens())
+    {
+        bBackpressureDetected = true;
+        return false;
+    }
+
     if (!ConsumeMessageToken())
     {
-        // Should not happen if called correctly, but handle gracefully
-        LogMessage(1, TEXT("FlushBatch called without available message token"));
+        bBackpressureDetected = true;
+        return false;
     }
     ConsumeBytesTokens(CurrentBatchBytes);
+
+    // ConsumeBytesTokens is validated by HasSufficientBatchTokens, safe here.
 
     // Serialize and send
     FString BatchJson = SerializeBatch(CurrentBatch);
@@ -508,6 +574,8 @@ void FRshipRateLimiter::FlushBatch()
     CurrentBatch.Empty();
     CurrentBatchBytes = 0;
     BatchStartTime = 0.0;
+
+    return true;
 }
 
 // ============================================================================
@@ -701,7 +769,7 @@ void FRshipRateLimiter::OnRateLimitError(float RetryAfterSeconds)
     if (Config.bLogRateLimitEvents)
     {
         LogMessage(0, FString::Printf(TEXT("Rate limit error - backing off for %.1f seconds (consecutive: %d)"),
-            BackoffTime, ConsecutiveBackoffs));
+            CurrentBackoffSeconds, ConsecutiveBackoffs));
     }
 }
 
@@ -732,11 +800,25 @@ void FRshipRateLimiter::OnConnectionError()
 
     ApplyBackoff(BackoffTime);
 
-    LogMessage(1, FString::Printf(TEXT("Connection error - backing off for %.1f seconds"), BackoffTime));
+    LogMessage(1, FString::Printf(TEXT("Connection error - backing off for %.1f seconds"), CurrentBackoffSeconds));
 }
 
 void FRshipRateLimiter::ApplyBackoff(float Seconds)
 {
+    if (Seconds < 0.0f)
+    {
+        Seconds = 0.0f;
+    }
+
+    const float JitterPercent = FMath::Clamp(Config.BackoffJitterPercent, 0.0f, 100.0f);
+    if (JitterPercent > 0.0f)
+    {
+        const float JitterWindow = Seconds * (JitterPercent * 0.01f);
+        const float MinDelay = FMath::Max(0.05f, Seconds - JitterWindow);
+        const float MaxDelay = FMath::Max(MinDelay, Seconds + JitterWindow);
+        Seconds = FMath::FRandRange(MinDelay, MaxDelay);
+    }
+
     bIsBackingOff = true;
     CurrentBackoffSeconds = Seconds;
     BackoffStartTime = FPlatformTime::Seconds();

@@ -187,6 +187,7 @@ struct FRshipRateLimiterConfig
     float InitialBackoffSeconds = 1.0f;
     float MaxBackoffSeconds = 60.0f;
     float BackoffMultiplier = 2.0f;
+    float BackoffJitterPercent = 10.0f;
     int32 MaxRetryCount = 5;
     bool bCriticalBypassBackoff = false;
 
@@ -471,8 +472,10 @@ private:
     int32 EstimateMessageBytes(const TSharedPtr<FJsonObject>& Payload);
 
     // Batching
-    void FlushBatch();
+    bool FlushBatch();
     bool ShouldFlushBatch() const;
+    bool HasSufficientBatchAppendTokens(const FRshipQueuedMessage& Msg) const;
+    bool HasSufficientBatchTokens() const;
     void AddToBatch(FRshipQueuedMessage& Msg);
 
     // Adaptive rate control

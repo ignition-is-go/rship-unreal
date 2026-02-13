@@ -304,6 +304,7 @@ void URshipSubsystem::InitializeRateLimiter()
     Config.InitialBackoffSeconds = Settings->InitialBackoffSeconds;
     Config.MaxBackoffSeconds = Settings->MaxBackoffSeconds;
     Config.BackoffMultiplier = Settings->BackoffMultiplier;
+    Config.BackoffJitterPercent = Settings->ReconnectJitterPercent;
     Config.MaxRetryCount = Settings->MaxRetryCount;
     Config.bCriticalBypassBackoff = Settings->bCriticalBypassBackoff;
 
@@ -841,6 +842,15 @@ void URshipSubsystem::ScheduleReconnect()
         FMath::Pow(Settings->BackoffMultiplier, static_cast<float>(ReconnectAttempts));
     BackoffDelay = FMath::Min(BackoffDelay, Settings->MaxBackoffSeconds);
 
+    const float JitterPercent = FMath::Clamp(Settings->ReconnectJitterPercent, 0.0f, 100.0f);
+    if (JitterPercent > 0.0f)
+    {
+        const float JitterWindow = BackoffDelay * (JitterPercent * 0.01f);
+        const float MinDelay = FMath::Max(0.05f, BackoffDelay - JitterWindow);
+        const float MaxDelay = FMath::Max(MinDelay, BackoffDelay + JitterWindow);
+        BackoffDelay = FMath::FRandRange(MinDelay, MaxDelay);
+    }
+
     ReconnectAttempts++;
     ConnectionState = ERshipConnectionState::BackingOff;
 
@@ -1037,9 +1047,6 @@ void URshipSubsystem::TickSubsystems()
     {
         DisplayManager->Tick(DeltaTime);
     }
-
-    // Process message queue every tick to ensure messages are sent
-    ProcessMessageQueue();
 }
 
 void URshipSubsystem::QueueMessage(TSharedPtr<FJsonObject> Payload, ERshipMessagePriority Priority,

@@ -239,6 +239,11 @@ public:
         ToolTip = "Initial backoff time when a rate limit or connection error occurs."))
     float InitialBackoffSeconds = 1.0f;
 
+    UPROPERTY(EditAnywhere, config, Category = "Backoff", meta = (DisplayName = "Reconnect Jitter (%)",
+        ClampMin = "0.0", ClampMax = "100.0",
+        ToolTip = "Randomize reconnect delay by ±N%. Helps avoid reconnection thundering across fleet nodes."))
+    float ReconnectJitterPercent = 10.0f;
+
     UPROPERTY(EditAnywhere, config, Category = "Backoff", meta = (DisplayName = "Max Backoff (Seconds)",
         ClampMin = "1.0", ClampMax = "300.0",
         ToolTip = "Maximum backoff time. Backoff increases exponentially but will not exceed this value."))
