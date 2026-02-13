@@ -18,6 +18,9 @@
 #include "UObject/UnrealTypePrivate.h"
 #include "TimerManager.h"
 #include "Engine/World.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
+#include "Misc/ScopeLock.h"
 #include "Action.h"
 #include "Target.h"
 #include "RshipContentMappingManager.h"
@@ -28,6 +31,78 @@
 #include "Logs.h"
 
 using namespace std;
+
+static TAutoConsoleVariable<int32> CVarRshipInboundMaxMessagesPerTick(
+    TEXT("r.Rship.Inbound.MaxMessagesPerTick"),
+    256,
+    TEXT("Maximum number of inbound rship payloads applied per TickSubsystems frame."),
+    ECVF_Default);
+
+static TAutoConsoleVariable<int32> CVarRshipInboundAuthorityOnly(
+    TEXT("r.Rship.Inbound.AuthorityOnly"),
+    1,
+    TEXT("If non-zero, only the configured authoritative node ingests live websocket state."),
+    ECVF_Default);
+
+namespace
+{
+void RshipAddTargetIdTokens(const FString& RawValue, TArray<FString>& OutTargetIds)
+{
+    FString Trimmed = RawValue.TrimStartAndEnd();
+    if (Trimmed.IsEmpty())
+    {
+        return;
+    }
+
+    Trimmed.ReplaceInline(TEXT(";"), TEXT(","));
+    TArray<FString> Tokens;
+    Trimmed.ParseIntoArray(Tokens, TEXT(","), true);
+    if (Tokens.Num() == 0)
+    {
+        Tokens.Add(Trimmed);
+    }
+
+    for (FString Token : Tokens)
+    {
+        Token = Token.TrimStartAndEnd();
+        if (!Token.IsEmpty())
+        {
+            OutTargetIds.AddUnique(Token);
+        }
+    }
+}
+
+void RshipExtractTargetIdsFromJsonObject(const TSharedPtr<FJsonObject>& JsonObject, TArray<FString>& OutTargetIds)
+{
+    if (!JsonObject.IsValid())
+    {
+        return;
+    }
+
+    static const TCHAR* TargetFields[] = { TEXT("targetNodeId"), TEXT("targetNodeIds"), TEXT("targetIds") };
+    for (const TCHAR* FieldName : TargetFields)
+    {
+        FString StringValue;
+        if (JsonObject->TryGetStringField(FieldName, StringValue))
+        {
+            RshipAddTargetIdTokens(StringValue, OutTargetIds);
+        }
+
+        const TArray<TSharedPtr<FJsonValue>>* ArrayValues = nullptr;
+        if (JsonObject->TryGetArrayField(FieldName, ArrayValues) && ArrayValues)
+        {
+            for (const TSharedPtr<FJsonValue>& Value : *ArrayValues)
+            {
+                FString Element;
+                if (Value.IsValid() && Value->TryGetString(Element))
+                {
+                    RshipAddTargetIdTokens(Element, OutTargetIds);
+                }
+            }
+        }
+    }
+}
+}
 
 void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
 {
@@ -70,6 +145,15 @@ void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
     ContentMappingManager = nullptr;
     DisplayManager = nullptr;
     LastTickTime = 0.0;
+    InboundQueue.Reset();
+    InboundFrameCounter = 0;
+    NextInboundSequence = 1;
+    InboundDroppedMessages = 0;
+    InboundTargetFilteredMessages = 0;
+    InboundAppliedMessages = 0;
+    InboundAppliedLatencyMsTotal = 0.0;
+    bLoggedInboundAuthorityDrop = false;
+    InitializeInboundMessagePolicy();
 
     // Initialize rate limiter
     InitializeRateLimiter();
@@ -348,6 +432,11 @@ int32 URshipSubsystem::GetServerPort() const
     return Settings ? Settings->rshipServerPort : 5155;
 }
 
+void URshipSubsystem::EnqueueReplicatedInboundMessage(const FString& Message, int64 TargetApplyFrame)
+{
+    EnqueueInboundMessage(Message, true, TargetApplyFrame);
+}
+
 void URshipSubsystem::OnWebSocketConnected()
 {
     UE_LOG(LogRshipExec, Log, TEXT("WebSocket connected"));
@@ -477,7 +566,204 @@ void URshipSubsystem::OnWebSocketClosed(int32 StatusCode, const FString &Reason,
 
 void URshipSubsystem::OnWebSocketMessage(const FString &Message)
 {
-    ProcessMessage(Message);
+    EnqueueInboundMessage(Message, false);
+}
+
+void URshipSubsystem::InitializeInboundMessagePolicy()
+{
+    bInboundAuthorityOnly = CVarRshipInboundAuthorityOnly.GetValueOnGameThread() != 0;
+
+    FString ParsedNodeId;
+    FParse::Value(FCommandLine::Get(), TEXT("dc_node="), ParsedNodeId);
+    if (ParsedNodeId.IsEmpty())
+    {
+        ParsedNodeId = FPlatformMisc::GetEnvironmentVariable(TEXT("RSHIP_NODE_ID"));
+    }
+
+    FString ParsedAuthorityId;
+    FParse::Value(FCommandLine::Get(), TEXT("rship_authority_node="), ParsedAuthorityId);
+    if (ParsedAuthorityId.IsEmpty())
+    {
+        ParsedAuthorityId = FPlatformMisc::GetEnvironmentVariable(TEXT("RSHIP_AUTHORITY_NODE"));
+    }
+    if (ParsedAuthorityId.IsEmpty())
+    {
+        ParsedAuthorityId = TEXT("node_0");
+    }
+
+    if (ParsedNodeId.IsEmpty())
+    {
+        ParsedNodeId = ParsedAuthorityId;
+    }
+
+    InboundNodeId = ParsedNodeId;
+    InboundAuthorityNodeId = ParsedAuthorityId;
+    bIsAuthorityIngestNode = InboundNodeId.Equals(InboundAuthorityNodeId, ESearchCase::IgnoreCase);
+
+    UE_LOG(LogRshipExec, Log,
+        TEXT("Inbound policy: authorityOnly=%d nodeId=%s authorityNode=%s ingest=%s"),
+        bInboundAuthorityOnly ? 1 : 0,
+        *InboundNodeId,
+        *InboundAuthorityNodeId,
+        bIsAuthorityIngestNode ? TEXT("ENABLED") : TEXT("DISABLED"));
+}
+
+bool URshipSubsystem::IsInboundMessageTargetedToLocalNode(const FString& Message) const
+{
+    if (InboundNodeId.IsEmpty())
+    {
+        return true;
+    }
+
+    TSharedPtr<FJsonObject> JsonObject;
+    TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Message);
+    if (!FJsonSerializer::Deserialize(Reader, JsonObject) || !JsonObject.IsValid())
+    {
+        return true;
+    }
+
+    TArray<FString> TargetIds;
+    RshipExtractTargetIdsFromJsonObject(JsonObject, TargetIds);
+
+    const TSharedPtr<FJsonObject>* DataObjectPtr = nullptr;
+    if (JsonObject->TryGetObjectField(TEXT("data"), DataObjectPtr) && DataObjectPtr && DataObjectPtr->IsValid())
+    {
+        RshipExtractTargetIdsFromJsonObject(*DataObjectPtr, TargetIds);
+    }
+
+    if (TargetIds.Num() == 0)
+    {
+        return true;
+    }
+
+    for (const FString& TargetId : TargetIds)
+    {
+        if (TargetId == TEXT("*") || TargetId.Equals(TEXT("all"), ESearchCase::IgnoreCase))
+        {
+            return true;
+        }
+        if (TargetId.Equals(InboundNodeId, ESearchCase::IgnoreCase))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void URshipSubsystem::EnqueueInboundMessage(const FString& Message, bool bBypassAuthorityGate, int64 TargetApplyFrame)
+{
+    if (Message.IsEmpty())
+    {
+        return;
+    }
+
+    if (!bBypassAuthorityGate && !IsInboundMessageTargetedToLocalNode(Message))
+    {
+        FScopeLock Lock(&InboundQueueMutex);
+        ++InboundDroppedMessages;
+        ++InboundTargetFilteredMessages;
+        return;
+    }
+
+    if (!bBypassAuthorityGate && bInboundAuthorityOnly && !bIsAuthorityIngestNode)
+    {
+        bool bShouldLogDrop = false;
+        {
+            FScopeLock Lock(&InboundQueueMutex);
+            ++InboundDroppedMessages;
+            if (!bLoggedInboundAuthorityDrop)
+            {
+                bLoggedInboundAuthorityDrop = true;
+                bShouldLogDrop = true;
+            }
+        }
+
+        if (bShouldLogDrop)
+        {
+            UE_LOG(LogRshipExec, Warning,
+                TEXT("Dropping inbound websocket payloads on non-authority node %s (authority=%s). Use replicated authoritative events instead."),
+                *InboundNodeId,
+                *InboundAuthorityNodeId);
+        }
+        return;
+    }
+
+    FRshipInboundQueuedMessage Queued;
+    int64 AssignedApplyFrame = 0;
+    {
+        FScopeLock Lock(&InboundQueueMutex);
+        Queued.Sequence = NextInboundSequence++;
+        const int64 NextFrame = InboundFrameCounter + 1;
+        Queued.ApplyFrame = (TargetApplyFrame == INDEX_NONE) ? NextFrame : FMath::Max(TargetApplyFrame, NextFrame);
+        AssignedApplyFrame = Queued.ApplyFrame;
+        Queued.EnqueueTimeSeconds = FPlatformTime::Seconds();
+        Queued.Payload = Message;
+        InboundQueue.Add(MoveTemp(Queued));
+    }
+
+    if (!bBypassAuthorityGate && bInboundAuthorityOnly && bIsAuthorityIngestNode)
+    {
+        OnAuthoritativeInboundQueuedDelegate.Broadcast(Message, AssignedApplyFrame);
+    }
+}
+
+void URshipSubsystem::ProcessInboundMessageQueue()
+{
+    const int32 MaxMessagesPerTick = FMath::Max(1, CVarRshipInboundMaxMessagesPerTick.GetValueOnGameThread());
+    TArray<FRshipInboundQueuedMessage> MessagesToApply;
+    int32 RemainingCount = 0;
+
+    {
+        FScopeLock Lock(&InboundQueueMutex);
+        if (InboundQueue.Num() == 0)
+        {
+            return;
+        }
+
+        InboundQueue.Sort([](const FRshipInboundQueuedMessage& A, const FRshipInboundQueuedMessage& B)
+        {
+            if (A.ApplyFrame != B.ApplyFrame)
+            {
+                return A.ApplyFrame < B.ApplyFrame;
+            }
+            return A.Sequence < B.Sequence;
+        });
+
+        int32 ApplyCount = 0;
+        const int32 CandidateCount = FMath::Min(MaxMessagesPerTick, InboundQueue.Num());
+        MessagesToApply.Reserve(CandidateCount);
+        for (int32 Index = 0; Index < CandidateCount; ++Index)
+        {
+            if (InboundQueue[Index].ApplyFrame > InboundFrameCounter)
+            {
+                break;
+            }
+            MessagesToApply.Add(MoveTemp(InboundQueue[Index]));
+            ++ApplyCount;
+        }
+
+        if (ApplyCount == 0)
+        {
+            return;
+        }
+        InboundQueue.RemoveAt(0, ApplyCount, false);
+        RemainingCount = InboundQueue.Num();
+    }
+
+    const double ApplyTimeSeconds = FPlatformTime::Seconds();
+    for (const FRshipInboundQueuedMessage& Message : MessagesToApply)
+    {
+        InboundAppliedLatencyMsTotal += FMath::Max(0.0, (ApplyTimeSeconds - Message.EnqueueTimeSeconds) * 1000.0);
+        ++InboundAppliedMessages;
+        ProcessMessage(Message.Payload);
+    }
+
+    if (RemainingCount > 0)
+    {
+        UE_LOG(LogRshipExec, Verbose, TEXT("Inbound queue backlog=%d after apply (%d this tick)"),
+            RemainingCount, MessagesToApply.Num());
+    }
 }
 
 void URshipSubsystem::ScheduleReconnect()
@@ -590,6 +876,9 @@ void URshipSubsystem::ProcessMessageQueue()
 
 void URshipSubsystem::TickSubsystems()
 {
+    ++InboundFrameCounter;
+    ProcessInboundMessageQueue();
+
     // Calculate delta time
     double CurrentTime = FPlatformTime::Seconds();
     float DeltaTime = (LastTickTime > 0.0) ? (float)(CurrentTime - LastTickTime) : 0.0f;
@@ -2466,4 +2755,36 @@ URshipTargetComponent* URshipSubsystem::FindTargetComponent(const FString& FullT
 
     URshipTargetComponent* const* Found = TargetComponents->Find(FullTargetId);
     return Found ? *Found : nullptr;
+}
+
+int32 URshipSubsystem::GetInboundQueueLength() const
+{
+    FScopeLock Lock(&InboundQueueMutex);
+    return InboundQueue.Num();
+}
+
+int32 URshipSubsystem::GetInboundDroppedMessages() const
+{
+    FScopeLock Lock(&InboundQueueMutex);
+    return InboundDroppedMessages;
+}
+
+int32 URshipSubsystem::GetInboundTargetFilteredMessages() const
+{
+    FScopeLock Lock(&InboundQueueMutex);
+    return InboundTargetFilteredMessages;
+}
+
+float URshipSubsystem::GetInboundAverageApplyLatencyMs() const
+{
+    if (InboundAppliedMessages <= 0)
+    {
+        return 0.0f;
+    }
+    return static_cast<float>(InboundAppliedLatencyMsTotal / static_cast<double>(InboundAppliedMessages));
+}
+
+bool URshipSubsystem::IsAuthoritativeIngestNode() const
+{
+    return !bInboundAuthorityOnly || bIsAuthorityIngestNode;
 }

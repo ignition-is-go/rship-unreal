@@ -29,6 +29,16 @@
 
 #define LOCTEXT_NAMESPACE "SRship2110MappingPanel"
 
+namespace
+{
+FNumberFormattingOptions MakeBitrateNumberFormat()
+{
+	FNumberFormattingOptions Options = FNumberFormattingOptions::DefaultWithGrouping();
+	Options.SetMaximumFractionalDigits(2);
+	return Options;
+}
+}
+
 void SRship2110MappingPanel::Construct(const FArguments& InArgs)
 {
 	TimeSinceLastRefresh = 0.0f;
@@ -46,6 +56,20 @@ void SRship2110MappingPanel::Construct(const FArguments& InArgs)
 			.Padding(0.0f, 0.0f, 0.0f, 8.0f)
 			[
 				BuildOverviewSection()
+			]
+
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(0.0f, 4.0f)
+			[
+				SNew(SSeparator)
+			]
+
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(0.0f, 0.0f, 0.0f, 8.0f)
+			[
+				BuildClusterSection()
 			]
 
 			+ SVerticalBox::Slot()
@@ -189,8 +213,83 @@ void SRship2110MappingPanel::RefreshSubsystemState()
 		else
 		{
 			ContentMappingStatusText->SetText(LOCTEXT("MappingUnavailable", "Content Mapping: Disabled"));
-			ContentMappingStatusText->SetColorAndOpacity(FLinearColor::Orange);
+			ContentMappingStatusText->SetColorAndOpacity(FLinearColor(1.0f, 0.6f, 0.1f, 1.0f));
 		}
+	}
+
+#if RSHIP_EDITOR_HAS_2110
+	URship2110Subsystem* Subsystem = Get2110Subsystem();
+	const FRship2110ClusterState ClusterState = Subsystem ? Subsystem->GetClusterState() : FRship2110ClusterState();
+#else
+	URship2110Subsystem* Subsystem = nullptr;
+#endif
+
+	if (ClusterAuthorityText.IsValid())
+	{
+#if RSHIP_EDITOR_HAS_2110
+		if (Subsystem)
+		{
+			const bool bLocalAuthority = Subsystem->IsLocalNodeAuthority();
+			const FString NodeId = Subsystem->GetLocalClusterNodeId();
+			const FString AuthorityId = ClusterState.ActiveAuthorityNodeId;
+			ClusterAuthorityText->SetText(FText::FromString(FString::Printf(
+				TEXT("Cluster: node=%s | authority=%s | role=%s"),
+				*NodeId,
+				*AuthorityId,
+				bLocalAuthority ? TEXT("Primary") : TEXT("Secondary"))));
+			ClusterAuthorityText->SetColorAndOpacity(bLocalAuthority ? FLinearColor::Green : FLinearColor(0.9f, 0.8f, 0.2f, 1.0f));
+		}
+		else
+#endif
+		{
+			ClusterAuthorityText->SetText(LOCTEXT("ClusterUnknown", "Cluster: runtime unavailable"));
+			ClusterAuthorityText->SetColorAndOpacity(FLinearColor::Yellow);
+		}
+	}
+
+	if (ClusterFailoverText.IsValid())
+	{
+#if RSHIP_EDITOR_HAS_2110
+		if (Subsystem)
+		{
+			ClusterFailoverText->SetText(FText::FromString(FString::Printf(
+				TEXT("Failover: %s | timeout=%.2fs | strict ownership=%s"),
+				ClusterState.bFailoverEnabled ? TEXT("enabled") : TEXT("disabled"),
+				ClusterState.FailoverTimeoutSeconds,
+				ClusterState.bStrictNodeOwnership ? TEXT("on") : TEXT("off"))));
+			ClusterFailoverText->SetColorAndOpacity(ClusterState.bFailoverEnabled ? FLinearColor::White : FLinearColor(0.8f, 0.6f, 0.2f, 1.0f));
+		}
+		else
+#endif
+		{
+			ClusterFailoverText->SetText(FText::GetEmpty());
+		}
+	}
+
+	if (ClusterInboundText.IsValid())
+	{
+		if (URshipSubsystem* RshipSubsystem = GetRshipSubsystem())
+		{
+			ClusterInboundText->SetText(FText::FromString(FString::Printf(
+				TEXT("Inbound: queue=%d | dropped=%d | target-filtered=%d | avg-latency=%.2fms | ingest=%s"),
+				RshipSubsystem->GetInboundQueueLength(),
+				RshipSubsystem->GetInboundDroppedMessages(),
+				RshipSubsystem->GetInboundTargetFilteredMessages(),
+				RshipSubsystem->GetInboundAverageApplyLatencyMs(),
+				RshipSubsystem->IsAuthoritativeIngestNode() ? TEXT("authority") : TEXT("replica"))));
+			ClusterInboundText->SetColorAndOpacity(RshipSubsystem->GetInboundQueueLength() > 0 ? FLinearColor(1.0f, 0.85f, 0.2f, 1.0f) : FLinearColor::White);
+		}
+		else
+		{
+			ClusterInboundText->SetText(LOCTEXT("InboundUnavailable", "Inbound: rship subsystem unavailable"));
+			ClusterInboundText->SetColorAndOpacity(FLinearColor::Yellow);
+		}
+	}
+
+	if (ClusterTransportText.IsValid())
+	{
+		ClusterTransportText->SetText(LOCTEXT("ClusterTransportServer", "Transport: server-targeted delivery active (node target IDs filtered at ingress)"));
+		ClusterTransportText->SetColorAndOpacity(FLinearColor(0.7f, 0.95f, 0.7f, 1.0f));
 	}
 }
 
@@ -222,6 +321,13 @@ void SRship2110MappingPanel::RefreshStreams()
 	StreamItems.Empty();
 	BoundContextCounts.Empty();
 
+#if !RSHIP_EDITOR_HAS_2110
+	if (StreamListView.IsValid())
+	{
+		StreamListView->RequestListRefresh();
+	}
+	return;
+#else
 	URship2110Subsystem* Subsystem = Get2110Subsystem();
 	if (!Subsystem)
 	{
@@ -360,6 +466,7 @@ void SRship2110MappingPanel::RefreshStreams()
 
 		StreamItems.Add(Item);
 	}
+#endif
 
 	if (StreamListView.IsValid())
 	{
@@ -381,6 +488,7 @@ void SRship2110MappingPanel::RefreshStreams()
 					StreamListView->SetItemSelection(Item, true);
 				}
 				break;
+			}
 		}
 	}
 }
@@ -505,6 +613,8 @@ void SRship2110MappingPanel::UpdateSummaries()
 
 void SRship2110MappingPanel::UpdateSelectionDetails()
 {
+	const FNumberFormattingOptions BitrateNumberFormat = MakeBitrateNumberFormat();
+
 	if (SelectedStream.IsValid())
 	{
 		SelectedStreamText->SetText(FText::FromString(SelectedStream->StreamId));
@@ -521,7 +631,7 @@ void SRship2110MappingPanel::UpdateSelectionDetails()
 			FText::AsNumber(SelectedStream->FramesSent),
 			FText::AsNumber(SelectedStream->FramesDropped),
 			FText::AsNumber(SelectedStream->LateFrames),
-			FText::AsNumber(SelectedStream->BitrateMbps, &FNumberFormattingOptions::DefaultWithGrouping().SetMaximumFractionalDigits(2))));
+			FText::AsNumber(SelectedStream->BitrateMbps, &BitrateNumberFormat)));
 
 		if (!SelectedStream->BoundContextId.IsEmpty())
 		{
@@ -671,9 +781,10 @@ bool SRship2110MappingPanel::GetBindCaptureRect(FIntRect& OutRect) const
 	return true;
 }
 
-void SRship2110MappingPanel::OnRefreshClicked()
+FReply SRship2110MappingPanel::OnRefreshClicked()
 {
 	RefreshPanel();
+	return FReply::Handled();
 }
 
 FReply SRship2110MappingPanel::OnBindClicked()
@@ -826,6 +937,77 @@ FReply SRship2110MappingPanel::OnStopStreamClicked()
 	return FReply::Handled();
 }
 
+FReply SRship2110MappingPanel::OnPromoteAuthorityClicked()
+{
+#if RSHIP_EDITOR_HAS_2110
+	if (URship2110Subsystem* Subsystem = Get2110Subsystem())
+	{
+		Subsystem->PromoteLocalNodeToPrimary(true);
+		if (ClusterActionStatusText.IsValid())
+		{
+			ClusterActionStatusText->SetText(FText::FromString(FString::Printf(
+				TEXT("Requested authority promotion for node %s"),
+				*Subsystem->GetLocalClusterNodeId())));
+			ClusterActionStatusText->SetColorAndOpacity(FLinearColor::Green);
+		}
+	}
+#endif
+	RefreshPanel();
+	return FReply::Handled();
+}
+
+FReply SRship2110MappingPanel::OnToggleFailoverClicked()
+{
+#if RSHIP_EDITOR_HAS_2110
+	if (URship2110Subsystem* Subsystem = Get2110Subsystem())
+	{
+		const FRship2110ClusterState State = Subsystem->GetClusterState();
+		const bool bNewFailoverEnabled = !State.bFailoverEnabled;
+		const bool bUpdated = Subsystem->UpdateClusterFailoverConfig(
+			bNewFailoverEnabled,
+			State.bAllowAutoPromotion,
+			State.FailoverTimeoutSeconds,
+			State.bStrictNodeOwnership,
+			true);
+		if (ClusterActionStatusText.IsValid())
+		{
+			ClusterActionStatusText->SetText(FText::FromString(bUpdated
+				? FString::Printf(TEXT("Requested failover %s"), bNewFailoverEnabled ? TEXT("enable") : TEXT("disable"))
+				: FString(TEXT("Failover update rejected (local node is not authority)"))));
+			ClusterActionStatusText->SetColorAndOpacity(bUpdated ? FLinearColor::Green : FLinearColor::Yellow);
+		}
+	}
+#endif
+	RefreshPanel();
+	return FReply::Handled();
+}
+
+FReply SRship2110MappingPanel::OnToggleStrictOwnershipClicked()
+{
+#if RSHIP_EDITOR_HAS_2110
+	if (URship2110Subsystem* Subsystem = Get2110Subsystem())
+	{
+		const FRship2110ClusterState State = Subsystem->GetClusterState();
+		const bool bNewStrictOwnership = !State.bStrictNodeOwnership;
+		const bool bUpdated = Subsystem->UpdateClusterFailoverConfig(
+			State.bFailoverEnabled,
+			State.bAllowAutoPromotion,
+			State.FailoverTimeoutSeconds,
+			bNewStrictOwnership,
+			true);
+		if (ClusterActionStatusText.IsValid())
+		{
+			ClusterActionStatusText->SetText(FText::FromString(bUpdated
+				? FString::Printf(TEXT("Requested strict ownership %s"), bNewStrictOwnership ? TEXT("enable") : TEXT("disable"))
+				: FString(TEXT("Ownership update rejected (local node is not authority)"))));
+			ClusterActionStatusText->SetColorAndOpacity(bUpdated ? FLinearColor::Green : FLinearColor::Yellow);
+		}
+	}
+#endif
+	RefreshPanel();
+	return FReply::Handled();
+}
+
 FReply SRship2110MappingPanel::OnResetStatsClicked()
 {
 	if (!SelectedStream.IsValid())
@@ -945,6 +1127,110 @@ TSharedRef<SWidget> SRship2110MappingPanel::BuildOverviewSection()
 						SAssignNew(BindingSummaryText, STextBlock)
 						.Text(LOCTEXT("BindingSummaryInit", "Streams with bindings: 0"))
 					]
+				]
+			]
+		];
+}
+
+TSharedRef<SWidget> SRship2110MappingPanel::BuildClusterSection()
+{
+	return SNew(SVerticalBox)
+		+ SVerticalBox::Slot()
+		.AutoHeight()
+		[
+			SNew(STextBlock)
+			.Text(LOCTEXT("ClusterHeader", "Cluster Authority and Sync"))
+			.Font(FCoreStyle::GetDefaultFontStyle("Bold", 11))
+		]
+
+		+ SVerticalBox::Slot()
+		.AutoHeight()
+		.Padding(0.0f, 6.0f, 0.0f, 0.0f)
+		[
+			SNew(SBorder)
+			.BorderImage(FAppStyle::GetBrush("ToolPanel.GroupBorder"))
+			.Padding(8.0f)
+			[
+				SNew(SVerticalBox)
+
+				+ SVerticalBox::Slot()
+				.AutoHeight()
+				[
+					SAssignNew(ClusterAuthorityText, STextBlock)
+					.Text(LOCTEXT("ClusterAuthorityInit", "Cluster: checking..."))
+				]
+
+				+ SVerticalBox::Slot()
+				.AutoHeight()
+				.Padding(0.0f, 2.0f, 0.0f, 0.0f)
+				[
+					SAssignNew(ClusterFailoverText, STextBlock)
+					.Text(FText::GetEmpty())
+				]
+
+				+ SVerticalBox::Slot()
+				.AutoHeight()
+				.Padding(0.0f, 2.0f, 0.0f, 0.0f)
+				[
+					SAssignNew(ClusterInboundText, STextBlock)
+					.Text(LOCTEXT("ClusterInboundInit", "Inbound: checking..."))
+				]
+
+				+ SVerticalBox::Slot()
+				.AutoHeight()
+				.Padding(0.0f, 2.0f, 0.0f, 0.0f)
+				[
+					SAssignNew(ClusterTransportText, STextBlock)
+					.Text(FText::GetEmpty())
+				]
+
+				+ SVerticalBox::Slot()
+				.AutoHeight()
+				.Padding(0.0f, 8.0f, 0.0f, 0.0f)
+				[
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot()
+					.AutoWidth()
+					.Padding(0.0f, 0.0f, 6.0f, 0.0f)
+					[
+						SNew(SButton)
+						.Text(LOCTEXT("PromoteAuthorityButton", "Promote Local to Authority"))
+						.OnClicked(this, &SRship2110MappingPanel::OnPromoteAuthorityClicked)
+						.IsEnabled_Lambda([this]()
+						{
+#if RSHIP_EDITOR_HAS_2110
+							if (URship2110Subsystem* Subsystem = Get2110Subsystem())
+							{
+								return !Subsystem->IsLocalNodeAuthority();
+							}
+#endif
+							return false;
+						})
+					]
+					+ SHorizontalBox::Slot()
+					.AutoWidth()
+					.Padding(0.0f, 0.0f, 6.0f, 0.0f)
+					[
+						SNew(SButton)
+						.Text(LOCTEXT("ToggleFailoverButton", "Toggle Failover"))
+						.OnClicked(this, &SRship2110MappingPanel::OnToggleFailoverClicked)
+					]
+					+ SHorizontalBox::Slot()
+					.AutoWidth()
+					[
+						SNew(SButton)
+						.Text(LOCTEXT("ToggleStrictOwnershipButton", "Toggle Strict Ownership"))
+						.OnClicked(this, &SRship2110MappingPanel::OnToggleStrictOwnershipClicked)
+					]
+				]
+
+				+ SVerticalBox::Slot()
+				.AutoHeight()
+				.Padding(0.0f, 6.0f, 0.0f, 0.0f)
+				[
+					SAssignNew(ClusterActionStatusText, STextBlock)
+					.Text(LOCTEXT("ClusterActionStatusInit", "Authority actions are frame-latched and cluster-synchronized."))
+					.ColorAndOpacity(FSlateColor::UseSubduedForeground())
 				]
 			]
 		];
@@ -1310,7 +1596,8 @@ TSharedRef<SWidget> SRship2110MappingPanel::BuildUserGuideSection()
 			.ColorAndOpacity(FLinearColor(0.95f, 0.8f, 0.35f, 1.0f))
 			.Text(LOCTEXT("GuideTextWarning",
 				"Hint: use the same render-context boundaries used by nDisplay/content mapping upstream."
-				" This keeps upstream distribution and frame-boundary calculations intact while still using crop for partial output."))
+				" This keeps upstream distribution and frame-boundary calculations intact while still using crop for partial output."
+				" Cluster ingest now also filters inbound traffic by node target IDs at ingress for lower queue pressure."))
 		];
 }
 
@@ -1320,6 +1607,8 @@ TSharedRef<ITableRow> SRship2110MappingPanel::OnGenerateStreamRow(TSharedPtr<FRs
 	{
 		return SNew(STableRow<TSharedPtr<FRship2110MappingStreamItem>>, OwnerTable);
 	}
+
+	const FNumberFormattingOptions BitrateNumberFormat = MakeBitrateNumberFormat();
 
 	return SNew(STableRow<TSharedPtr<FRship2110MappingStreamItem>>, OwnerTable)
 		.Padding(2.0f)
@@ -1363,7 +1652,7 @@ TSharedRef<ITableRow> SRship2110MappingPanel::OnGenerateStreamRow(TSharedPtr<FRs
 			+ SHorizontalBox::Slot().FillWidth(0.10f)
 			[
 				SNew(STextBlock)
-				.Text(FText::AsNumber(Item->BitrateMbps, &FNumberFormattingOptions::DefaultWithGrouping().SetMaximumFractionalDigits(2)))
+				.Text(FText::AsNumber(Item->BitrateMbps, &BitrateNumberFormat))
 			]
 		];
 }

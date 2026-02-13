@@ -134,6 +134,37 @@ Notes:
 - If you need partial output, keep one context and set `CaptureRect` on the stream bind instead of duplicating mesh UV splits.
 - If a context is not found or its texture is not a render target, binding fails and the stream keeps its previous source.
 
+## Cluster ownership and failover (dynamic)
+
+`URship2110Subsystem` now includes a frame-indexed cluster control state:
+
+- `QueueClusterStateUpdate(FRship2110ClusterState)` for deterministic apply at `ApplyFrame`.
+- Stream ownership map per node (`NodeStreamAssignments`).
+- Strict ownership mode blocks non-owner nodes from transmitting.
+- Epoch/version ordering rejects stale updates.
+- Heartbeat timeout + deterministic failover candidate selection with `PromoteLocalNodeToPrimary`.
+
+Recommended usage:
+
+1. Authoritative node publishes `FRship2110ClusterState` with `Epoch`, `Version`, `ApplyFrame`.
+2. All nodes queue the same state and apply on the same synced frame.
+3. Enable `bStrictNodeOwnership` and assign each stream to exactly one node.
+4. Feed authority heartbeats to standby nodes via `NotifyClusterAuthorityHeartbeat`.
+5. On timeout, standby candidate promotes and increments epoch.
+
+This model is designed to be carried by your nDisplay-synced control plane (cluster events can be a trigger, but frame-indexed state is the source of truth).
+
+Core API hooks:
+
+- `SubmitAuthorityClusterStatePrepare(...)`
+- `ReceiveClusterStatePrepare(...)`
+- `ReceiveClusterStateAck(...)`
+- `ReceiveClusterStateCommit(...)`
+- Outbound transport delegates:
+  - `OnClusterPrepareOutbound`
+  - `OnClusterAckOutbound`
+  - `OnClusterCommitOutbound`
+
 ### Editor workflow (live, no MRQ)
 
 Use this when you want to map a 2110 stream without creating custom camera projection code.
@@ -154,10 +185,16 @@ Capture rectangle rules:
 ## Console Commands
 
 ```
-rship.2110.status     # Show stream status and PTP sync
-rship.2110.start      # Start video stream
-rship.2110.stop       # Stop video stream
-rship.2110.ptp        # PTP clock status
+rship.stream.list                                  # List active streams
+rship.stream.starttest                             # Start test stream
+rship.stream.stop <stream_id>                      # Stop stream
+rship.ptp.status                                   # PTP status
+rship.ipmx.status                                  # IPMX status
+rship.cluster.status                               # Cluster state + local ownership
+rship.cluster.node <node_id>                       # Set local node id
+rship.cluster.assign <stream_id> <node_id>         # Assign stream ownership
+rship.cluster.promote                              # Promote local node to authority
+rship.cluster.heartbeat <authority_node> <e> <v>   # Record authority heartbeat
 ```
 
 ## Network Requirements

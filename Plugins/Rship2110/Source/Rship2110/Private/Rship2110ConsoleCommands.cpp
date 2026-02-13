@@ -247,6 +247,171 @@ static FAutoConsoleCommand Rship2110StreamStopCmd(
     }));
 
 // ============================================================================
+// CLUSTER COMMANDS
+// ============================================================================
+
+static FAutoConsoleCommand Rship2110ClusterStatusCmd(
+    TEXT("rship.cluster.status"),
+    TEXT("Display cluster control state and local ownership"),
+    FConsoleCommandDelegate::CreateLambda([]()
+    {
+        URship2110Subsystem* Subsystem = GEngine ? GEngine->GetEngineSubsystem<URship2110Subsystem>() : nullptr;
+        if (!Subsystem)
+        {
+            UE_LOG(LogRship2110, Log, TEXT("2110 subsystem not available"));
+            return;
+        }
+
+        const FRship2110ClusterState State = Subsystem->GetClusterState();
+        const FString LocalNodeId = Subsystem->GetLocalClusterNodeId();
+        const FString Role = Subsystem->IsLocalNodeAuthority() ? TEXT("Primary") : TEXT("Secondary");
+
+        UE_LOG(LogRship2110, Log, TEXT("=== Cluster Status ==="));
+        UE_LOG(LogRship2110, Log, TEXT("Local Node: %s"), *LocalNodeId);
+        UE_LOG(LogRship2110, Log, TEXT("Role: %s"), *Role);
+        UE_LOG(LogRship2110, Log, TEXT("Frame: %lld"), Subsystem->GetClusterFrameCounter());
+        UE_LOG(LogRship2110, Log, TEXT("Epoch/Version: %d/%d"), State.Epoch, State.Version);
+        UE_LOG(LogRship2110, Log, TEXT("Authority: %s"), *State.ActiveAuthorityNodeId);
+        UE_LOG(LogRship2110, Log, TEXT("Strict Ownership: %s"), State.bStrictNodeOwnership ? TEXT("Yes") : TEXT("No"));
+        UE_LOG(LogRship2110, Log, TEXT("Failover: %s (timeout %.2fs)"),
+            State.bFailoverEnabled ? TEXT("Enabled") : TEXT("Disabled"),
+            State.FailoverTimeoutSeconds);
+
+        const TArray<FString> OwnedStreams = Subsystem->GetLocallyOwnedStreams();
+        UE_LOG(LogRship2110, Log, TEXT("Owned Streams (%d):"), OwnedStreams.Num());
+        for (const FString& StreamId : OwnedStreams)
+        {
+            UE_LOG(LogRship2110, Log, TEXT("  %s"), *StreamId);
+        }
+    }));
+
+static FAutoConsoleCommand Rship2110ClusterSetNodeCmd(
+    TEXT("rship.cluster.node"),
+    TEXT("Set local cluster node id - Usage: rship.cluster.node <node_id>"),
+    FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+    {
+        if (Args.Num() < 1)
+        {
+            UE_LOG(LogRship2110, Log, TEXT("Usage: rship.cluster.node <node_id>"));
+            return;
+        }
+
+        URship2110Subsystem* Subsystem = GEngine ? GEngine->GetEngineSubsystem<URship2110Subsystem>() : nullptr;
+        if (!Subsystem)
+        {
+            return;
+        }
+
+        Subsystem->SetLocalClusterNodeId(Args[0]);
+        UE_LOG(LogRship2110, Log, TEXT("Local cluster node id updated to %s"), *Subsystem->GetLocalClusterNodeId());
+    }));
+
+static FAutoConsoleCommand Rship2110ClusterAssignCmd(
+    TEXT("rship.cluster.assign"),
+    TEXT("Assign stream ownership - Usage: rship.cluster.assign <stream_id> <node_id>"),
+    FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+    {
+        if (Args.Num() < 2)
+        {
+            UE_LOG(LogRship2110, Log, TEXT("Usage: rship.cluster.assign <stream_id> <node_id>"));
+            return;
+        }
+
+        URship2110Subsystem* Subsystem = GEngine ? GEngine->GetEngineSubsystem<URship2110Subsystem>() : nullptr;
+        if (!Subsystem)
+        {
+            return;
+        }
+
+        Subsystem->SetClusterOwnershipForStream(Args[0], Args[1], true);
+        UE_LOG(LogRship2110, Log, TEXT("Queued ownership update: %s -> %s"), *Args[0], *Args[1]);
+    }));
+
+static FAutoConsoleCommand Rship2110ClusterPromoteCmd(
+    TEXT("rship.cluster.promote"),
+    TEXT("Promote local node to authority on next frame"),
+    FConsoleCommandDelegate::CreateLambda([]()
+    {
+        URship2110Subsystem* Subsystem = GEngine ? GEngine->GetEngineSubsystem<URship2110Subsystem>() : nullptr;
+        if (!Subsystem)
+        {
+            return;
+        }
+
+        Subsystem->PromoteLocalNodeToPrimary(true);
+        UE_LOG(LogRship2110, Warning, TEXT("Queued local authority promotion for node %s"), *Subsystem->GetLocalClusterNodeId());
+    }));
+
+static FAutoConsoleCommand Rship2110ClusterHeartbeatCmd(
+    TEXT("rship.cluster.heartbeat"),
+    TEXT("Record authority heartbeat - Usage: rship.cluster.heartbeat <authority_node> <epoch> <version>"),
+    FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+    {
+        if (Args.Num() < 3)
+        {
+            UE_LOG(LogRship2110, Log, TEXT("Usage: rship.cluster.heartbeat <authority_node> <epoch> <version>"));
+            return;
+        }
+
+        URship2110Subsystem* Subsystem = GEngine ? GEngine->GetEngineSubsystem<URship2110Subsystem>() : nullptr;
+        if (!Subsystem)
+        {
+            return;
+        }
+
+        const int32 Epoch = FCString::Atoi(*Args[1]);
+        const int32 Version = FCString::Atoi(*Args[2]);
+        Subsystem->NotifyClusterAuthorityHeartbeat(Args[0], Epoch, Version);
+    }));
+
+static FAutoConsoleCommand Rship2110ClusterPrepareCmd(
+    TEXT("rship.cluster.prepare"),
+    TEXT("Authority: create and broadcast prepare for current state with incremented version"),
+    FConsoleCommandDelegate::CreateLambda([]()
+    {
+        URship2110Subsystem* Subsystem = GEngine ? GEngine->GetEngineSubsystem<URship2110Subsystem>() : nullptr;
+        if (!Subsystem)
+        {
+            return;
+        }
+
+        FRship2110ClusterState State = Subsystem->GetClusterState();
+        State.Version += 1;
+        State.ApplyFrame = Subsystem->GetClusterFrameCounter() + 3;
+        if (!Subsystem->SubmitAuthorityClusterStatePrepare(State, true))
+        {
+            UE_LOG(LogRship2110, Warning, TEXT("Prepare submit failed (node is likely not authority)"));
+        }
+    }));
+
+static FAutoConsoleCommand Rship2110ClusterAckCmd(
+    TEXT("rship.cluster.ack"),
+    TEXT("Inject ACK - Usage: rship.cluster.ack <node> <epoch> <version> <hash>"),
+    FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+    {
+        if (Args.Num() < 4)
+        {
+            UE_LOG(LogRship2110, Log, TEXT("Usage: rship.cluster.ack <node> <epoch> <version> <hash>"));
+            return;
+        }
+
+        URship2110Subsystem* Subsystem = GEngine ? GEngine->GetEngineSubsystem<URship2110Subsystem>() : nullptr;
+        if (!Subsystem)
+        {
+            return;
+        }
+
+        FRship2110ClusterAckMessage Ack;
+        Ack.NodeId = Args[0];
+        Ack.AuthorityNodeId = Subsystem->GetClusterState().ActiveAuthorityNodeId;
+        Ack.Epoch = FCString::Atoi(*Args[1]);
+        Ack.Version = FCString::Atoi(*Args[2]);
+        Ack.StateHash = Args[3];
+        const bool bAccepted = Subsystem->ReceiveClusterStateAck(Ack);
+        UE_LOG(LogRship2110, Log, TEXT("ACK %s"), bAccepted ? TEXT("accepted") : TEXT("rejected"));
+    }));
+
+// ============================================================================
 // IPMX COMMANDS
 // ============================================================================
 
@@ -372,6 +537,15 @@ static FAutoConsoleCommand Rship2110HelpCmd(
         UE_LOG(LogRship2110, Log, TEXT("  rship.stream.list      - List active streams"));
         UE_LOG(LogRship2110, Log, TEXT("  rship.stream.starttest - Start test 1080p60 stream"));
         UE_LOG(LogRship2110, Log, TEXT("  rship.stream.stop <id> - Stop stream by ID"));
+        UE_LOG(LogRship2110, Log, TEXT(""));
+        UE_LOG(LogRship2110, Log, TEXT("Cluster Commands:"));
+        UE_LOG(LogRship2110, Log, TEXT("  rship.cluster.status                         - Display cluster state"));
+        UE_LOG(LogRship2110, Log, TEXT("  rship.cluster.node <node_id>                - Set local node id"));
+        UE_LOG(LogRship2110, Log, TEXT("  rship.cluster.assign <stream_id> <node_id>  - Assign stream ownership"));
+        UE_LOG(LogRship2110, Log, TEXT("  rship.cluster.promote                        - Promote local authority"));
+        UE_LOG(LogRship2110, Log, TEXT("  rship.cluster.heartbeat <node> <e> <v>      - Record authority heartbeat"));
+        UE_LOG(LogRship2110, Log, TEXT("  rship.cluster.prepare                        - Emit prepare for current state"));
+        UE_LOG(LogRship2110, Log, TEXT("  rship.cluster.ack <node> <e> <v> <hash>     - Inject ACK"));
         UE_LOG(LogRship2110, Log, TEXT(""));
         UE_LOG(LogRship2110, Log, TEXT("IPMX Commands:"));
         UE_LOG(LogRship2110, Log, TEXT("  rship.ipmx.status          - Display IPMX status"));

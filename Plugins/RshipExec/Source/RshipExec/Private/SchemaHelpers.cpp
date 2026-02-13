@@ -1,5 +1,6 @@
 #include "SchemaHelpers.h"
 #include "Logs.h"
+#include "UObject/UnrealType.h"
 
 static void BuildChildrenForStruct(const UScriptStruct *InStruct, SchemaNode &OutProp)
 {

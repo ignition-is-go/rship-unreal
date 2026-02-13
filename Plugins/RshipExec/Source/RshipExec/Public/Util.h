@@ -1,4 +1,5 @@
 #pragma once
+#include "Containers/List.h"
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonSerializer.h"
 

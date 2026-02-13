@@ -9,6 +9,7 @@
 #include "RshipTimecodeSync.generated.h"
 
 class URshipSubsystem;
+class FJsonObject;
 
 // ============================================================================
 // TIMECODE TYPES

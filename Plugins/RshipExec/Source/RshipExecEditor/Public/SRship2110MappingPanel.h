@@ -64,6 +64,7 @@ public:
 private:
 	// UI construction
 	TSharedRef<SWidget> BuildOverviewSection();
+	TSharedRef<SWidget> BuildClusterSection();
 	TSharedRef<SWidget> BuildStreamListSection();
 	TSharedRef<SWidget> BuildContextListSection();
 	TSharedRef<SWidget> BuildBindingSection();
@@ -83,11 +84,14 @@ private:
 	bool GetBindCaptureRect(FIntRect& OutRect) const;
 
 	// Action callbacks
-	void OnRefreshClicked();
+	FReply OnRefreshClicked();
 	FReply OnBindClicked();
 	FReply OnUnbindClicked();
 	FReply OnStartStreamClicked();
 	FReply OnStopStreamClicked();
+	FReply OnPromoteAuthorityClicked();
+	FReply OnToggleFailoverClicked();
+	FReply OnToggleStrictOwnershipClicked();
 	FReply OnResetStatsClicked();
 
 	// Rows
@@ -122,6 +126,11 @@ private:
 	TSharedPtr<STextBlock> StreamSummaryText;
 	TSharedPtr<STextBlock> ContextSummaryText;
 	TSharedPtr<STextBlock> BindingSummaryText;
+	TSharedPtr<STextBlock> ClusterAuthorityText;
+	TSharedPtr<STextBlock> ClusterFailoverText;
+	TSharedPtr<STextBlock> ClusterInboundText;
+	TSharedPtr<STextBlock> ClusterTransportText;
+	TSharedPtr<STextBlock> ClusterActionStatusText;
 
 	// Stream list + state
 	TArray<TSharedPtr<FRship2110MappingStreamItem>> StreamItems;

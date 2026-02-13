@@ -8,6 +8,7 @@
 
 class URshipSubsystem;
 class URshipTargetComponent;
+class FJsonObject;
 
 /**
  * Validation issue severity levels

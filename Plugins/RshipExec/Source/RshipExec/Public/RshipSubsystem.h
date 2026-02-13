@@ -6,6 +6,7 @@
 #include "Subsystems/EngineSubsystem.h"
 #include "Subsystems/SubsystemCollection.h"
 #include "IWebSocket.h"
+#include "HAL/CriticalSection.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "RshipTargetComponent.h"
@@ -55,6 +56,7 @@ class URshipDisplayManager;
 
 DECLARE_DYNAMIC_DELEGATE(FRshipMessageDelegate);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnRshipSelectionChanged);
+DECLARE_MULTICAST_DELEGATE_TwoParams(FOnRshipAuthoritativeInboundQueued, const FString&, int64);
 
 // Connection state for tracking
 enum class ERshipConnectionState : uint8
@@ -247,6 +249,30 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     FTimerHandle ConnectionTimeoutHandle;
     double LastTickTime;
 
+    struct FRshipInboundQueuedMessage
+    {
+        uint64 Sequence = 0;
+        int64 ApplyFrame = 0;
+        double EnqueueTimeSeconds = 0.0;
+        FString Payload;
+    };
+
+    // Deterministic inbound ingest/apply state
+    mutable FCriticalSection InboundQueueMutex;
+    TArray<FRshipInboundQueuedMessage> InboundQueue;
+    int64 InboundFrameCounter = 0;
+    uint64 NextInboundSequence = 1;
+    int32 InboundDroppedMessages = 0;
+    int32 InboundTargetFilteredMessages = 0;
+    int64 InboundAppliedMessages = 0;
+    double InboundAppliedLatencyMsTotal = 0.0;
+    bool bInboundAuthorityOnly = true;
+    bool bIsAuthorityIngestNode = true;
+    bool bLoggedInboundAuthorityDrop = false;
+    FString InboundNodeId;
+    FString InboundAuthorityNodeId;
+    FOnRshipAuthoritativeInboundQueued OnAuthoritativeInboundQueuedDelegate;
+
     // Internal message handling
     void SetItem(FString itemType, TSharedPtr<FJsonObject> data, ERshipMessagePriority Priority = ERshipMessagePriority::Normal, const FString& CoalesceKey = TEXT(""));
     void DelItem(FString itemType, TSharedPtr<FJsonObject> data, ERshipMessagePriority Priority = ERshipMessagePriority::Normal, const FString& CoalesceKey = TEXT(""));
@@ -269,6 +295,10 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     void AttemptReconnect();
     void TickSubsystems();
     void OnConnectionTimeout();
+    void InitializeInboundMessagePolicy();
+    bool IsInboundMessageTargetedToLocalNode(const FString& Message) const;
+    void EnqueueInboundMessage(const FString& Message, bool bBypassAuthorityGate, int64 TargetApplyFrame = INDEX_NONE);
+    void ProcessInboundMessageQueue();
 
     // WebSocket event handlers
     void OnWebSocketConnected();
@@ -308,6 +338,12 @@ public:
     /** Get the current server port from settings */
     UFUNCTION(BlueprintCallable, Category = "Rship|Connection")
     int32 GetServerPort() const;
+
+    /** Enqueue replicated authoritative state/event payload for deterministic apply on this node */
+    void EnqueueReplicatedInboundMessage(const FString& Message, int64 TargetApplyFrame = INDEX_NONE);
+
+    /** Authority-side callback for cluster relays (e.g., 2110) to receive newly queued live payloads */
+    FOnRshipAuthoritativeInboundQueued& OnAuthoritativeInboundQueued() { return OnAuthoritativeInboundQueuedDelegate; }
 
     void PulseEmitter(FString TargetId, FString EmitterId, TSharedPtr<FJsonObject> data);
     void SendAll();
@@ -493,6 +529,22 @@ public:
 
     UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
     float GetQueuePressure() const;
+
+    // Inbound ingest/apply metrics
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    int32 GetInboundQueueLength() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    int32 GetInboundDroppedMessages() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    int32 GetInboundTargetFilteredMessages() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    float GetInboundAverageApplyLatencyMs() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    bool IsAuthoritativeIngestNode() const;
 
     // Throughput metrics
     UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")

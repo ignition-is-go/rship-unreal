@@ -447,6 +447,15 @@ struct RSHIP2110_API FRship2110ClusterState
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
     bool bAllowAutoPromotion = true;
 
+    /** Required ACK count for prepare/commit quorum (0 = all discovered nodes in this state) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
+    int32 RequiredAckCount = 0;
+
+    /** Maximum age for prepared states before discard (seconds) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster",
+        meta = (ClampMin = "0.1", ClampMax = "60.0"))
+    float PrepareTimeoutSeconds = 3.0f;
+
     /** Deterministic priority list for authority promotion (first item wins) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
     TArray<FString> FailoverPriority;
@@ -464,6 +473,138 @@ struct RSHIP2110_API FRship2110ClusterState
         }
         return Version > Other.Version;
     }
+};
+
+/**
+ * Prepare message for two-phase cluster state delivery.
+ * Authority broadcasts this first; receivers validate and ACK.
+ */
+USTRUCT(BlueprintType)
+struct RSHIP2110_API FRship2110ClusterPrepareMessage
+{
+    GENERATED_BODY()
+
+    /** Authority node emitting this prepare */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
+    FString AuthorityNodeId;
+
+    /** Proposed state epoch */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
+    int32 Epoch = 0;
+
+    /** Proposed state version */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
+    int32 Version = 0;
+
+    /** Frame at which state should apply */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
+    int64 ApplyFrame = 0;
+
+    /** Deterministic hash of ClusterState payload */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
+    FString StateHash;
+
+    /** Quorum threshold carried with this prepare */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
+    int32 RequiredAckCount = 0;
+
+    /** Full cluster state payload */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
+    FRship2110ClusterState ClusterState;
+};
+
+/**
+ * ACK message for prepare phase.
+ * Nodes send one ACK per (epoch, version, hash).
+ */
+USTRUCT(BlueprintType)
+struct RSHIP2110_API FRship2110ClusterAckMessage
+{
+    GENERATED_BODY()
+
+    /** Node that ACKed the prepare */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
+    FString NodeId;
+
+    /** Authority node for this transaction */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
+    FString AuthorityNodeId;
+
+    /** Prepared state epoch */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
+    int32 Epoch = 0;
+
+    /** Prepared state version */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
+    int32 Version = 0;
+
+    /** Prepared state hash */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
+    FString StateHash;
+};
+
+/**
+ * Commit message for two-phase state delivery.
+ * Authority emits this after prepare ACK quorum.
+ */
+USTRUCT(BlueprintType)
+struct RSHIP2110_API FRship2110ClusterCommitMessage
+{
+    GENERATED_BODY()
+
+    /** Authority node committing this state */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
+    FString AuthorityNodeId;
+
+    /** Committed state epoch */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
+    int32 Epoch = 0;
+
+    /** Committed state version */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
+    int32 Version = 0;
+
+    /** Committed state apply frame */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
+    int64 ApplyFrame = 0;
+
+    /** Committed state hash */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
+    FString StateHash;
+};
+
+/**
+ * Authoritative control payload for deterministic cross-node state delivery.
+ * Intended for live control/event payloads that must apply on a specific frame.
+ */
+USTRUCT(BlueprintType)
+struct RSHIP2110_API FRship2110ClusterDataMessage
+{
+    GENERATED_BODY()
+
+    /** Authority node that emitted this payload */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
+    FString AuthorityNodeId;
+
+    /** Authority epoch used for stale-message rejection */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
+    int32 Epoch = 0;
+
+    /** Monotonic sequence issued by authority for ordering */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
+    int64 Sequence = 0;
+
+    /** Frame index at which this payload should apply */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
+    int64 ApplyFrame = 0;
+
+    /** Optional target node. Empty means broadcast to all relevant nodes. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
+    FString TargetNodeId;
+
+    /** Opaque control payload (JSON string) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
+    FString Payload;
 };
 
 /**
@@ -1127,5 +1268,10 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPTPStateChanged, ERshipPTPState, 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPTPStatusUpdated, const FRshipPTPStatus&, Status);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOn2110StreamStateChanged, const FString&, StreamId, ERship2110StreamState, NewState);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_FourParams(FOn2110ClusterStateApplied, int32, Epoch, int32, Version, int64, ApplyFrame, const FString&, AuthorityNodeId);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOn2110ClusterPrepareOutbound, const FRship2110ClusterPrepareMessage&, PrepareMessage);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOn2110ClusterAckOutbound, const FRship2110ClusterAckMessage&, AckMessage);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOn2110ClusterCommitOutbound, const FRship2110ClusterCommitMessage&, CommitMessage);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOn2110ClusterDataOutbound, const FRship2110ClusterDataMessage&, DataMessage);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_FourParams(FOn2110ClusterDataApplied, const FString&, AuthorityNodeId, int32, Epoch, int64, Sequence, int64, ApplyFrame);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnIPMXConnectionStateChanged, ERshipIPMXConnectionState, NewState);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnRivermaxDeviceChanged, int32, DeviceIndex, const FRshipRivermaxDevice&, Device);

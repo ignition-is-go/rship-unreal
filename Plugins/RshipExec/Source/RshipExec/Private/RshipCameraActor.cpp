@@ -8,7 +8,8 @@
 #include "CineCameraComponent.h"
 #include "DrawDebugHelpers.h"
 
-ARshipCameraActor::ARshipCameraActor()
+ARshipCameraActor::ARshipCameraActor(const FObjectInitializer& ObjectInitializer)
+    : Super(ObjectInitializer)
 {
     PrimaryActorTick.bCanEverTick = true;
     PrimaryActorTick.bStartWithTickEnabled = true;

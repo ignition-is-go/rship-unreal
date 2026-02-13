@@ -327,6 +327,147 @@ public:
     bool IsIPMXAvailable() const;
 
     // ========================================================================
+    // CLUSTER CONTROL
+    // ========================================================================
+
+    /**
+     * Get resolved local cluster node ID used for ownership decisions.
+     * Resolution order: explicit override, command line dc_node, env var, machine name.
+     */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Cluster")
+    FString GetLocalClusterNodeId() const { return LocalClusterNodeId; }
+
+    /**
+     * Override local cluster node ID at runtime.
+     */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Cluster")
+    void SetLocalClusterNodeId(const FString& NodeId);
+
+    /**
+     * Get current local cluster role from active cluster state.
+     */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Cluster")
+    ERship2110ClusterRole GetLocalClusterRole() const;
+
+    /**
+     * Check if this node is currently authority for cluster control state.
+     */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Cluster")
+    bool IsLocalNodeAuthority() const;
+
+    /**
+     * Frame counter used for frame-indexed state application.
+     */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Cluster")
+    int64 GetClusterFrameCounter() const { return ClusterFrameCounter; }
+
+    /**
+     * Queue an authoritative cluster state update to apply at ClusterState.ApplyFrame.
+     * Update is ignored if stale (older epoch/version).
+     * @return true if accepted
+     */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Cluster")
+    bool QueueClusterStateUpdate(const FRship2110ClusterState& ClusterState);
+
+    /**
+     * Get active cluster state.
+     */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Cluster")
+    FRship2110ClusterState GetClusterState() const { return ActiveClusterState; }
+
+    /**
+     * Set stream ownership to a target node.
+     * @param StreamId Stream identifier
+     * @param OwnerNodeId Owning node identifier
+     * @param bApplyNextFrame Apply on next frame (true) or immediately (false)
+     */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Cluster")
+    void SetClusterOwnershipForStream(const FString& StreamId, const FString& OwnerNodeId, bool bApplyNextFrame = true);
+
+    /**
+     * Update failover and ownership enforcement flags in authoritative cluster state.
+     */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Cluster")
+    bool UpdateClusterFailoverConfig(
+        bool bFailoverEnabled,
+        bool bAllowAutoPromotion,
+        float FailoverTimeoutSeconds,
+        bool bStrictNodeOwnership,
+        bool bApplyNextFrame = true);
+
+    /**
+     * Get owner node for a stream (empty when unassigned).
+     */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Cluster")
+    FString GetClusterOwnershipForStream(const FString& StreamId) const;
+
+    /**
+     * Get streams currently owned by local node.
+     */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Cluster")
+    TArray<FString> GetLocallyOwnedStreams() const;
+
+    /**
+     * Record authority heartbeat for failover monitoring.
+     */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Cluster")
+    void NotifyClusterAuthorityHeartbeat(const FString& AuthorityNodeId, int32 Epoch, int32 Version);
+
+    /**
+     * Promote local node to authority and advance epoch.
+     * @param bApplyNextFrame Apply authority handoff on next frame (true) or immediately (false)
+     */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Cluster")
+    void PromoteLocalNodeToPrimary(bool bApplyNextFrame = true);
+
+    /**
+     * Compute deterministic hash for a cluster state payload.
+     */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Cluster")
+    FString ComputeClusterStateHash(const FRship2110ClusterState& ClusterState) const;
+
+    /**
+     * Authority entrypoint for prepare phase.
+     * Broadcasts OnClusterPrepareOutbound on success.
+     */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Cluster")
+    bool SubmitAuthorityClusterStatePrepare(FRship2110ClusterState ClusterState, bool bAutoCommitOnQuorum = true);
+
+    /**
+     * Receive prepare message from transport.
+     * If accepted, emits OnClusterAckOutbound.
+     */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Cluster")
+    bool ReceiveClusterStatePrepare(const FRship2110ClusterPrepareMessage& PrepareMessage);
+
+    /**
+     * Receive prepare ACK from transport.
+     * Authority may emit OnClusterCommitOutbound when quorum is met.
+     */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Cluster")
+    bool ReceiveClusterStateAck(const FRship2110ClusterAckMessage& AckMessage);
+
+    /**
+     * Receive commit message from transport.
+     * Queues frame-indexed application of the previously prepared state.
+     */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Cluster")
+    bool ReceiveClusterStateCommit(const FRship2110ClusterCommitMessage& CommitMessage);
+
+    /**
+     * Authority entrypoint for deterministic control payload replication.
+     * Emits OnClusterDataOutbound for transport forwarding.
+     */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Cluster")
+    bool SubmitAuthorityClusterDataMessage(const FString& Payload, int64 ApplyFrame = INDEX_NONE);
+
+    /**
+     * Receive replicated authoritative control payload from transport.
+     */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Cluster")
+    bool ReceiveClusterDataMessage(const FRship2110ClusterDataMessage& DataMessage);
+
+    // ========================================================================
     // EVENTS
     // ========================================================================
 
@@ -346,6 +487,30 @@ public:
     UPROPERTY(BlueprintAssignable, Category = "Rship|2110")
     FOnRivermaxDeviceChanged OnRivermaxDeviceChanged;
 
+    /** Fired when cluster control state is applied */
+    UPROPERTY(BlueprintAssignable, Category = "Rship|2110")
+    FOn2110ClusterStateApplied OnClusterStateApplied;
+
+    /** Fired when a prepare message should be sent via cluster transport */
+    UPROPERTY(BlueprintAssignable, Category = "Rship|2110")
+    FOn2110ClusterPrepareOutbound OnClusterPrepareOutbound;
+
+    /** Fired when an ACK message should be sent via cluster transport */
+    UPROPERTY(BlueprintAssignable, Category = "Rship|2110")
+    FOn2110ClusterAckOutbound OnClusterAckOutbound;
+
+    /** Fired when a commit message should be sent via cluster transport */
+    UPROPERTY(BlueprintAssignable, Category = "Rship|2110")
+    FOn2110ClusterCommitOutbound OnClusterCommitOutbound;
+
+    /** Fired when a deterministic control payload should be sent via cluster transport */
+    UPROPERTY(BlueprintAssignable, Category = "Rship|2110")
+    FOn2110ClusterDataOutbound OnClusterDataOutbound;
+
+    /** Fired when a deterministic control payload is applied locally */
+    UPROPERTY(BlueprintAssignable, Category = "Rship|2110")
+    FOn2110ClusterDataApplied OnClusterDataApplied;
+
 private:
     // Services
     UPROPERTY()
@@ -362,6 +527,26 @@ private:
 
     // State
     bool bIsInitialized = false;
+    FString LocalClusterNodeId;
+    FRship2110ClusterState ActiveClusterState;
+    TArray<FRship2110ClusterState> PendingClusterStates;
+    TArray<FRship2110ClusterDataMessage> PendingClusterDataMessages;
+    TMap<FString, int64> LastAppliedClusterDataSequenceByAuthority;
+    TMap<FString, FString> StreamOwnerNodeCache; // Stream ID -> Owner node ID
+    int64 ClusterFrameCounter = 0;
+    int64 ClusterDataSequenceCounter = 0;
+    double LastAuthorityHeartbeatTime = 0.0;
+    FDelegateHandle RshipAuthoritativeInboundHandle;
+
+    struct FPreparedClusterStateEntry
+    {
+        FRship2110ClusterPrepareMessage Prepare;
+        TSet<FString> AckedNodeIds;
+        bool bAutoCommitOnQuorum = false;
+        bool bCommitBroadcast = false;
+        double CreatedTimeSeconds = 0.0;
+    };
+    TMap<FString, FPreparedClusterStateEntry> PreparedClusterStates; // key: epoch:version:hash
 
     struct FRship2110RenderContextBinding
     {
@@ -380,8 +565,26 @@ private:
     void InitializeRivermaxManager();
     void InitializeIPMXService();
     void InitializeVideoCapture();
+    void InitializeClusterState();
     void RefreshStreamRenderContextBindings();
     bool ResolveRenderContextRenderTarget(const FString& ContextId, UTextureRenderTarget2D*& OutRenderTarget);
+    FString ResolveLocalClusterNodeId() const;
+    void ProcessPendingClusterStates();
+    void ProcessPendingClusterDataMessages();
+    bool ApplyClusterStateNow(const FRship2110ClusterState& ClusterState);
+    bool IsClusterStateStale(const FRship2110ClusterState& ClusterState) const;
+    FString MakePreparedStateKey(int32 Epoch, int32 Version, const FString& StateHash) const;
+    FString BuildClusterStateCanonicalString(const FRship2110ClusterState& ClusterState) const;
+    int32 GetDiscoveredClusterNodeCount(const FRship2110ClusterState& ClusterState) const;
+    int32 ResolveRequiredAckCount(const FRship2110ClusterPrepareMessage& PrepareMessage) const;
+    bool HasPrepareAckQuorum(const FPreparedClusterStateEntry& PreparedEntry) const;
+    bool FinalizePreparedStateCommit(const FString& StateKey);
+    void PurgeExpiredPreparedStates();
+    void RebuildStreamOwnershipCache();
+    bool IsStreamOwnedByLocalNode(const FString& StreamId) const;
+    FString GetFailoverCandidateNodeId(const FRship2110ClusterState& ClusterState) const;
+    void EvaluateClusterFailover();
+    void HandleAuthoritativeRshipInbound(const FString& Payload, int64 SuggestedApplyFrame);
 
     // Event handlers (UFUNCTION required for AddDynamic)
     UFUNCTION()

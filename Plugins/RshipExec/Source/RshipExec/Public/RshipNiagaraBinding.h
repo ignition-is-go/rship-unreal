@@ -4,6 +4,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Curves/CurveFloat.h"
 #include "Components/ActorComponent.h"
 #include "NiagaraComponent.h"
 #include "NiagaraFunctionLibrary.h"
