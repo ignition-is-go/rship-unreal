@@ -47,6 +47,7 @@ namespace
 	const FString MapModeDirect = TEXT("direct");
 	const FString MapModeFeed = TEXT("feed");
 	const FString MapModePerspective = TEXT("perspective");
+	const FString MapModeCustomMatrix = TEXT("custom-matrix");
 	const FString MapModeCylindrical = TEXT("cylindrical");
 	const FString MapModeSpherical = TEXT("spherical");
 	const FString MapModeParallel = TEXT("parallel");
@@ -65,6 +66,7 @@ namespace
 		if (InValue.Equals(MapModeFeed, ESearchCase::IgnoreCase)) return MapModeFeed;
 		if (InValue.Equals(MapModeDirect, ESearchCase::IgnoreCase)) return MapModeDirect;
 		if (InValue.Equals(MapModePerspective, ESearchCase::IgnoreCase)) return MapModePerspective;
+		if (InValue.Equals(MapModeCustomMatrix, ESearchCase::IgnoreCase) || InValue.Equals(TEXT("custom matrix"), ESearchCase::IgnoreCase) || InValue.Equals(TEXT("matrix"), ESearchCase::IgnoreCase)) return MapModeCustomMatrix;
 		if (InValue.Equals(MapModeCylindrical, ESearchCase::IgnoreCase)) return MapModeCylindrical;
 		if (InValue.Equals(MapModeSpherical, ESearchCase::IgnoreCase)) return MapModeSpherical;
 		if (InValue.Equals(MapModeParallel, ESearchCase::IgnoreCase)) return MapModeParallel;
@@ -104,6 +106,10 @@ namespace
 		{
 			return NormalizeMapMode(Config->GetStringField(TEXT("projectionType")), MapModePerspective);
 		}
+		if (Config->HasTypedField<EJson::Object>(TEXT("customProjectionMatrix")) || Config->HasTypedField<EJson::Object>(TEXT("matrix")))
+		{
+			return MapModeCustomMatrix;
+		}
 		return MapModePerspective;
 	}
 
@@ -125,6 +131,7 @@ namespace
 		const FString Mode = GetMappingModeFromState(Mapping);
 		if (Mode == MapModeFeed) return LOCTEXT("MapModeFeedLabel", "Feed");
 		if (Mode == MapModeDirect) return LOCTEXT("MapModeDirectLabel", "Direct");
+		if (Mode == MapModeCustomMatrix) return LOCTEXT("MapModeCustomMatrixLabel", "Custom Matrix");
 		if (Mode == MapModeCylindrical) return LOCTEXT("MapModeCylLabel", "Cylindrical");
 		if (Mode == MapModeSpherical) return LOCTEXT("MapModeSphericalLabel", "Spherical");
 		if (Mode == MapModeParallel) return LOCTEXT("MapModeParallelLabel", "Parallel");
@@ -142,6 +149,7 @@ namespace
 		const FString Mode = GetMappingModeFromState(Mapping);
 		if (Mode == MapModeFeed) return LOCTEXT("MapBadgeFeed", "FEED");
 		if (Mode == MapModeDirect) return LOCTEXT("MapBadgeDirect", "DIR");
+		if (Mode == MapModeCustomMatrix) return LOCTEXT("MapBadgeCustomMatrix", "MAT");
 		if (Mode == MapModeCylindrical) return LOCTEXT("MapBadgeCyl", "CYL");
 		if (Mode == MapModeSpherical) return LOCTEXT("MapBadgeSphere", "SPH");
 		if (Mode == MapModeParallel) return LOCTEXT("MapBadgeParallel", "PAR");
@@ -157,13 +165,111 @@ namespace
 	bool IsProjectionMode(const FString& Mode)
 	{
 		return Mode == MapModePerspective || Mode == MapModeCylindrical || Mode == MapModeSpherical
-			|| Mode == MapModeParallel || Mode == MapModeRadial || Mode == MapModeMesh || Mode == MapModeFisheye
+			|| Mode == MapModeCustomMatrix || Mode == MapModeParallel || Mode == MapModeRadial || Mode == MapModeMesh || Mode == MapModeFisheye
 			|| Mode == MapModeCameraPlate || Mode == MapModeSpatial || Mode == MapModeDepthMap;
+	}
+
+	constexpr int32 CustomProjectionMatrixElementCount = 16;
+
+	const TCHAR* GetCustomProjectionMatrixFieldName(int32 Index)
+	{
+		static const TCHAR* Names[CustomProjectionMatrixElementCount] = {
+			TEXT("m00"), TEXT("m01"), TEXT("m02"), TEXT("m03"),
+			TEXT("m10"), TEXT("m11"), TEXT("m12"), TEXT("m13"),
+			TEXT("m20"), TEXT("m21"), TEXT("m22"), TEXT("m23"),
+			TEXT("m30"), TEXT("m31"), TEXT("m32"), TEXT("m33")
+		};
+		return (Index >= 0 && Index < CustomProjectionMatrixElementCount) ? Names[Index] : TEXT("m00");
+	}
+
+	float GetDefaultCustomProjectionMatrixValue(int32 Index)
+	{
+		const int32 Row = Index / 4;
+		const int32 Col = Index % 4;
+		return (Row == Col) ? 1.0f : 0.0f;
+	}
+
+	TSharedPtr<FJsonObject> GetCustomProjectionMatrixObject(const TSharedPtr<FJsonObject>& Config)
+	{
+		if (!Config.IsValid())
+		{
+			return nullptr;
+		}
+		if (Config->HasTypedField<EJson::Object>(TEXT("customProjectionMatrix")))
+		{
+			return Config->GetObjectField(TEXT("customProjectionMatrix"));
+		}
+		if (Config->HasTypedField<EJson::Object>(TEXT("matrix")))
+		{
+			return Config->GetObjectField(TEXT("matrix"));
+		}
+		return nullptr;
+	}
+
+	void SetCustomProjectionMatrixInputsToIdentity(const TArray<TSharedPtr<SSpinBox<float>>>& Inputs)
+	{
+		for (int32 Index = 0; Index < CustomProjectionMatrixElementCount && Index < Inputs.Num(); ++Index)
+		{
+			if (Inputs[Index].IsValid())
+			{
+				Inputs[Index]->SetValue(GetDefaultCustomProjectionMatrixValue(Index));
+			}
+		}
+	}
+
+	void PopulateCustomProjectionMatrixInputs(const TArray<TSharedPtr<SSpinBox<float>>>& Inputs, const TSharedPtr<FJsonObject>& Config)
+	{
+		const TSharedPtr<FJsonObject> MatrixObj = GetCustomProjectionMatrixObject(Config);
+		for (int32 Index = 0; Index < CustomProjectionMatrixElementCount && Index < Inputs.Num(); ++Index)
+		{
+			if (!Inputs[Index].IsValid())
+			{
+				continue;
+			}
+
+			float Value = GetDefaultCustomProjectionMatrixValue(Index);
+			if (MatrixObj.IsValid())
+			{
+				const FString FieldName = GetCustomProjectionMatrixFieldName(Index);
+				if (MatrixObj->HasTypedField<EJson::Number>(FieldName))
+				{
+					Value = static_cast<float>(MatrixObj->GetNumberField(FieldName));
+				}
+			}
+			Inputs[Index]->SetValue(Value);
+		}
+	}
+
+	TSharedPtr<FJsonObject> BuildCustomProjectionMatrixObject(const TArray<TSharedPtr<SSpinBox<float>>>& Inputs)
+	{
+		TSharedPtr<FJsonObject> MatrixObj = MakeShared<FJsonObject>();
+		for (int32 Index = 0; Index < CustomProjectionMatrixElementCount; ++Index)
+		{
+			const FString FieldName = GetCustomProjectionMatrixFieldName(Index);
+			const float Value = (Index < Inputs.Num() && Inputs[Index].IsValid())
+				? Inputs[Index]->GetValue()
+				: GetDefaultCustomProjectionMatrixValue(Index);
+			MatrixObj->SetNumberField(FieldName, Value);
+		}
+		return MatrixObj;
+	}
+
+	TSharedPtr<FJsonObject> BuildDefaultCustomProjectionMatrixObject()
+	{
+		TSharedPtr<FJsonObject> MatrixObj = MakeShared<FJsonObject>();
+		for (int32 Index = 0; Index < CustomProjectionMatrixElementCount; ++Index)
+		{
+			const FString FieldName = GetCustomProjectionMatrixFieldName(Index);
+			MatrixObj->SetNumberField(FieldName, GetDefaultCustomProjectionMatrixValue(Index));
+		}
+		return MatrixObj;
 	}
 }
 
 void SRshipContentMappingPanel::Construct(const FArguments& InArgs)
 {
+	MapCustomMatrixInputs.SetNum(CustomProjectionMatrixElementCount);
+
 	ChildSlot
 	[
 		SNew(SScrollBox)
@@ -1923,10 +2029,8 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildQuickMappingSection()
 							}
 							else
 							{
-								const FString ExistingProj = Mapping.Config.IsValid() && Mapping.Config->HasTypedField<EJson::String>(TEXT("projectionType"))
-									? Mapping.Config->GetStringField(TEXT("projectionType"))
-									: TEXT("perspective");
-								if (!ExistingProj.Equals(DesiredProjectionType, ESearchCase::IgnoreCase)) continue;
+								const FString ExistingProj = GetProjectionModeFromConfig(Mapping.Config);
+								if (NormalizeMapMode(ExistingProj, MapModePerspective) != NormalizeMapMode(DesiredProjectionType, MapModePerspective)) continue;
 							}
 							if (Mapping.ContextId != ContextId) continue;
 							if (Mapping.SurfaceIds.Num() == 1 && Mapping.SurfaceIds[0] == SurfaceId)
@@ -1970,6 +2074,10 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildQuickMappingSection()
 							else
 							{
 								NewMapping.Config->SetStringField(TEXT("projectionType"), DesiredProjectionType.IsEmpty() ? TEXT("perspective") : DesiredProjectionType);
+								if (DesiredProjectionType.Equals(MapModeCustomMatrix, ESearchCase::IgnoreCase))
+								{
+									NewMapping.Config->SetObjectField(TEXT("customProjectionMatrix"), BuildDefaultCustomProjectionMatrixObject());
+								}
 								if (DesiredProjectionType.Equals(TEXT("cylindrical"), ESearchCase::IgnoreCase)
 									|| DesiredProjectionType.Equals(TEXT("radial"), ESearchCase::IgnoreCase))
 								{
@@ -2859,6 +2967,106 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildContextForm()
 				]
 			]
 
+			+ SVerticalBox::Slot().AutoHeight().Padding(0,4,0,2)
+			[
+				SNew(SVerticalBox)
+				.Visibility_Lambda([this]() { return MapMode == MapModeCustomMatrix ? EVisibility::Visible : EVisibility::Collapsed; })
+				+ SVerticalBox::Slot().AutoHeight()
+				[
+					SNew(STextBlock).Text(LOCTEXT("MapCustomMatrixHeader", "Custom Projection Matrix (4x4)"))
+				]
+				+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
+				[
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
+					[
+						SAssignNew(MapCustomMatrixInputs[0], SSpinBox<float>).MinValue(-1000.0f).MaxValue(1000.0f).Delta(0.01f).Value(1.0f)
+					]
+					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
+					[
+						SAssignNew(MapCustomMatrixInputs[1], SSpinBox<float>).MinValue(-1000.0f).MaxValue(1000.0f).Delta(0.01f).Value(0.0f)
+					]
+					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
+					[
+						SAssignNew(MapCustomMatrixInputs[2], SSpinBox<float>).MinValue(-1000.0f).MaxValue(1000.0f).Delta(0.01f).Value(0.0f)
+					]
+					+ SHorizontalBox::Slot().AutoWidth()
+					[
+						SAssignNew(MapCustomMatrixInputs[3], SSpinBox<float>).MinValue(-1000.0f).MaxValue(1000.0f).Delta(0.01f).Value(0.0f)
+					]
+				]
+				+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
+				[
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
+					[
+						SAssignNew(MapCustomMatrixInputs[4], SSpinBox<float>).MinValue(-1000.0f).MaxValue(1000.0f).Delta(0.01f).Value(0.0f)
+					]
+					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
+					[
+						SAssignNew(MapCustomMatrixInputs[5], SSpinBox<float>).MinValue(-1000.0f).MaxValue(1000.0f).Delta(0.01f).Value(1.0f)
+					]
+					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
+					[
+						SAssignNew(MapCustomMatrixInputs[6], SSpinBox<float>).MinValue(-1000.0f).MaxValue(1000.0f).Delta(0.01f).Value(0.0f)
+					]
+					+ SHorizontalBox::Slot().AutoWidth()
+					[
+						SAssignNew(MapCustomMatrixInputs[7], SSpinBox<float>).MinValue(-1000.0f).MaxValue(1000.0f).Delta(0.01f).Value(0.0f)
+					]
+				]
+				+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
+				[
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
+					[
+						SAssignNew(MapCustomMatrixInputs[8], SSpinBox<float>).MinValue(-1000.0f).MaxValue(1000.0f).Delta(0.01f).Value(0.0f)
+					]
+					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
+					[
+						SAssignNew(MapCustomMatrixInputs[9], SSpinBox<float>).MinValue(-1000.0f).MaxValue(1000.0f).Delta(0.01f).Value(0.0f)
+					]
+					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
+					[
+						SAssignNew(MapCustomMatrixInputs[10], SSpinBox<float>).MinValue(-1000.0f).MaxValue(1000.0f).Delta(0.01f).Value(1.0f)
+					]
+					+ SHorizontalBox::Slot().AutoWidth()
+					[
+						SAssignNew(MapCustomMatrixInputs[11], SSpinBox<float>).MinValue(-1000.0f).MaxValue(1000.0f).Delta(0.01f).Value(0.0f)
+					]
+				]
+				+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
+				[
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
+					[
+						SAssignNew(MapCustomMatrixInputs[12], SSpinBox<float>).MinValue(-1000.0f).MaxValue(1000.0f).Delta(0.01f).Value(0.0f)
+					]
+					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
+					[
+						SAssignNew(MapCustomMatrixInputs[13], SSpinBox<float>).MinValue(-1000.0f).MaxValue(1000.0f).Delta(0.01f).Value(0.0f)
+					]
+					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
+					[
+						SAssignNew(MapCustomMatrixInputs[14], SSpinBox<float>).MinValue(-1000.0f).MaxValue(1000.0f).Delta(0.01f).Value(0.0f)
+					]
+					+ SHorizontalBox::Slot().AutoWidth()
+					[
+						SAssignNew(MapCustomMatrixInputs[15], SSpinBox<float>).MinValue(-1000.0f).MaxValue(1000.0f).Delta(0.01f).Value(1.0f)
+					]
+				]
+				+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
+				[
+					SNew(SButton)
+					.Text(LOCTEXT("MapCustomMatrixResetIdentity", "Reset Identity"))
+					.OnClicked_Lambda([this]()
+					{
+						SetCustomProjectionMatrixInputsToIdentity(MapCustomMatrixInputs);
+						return FReply::Handled();
+					})
+				]
+			]
+
 
 			// Parallel-specific: Size W/H
 			+ SVerticalBox::Slot().AutoHeight().Padding(0,4,0,2)
@@ -3015,7 +3223,7 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildContextForm()
 				.Visibility_Lambda([this]()
 				{
 					return (MapMode == MapModePerspective || MapMode == MapModeCylindrical || MapMode == MapModeSpherical
-						|| MapMode == MapModeParallel || MapMode == MapModeRadial || MapMode == MapModeFisheye
+						|| MapMode == MapModeCustomMatrix || MapMode == MapModeParallel || MapMode == MapModeRadial || MapMode == MapModeFisheye
 						|| MapMode == MapModeCameraPlate || MapMode == MapModeSpatial || MapMode == MapModeDepthMap)
 						? EVisibility::Visible : EVisibility::Collapsed;
 				})
@@ -3695,6 +3903,15 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildMappingForm()
 								Config->SetNumberField(TEXT("aspectRatio"), MapProjAspectInput.IsValid() ? MapProjAspectInput->GetValue() : 1.7778);
 								Config->SetNumberField(TEXT("near"), MapProjNearInput.IsValid() ? MapProjNearInput->GetValue() : 10.0);
 								Config->SetNumberField(TEXT("far"), MapProjFarInput.IsValid() ? MapProjFarInput->GetValue() : 10000.0);
+								if (NormalizedMode == MapModeCustomMatrix)
+								{
+									Config->SetObjectField(TEXT("customProjectionMatrix"), BuildCustomProjectionMatrixObject(MapCustomMatrixInputs));
+								}
+								else
+								{
+									Config->RemoveField(TEXT("customProjectionMatrix"));
+									Config->RemoveField(TEXT("matrix"));
+								}
 
 								const FString Axis = MapCylAxisInput.IsValid() ? MapCylAxisInput->GetText().ToString() : TEXT("");
 								if ((NormalizedMode == MapModeCylindrical || NormalizedMode == MapModeRadial) && !Axis.IsEmpty())
@@ -3867,6 +4084,7 @@ void SRshipContentMappingPanel::ResetForms()
 	if (MapFeedVInput.IsValid()) MapFeedVInput->SetValue(0.f);
 	if (MapFeedWInput.IsValid()) MapFeedWInput->SetValue(1.f);
 	if (MapFeedHInput.IsValid()) MapFeedHInput->SetValue(1.f);
+	SetCustomProjectionMatrixInputsToIdentity(MapCustomMatrixInputs);
 	MapFeedRectOverrides.Empty();
 	RebuildFeedRectList();
 
@@ -3934,6 +4152,7 @@ void SRshipContentMappingPanel::PopulateMappingForm(const FRshipContentMappingSt
 	if (MapEnabledInput.IsValid()) MapEnabledInput->SetIsChecked(State.bEnabled ? ECheckBoxState::Checked : ECheckBoxState::Unchecked);
 
 	MapMode = GetMappingModeFromState(State);
+	SetCustomProjectionMatrixInputsToIdentity(MapCustomMatrixInputs);
 	if (State.Config.IsValid())
 	{
 		if (State.Type == TEXT("surface-uv") && State.Config->HasTypedField<EJson::Object>(TEXT("uvTransform")))
@@ -4052,6 +4271,7 @@ void SRshipContentMappingPanel::PopulateMappingForm(const FRshipContentMappingSt
 				MapClipOutsideInput->SetIsChecked(bClip ? ECheckBoxState::Checked : ECheckBoxState::Unchecked);
 			}
 			if (MapBorderExpansionInput.IsValid()) MapBorderExpansionInput->SetValue(GetNum(State.Config, TEXT("borderExpansion"), 0.0));
+			PopulateCustomProjectionMatrixInputs(MapCustomMatrixInputs, State.Config);
 		}
 
 		// Content mode
@@ -4573,6 +4793,15 @@ void SRshipContentMappingPanel::RefreshStatus()
 				HashFloat(GetNumField(FeedRect, TEXT("v"), 0.0f));
 				HashFloat(GetNumField(FeedRect, TEXT("width"), 1.0f));
 				HashFloat(GetNumField(FeedRect, TEXT("height"), 1.0f));
+			}
+			const TSharedPtr<FJsonObject> MatrixObj = GetCustomProjectionMatrixObject(Mapping.Config);
+			if (MatrixObj.IsValid())
+			{
+				for (int32 Index = 0; Index < CustomProjectionMatrixElementCount; ++Index)
+				{
+					const FString FieldName = GetCustomProjectionMatrixFieldName(Index);
+					HashFloat(GetNumField(MatrixObj, *FieldName, GetDefaultCustomProjectionMatrixValue(Index)));
+				}
 			}
 		}
 
@@ -6408,7 +6637,22 @@ void SRshipContentMappingPanel::RefreshStatus()
 											}
 											else
 										{
-											Config->SetStringField(TEXT("projectionType"), ProjTypeBox.IsValid() ? ProjTypeBox->GetText().ToString() : TEXT("perspective"));
+											const FString InlineProjectionMode = NormalizeMapMode(
+												ProjTypeBox.IsValid() ? ProjTypeBox->GetText().ToString() : MapModePerspective,
+												MapModePerspective);
+											Config->SetStringField(TEXT("projectionType"), InlineProjectionMode);
+											if (InlineProjectionMode == MapModeCustomMatrix)
+											{
+												if (!GetCustomProjectionMatrixObject(Config).IsValid())
+												{
+													Config->SetObjectField(TEXT("customProjectionMatrix"), BuildDefaultCustomProjectionMatrixObject());
+												}
+											}
+											else
+											{
+												Config->RemoveField(TEXT("customProjectionMatrix"));
+												Config->RemoveField(TEXT("matrix"));
+											}
 											TSharedPtr<FJsonObject> Pos = MakeShared<FJsonObject>();
 											Pos->SetNumberField(TEXT("x"), PosXBox.IsValid() ? PosXBox->GetValue() : 0.0);
 											Pos->SetNumberField(TEXT("y"), PosYBox.IsValid() ? PosYBox->GetValue() : 0.0);

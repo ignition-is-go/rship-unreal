@@ -648,6 +648,9 @@ void URshipContentMappingManager::ProcessMappingEvent(const TSharedPtr<FJsonObje
         || RawType.Equals(TEXT("radial"), ESearchCase::IgnoreCase)
         || RawType.Equals(TEXT("mesh"), ESearchCase::IgnoreCase)
         || RawType.Equals(TEXT("fisheye"), ESearchCase::IgnoreCase)
+        || RawType.Equals(TEXT("custom-matrix"), ESearchCase::IgnoreCase)
+        || RawType.Equals(TEXT("custom matrix"), ESearchCase::IgnoreCase)
+        || RawType.Equals(TEXT("matrix"), ESearchCase::IgnoreCase)
         || RawType.Equals(TEXT("camera-plate"), ESearchCase::IgnoreCase)
         || RawType.Equals(TEXT("camera plate"), ESearchCase::IgnoreCase)
         || RawType.Equals(TEXT("cameraplate"), ESearchCase::IgnoreCase)
@@ -660,6 +663,12 @@ void URshipContentMappingManager::ProcessMappingEvent(const TSharedPtr<FJsonObje
         if (RawType.Equals(TEXT("camera plate"), ESearchCase::IgnoreCase) || RawType.Equals(TEXT("cameraplate"), ESearchCase::IgnoreCase))
         {
             DerivedMode = TEXT("camera-plate");
+        }
+        else if (RawType.Equals(TEXT("custom-matrix"), ESearchCase::IgnoreCase)
+            || RawType.Equals(TEXT("custom matrix"), ESearchCase::IgnoreCase)
+            || RawType.Equals(TEXT("matrix"), ESearchCase::IgnoreCase))
+        {
+            DerivedMode = TEXT("custom-matrix");
         }
         else if (RawType.Equals(TEXT("depth map"), ESearchCase::IgnoreCase) || RawType.Equals(TEXT("depthmap"), ESearchCase::IgnoreCase))
         {
@@ -1258,7 +1267,10 @@ void URshipContentMappingManager::ApplyMaterialParameters(
         || MappingState.Type.Equals(TEXT("parallel"), ESearchCase::IgnoreCase)
         || MappingState.Type.Equals(TEXT("radial"), ESearchCase::IgnoreCase)
         || MappingState.Type.Equals(TEXT("mesh"), ESearchCase::IgnoreCase)
-        || MappingState.Type.Equals(TEXT("fisheye"), ESearchCase::IgnoreCase);
+        || MappingState.Type.Equals(TEXT("fisheye"), ESearchCase::IgnoreCase)
+        || MappingState.Type.Equals(TEXT("custom-matrix"), ESearchCase::IgnoreCase)
+        || MappingState.Type.Equals(TEXT("custom matrix"), ESearchCase::IgnoreCase)
+        || MappingState.Type.Equals(TEXT("matrix"), ESearchCase::IgnoreCase);
 
     if (bIsUvMapping)
     {
@@ -1387,7 +1399,10 @@ void URshipContentMappingManager::ApplyMaterialParameters(
             || MappingState.Type.Equals(TEXT("parallel"), ESearchCase::IgnoreCase)
             || MappingState.Type.Equals(TEXT("radial"), ESearchCase::IgnoreCase)
             || MappingState.Type.Equals(TEXT("mesh"), ESearchCase::IgnoreCase)
-            || MappingState.Type.Equals(TEXT("fisheye"), ESearchCase::IgnoreCase))
+            || MappingState.Type.Equals(TEXT("fisheye"), ESearchCase::IgnoreCase)
+            || MappingState.Type.Equals(TEXT("custom-matrix"), ESearchCase::IgnoreCase)
+            || MappingState.Type.Equals(TEXT("custom matrix"), ESearchCase::IgnoreCase)
+            || MappingState.Type.Equals(TEXT("matrix"), ESearchCase::IgnoreCase))
         {
             ProjectionType = MappingState.Type;
         }
@@ -1426,6 +1441,40 @@ void URshipContentMappingManager::ApplyMaterialParameters(
             Far = GetNumberField(MappingState.Config, TEXT("far"), Far);
         }
 
+        bool bHasCustomProjectionMatrix = false;
+        FMatrix CustomProjectionMatrix = FMatrix::Identity;
+        if (MappingState.Config.IsValid())
+        {
+            TSharedPtr<FJsonObject> MatrixObj;
+            if (MappingState.Config->HasTypedField<EJson::Object>(TEXT("customProjectionMatrix")))
+            {
+                MatrixObj = MappingState.Config->GetObjectField(TEXT("customProjectionMatrix"));
+            }
+            else if (MappingState.Config->HasTypedField<EJson::Object>(TEXT("matrix")))
+            {
+                MatrixObj = MappingState.Config->GetObjectField(TEXT("matrix"));
+            }
+
+            if (MatrixObj.IsValid())
+            {
+                auto ReadMatrixElement = [this, MatrixObj](int32 Row, int32 Col, float DefaultValue) -> float
+                {
+                    const FString FieldName = FString::Printf(TEXT("m%d%d"), Row, Col);
+                    return GetNumberField(MatrixObj, FieldName, DefaultValue);
+                };
+
+                for (int32 Row = 0; Row < 4; ++Row)
+                {
+                    for (int32 Col = 0; Col < 4; ++Col)
+                    {
+                        const float DefaultValue = (Row == Col) ? 1.0f : 0.0f;
+                        CustomProjectionMatrix.M[Row][Col] = ReadMatrixElement(Row, Col, DefaultValue);
+                    }
+                }
+                bHasCustomProjectionMatrix = true;
+            }
+        }
+
         float ProjectionTypeIndex = 0.0f;
         if (ProjectionType.Equals(TEXT("cylindrical"), ESearchCase::IgnoreCase))
         {
@@ -1454,6 +1503,12 @@ void URshipContentMappingManager::ApplyMaterialParameters(
         else if (ProjectionType.Equals(TEXT("fisheye"), ESearchCase::IgnoreCase))
         {
             ProjectionTypeIndex = 7.0f;
+        }
+        else if (ProjectionType.Equals(TEXT("custom-matrix"), ESearchCase::IgnoreCase)
+            || ProjectionType.Equals(TEXT("custom matrix"), ESearchCase::IgnoreCase)
+            || ProjectionType.Equals(TEXT("matrix"), ESearchCase::IgnoreCase))
+        {
+            ProjectionTypeIndex = 8.0f;
         }
         else if (ProjectionType.Equals(TEXT("camera-plate"), ESearchCase::IgnoreCase)
             || ProjectionType.Equals(TEXT("spatial"), ESearchCase::IgnoreCase)
@@ -1501,6 +1556,10 @@ void URshipContentMappingManager::ApplyMaterialParameters(
             Projection.M[2][3] = 0.0f;
             Projection.M[3][3] = 1.0f;
             MID->SetVectorParameterValue(ParamParallelSize, FLinearColor(ParallelW, ParallelH, 0.0f, 0.0f));
+        }
+        else if (ProjectionTypeIndex == 8.0f && bHasCustomProjectionMatrix)
+        {
+            Projection = CustomProjectionMatrix;
         }
         else
         {
@@ -2238,6 +2297,14 @@ bool URshipContentMappingManager::HandleMappingAction(const FString& MappingId, 
             {
                 MappingState->Config->SetObjectField(TEXT("cylindrical"), Data->GetObjectField(TEXT("cylindrical")));
             }
+            if (Data->HasTypedField<EJson::Object>(TEXT("customProjectionMatrix")))
+            {
+                MappingState->Config->SetObjectField(TEXT("customProjectionMatrix"), Data->GetObjectField(TEXT("customProjectionMatrix")));
+            }
+            if (Data->HasTypedField<EJson::Object>(TEXT("matrix")))
+            {
+                MappingState->Config->SetObjectField(TEXT("customProjectionMatrix"), Data->GetObjectField(TEXT("matrix")));
+            }
         }
     }
     else if (ActionName == TEXT("setUVTransform"))
@@ -2503,8 +2570,8 @@ void URshipContentMappingManager::BuildFallbackMaterial()
         "    float3 wp = WorldPos.xyz;\n"
         "    int projIdx = (int)(ProjType + 0.5);\n"
         "\n"
-        "    if (projIdx == 0 || projIdx == 4) {\n"
-        "        // Perspective (0) or Parallel/Ortho (4)\n"
+        "    if (projIdx == 0 || projIdx == 4 || projIdx == 8) {\n"
+        "        // Perspective (0), Parallel/Ortho (4), or custom matrix (8)\n"
         "        float4 projected = float4(\n"
         "            dot(float4(wp, 1), float4(Row0.x, Row1.x, Row2.x, Row3.x)),\n"
         "            dot(float4(wp, 1), float4(Row0.y, Row1.y, Row2.y, Row3.y)),\n"

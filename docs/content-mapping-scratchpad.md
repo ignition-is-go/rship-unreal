@@ -1,6 +1,6 @@
 # Content Mapping UX Scratchpad
 
-Last updated: 2026-02-11 20:53:14 EST
+Last updated: 2026-02-13
 
 ## Working (Confirmed)
 - Editor panel has full top-level structure: quick create, inputs, screens, mappings, canvas preview.
@@ -23,6 +23,10 @@ Last updated: 2026-02-11 20:53:14 EST
 - Feed mapping supports table copy/paste/reset workflows for per-screen feed rectangles.
 - Mappings now have `Find/Replace Usages` controls for both Input IDs and Screen IDs (selected-or-visible scope).
 - Mode selector now exposes Camera Plate, Spatial, and Depth Map as first-class options (projection-family path).
+- Mode selector now exposes Custom Matrix as a first-class projection mode.
+- Mapping form now has a dedicated 4x4 custom projection matrix editor with identity reset.
+- Runtime now consumes `customProjectionMatrix`/`matrix` config and maps it through projection mode index `8`.
+- Added end-to-end user manual: `Docs/content-mapping-end-to-end-manual.md`.
 - Focused object compile checks pass for touched files (`SRshipContentMappingPanel.cpp`, `SRshipModeSelector.cpp`, `RshipContentMappingManager.cpp`) for both `arm64` and `x64`.
 
 ## Not Working / UX Gaps (Confirmed)

@@ -163,6 +163,7 @@ private:
 	TSharedPtr<SSpinBox<float>> MapFeedVInput;
 	TSharedPtr<SSpinBox<float>> MapFeedWInput;
 	TSharedPtr<SSpinBox<float>> MapFeedHInput;
+	TArray<TSharedPtr<SSpinBox<float>>> MapCustomMatrixInputs;
 	TSharedPtr<SVerticalBox> MapFeedRectList;
 	TMap<FString, FFeedRect> MapFeedRectOverrides;
 

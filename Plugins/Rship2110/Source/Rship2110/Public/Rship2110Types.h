@@ -377,6 +377,96 @@ enum class ERship2110StreamState : uint8
 };
 
 /**
+ * Cluster role for this node in distributed 2110 control.
+ */
+UENUM(BlueprintType)
+enum class ERship2110ClusterRole : uint8
+{
+    Unknown         UMETA(DisplayName = "Unknown"),
+    Primary         UMETA(DisplayName = "Primary"),
+    Secondary       UMETA(DisplayName = "Secondary")
+};
+
+/**
+ * Per-node stream ownership assignment.
+ * Streams listed here are allowed to transmit from NodeId when strict ownership is enabled.
+ */
+USTRUCT(BlueprintType)
+struct RSHIP2110_API FRship2110ClusterNodeStreams
+{
+    GENERATED_BODY()
+
+    /** Cluster node identifier */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
+    FString NodeId;
+
+    /** Stream IDs owned by this node */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
+    TArray<FString> StreamIds;
+};
+
+/**
+ * Authoritative cluster control state for distributed 2110 ownership/failover.
+ * This state is intended to be replicated through a cluster-synced control channel.
+ */
+USTRUCT(BlueprintType)
+struct RSHIP2110_API FRship2110ClusterState
+{
+    GENERATED_BODY()
+
+    /** Monotonic failover epoch (increment on authority handoff) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
+    int32 Epoch = 0;
+
+    /** Monotonic version within the current epoch */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
+    int32 Version = 0;
+
+    /** Frame index at which this state should take effect */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
+    int64 ApplyFrame = 0;
+
+    /** Node ID currently acting as cluster authority */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
+    FString ActiveAuthorityNodeId;
+
+    /** Enforce stream ownership strictly per node assignment */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
+    bool bStrictNodeOwnership = true;
+
+    /** Enable heartbeat-based automatic failover */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
+    bool bFailoverEnabled = true;
+
+    /** Heartbeat timeout before failover evaluation (seconds) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster",
+        meta = (ClampMin = "0.1", ClampMax = "60.0"))
+    float FailoverTimeoutSeconds = 2.0f;
+
+    /** Allow automatic local promotion when this node is deterministic failover candidate */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
+    bool bAllowAutoPromotion = true;
+
+    /** Deterministic priority list for authority promotion (first item wins) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
+    TArray<FString> FailoverPriority;
+
+    /** Node-to-stream ownership assignments */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
+    TArray<FRship2110ClusterNodeStreams> NodeStreamAssignments;
+
+    /** Returns true if this state is newer than Other using (epoch, version) ordering */
+    bool IsNewerThan(const FRship2110ClusterState& Other) const
+    {
+        if (Epoch != Other.Epoch)
+        {
+            return Epoch > Other.Epoch;
+        }
+        return Version > Other.Version;
+    }
+};
+
+/**
  * Video format specification for 2110-20 streams
  */
 USTRUCT(BlueprintType)
@@ -1036,5 +1126,6 @@ namespace Rship2110ColorUtils
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPTPStateChanged, ERshipPTPState, NewState);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPTPStatusUpdated, const FRshipPTPStatus&, Status);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOn2110StreamStateChanged, const FString&, StreamId, ERship2110StreamState, NewState);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_FourParams(FOn2110ClusterStateApplied, int32, Epoch, int32, Version, int64, ApplyFrame, const FString&, AuthorityNodeId);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnIPMXConnectionStateChanged, ERshipIPMXConnectionState, NewState);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnRivermaxDeviceChanged, int32, DeviceIndex, const FRshipRivermaxDevice&, Device);

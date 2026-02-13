@@ -41,6 +41,7 @@ Legend:
 | Direct | Matched | Full editor mode support. |
 | Feed | Partial | Core feed rect editing exists; advanced feed map operations are incomplete. |
 | Perspective | Partial | Basic projection controls are present; still not full parity for all advanced controls/workflow affordances. |
+| Custom Matrix | Matched | First-class mode + dedicated 4x4 editor + runtime matrix projection path are present. |
 | Cylindrical | Partial | Main controls present; needs deeper parity verification against manual defaults/behavior. |
 | Spherical | Partial | Controls present; behavior parity still under validation. |
 | Parallel | Partial | Controls present; behavior parity still under validation. |

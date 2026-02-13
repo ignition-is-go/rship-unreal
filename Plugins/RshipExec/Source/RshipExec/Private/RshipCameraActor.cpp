@@ -5,6 +5,7 @@
 #include "RshipCameraManager.h"
 #include "Logs.h"
 #include "Engine/Engine.h"
+#include "CineCameraComponent.h"
 #include "DrawDebugHelpers.h"
 
 ARshipCameraActor::ARshipCameraActor()
@@ -12,18 +13,33 @@ ARshipCameraActor::ARshipCameraActor()
     PrimaryActorTick.bCanEverTick = true;
     PrimaryActorTick.bStartWithTickEnabled = true;
 
-    // Create root component
-    RootSceneComponent = CreateDefaultSubobject<USceneComponent>(TEXT("RootScene"));
-    SetRootComponent(RootSceneComponent);
+    // Keep CineCamera's default root to preserve all cine camera behavior
+    RootSceneComponent = GetRootComponent();
+    if (!RootSceneComponent)
+    {
+        RootSceneComponent = CreateDefaultSubobject<USceneComponent>(TEXT("RootScene"));
+        SetRootComponent(RootSceneComponent);
+    }
 
     // Create camera mesh (placeholder)
     CameraMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("CameraMesh"));
-    CameraMesh->SetupAttachment(RootSceneComponent);
+    if (RootSceneComponent)
+    {
+        CameraMesh->SetupAttachment(RootSceneComponent);
+    }
     CameraMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
     // Create scene capture component
     SceneCapture = CreateDefaultSubobject<USceneCaptureComponent2D>(TEXT("SceneCapture"));
-    SceneCapture->SetupAttachment(RootSceneComponent);
+    USceneComponent* SceneCaptureParent = RootSceneComponent;
+    if (UCineCameraComponent* CineComponent = GetCineCameraComponent())
+    {
+        SceneCaptureParent = CineComponent;
+    }
+    if (SceneCaptureParent)
+    {
+        SceneCapture->SetupAttachment(SceneCaptureParent);
+    }
     SceneCapture->bCaptureEveryFrame = false; // Manual capture only
     SceneCapture->bCaptureOnMovement = false;
 }
@@ -122,6 +138,10 @@ void ARshipCameraActor::RefreshCameraData()
         {
             SceneCapture->FOVAngle = GetCalibratedFOV();
         }
+        if (UCineCameraComponent* CineComponent = GetCineCameraComponent())
+        {
+            CineComponent->FieldOfView = GetCalibratedFOV();
+        }
 
         OnCameraDataUpdated();
 
@@ -151,6 +171,10 @@ void ARshipCameraActor::OnCamerasUpdatedInternal()
             if (SceneCapture && CachedCameraInfo.HasCalibration())
             {
                 SceneCapture->FOVAngle = GetCalibratedFOV();
+            }
+            if (UCineCameraComponent* CineComponent = GetCineCameraComponent())
+            {
+                CineComponent->FieldOfView = GetCalibratedFOV();
             }
 
             OnCameraDataUpdated();

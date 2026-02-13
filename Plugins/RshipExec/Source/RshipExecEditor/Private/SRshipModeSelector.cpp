@@ -152,6 +152,39 @@ void SRshipModeCard::DrawIllustration(const FGeometry& AllottedGeometry, FSlateW
 		Plane.Add(FVector2D(PlaneX, CY - PlaneH)); Plane.Add(FVector2D(PlaneX, CY + PlaneH));
 		FSlateDrawElement::MakeLines(OutDrawElements, LayerId, AllottedGeometry.ToPaintGeometry(), Plane, ESlateDrawEffect::None, LineColor, true, 1.5f);
 	}
+	else if (Mode == TEXT("custom-matrix"))
+	{
+		// 4x4 matrix glyph with emphasized diagonal.
+		const float Cell = Scale * 0.35f;
+		const float Left = CX - (Cell * 2.0f);
+		const float Top = CY - (Cell * 2.0f);
+		for (int32 Row = 0; Row <= 4; ++Row)
+		{
+			TArray<FVector2D> HLine;
+			HLine.Add(FVector2D(Left, Top + Row * Cell));
+			HLine.Add(FVector2D(Left + 4.0f * Cell, Top + Row * Cell));
+			FSlateDrawElement::MakeLines(OutDrawElements, LayerId, AllottedGeometry.ToPaintGeometry(), HLine, ESlateDrawEffect::None, LineColor * FLinearColor(1, 1, 1, 0.6f), true, 1.0f);
+
+			TArray<FVector2D> VLine;
+			VLine.Add(FVector2D(Left + Row * Cell, Top));
+			VLine.Add(FVector2D(Left + Row * Cell, Top + 4.0f * Cell));
+			FSlateDrawElement::MakeLines(OutDrawElements, LayerId, AllottedGeometry.ToPaintGeometry(), VLine, ESlateDrawEffect::None, LineColor * FLinearColor(1, 1, 1, 0.6f), true, 1.0f);
+		}
+		for (int32 Diag = 0; Diag < 4; ++Diag)
+		{
+			const float DotSize = 3.0f;
+			const FVector2D DotPos(
+				Left + (Diag + 0.5f) * Cell - DotSize * 0.5f,
+				Top + (Diag + 0.5f) * Cell - DotSize * 0.5f);
+			FSlateDrawElement::MakeBox(
+				OutDrawElements,
+				LayerId + 1,
+				AllottedGeometry.ToPaintGeometry(FVector2D(DotSize, DotSize), FSlateLayoutTransform(DotPos)),
+				FAppStyle::GetBrush("WhiteBrush"),
+				ESlateDrawEffect::None,
+				LineColor);
+		}
+	}
 	else if (Mode == TEXT("cylindrical"))
 	{
 		// Two ellipses + vertical lines
@@ -386,6 +419,7 @@ void SRshipModeSelector::Construct(const FArguments& InArgs)
 
 	const TArray<FModeInfo> ProjectionModes = {
 		{ TEXT("perspective"), LOCTEXT("Perspective", "Persp"), LOCTEXT("PerspTip", "Perspective projection from a virtual camera") },
+		{ TEXT("custom-matrix"), LOCTEXT("CustomMatrix", "Matrix"), LOCTEXT("CustomMatrixTip", "Use an explicit 4x4 projection matrix") },
 		{ TEXT("camera-plate"), LOCTEXT("CameraPlate", "CamPlate"), LOCTEXT("CameraPlateTip", "Camera plate projection mapped from camera frustum onto a plate") },
 		{ TEXT("cylindrical"), LOCTEXT("Cylindrical", "Cyl"), LOCTEXT("CylTip", "Cylindrical projection wrapping around an axis") },
 		{ TEXT("spherical"), LOCTEXT("Spherical", "Sphere"), LOCTEXT("SphereTip", "Spherical projection for dome or full-sphere content") },

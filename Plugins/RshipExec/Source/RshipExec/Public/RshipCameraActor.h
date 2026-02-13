@@ -4,7 +4,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "GameFramework/Actor.h"
+#include "CineCameraActor.h"
 #include "RshipCalibrationTypes.h"
 #include "Components/SceneCaptureComponent2D.h"
 #include "Components/StaticMeshComponent.h"
@@ -19,7 +19,7 @@ class URshipCameraManager;
  * Can optionally render a scene capture for preview purposes.
  */
 UCLASS(BlueprintType, Blueprintable)
-class RSHIPEXEC_API ARshipCameraActor : public AActor
+class RSHIPEXEC_API ARshipCameraActor : public ACineCameraActor
 {
     GENERATED_BODY()
 
