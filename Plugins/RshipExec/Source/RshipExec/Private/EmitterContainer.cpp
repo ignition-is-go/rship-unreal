@@ -6,7 +6,7 @@
 #include "SchemaHelpers.h"
 
 
-EmitterContainer::EmitterContainer(FString id, FString name,  FMulticastInlineDelegateProperty* Emitter)
+EmitterContainer::EmitterContainer(FString id, FString name,  FMulticastDelegateProperty* Emitter)
 {
 
 	this->id = id;
@@ -19,7 +19,7 @@ EmitterContainer::~EmitterContainer()
 {
 }
 
-void EmitterContainer::UpdateSchema(FMulticastInlineDelegateProperty* Emitter)
+void EmitterContainer::UpdateSchema(FMulticastDelegateProperty* Emitter)
 {
     this->props.Empty();
     // Build schema props from the delegate signature function

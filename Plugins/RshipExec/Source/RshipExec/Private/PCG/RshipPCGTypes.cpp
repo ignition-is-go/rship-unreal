@@ -307,11 +307,13 @@ void FRshipPCGPropertyDescriptor::ParseMetadata(FProperty* Property)
 	PulseMode = LocalPulseMode;
 	PulseRateHz = LocalPulseRate;
 
-	// Get description from tooltip if available
-	if (Property->HasMetaData(TEXT("ToolTip")))
-	{
-		Description = Property->GetMetaData(TEXT("ToolTip"));
-	}
+		// Get description from tooltip if available (editor-only metadata).
+#if WITH_EDITORONLY_DATA
+		if (Property->HasMetaData(TEXT("ToolTip")))
+		{
+			Description = Property->GetMetaData(TEXT("ToolTip"));
+		}
+#endif
 
 	// Handle enum path
 	if (PropertyType == ERshipPCGPropertyType::Enum)
@@ -925,10 +927,12 @@ bool HasRshipMetadata(FProperty* Property)
 	}
 
 	// Check for explicit RShipParam metadata
+#if WITH_EDITORONLY_DATA
 	if (Property->HasMetaData(RshipPCGMetaKeys::Param))
 	{
 		return true;
 	}
+#endif
 
 	// Also accept RS_ prefixed properties (legacy compatibility)
 	if (Property->GetName().StartsWith(TEXT("RS_")))
@@ -967,65 +971,82 @@ void ParseRshipMetadata(
 		return;
 	}
 
-	// Parse RShipParam (can be empty for default name, or contain custom name)
-	if (Property->HasMetaData(RshipPCGMetaKeys::Param))
+	const auto HasMeta = [Property](const FName& Key) -> bool
 	{
-		OutName = Property->GetMetaData(RshipPCGMetaKeys::Param);
+#if WITH_EDITORONLY_DATA
+		return Property->HasMetaData(Key);
+#else
+		return false;
+#endif
+	};
+	const auto GetMeta = [Property](const FName& Key) -> FString
+	{
+#if WITH_EDITORONLY_DATA
+		return Property->GetMetaData(Key);
+#else
+		return FString();
+#endif
+	};
+
+	// Parse RShipParam (can be empty for default name, or contain custom name)
+	if (HasMeta(RshipPCGMetaKeys::Param))
+	{
+		OutName = GetMeta(RshipPCGMetaKeys::Param);
 	}
 
 	// Parse readable/writable
-	if (Property->HasMetaData(RshipPCGMetaKeys::Readable))
+	if (HasMeta(RshipPCGMetaKeys::Readable))
 	{
-		FString ReadableStr = Property->GetMetaData(RshipPCGMetaKeys::Readable);
+		FString ReadableStr = GetMeta(RshipPCGMetaKeys::Readable);
 		bOutReadable = ReadableStr.IsEmpty() || ReadableStr.ToBool();
 	}
 
-	if (Property->HasMetaData(RshipPCGMetaKeys::Writable))
+	if (HasMeta(RshipPCGMetaKeys::Writable))
 	{
-		FString WritableStr = Property->GetMetaData(RshipPCGMetaKeys::Writable);
+		FString WritableStr = GetMeta(RshipPCGMetaKeys::Writable);
 		bOutWritable = WritableStr.IsEmpty() || WritableStr.ToBool();
 	}
 
 	// Parse category
-	if (Property->HasMetaData(RshipPCGMetaKeys::Category))
+	if (HasMeta(RshipPCGMetaKeys::Category))
 	{
-		OutCategory = Property->GetMetaData(RshipPCGMetaKeys::Category);
+		OutCategory = GetMeta(RshipPCGMetaKeys::Category);
 	}
 
 	// Parse min/max
-	if (Property->HasMetaData(RshipPCGMetaKeys::Min))
+	if (HasMeta(RshipPCGMetaKeys::Min))
 	{
-		FString MinStr = Property->GetMetaData(RshipPCGMetaKeys::Min);
+		FString MinStr = GetMeta(RshipPCGMetaKeys::Min);
 		OutMin = FCString::Atof(*MinStr);
 		bOutHasRange = true;
 	}
 
-	if (Property->HasMetaData(RshipPCGMetaKeys::Max))
+	if (HasMeta(RshipPCGMetaKeys::Max))
 	{
-		FString MaxStr = Property->GetMetaData(RshipPCGMetaKeys::Max);
+		FString MaxStr = GetMeta(RshipPCGMetaKeys::Max);
 		OutMax = FCString::Atof(*MaxStr);
 		bOutHasRange = true;
 	}
 
 	// Also check UE's standard ClampMin/ClampMax
-	if (Property->HasMetaData(TEXT("ClampMin")))
+	if (HasMeta(FName(TEXT("ClampMin"))))
 	{
-		FString MinStr = Property->GetMetaData(TEXT("ClampMin"));
+		FString MinStr = GetMeta(FName(TEXT("ClampMin")));
 		OutMin = FCString::Atof(*MinStr);
 		bOutHasRange = true;
 	}
 
-	if (Property->HasMetaData(TEXT("ClampMax")))
+	if (HasMeta(FName(TEXT("ClampMax"))))
 	{
-		FString MaxStr = Property->GetMetaData(TEXT("ClampMax"));
+		FString MaxStr = GetMeta(FName(TEXT("ClampMax")));
 		OutMax = FCString::Atof(*MaxStr);
 		bOutHasRange = true;
 	}
 
 	// Parse pulse mode
-	if (Property->HasMetaData(RshipPCGMetaKeys::PulseMode))
+	if (HasMeta(RshipPCGMetaKeys::PulseMode))
 	{
-		FString PulseModeStr = Property->GetMetaData(RshipPCGMetaKeys::PulseMode).ToLower();
+		FString PulseModeStr = GetMeta(RshipPCGMetaKeys::PulseMode).ToLower();
 		if (PulseModeStr == TEXT("onchange") || PulseModeStr == TEXT("on_change"))
 		{
 			OutPulseMode = ERshipPCGPulseMode::OnChange;
@@ -1041,9 +1062,9 @@ void ParseRshipMetadata(
 	}
 
 	// Parse pulse rate
-	if (Property->HasMetaData(RshipPCGMetaKeys::PulseRate))
+	if (HasMeta(RshipPCGMetaKeys::PulseRate))
 	{
-		FString RateStr = Property->GetMetaData(RshipPCGMetaKeys::PulseRate);
+		FString RateStr = GetMeta(RshipPCGMetaKeys::PulseRate);
 		OutPulseRate = FMath::Clamp(FCString::Atof(*RateStr), 0.1f, 60.0f);
 	}
 }

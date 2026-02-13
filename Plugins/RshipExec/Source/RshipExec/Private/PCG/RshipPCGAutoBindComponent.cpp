@@ -298,7 +298,7 @@ void URshipPCGAutoBindComponent::GenerateAutoInstanceId()
 	Seed = GetTypeHash(Location);
 
 	// Generate display name
-	FString DisplayName = CustomTargetName.IsEmpty() ? Owner->GetActorLabel() : CustomTargetName;
+	FString DisplayName = CustomTargetName.IsEmpty() ? Owner->GetActorNameOrLabel() : CustomTargetName;
 	if (DisplayName.IsEmpty())
 	{
 		DisplayName = Owner->GetName();
@@ -793,8 +793,7 @@ FString URshipPCGAutoBindComponent::GetPropertyValueAsJson(FName PropertyName) c
 	}
 
 	FString Result;
-	TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
-		TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&Result);
+	TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Result);
 	FJsonSerializer::Serialize(JsonValue.ToSharedRef(), TEXT(""), Writer);
 	return Result;
 }

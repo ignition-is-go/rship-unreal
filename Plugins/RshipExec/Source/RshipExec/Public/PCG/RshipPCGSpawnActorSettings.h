@@ -5,6 +5,9 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Templates/SubclassOf.h"
+#include "Engine/EngineTypes.h"
+#include "GameFramework/Actor.h"
 #include "PCG/RshipPCGTypes.h"
 #include "RshipPCGSpawnActorSettings.generated.h"
 

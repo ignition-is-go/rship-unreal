@@ -24,7 +24,7 @@ class RSHIPEXEC_API ARshipCameraActor : public ACineCameraActor
     GENERATED_BODY()
 
 public:
-    ARshipCameraActor(const FObjectInitializer& ObjectInitializer);
+    ARshipCameraActor(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;

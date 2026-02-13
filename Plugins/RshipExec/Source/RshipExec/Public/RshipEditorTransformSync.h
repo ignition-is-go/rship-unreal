@@ -4,6 +4,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "TimerManager.h"
 #include "RshipEditorTransformSync.generated.h"
 
 class URshipSubsystem;

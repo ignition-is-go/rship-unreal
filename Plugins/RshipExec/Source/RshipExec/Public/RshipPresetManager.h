@@ -5,6 +5,7 @@
 
 #include "CoreMinimal.h"
 #include "Dom/JsonObject.h"
+#include "TimerManager.h"
 #include "RshipPresetManager.generated.h"
 
 // Forward declarations

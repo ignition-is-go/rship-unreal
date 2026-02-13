@@ -201,7 +201,7 @@ void URshipSceneConverter::DiscoverCamerasInWorld(UWorld* World, const FRshipDis
         // Build discovery info
         FRshipDiscoveredCamera Discovered;
         Discovered.CameraActor = Camera;
-        Discovered.SuggestedName = Camera->GetActorLabel().IsEmpty() ? Camera->GetName() : Camera->GetActorLabel();
+        Discovered.SuggestedName = Camera->GetActorNameOrLabel();
         Discovered.Position = Camera->GetActorLocation();
         Discovered.Rotation = Camera->GetActorRotation();
         Discovered.bAlreadyConverted = bAlreadyConverted;
@@ -723,7 +723,7 @@ FString URshipSceneConverter::GenerateFixtureName(AActor* Actor, const FString& 
     }
 
     // Try to use actor label first (user-friendly name in editor)
-    FString Name = Actor->GetActorLabel();
+    FString Name = Actor->GetActorNameOrLabel();
 
     if (Name.IsEmpty())
     {

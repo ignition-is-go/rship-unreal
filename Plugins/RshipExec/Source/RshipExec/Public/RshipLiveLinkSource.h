@@ -15,6 +15,7 @@
 
 class URshipSubsystem;
 class URshipPulseReceiver;
+class FJsonObject;
 
 // ============================================================================
 // LIVE LINK MODE

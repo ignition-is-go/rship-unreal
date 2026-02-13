@@ -13,6 +13,7 @@
 #include "Components/MeshComponent.h"
 #include "Engine/Texture2D.h"
 #include "Engine/TextureRenderTarget2D.h"
+#include "TextureResource.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialExpressionCustom.h"
@@ -2434,8 +2435,9 @@ FString URshipContentMappingManager::GetCachePath() const
 
 void URshipContentMappingManager::BuildFallbackMaterial()
 {
+#if WITH_EDITOR
     UMaterial* Mat = NewObject<UMaterial>(GetTransientPackage(), TEXT("RshipContentMappingMaterial_Fallback"));
-    Mat->MaterialDomain = MD_Surface;
+    Mat->MaterialDomain = EMaterialDomain::MD_Surface;
     Mat->BlendMode = BLEND_Translucent;
     Mat->TwoSided = true;
     Mat->SetShadingModel(MSM_Unlit);
@@ -2701,6 +2703,10 @@ void URshipContentMappingManager::BuildFallbackMaterial()
 
     ContentMappingMaterial = Mat;
     UE_LOG(LogRshipExec, Log, TEXT("ContentMapping built-in procedural material created."));
+#else
+    ContentMappingMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/EngineMaterials/DefaultMaterial.DefaultMaterial"));
+    UE_LOG(LogRshipExec, Warning, TEXT("ContentMapping fallback material authoring is editor-only; using DefaultMaterial at runtime."));
+#endif
 }
 FString URshipContentMappingManager::GetAssetCacheDirectory() const
 {

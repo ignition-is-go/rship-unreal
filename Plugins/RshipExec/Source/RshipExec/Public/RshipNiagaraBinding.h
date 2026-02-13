@@ -6,6 +6,7 @@
 #include "CoreMinimal.h"
 #include "Curves/CurveFloat.h"
 #include "Components/ActorComponent.h"
+#include "Curves/CurveFloat.h"
 #include "NiagaraComponent.h"
 #include "NiagaraFunctionLibrary.h"
 #include "RshipPulseReceiver.h"

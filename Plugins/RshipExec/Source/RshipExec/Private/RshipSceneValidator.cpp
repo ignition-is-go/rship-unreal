@@ -87,7 +87,7 @@ FRshipValidationResult URshipSceneValidator::ValidateScene()
     TMap<FString, TArray<AActor*>> NameMap;
     for (AActor* Actor : AllActors)
     {
-        if (Actor) NameMap.FindOrAdd(Actor->GetActorLabel()).Add(Actor);
+        if (Actor) NameMap.FindOrAdd(Actor->GetActorNameOrLabel()).Add(Actor);
     }
 
     int32 ProcessedCount = 0;
@@ -100,13 +100,13 @@ FRshipValidationResult URshipSceneValidator::ValidateScene()
         // Check for duplicate names
         if (IsRuleEnabled(TEXT("NAMING_DUPLICATE")))
         {
-            TArray<AActor*>* Duplicates = NameMap.Find(Actor->GetActorLabel());
+            TArray<AActor*>* Duplicates = NameMap.Find(Actor->GetActorNameOrLabel());
             if (Duplicates && Duplicates->Num() > 1)
             {
                 ActorIssues.Add(CreateIssue(
                     ERshipValidationSeverity::Error,
                     ERshipValidationCategory::Naming,
-                    FString::Printf(TEXT("Duplicate name: %d actors named '%s'"), Duplicates->Num(), *Actor->GetActorLabel()),
+                    FString::Printf(TEXT("Duplicate name: %d actors named '%s'"), Duplicates->Num(), *Actor->GetActorNameOrLabel()),
                     Actor, TEXT(""), TEXT("Each target needs a unique name"), TEXT("Rename actor"), true
                 ));
             }
@@ -206,7 +206,7 @@ bool URshipSceneValidator::CanConvertActor(AActor* Actor) const
 
 void URshipSceneValidator::CheckNaming(AActor* Actor, TArray<FRshipValidationIssue>& OutIssues)
 {
-    FString Label = Actor->GetActorLabel();
+    FString Label = Actor->GetActorNameOrLabel();
 
     if (IsRuleEnabled(TEXT("NAMING_EMPTY")))
     {
@@ -453,8 +453,12 @@ bool URshipSceneValidator::FixNamingIssue(const FRshipValidationIssue& Issue)
 
     // Generate unique name based on class
     FString NewName = FString::Printf(TEXT("%s_%s"), *Actor->GetClass()->GetName(), *FGuid::NewGuid().ToString().Left(8));
+#if WITH_EDITOR
     Actor->SetActorLabel(NewName);
     return true;
+#else
+    return false;
+#endif
 }
 
 bool URshipSceneValidator::FixComponentIssue(const FRshipValidationIssue& Issue)

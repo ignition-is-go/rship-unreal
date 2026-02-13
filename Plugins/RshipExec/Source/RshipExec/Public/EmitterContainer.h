@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "UObject/UnrealType.h"
 #include "Util.h"
 
 /**
@@ -17,10 +18,10 @@ private:
 	TDoubleLinkedList<SchemaNode> props;
 
 public:
-	EmitterContainer(FString id, FString name, FMulticastInlineDelegateProperty* Emitter);
+	EmitterContainer(FString id, FString name, FMulticastDelegateProperty* Emitter);
 	~EmitterContainer();
 
-	void UpdateSchema(FMulticastInlineDelegateProperty* Emitter);
+	void UpdateSchema(FMulticastDelegateProperty* Emitter);
 
 	TSharedPtr<FJsonObject> GetSchema();
 

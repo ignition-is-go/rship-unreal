@@ -6,6 +6,7 @@
 #include "RshipFixtureManager.h"
 #include "Logs.h"
 #include "Async/Async.h"
+#include "Internationalization/Regex.h"
 #include "Serialization/ArrayReader.h"
 
 void URshipOSCBridge::Initialize(URshipSubsystem* InSubsystem)

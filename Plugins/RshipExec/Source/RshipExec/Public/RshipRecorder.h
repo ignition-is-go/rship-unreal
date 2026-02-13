@@ -9,6 +9,7 @@
 
 class URshipSubsystem;
 class URshipPulseReceiver;
+class FJsonObject;
 
 // ============================================================================
 // RECORDING DATA STRUCTURES

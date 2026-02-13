@@ -213,7 +213,7 @@ void SRship2110MappingPanel::RefreshSubsystemState()
 		else
 		{
 			ContentMappingStatusText->SetText(LOCTEXT("MappingUnavailable", "Content Mapping: Disabled"));
-			ContentMappingStatusText->SetColorAndOpacity(FLinearColor(1.0f, 0.6f, 0.1f, 1.0f));
+			ContentMappingStatusText->SetColorAndOpacity(FLinearColor(1.0f, 0.65f, 0.0f, 1.0f));
 		}
 	}
 
@@ -338,13 +338,13 @@ void SRship2110MappingPanel::RefreshStreams()
 		return;
 	}
 
+#if RSHIP_EDITOR_HAS_2110
 	const TArray<FString> StreamIds = Subsystem->GetActiveStreamIds();
 	for (const FString& StreamId : StreamIds)
 	{
 		TSharedPtr<FRship2110MappingStreamItem> Item = MakeShared<FRship2110MappingStreamItem>();
 		Item->StreamId = StreamId;
 
-#if RSHIP_EDITOR_HAS_2110
 		URship2110VideoSender* Sender = Subsystem->GetVideoSender(StreamId);
 		if (!Sender)
 		{
@@ -436,8 +436,6 @@ void SRship2110MappingPanel::RefreshStreams()
 			Item->LateFrames = Stats.LateFrames;
 			Item->BitrateMbps = Sender->GetBitrateMbps();
 		}
-#endif
-
 		FString BoundContextId;
 		FIntRect BoundRect;
 		bool bHasBoundRect = false;
@@ -631,7 +629,11 @@ void SRship2110MappingPanel::UpdateSelectionDetails()
 			FText::AsNumber(SelectedStream->FramesSent),
 			FText::AsNumber(SelectedStream->FramesDropped),
 			FText::AsNumber(SelectedStream->LateFrames),
+<<<<<<< HEAD
 			FText::AsNumber(SelectedStream->BitrateMbps, &BitrateNumberFormat)));
+=======
+			FText::FromString(FString::Printf(TEXT("%.2f"), SelectedStream->BitrateMbps))));
+>>>>>>> 98293ec (Fix UE 5.7 build breaks and packaging script)
 
 		if (!SelectedStream->BoundContextId.IsEmpty())
 		{
@@ -1649,12 +1651,21 @@ TSharedRef<ITableRow> SRship2110MappingPanel::OnGenerateStreamRow(TSharedPtr<FRs
 				.Text(FText::FromString(Item->BoundContextId.IsEmpty() ? TEXT("unbound") : Item->BoundContextId))
 				.ColorAndOpacity(Item->BoundContextId.IsEmpty() ? FLinearColor::Yellow : FLinearColor::Green)
 			]
+<<<<<<< HEAD
 			+ SHorizontalBox::Slot().FillWidth(0.10f)
 			[
 				SNew(STextBlock)
 				.Text(FText::AsNumber(Item->BitrateMbps, &BitrateNumberFormat))
 			]
 		];
+=======
+				+ SHorizontalBox::Slot().FillWidth(0.10f)
+				[
+					SNew(STextBlock)
+					.Text(FText::FromString(FString::Printf(TEXT("%.2f"), Item->BitrateMbps)))
+				]
+			];
+>>>>>>> 98293ec (Fix UE 5.7 build breaks and packaging script)
 }
 
 TSharedRef<ITableRow> SRship2110MappingPanel::OnGenerateContextRow(TSharedPtr<FRship2110RenderContextItem> Item, const TSharedRef<STableViewBase>& OwnerTable)

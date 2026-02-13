@@ -9,6 +9,7 @@
 
 class URshipSubsystem;
 class URshipCameraManager;
+class FJsonObject;
 
 // ============================================================================
 // CAMERA VIEW TYPES

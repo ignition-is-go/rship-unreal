@@ -14,6 +14,7 @@
 #include "HAL/FileManager.h"
 #include "HAL/PlatformFileManager.h"
 #include "TimerManager.h"
+#include "Engine/Engine.h"
 #include "Engine/World.h"
 
 URshipAssetStoreClient::URshipAssetStoreClient()
@@ -53,10 +54,22 @@ void URshipAssetStoreClient::Connect(const FString& InServerUrl)
 	WebSocket = FWebSocketsModule::Get().CreateWebSocket(WsUrl);
 
 	// Bind handlers
-	WebSocket->OnConnected().AddUObject(this, &URshipAssetStoreClient::OnWebSocketConnected);
-	WebSocket->OnConnectionError().AddUObject(this, &URshipAssetStoreClient::OnWebSocketConnectionError);
-	WebSocket->OnClosed().AddUObject(this, &URshipAssetStoreClient::OnWebSocketClosed);
-	WebSocket->OnMessage().AddUObject(this, &URshipAssetStoreClient::OnWebSocketMessage);
+	WebSocket->OnConnected().AddLambda([this]()
+	{
+		OnWebSocketConnected();
+	});
+	WebSocket->OnConnectionError().AddLambda([this](const FString& Error)
+	{
+		OnWebSocketConnectionError(Error);
+	});
+	WebSocket->OnClosed().AddLambda([this](int32 StatusCode, const FString& Reason, bool bWasClean)
+	{
+		OnWebSocketClosed(StatusCode, Reason, bWasClean);
+	});
+	WebSocket->OnMessage().AddLambda([this](const FString& Message)
+	{
+		OnWebSocketMessage(Message);
+	});
 
 	// Connect
 	WebSocket->Connect();
@@ -390,7 +403,11 @@ void URshipAssetStoreClient::DownloadAsset(const FString& ObjectKey, bool bForce
 	Request->SetVerb(TEXT("GET"));
 
 	// Bind completion callback
-	Request->OnProcessRequestComplete().BindUObject(this, &URshipAssetStoreClient::OnDownloadRequestComplete, ObjectKey);
+	Request->OnProcessRequestComplete().BindLambda(
+		[this, ObjectKey](FHttpRequestPtr Req, FHttpResponsePtr Resp, bool bSuccess)
+		{
+			OnDownloadRequestComplete(Req, Resp, bSuccess, ObjectKey);
+		});
 
 	// Track and start
 	ActiveDownloads.Add(ObjectKey, Request);

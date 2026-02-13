@@ -67,7 +67,7 @@ static FAutoConsoleCommand CmdRshipValidateScene(
                 if (Issue.Severity == ERshipValidationSeverity::Error ||
                     Issue.Severity == ERshipValidationSeverity::Critical)
                 {
-                    FString ActorName = Issue.AffectedActor ? Issue.AffectedActor->GetActorLabel() : TEXT("Unknown");
+                    FString ActorName = Issue.AffectedActor ? Issue.AffectedActor->GetActorNameOrLabel() : TEXT("Unknown");
                     UE_LOG(LogRshipExec, Warning, TEXT("  [%s] %s: %s"),
                         Issue.Severity == ERshipValidationSeverity::Critical ? TEXT("CRIT") : TEXT("ERR"),
                         *ActorName, *Issue.Message);
@@ -405,7 +405,7 @@ static FAutoConsoleCommand CmdRshipNiagara(
             if (B)
             {
                 AActor* Owner = B->GetOwner();
-                FString OwnerName = Owner ? Owner->GetActorLabel() : TEXT("Unknown");
+                FString OwnerName = Owner ? Owner->GetActorNameOrLabel() : TEXT("Unknown");
                 UE_LOG(LogRshipExec, Log, TEXT("  %s - Emitter: %s (%d params, %d colors)"),
                     *OwnerName, *B->EmitterId,
                     B->FloatBindings.Num(), B->ColorBindings.Num());
@@ -521,7 +521,7 @@ static FAutoConsoleCommand CmdRshipMaterials(
             if (B)
             {
                 AActor* Owner = B->GetOwner();
-                FString OwnerName = Owner ? Owner->GetActorLabel() : TEXT("Unknown");
+                FString OwnerName = Owner ? Owner->GetActorNameOrLabel() : TEXT("Unknown");
                 UE_LOG(LogRshipExec, Log, TEXT("  %s - Emitter: %s (%d scalar, %d vector, %d texture)"),
                     *OwnerName, *B->EmitterId,
                     B->ScalarBindings.Num(), B->VectorBindings.Num(), B->TextureBindings.Num());

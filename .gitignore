@@ -5,6 +5,7 @@
 
 # Unreal
 Saved/
+dist/
 
 # Claude
 .claude

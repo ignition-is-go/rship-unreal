@@ -51,6 +51,7 @@
 
 #include "CoreMinimal.h"
 #include "HAL/CriticalSection.h"
+#include "HAL/PlatformTime.h"
 #include "Containers/Queue.h"
 #include "Dom/JsonObject.h"
 

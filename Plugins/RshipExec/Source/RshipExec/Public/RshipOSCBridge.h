@@ -12,6 +12,7 @@
 #include "RshipOSCBridge.generated.h"
 
 class URshipSubsystem;
+class FJsonObject;
 
 // ============================================================================
 // OSC MESSAGE TYPES

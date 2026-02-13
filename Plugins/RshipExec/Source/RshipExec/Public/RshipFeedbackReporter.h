@@ -7,6 +7,7 @@
 #include "RshipFeedbackReporter.generated.h"
 
 class URshipSubsystem;
+class FJsonObject;
 
 // ============================================================================
 // FEEDBACK TYPES

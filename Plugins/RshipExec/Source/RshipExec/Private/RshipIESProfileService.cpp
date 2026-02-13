@@ -11,6 +11,7 @@
 #include "HAL/PlatformFileManager.h"
 #include "Engine/Texture2D.h"
 #include "Engine/TextureLightProfile.h"
+#include "TextureResource.h"
 
 // ============================================================================
 // FRshipIESProfile Implementation
@@ -459,7 +460,17 @@ UTextureLightProfile* URshipIESProfileService::GenerateLightProfileTexture(const
     }
 
     // Initialize texture
+#if WITH_EDITORONLY_DATA
     Texture->Source.Init(Resolution, 1, 1, 1, TSF_G8, TextureData.GetData());
+#endif
+
+    if (Texture->GetPlatformData() && Texture->GetPlatformData()->Mips.Num() > 0)
+    {
+        FTexture2DMipMap& Mip = Texture->GetPlatformData()->Mips[0];
+        void* Data = Mip.BulkData.Lock(LOCK_READ_WRITE);
+        FMemory::Memcpy(Data, TextureData.GetData(), TextureData.Num());
+        Mip.BulkData.Unlock();
+    }
     Texture->UpdateResource();
 
     // Cache it

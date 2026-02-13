@@ -12,6 +12,7 @@ class URshipPulseReceiver;
 class UControlRig;
 class UControlRigComponent;
 class UCurveFloat;
+class FJsonObject;
 
 // ============================================================================
 // CONTROL RIG BINDING TYPES

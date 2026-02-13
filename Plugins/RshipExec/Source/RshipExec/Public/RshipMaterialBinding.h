@@ -10,6 +10,8 @@
 
 class URshipSubsystem;
 class URshipPulseReceiver;
+class UCurveFloat;
+class FJsonObject;
 
 // ============================================================================
 // BINDING MODES

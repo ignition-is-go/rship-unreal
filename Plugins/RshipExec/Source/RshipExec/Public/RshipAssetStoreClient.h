@@ -5,9 +5,11 @@
 #include "CoreMinimal.h"
 #include "UObject/NoExportTypes.h"
 #include "Interfaces/IHttpRequest.h"
+#include "TimerManager.h"
 #include "RshipAssetStoreClient.generated.h"
 
 class IWebSocket;
+class FJsonObject;
 
 /**
  * Asset type enumeration

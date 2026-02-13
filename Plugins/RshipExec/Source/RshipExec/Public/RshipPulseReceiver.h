@@ -7,6 +7,7 @@
 #include "RshipPulseReceiver.generated.h"
 
 class URshipSubsystem;
+class FJsonObject;
 
 // ============================================================================
 // PULSE DATA STRUCTURES

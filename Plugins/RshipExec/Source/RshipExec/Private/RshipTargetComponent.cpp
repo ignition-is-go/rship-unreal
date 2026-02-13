@@ -183,9 +183,9 @@ void URshipTargetComponent::Register()
 
     // Helper lambda to register emitters from a class/object pair
     auto RegisterEmittersFromObject = [&](UClass* targetClass, UObject* targetObject) {
-        for (TFieldIterator<FMulticastInlineDelegateProperty> It(targetClass, EFieldIteratorFlags::ExcludeSuper); It; ++It)
+        for (TFieldIterator<FMulticastDelegateProperty> It(targetClass, EFieldIteratorFlags::ExcludeSuper); It; ++It)
         {
-            FMulticastInlineDelegateProperty *EmitterProp = *It;
+            FMulticastDelegateProperty *EmitterProp = *It;
             FString EmitterName = EmitterProp->GetName();
             FName EmitterType = EmitterProp->GetClass()->GetFName();
 
@@ -203,7 +203,7 @@ void URshipTargetComponent::Register()
             auto emitter = new EmitterContainer(fullEmitterId, EmitterName, EmitterProp);
             this->TargetData->AddEmitter(emitter);
 
-            FMulticastScriptDelegate EmitterDelegate = EmitterProp->GetPropertyValue_InContainer(targetObject);
+            FMulticastScriptDelegate* EmitterDelegate = EmitterProp->ContainerPtrToValuePtr<FMulticastScriptDelegate>(targetObject);
 
             TScriptDelegate localDelegate;
 
@@ -239,9 +239,10 @@ void URshipTargetComponent::Register()
 
             localDelegate.BindUFunction(handler, TEXT("ProcessEmitter"));
 
-            EmitterDelegate.Add(localDelegate);
-
-            EmitterProp->SetPropertyValue_InContainer(targetObject, EmitterDelegate);
+            if (EmitterDelegate)
+            {
+                EmitterDelegate->Add(localDelegate);
+            }
 
             this->EmitterHandlers.Add(EmitterName, handler);
         }
@@ -444,9 +445,9 @@ void URshipTargetComponent::RescanSiblingComponents()
         }
 
         // Scan for new RS_ emitters
-        for (TFieldIterator<FMulticastInlineDelegateProperty> It(siblingClass, EFieldIteratorFlags::ExcludeSuper); It; ++It)
+        for (TFieldIterator<FMulticastDelegateProperty> It(siblingClass, EFieldIteratorFlags::ExcludeSuper); It; ++It)
         {
-            FMulticastInlineDelegateProperty* EmitterProp = *It;
+            FMulticastDelegateProperty* EmitterProp = *It;
             FString EmitterName = EmitterProp->GetName();
 
             if (!EmitterName.StartsWith("RS_"))
@@ -465,7 +466,7 @@ void URshipTargetComponent::RescanSiblingComponents()
             auto emitter = new EmitterContainer(fullEmitterId, EmitterName, EmitterProp);
             this->TargetData->AddEmitter(emitter);
 
-            FMulticastScriptDelegate EmitterDelegate = EmitterProp->GetPropertyValue_InContainer(sibling);
+            FMulticastScriptDelegate* EmitterDelegate = EmitterProp->ContainerPtrToValuePtr<FMulticastScriptDelegate>(sibling);
 
             TScriptDelegate localDelegate;
 
@@ -495,9 +496,10 @@ void URshipTargetComponent::RescanSiblingComponents()
 
             localDelegate.BindUFunction(handler, TEXT("ProcessEmitter"));
 
-            EmitterDelegate.Add(localDelegate);
-
-            EmitterProp->SetPropertyValue_InContainer(sibling, EmitterDelegate);
+            if (EmitterDelegate)
+            {
+                EmitterDelegate->Add(localDelegate);
+            }
 
             this->EmitterHandlers.Add(EmitterName, handler);
 

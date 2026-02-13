@@ -54,6 +54,7 @@ fi
 
 # Create output directory
 mkdir -p "$OUTPUT_DIR"
+OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
 OUTPUT_PATH="$OUTPUT_DIR/RshipExec-$UE_VERSION-$PLATFORM"
 
 echo "=========================================="
@@ -84,6 +85,10 @@ if command -v zip &> /dev/null; then
     cd "$OUTPUT_DIR"
     ZIP_NAME="RshipExec-$UE_VERSION-$PLATFORM.zip"
     rm -f "$ZIP_NAME"
-    zip -r "$ZIP_NAME" "RshipExec-$UE_VERSION-$PLATFORM"
-    echo "Created: $OUTPUT_DIR/$ZIP_NAME"
+    if [ -d "RshipExec-$UE_VERSION-$PLATFORM" ]; then
+        zip -r "$ZIP_NAME" "RshipExec-$UE_VERSION-$PLATFORM"
+        echo "Created: $OUTPUT_DIR/$ZIP_NAME"
+    else
+        echo "Warning: package directory not found for zip: $OUTPUT_PATH"
+    fi
 fi

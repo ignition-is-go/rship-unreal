@@ -8,6 +8,7 @@
 #include "RshipCameraManager.generated.h"
 
 class URshipSubsystem;
+class FJsonObject;
 
 // ============================================================================
 // DELEGATES (non-dynamic to support AddLambda in C++)
