@@ -37,6 +37,19 @@ void URshipControlRigBinding::BeginPlay()
 {
     Super::BeginPlay();
 
+    AActor* Owner = GetOwner();
+    if (!Owner)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("RshipControlRigBinding: Owner missing during BeginPlay"));
+        return;
+    }
+
+    if (!GEngine)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("RshipControlRigBinding: Engine not available during BeginPlay"));
+        return;
+    }
+
     // Get subsystem
     Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
 
@@ -62,7 +75,7 @@ void URshipControlRigBinding::BeginPlay()
     UE_LOG(LogTemp, Log, TEXT("RshipControlRigBinding: Started with %d bindings"), BindingConfig.Bindings.Num());
 
     // Trigger rescan on RshipTargetComponent so our RS_ members are registered
-    if (URshipTargetComponent* TargetComp = GetOwner()->FindComponentByClass<URshipTargetComponent>())
+    if (URshipTargetComponent* TargetComp = Owner->FindComponentByClass<URshipTargetComponent>())
     {
         TargetComp->RescanSiblingComponents();
     }

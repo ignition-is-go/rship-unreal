@@ -548,10 +548,10 @@ void URshipPresetManager::ApplySnapshot(const FRshipEmitterSnapshot& Snapshot)
 
 		// Try to find an action with the same name as the emitter
 		// This is the typical rship pattern: emitter "intensity" pairs with action "intensity"
-		TMap<FString, Action*> Actions = TargetComp->TargetData->GetActions();
+		const auto& Actions = TargetComp->TargetData->GetActions();
 
 		// Try exact match first
-		Action** FoundAction = Actions.Find(Snapshot.EmitterName);
+		Action* const* FoundAction = Actions.Find(Snapshot.EmitterName);
 
 		// Try common variations if exact match fails
 		if (!FoundAction)
@@ -624,8 +624,8 @@ void URshipPresetManager::ApplyInterpolatedSnapshot(const FRshipEmitterSnapshot&
 		if (!TargetComp->TargetData) continue;
 
 		// Try to find an action with the same name as the emitter
-		TMap<FString, Action*> Actions = TargetComp->TargetData->GetActions();
-		Action** FoundAction = Actions.Find(To.EmitterName);
+		const auto& Actions = TargetComp->TargetData->GetActions();
+		Action* const* FoundAction = Actions.Find(To.EmitterName);
 
 		// Try common variations if exact match fails
 		if (!FoundAction)

@@ -221,8 +221,6 @@ void URshipTargetComponent::Register()
                 continue;
             }
 
-            auto emitters = this->TargetData->GetEmitters();
-
             FString fullEmitterId = fullTargetId + ":" + EmitterName;
 
             auto emitter = new EmitterContainer(fullEmitterId, EmitterName, EmitterProp);

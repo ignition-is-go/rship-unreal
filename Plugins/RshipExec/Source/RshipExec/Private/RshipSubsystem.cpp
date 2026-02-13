@@ -1692,22 +1692,25 @@ void URshipSubsystem::Deinitialize()
 
 void URshipSubsystem::SendTarget(Target *target)
 {
+    const auto& Actions = target->GetActions();
+    const auto& Emitters = target->GetEmitters();
+
     UE_LOG(LogRshipExec, Log, TEXT("SendTarget: %s - %d actions, %d emitters"),
         *target->GetId(),
-        target->GetActions().Num(),
-        target->GetEmitters().Num());
+        Actions.Num(),
+        Emitters.Num());
 
     TArray<TSharedPtr<FJsonValue>> EmitterIdsJson;
     TArray<TSharedPtr<FJsonValue>> ActionIdsJson;
 
-    for (auto &Elem : target->GetActions())
+    for (auto &Elem : Actions)
     {
         UE_LOG(LogRshipExec, Log, TEXT("  Action: %s"), *Elem.Key);
         ActionIdsJson.Push(MakeShareable(new FJsonValueString(Elem.Key)));
         SendAction(Elem.Value, target->GetId());
     }
 
-    for (auto &Elem : target->GetEmitters())
+    for (auto &Elem : Emitters)
     {
         UE_LOG(LogRshipExec, Log, TEXT("  Emitter: %s"), *Elem.Key);
         EmitterIdsJson.Push(MakeShareable(new FJsonValueString(Elem.Key)));
@@ -1787,13 +1790,16 @@ void URshipSubsystem::DeleteTarget(Target* target)
         return;
     }
 
+    const auto& Actions = target->GetActions();
+    const auto& Emitters = target->GetEmitters();
+
     UE_LOG(LogRshipExec, Log, TEXT("DeleteTarget: %s - removing %d actions, %d emitters"),
         *target->GetId(),
-        target->GetActions().Num(),
-        target->GetEmitters().Num());
+        Actions.Num(),
+        Emitters.Num());
 
     // Send DEL events for all actions
-    for (auto& Elem : target->GetActions())
+    for (auto& Elem : Actions)
     {
         TSharedPtr<FJsonObject> ActionDel = MakeShareable(new FJsonObject);
         ActionDel->SetStringField(TEXT("id"), Elem.Key);
@@ -1801,7 +1807,7 @@ void URshipSubsystem::DeleteTarget(Target* target)
     }
 
     // Send DEL events for all emitters
-    for (auto& Elem : target->GetEmitters())
+    for (auto& Elem : Emitters)
     {
         TSharedPtr<FJsonObject> EmitterDel = MakeShareable(new FJsonObject);
         EmitterDel->SetStringField(TEXT("id"), Elem.Key);
@@ -2035,14 +2041,14 @@ EmitterContainer *URshipSubsystem::GetEmitterInfo(FString fullTargetId, FString 
     Target* target = comp->TargetData;
     FString fullEmitterId = fullTargetId + ":" + emitterId;
 
-    auto emitters = target->GetEmitters();
-
-    if (!emitters.Contains(fullEmitterId))
+    const auto& emitters = target->GetEmitters();
+    EmitterContainer* const* FoundEmitter = emitters.Find(fullEmitterId);
+    if (!FoundEmitter)
     {
         return nullptr;
     }
 
-    return emitters[fullEmitterId];
+    return *FoundEmitter;
 }
 
 FString URshipSubsystem::GetServiceId()
