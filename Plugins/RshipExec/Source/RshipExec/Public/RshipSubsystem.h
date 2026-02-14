@@ -561,6 +561,18 @@ public:
     bool IsInboundRequireExactFrame() const;
 
     UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    int64 GetInboundFrameCounter() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    int64 GetInboundNextPlannedApplyFrame() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    int64 GetInboundQueuedOldestApplyFrame() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    int64 GetInboundQueuedNewestApplyFrame() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
     float GetInboundAverageApplyLatencyMs() const;
 
     UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")

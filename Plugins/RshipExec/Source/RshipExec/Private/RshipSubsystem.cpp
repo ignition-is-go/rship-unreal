@@ -920,7 +920,9 @@ void URshipSubsystem::EnqueueInboundMessage(const FString& Message, bool bBypass
         }
         else
         {
-            Queued.ApplyFrame = TargetApplyFrame;
+            // Prevent stale explicit frames from slipping behind scheduling and causing cross-node divergence.
+            // Non-exact mode still attempts deterministic ordering, but always aligns work to at least the next scheduled frame.
+            Queued.ApplyFrame = FMath::Max<int64>(TargetApplyFrame, NextFrame);
         }
         AssignedApplyFrame = Queued.ApplyFrame;
         Queued.EnqueueTimeSeconds = FPlatformTime::Seconds();
@@ -3132,6 +3134,38 @@ int32 URshipSubsystem::GetInboundExactFrameDroppedMessages() const
 {
     FScopeLock Lock(&InboundQueueMutex);
     return InboundDroppedExactFrameMessages;
+}
+
+int64 URshipSubsystem::GetInboundFrameCounter() const
+{
+    FScopeLock Lock(&InboundQueueMutex);
+    return InboundFrameCounter;
+}
+
+int64 URshipSubsystem::GetInboundNextPlannedApplyFrame() const
+{
+    FScopeLock Lock(&InboundQueueMutex);
+    return InboundFrameCounter + FMath::Max<int64>(1, InboundApplyLeadFrames);
+}
+
+int64 URshipSubsystem::GetInboundQueuedOldestApplyFrame() const
+{
+    FScopeLock Lock(&InboundQueueMutex);
+    if (InboundQueue.Num() == 0)
+    {
+        return INDEX_NONE;
+    }
+    return InboundQueue[0].ApplyFrame;
+}
+
+int64 URshipSubsystem::GetInboundQueuedNewestApplyFrame() const
+{
+    FScopeLock Lock(&InboundQueueMutex);
+    if (InboundQueue.Num() == 0)
+    {
+        return INDEX_NONE;
+    }
+    return InboundQueue.Last().ApplyFrame;
 }
 
 float URshipSubsystem::GetInboundAverageApplyLatencyMs() const

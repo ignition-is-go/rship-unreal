@@ -66,14 +66,9 @@ private:
     FReply OnApplySyncPresetClicked(float PresetHz);
     FReply OnApplyRenderSubstepsPresetClicked(int32 PresetSubsteps);
     FReply OnSaveTimingDefaultsClicked();
-    FReply OnCopyRolloutCommandsClicked();
-    FReply OnCopyStartupRolloutSnippetClicked();
     FReply OnCopyIniRolloutSnippetClicked();
-    FString BuildRolloutCommandBundle() const;
-    FString BuildStartupRolloutSnippet() const;
     FString BuildTimingIniSnippet() const;
     void UpdateRolloutPreviews();
-    FString QuoteConsoleArgument(const FString& InArgument) const;
 
     // Server address editing
     void OnServerAddressCommitted(const FText& NewText, ETextCommit::Type CommitType);
@@ -122,6 +117,9 @@ private:
     TSharedPtr<STextBlock> MessageRateText;
     TSharedPtr<STextBlock> ByteRateText;
     TSharedPtr<STextBlock> DroppedText;
+    TSharedPtr<STextBlock> InboundFrameCounterText;
+    TSharedPtr<STextBlock> InboundNextApplyFrameText;
+    TSharedPtr<STextBlock> InboundQueuedFrameSpanText;
     TSharedPtr<STextBlock> ExactDroppedText;
     TSharedPtr<STextBlock> BackoffText;
     TSharedPtr<SEditableTextBox> ControlSyncRateInput;
@@ -131,8 +129,6 @@ private:
     TSharedPtr<STextBlock> InboundLeadFramesValueText;
     TSharedPtr<STextBlock> SyncTimingStatusText;
     TSharedPtr<STextBlock> SyncTimingSummaryText;
-    TSharedPtr<STextBlock> RolloutCommandText;
-    TSharedPtr<STextBlock> StartupRolloutText;
     TSharedPtr<STextBlock> IniRolloutText;
 
 #if RSHIP_EDITOR_HAS_2110

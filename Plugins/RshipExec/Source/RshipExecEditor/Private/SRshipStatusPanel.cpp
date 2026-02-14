@@ -28,7 +28,6 @@
 #include "ISettingsModule.h"
 #include "Engine/Engine.h"
 #include "HAL/PlatformApplicationMisc.h"
-#include "HAL/IConsoleManager.h"
 #include "SocketSubsystem.h"
 #include "IPAddress.h"
 
@@ -423,6 +422,63 @@ TSharedRef<SWidget> SRshipStatusPanel::BuildDiagnosticsSection()
                         .Text(LOCTEXT("MessagesDefault", "0"))
                     ]
                 ]
+
+                + SVerticalBox::Slot()
+                .AutoHeight()
+                .Padding(0.0f, 2.0f)
+                [
+                    SNew(SHorizontalBox)
+                    + SHorizontalBox::Slot()
+                    .AutoWidth()
+                    [
+                        SNew(STextBlock)
+                        .Text(LOCTEXT("InboundFrameLabel", "Inbound frame: "))
+                    ]
+                    + SHorizontalBox::Slot()
+                    .AutoWidth()
+                    [
+                        SAssignNew(InboundFrameCounterText, STextBlock)
+                        .Text(LOCTEXT("InboundFrameDefault", "0"))
+                    ]
+                ]
+
+                + SVerticalBox::Slot()
+                .AutoHeight()
+                .Padding(0.0f, 2.0f)
+                [
+                    SNew(SHorizontalBox)
+                    + SHorizontalBox::Slot()
+                    .AutoWidth()
+                    [
+                        SNew(STextBlock)
+                        .Text(LOCTEXT("NextApplyLabel", "Next planned apply: "))
+                    ]
+                    + SHorizontalBox::Slot()
+                    .AutoWidth()
+                    [
+                        SAssignNew(InboundNextApplyFrameText, STextBlock)
+                        .Text(LOCTEXT("NextApplyDefault", "0"))
+                    ]
+                ]
+
+                + SVerticalBox::Slot()
+                .AutoHeight()
+                .Padding(0.0f, 2.0f)
+                [
+                    SNew(SHorizontalBox)
+                    + SHorizontalBox::Slot()
+                    .AutoWidth()
+                    [
+                        SNew(STextBlock)
+                        .Text(LOCTEXT("QueuedFrameSpanLabel", "Queued frame span: "))
+                    ]
+                    + SHorizontalBox::Slot()
+                    .AutoWidth()
+                    [
+                        SAssignNew(InboundQueuedFrameSpanText, STextBlock)
+                        .Text(LOCTEXT("QueuedFrameSpanDefault", "n/a"))
+                    ]
+                ]
             ]
 
             // Right column
@@ -743,75 +799,19 @@ TSharedRef<SWidget> SRshipStatusPanel::BuildSyncTimingSection()
 
             + SHorizontalBox::Slot()
             .AutoWidth()
-            .Padding(0.0f, 0.0f, 4.0f, 0.0f)
             [
                 SNew(SButton)
-                .Text(LOCTEXT("CopyRolloutCommands", "Copy Runtime Commands"))
-                .OnClicked(this, &SRshipStatusPanel::OnCopyRolloutCommandsClicked)
-            ]
-
-            + SHorizontalBox::Slot()
-            .AutoWidth()
-            .Padding(0.0f, 0.0f, 4.0f, 0.0f)
-            [
-                SNew(SButton)
-                .Text(LOCTEXT("CopyRolloutStartup", "Copy Startup Snippet"))
-                .OnClicked(this, &SRshipStatusPanel::OnCopyStartupRolloutSnippetClicked)
-            ]
-
-            + SHorizontalBox::Slot()
-            .AutoWidth()
-            [
-                SNew(SButton)
-                .Text(LOCTEXT("CopyRolloutIni", "Copy Ini Defaults"))
+                .Text(LOCTEXT("CopyRolloutIni", "Copy Timing Profile"))
                 .OnClicked(this, &SRshipStatusPanel::OnCopyIniRolloutSnippetClicked)
             ]
         ]
 
         + SVerticalBox::Slot()
         .AutoHeight()
-        .Padding(0.0f, 4.0f, 0.0f, 4.0f)
-        [
-            SNew(STextBlock)
-            .Text(LOCTEXT("RolloutCommandsHeading", "Runtime command bundle (copy + run on remote nodes):"))
-            .ColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.85f, 1.0f))
-        ]
-
-        + SVerticalBox::Slot()
-        .AutoHeight()
-        .Padding(0.0f, 0.0f, 0.0f, 6.0f)
-        [
-            SAssignNew(RolloutCommandText, STextBlock)
-            .WrapTextAt(900.0f)
-            .Text(LOCTEXT("RolloutCommandsDefault", "Press \"Copy Runtime Commands\" to build a node rollout payload."))
-            .ColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f, 1.0f))
-        ]
-
-        + SVerticalBox::Slot()
-        .AutoHeight()
         .Padding(0.0f, 0.0f, 0.0f, 4.0f)
         [
             SNew(STextBlock)
-            .Text(LOCTEXT("StartupSnippetHeading", "Startup snippet (for -ExecCmds):"))
-            .ColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.85f, 1.0f))
-        ]
-
-        + SVerticalBox::Slot()
-        .AutoHeight()
-        .Padding(0.0f, 0.0f, 0.0f, 6.0f)
-        [
-            SAssignNew(StartupRolloutText, STextBlock)
-            .WrapTextAt(900.0f)
-            .Text(LOCTEXT("StartupSnippetDefault", "Press \"Copy Startup Snippet\" to build launch args."))
-            .ColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f, 1.0f))
-        ]
-
-        + SVerticalBox::Slot()
-        .AutoHeight()
-        .Padding(0.0f, 0.0f, 0.0f, 4.0f)
-        [
-            SNew(STextBlock)
-            .Text(LOCTEXT("IniSnippetHeading", "Ini defaults snippet:"))
+            .Text(LOCTEXT("IniSnippetHeading", "Resolved timing profile (for deployment):"))
             .ColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.85f, 1.0f))
         ]
 
@@ -821,7 +821,7 @@ TSharedRef<SWidget> SRshipStatusPanel::BuildSyncTimingSection()
         [
             SAssignNew(IniRolloutText, STextBlock)
             .WrapTextAt(900.0f)
-            .Text(LOCTEXT("IniSnippetDefault", "Press \"Copy Ini Defaults\" to generate the config text block."))
+            .Text(LOCTEXT("IniSnippetDefault", "Click \"Save Timing Defaults\" to persist current values, then copy profile for node deployment."))
             .ColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f, 1.0f))
         ]
 
@@ -1270,6 +1270,34 @@ void SRshipStatusPanel::UpdateDiagnostics()
         ExactDroppedText->SetText(FText::AsNumber(Subsystem->GetInboundExactFrameDroppedMessages()));
     }
 
+    if (InboundFrameCounterText.IsValid())
+    {
+        InboundFrameCounterText->SetText(FText::AsNumber(Subsystem->GetInboundFrameCounter()));
+    }
+
+    if (InboundNextApplyFrameText.IsValid())
+    {
+        InboundNextApplyFrameText->SetText(FText::AsNumber(Subsystem->GetInboundNextPlannedApplyFrame()));
+    }
+
+    if (InboundQueuedFrameSpanText.IsValid())
+    {
+        const int32 QueueLength = Subsystem->GetInboundQueueLength();
+        if (QueueLength <= 0)
+        {
+            InboundQueuedFrameSpanText->SetText(LOCTEXT("QueuedFrameSpanEmpty", "n/a"));
+        }
+        else
+        {
+            const int64 Oldest = Subsystem->GetInboundQueuedOldestApplyFrame();
+            const int64 Newest = Subsystem->GetInboundQueuedNewestApplyFrame();
+            InboundQueuedFrameSpanText->SetText(
+                FText::Format(LOCTEXT("QueuedFrameSpanFmt", "{0}..{1}"),
+                    FText::AsNumber(Oldest),
+                    FText::AsNumber(Newest)));
+        }
+    }
+
     if (BackoffText.IsValid())
     {
         if (Subsystem->IsRateLimiterBackingOff())
@@ -1502,95 +1530,6 @@ void SRshipStatusPanel::SetSyncTimingStatus(const FText& Message, const FLinearC
     }
 }
 
-FString SRshipStatusPanel::QuoteConsoleArgument(const FString& InArgument) const
-{
-    FString Escaped = InArgument.Replace(TEXT("\""), TEXT("\\\""));
-    const bool bNeedsQuoting = Escaped.Contains(TEXT(" "))
-        || Escaped.Contains(TEXT("\t"))
-        || Escaped.Contains(TEXT(";"));
-    return bNeedsQuoting ? FString::Printf(TEXT("\"%s\""), *Escaped) : Escaped;
-}
-
-FString SRshipStatusPanel::BuildRolloutCommandBundle() const
-{
-    const URshipSubsystem* MainSubsystem = GetSubsystem();
-    if (!MainSubsystem)
-    {
-        return TEXT("echo Rship subsystem unavailable");
-    }
-
-    TArray<FString> Commands;
-    Commands.Add(FString::Printf(TEXT("rship.sync.rate %s"), *FString::SanitizeFloat(MainSubsystem->GetControlSyncRateHz(), 2)));
-    Commands.Add(FString::Printf(TEXT("rship.sync.lead %d"), MainSubsystem->GetInboundApplyLeadFrames()));
-    Commands.Add(FString::Printf(TEXT("rship.sync.strict %d"), MainSubsystem->IsInboundRequireExactFrame() ? 1 : 0));
-
-#if RSHIP_EDITOR_HAS_2110
-    URship2110Subsystem* Subsystem2110 = GEngine ? GEngine->GetEngineSubsystem<URship2110Subsystem>() : nullptr;
-    if (Subsystem2110 && FRship2110Module::IsAvailable())
-    {
-        Commands.Add(FString::Printf(TEXT("rship.cluster.timing.sync %s"), *FString::SanitizeFloat(Subsystem2110->GetClusterSyncRateHz(), 2)));
-        Commands.Add(FString::Printf(TEXT("rship.cluster.timing.substeps %d"), FMath::Max(1, Subsystem2110->GetLocalRenderSubsteps()));
-        Commands.Add(FString::Printf(TEXT("rship.cluster.timing.catchup %d"), FMath::Max(1, Subsystem2110->GetMaxSyncCatchupSteps()));
-
-        const FString ActiveDomain = Subsystem2110->GetActiveSyncDomainId();
-        if (!ActiveDomain.IsEmpty())
-        {
-            Commands.Add(FString::Printf(TEXT("rship.cluster.domain.active %s"), *QuoteConsoleArgument(ActiveDomain)));
-        }
-
-        TSet<FString> AddedDomainRates;
-        TArray<FString> DomainIds = Subsystem2110->GetSyncDomainIds();
-        if (DomainIds.Num() == 0 && !ActiveDomain.IsEmpty())
-        {
-            DomainIds.Add(ActiveDomain);
-        }
-        DomainIds.Sort();
-        for (const FString& DomainId : DomainIds)
-        {
-            if (DomainId.IsEmpty() || AddedDomainRates.Contains(DomainId))
-            {
-                continue;
-            }
-            AddedDomainRates.Add(DomainId);
-            const float DomainRate = Subsystem2110->GetSyncDomainRateHz(DomainId);
-            if (DomainRate > 0.0f)
-            {
-                Commands.Add(FString::Printf(
-                    TEXT("rship.cluster.domain.rate %s %s"),
-                    *QuoteConsoleArgument(DomainId),
-                    *FString::SanitizeFloat(DomainRate, 2)));
-            }
-        }
-    }
-#endif
-
-    return FString::Join(Commands, TEXT("\n"));
-}
-
-FString SRshipStatusPanel::BuildStartupRolloutSnippet() const
-{
-    const FString RawCommands = BuildRolloutCommandBundle();
-    TArray<FString> CommandLines;
-    RawCommands.ParseIntoArrayLines(CommandLines);
-
-    TArray<FString> InlineCommands;
-    for (FString& CommandLine : CommandLines)
-    {
-        const FString TrimmedLine = CommandLine.TrimStartAndEnd();
-        if (!TrimmedLine.IsEmpty())
-        {
-            InlineCommands.Add(TrimmedLine);
-        }
-    }
-    if (InlineCommands.Num() == 0)
-    {
-        return TEXT("(-ExecCmds flag skipped; no commands)");
-    }
-
-    const FString InlineBundle = FString::Join(InlineCommands, TEXT("; "));
-    return FString::Printf(TEXT("-ExecCmds=\"%s\""), *InlineBundle.Replace(TEXT("\""), TEXT("\\\"")));
-}
-
 FString SRshipStatusPanel::BuildTimingIniSnippet() const
 {
     const URshipSubsystem* MainSubsystem = GetSubsystem();
@@ -1626,45 +1565,17 @@ FString SRshipStatusPanel::BuildTimingIniSnippet() const
 
 void SRshipStatusPanel::UpdateRolloutPreviews()
 {
-    if (RolloutCommandText.IsValid())
-    {
-        RolloutCommandText->SetText(FText::FromString(BuildRolloutCommandBundle()));
-    }
-
-    if (StartupRolloutText.IsValid())
-    {
-        StartupRolloutText->SetText(FText::FromString(BuildStartupRolloutSnippet()));
-    }
-
     if (IniRolloutText.IsValid())
     {
         IniRolloutText->SetText(FText::FromString(BuildTimingIniSnippet()));
     }
 }
 
-FReply SRshipStatusPanel::OnCopyRolloutCommandsClicked()
-{
-    const FString Commands = BuildRolloutCommandBundle();
-    FPlatformApplicationMisc::ClipboardCopy(*Commands);
-    SetSyncTimingStatus(LOCTEXT("RolloutCommandsCopied", "Runtime rollout command bundle copied to clipboard."), FLinearColor(0.2f, 0.85f, 0.45f, 1.0f));
-    UpdateRolloutPreviews();
-    return FReply::Handled();
-}
-
-FReply SRshipStatusPanel::OnCopyStartupRolloutSnippetClicked()
-{
-    const FString Snippet = BuildStartupRolloutSnippet();
-    FPlatformApplicationMisc::ClipboardCopy(*Snippet);
-    SetSyncTimingStatus(LOCTEXT("RolloutStartupSnippetCopied", "Startup -ExecCmds snippet copied to clipboard."), FLinearColor(0.2f, 0.85f, 0.45f, 1.0f));
-    UpdateRolloutPreviews();
-    return FReply::Handled();
-}
-
 FReply SRshipStatusPanel::OnCopyIniRolloutSnippetClicked()
 {
     const FString Snippet = BuildTimingIniSnippet();
     FPlatformApplicationMisc::ClipboardCopy(*Snippet);
-    SetSyncTimingStatus(LOCTEXT("RolloutIniSnippetCopied", "Ini defaults snippet copied to clipboard."), FLinearColor(0.2f, 0.85f, 0.45f, 1.0f));
+    SetSyncTimingStatus(LOCTEXT("RolloutIniSnippetCopied", "Timing profile copied to clipboard."), FLinearColor(0.2f, 0.85f, 0.45f, 1.0f));
     UpdateRolloutPreviews();
     return FReply::Handled();
 }
@@ -1904,10 +1815,6 @@ void SRshipStatusPanel::OnRequireExactFrameChanged(ECheckBoxState NewState)
 
     const bool bRequireExactFrame = (NewState == ECheckBoxState::Checked);
     Subsystem->SetInboundRequireExactFrame(bRequireExactFrame);
-    if (IConsoleVariable* ExactFrameCVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.Rship.Inbound.RequireExactFrame")))
-    {
-        ExactFrameCVar->Set(bRequireExactFrame ? 1 : 0);
-    }
 
     SetSyncTimingStatus(
         FText::Format(
