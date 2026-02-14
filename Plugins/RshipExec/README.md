@@ -19,6 +19,7 @@ Core Rocketship executor for Unreal Engine - connect your UE project to the rshi
 - **PCG Auto-Bind** - Automatic binding for procedurally spawned actors
 - **Recording** - Record and playback emitter/action sessions
 - **Display Management (Windows-first)** - Deterministic display snapshot/identity/planning via optional Rust runtime
+- **Frame Sync + Inbound Determinism** - End-user workflow for deterministic frame targeting and rollout in multi-node deployments (see `/docs/Rship_Frame_Sync_User_Manual.md`)
 
 ## Quick Start
 

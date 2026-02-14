@@ -67,6 +67,7 @@ See the [Getting Started Guide](docs/GETTING_STARTED.md) for detailed setup.
 |----------|-------------|
 | [Getting Started](docs/GETTING_STARTED.md) | New user onboarding guide |
 | [Upgrade Guide](docs/UPGRADE_GUIDE.md) | Full feature reference |
+| [Frame Sync Manual](docs/Rship_Frame_Sync_User_Manual.md) | Frame timing, exact-frame semantics, and full GUI rollout flow for deterministic multi-node apply |
 | [Rate Limiting](docs/README_RATE_LIMITING.md) | Message throttling configuration |
 | [Spatial Audio Architecture](docs/SPATIAL_AUDIO_ARCHITECTURE.md) | Spatial audio system design |
 | [Windows Build Environment](docs/WINDOWS_BUILD_ENVIRONMENT.md) | Windows build setup |
