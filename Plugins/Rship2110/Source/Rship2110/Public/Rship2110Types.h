@@ -598,6 +598,10 @@ struct RSHIP2110_API FRship2110ClusterDataMessage
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
     int64 ApplyFrame = 0;
 
+    /** Whether ApplyFrame was explicitly provided by inbound metadata. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
+    bool bApplyFrameWasExplicit = false;
+
     /** Optional sync domain ID for independent deterministic frame timelines (empty = default domain) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|2110|Cluster")
     FString SyncDomainId;

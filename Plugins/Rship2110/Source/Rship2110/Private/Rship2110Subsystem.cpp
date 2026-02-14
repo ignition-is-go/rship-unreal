@@ -1132,14 +1132,17 @@ bool URship2110Subsystem::SubmitAuthorityClusterDataMessageForDomain(const FStri
     const int64 DomainFrameCounter = ResolvedSyncDomainId.Equals(DefaultSyncDomainId, ESearchCase::IgnoreCase)
         ? ClusterFrameCounter
         : SyncDomain.FrameCounter;
+    const URshipSubsystem* RshipSubsystem = GetRshipSubsystem();
+    const bool bRequireExactFrame = RshipSubsystem ? RshipSubsystem->IsInboundRequireExactFrame() : false;
 
     DataMessage.AuthorityNodeId = LocalClusterNodeId;
     DataMessage.Epoch = ActiveClusterState.Epoch;
     DataMessage.Sequence = ++ClusterDataSequenceCounter;
     DataMessage.SyncDomainId = ResolvedSyncDomainId;
+    DataMessage.bApplyFrameWasExplicit = (ApplyFrame != INDEX_NONE);
     DataMessage.ApplyFrame = (ApplyFrame == INDEX_NONE)
         ? (DomainFrameCounter + 1)
-        : FMath::Max<int64>(ApplyFrame, DomainFrameCounter + 1);
+        : (bRequireExactFrame ? ApplyFrame : FMath::Max<int64>(ApplyFrame, DomainFrameCounter + 1));
     DataMessage.Payload = TrimmedPayload;
 
     OnClusterDataOutbound.Broadcast(DataMessage);
@@ -1194,9 +1197,14 @@ bool URship2110Subsystem::ReceiveClusterDataMessage(const FRship2110ClusterDataM
     const int64 DomainFrameCounter = ResolvedSyncDomainId.Equals(DefaultSyncDomainId, ESearchCase::IgnoreCase)
         ? ClusterFrameCounter
         : SyncDomain.FrameCounter;
-    if (Queued.ApplyFrame <= DomainFrameCounter)
+    const URshipSubsystem* RshipSubsystem = GetRshipSubsystem();
+    const bool bRequireExactFrame = RshipSubsystem ? RshipSubsystem->IsInboundRequireExactFrame() : false;
+    if (!Queued.bApplyFrameWasExplicit || !bRequireExactFrame)
     {
-        Queued.ApplyFrame = DomainFrameCounter + 1;
+        if (Queued.ApplyFrame <= DomainFrameCounter)
+        {
+            Queued.ApplyFrame = DomainFrameCounter + 1;
+        }
     }
 
     auto IsQueuedDataMessageLess = [](const FRship2110ClusterDataMessage& A, const FRship2110ClusterDataMessage& B)
@@ -1634,8 +1642,9 @@ void URship2110Subsystem::ProcessPendingClusterDataMessagesForDomain(const FStri
             break;
         }
 
+        const bool bTargetApplyFrameWasExplicit = bIsDefaultDomain && DataMessage.bApplyFrameWasExplicit;
         const int64 RshipApplyFrame = bIsDefaultDomain ? DataMessage.ApplyFrame : INDEX_NONE;
-        RshipSubsystem->EnqueueReplicatedInboundMessage(DataMessage.Payload, RshipApplyFrame);
+        RshipSubsystem->EnqueueReplicatedInboundMessage(DataMessage.Payload, RshipApplyFrame, bTargetApplyFrameWasExplicit);
         DomainRuntime.LastAppliedSequenceByAuthority.Add(DataMessage.AuthorityNodeId, DataMessage.Sequence);
         OnClusterDataApplied.Broadcast(
             DataMessage.AuthorityNodeId,

@@ -19,6 +19,27 @@
 #include "HAL/IConsoleManager.h"
 #include "Engine/Engine.h"
 
+namespace
+{
+bool ParseBoolConsoleArg(const FString& Arg, bool& OutValue)
+{
+    const FString Lower = Arg.ToLower();
+    if (Lower == TEXT("1") || Lower == TEXT("true") || Lower == TEXT("on") || Lower == TEXT("yes") || Lower == TEXT("enabled"))
+    {
+        OutValue = true;
+        return true;
+    }
+
+    if (Lower == TEXT("0") || Lower == TEXT("false") || Lower == TEXT("off") || Lower == TEXT("no") || Lower == TEXT("disabled"))
+    {
+        OutValue = false;
+        return true;
+    }
+
+    return false;
+}
+}
+
 // ============================================================================
 // SCENE VALIDATION
 // ============================================================================
@@ -283,6 +304,50 @@ static FAutoConsoleCommand CmdRshipSyncStatus(
 
         UE_LOG(LogRshipExec, Log, TEXT("ControlSyncRateHz: %.2f"), Subsystem->GetControlSyncRateHz());
         UE_LOG(LogRshipExec, Log, TEXT("InboundApplyLeadFrames: %d"), Subsystem->GetInboundApplyLeadFrames());
+        UE_LOG(LogRshipExec, Log, TEXT("InboundRequireExactFrame: %s"), Subsystem->IsInboundRequireExactFrame() ? TEXT("enabled") : TEXT("disabled"));
+        UE_LOG(LogRshipExec, Log, TEXT("ExactFrameDroppedInbound: %d"), Subsystem->GetInboundExactFrameDroppedMessages());
+    })
+);
+
+static FAutoConsoleCommand CmdRshipSyncStrict(
+    TEXT("rship.sync.strict"),
+    TEXT("Set exact-frame behavior for inbound payloads. Usage: rship.sync.strict <0|1|on|off|true|false>"),
+    FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+    {
+        if (!GEngine) return;
+        URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+        if (!Subsystem)
+        {
+            return;
+        }
+
+        if (Args.Num() < 1)
+        {
+            UE_LOG(LogRshipExec, Log, TEXT("Usage: rship.sync.strict <0|1|on|off|true|false>"));
+            UE_LOG(LogRshipExec, Log, TEXT("Current: %s"), Subsystem->IsInboundRequireExactFrame() ? TEXT("enabled") : TEXT("disabled"));
+            return;
+        }
+
+        bool bRequireExactFrame = false;
+        if (!ParseBoolConsoleArg(Args[0], bRequireExactFrame))
+        {
+            bRequireExactFrame = FCString::Atoi(*Args[0]) != 0;
+            if (!Args[0].IsNumeric() && !Args[0].Equals(TEXT("0"), ESearchCase::IgnoreCase)
+                && !Args[0].Equals(TEXT("-0"), ESearchCase::IgnoreCase))
+            {
+                UE_LOG(LogRshipExec, Warning, TEXT("Invalid value: %s"), *Args[0]);
+                UE_LOG(LogRshipExec, Log, TEXT("Use 0/1, on/off, true/false, yes/no, enabled/disabled."));
+                return;
+            }
+        }
+
+        Subsystem->SetInboundRequireExactFrame(bRequireExactFrame);
+        if (IConsoleVariable* ExactFrameCVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.Rship.Inbound.RequireExactFrame")))
+        {
+            ExactFrameCVar->Set(bRequireExactFrame ? 1 : 0);
+        }
+
+        UE_LOG(LogRshipExec, Log, TEXT("Inbound exact-frame mode %s"), bRequireExactFrame ? TEXT("enabled") : TEXT("disabled"));
     })
 );
 
@@ -957,6 +1022,8 @@ static FAutoConsoleCommand CmdRshipHelp(
         UE_LOG(LogRshipExec, Log, TEXT("  rship.sync           - Show sync timing settings"));
         UE_LOG(LogRshipExec, Log, TEXT("  rship.sync.rate <hz> - Set sync rate live"));
         UE_LOG(LogRshipExec, Log, TEXT("  rship.sync.lead <n>  - Set inbound lead frames live"));
+        UE_LOG(LogRshipExec, Log, TEXT("  rship.sync.strict    - Set exact-frame strict mode (0/1/on/off/true/false)"));
+        UE_LOG(LogRshipExec, Log, TEXT("                          - Usage: rship.sync.strict <0|1|on|off|true|false>"));
         UE_LOG(LogRshipExec, Log, TEXT("  rship.reconnect      - Reconnect using current settings"));
         UE_LOG(LogRshipExec, Log, TEXT("  rship.connect <h> <p>- Connect to host:port"));
         UE_LOG(LogRshipExec, Log, TEXT(""));

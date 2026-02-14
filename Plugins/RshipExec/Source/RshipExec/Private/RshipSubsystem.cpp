@@ -56,8 +56,106 @@ static TAutoConsoleVariable<int32> CVarRshipInboundApplyLeadFrames(
     TEXT("Override inbound apply lead frames. <=0 uses project settings."),
     ECVF_Default);
 
+static TAutoConsoleVariable<int32> CVarRshipInboundRequireExactFrame(
+    TEXT("r.Rship.Inbound.RequireExactFrame"),
+    -1,
+    TEXT("Override whether inbound payloads with explicit apply-frame metadata require exact-frame match. 1=exact, 0=legacy, <=0 uses project settings."),
+    ECVF_Default);
+
 namespace
 {
+bool TryGetJsonInt64(const TSharedPtr<FJsonObject>& JsonObject, const FString& FieldName, int64& OutValue)
+{
+    if (!JsonObject.IsValid())
+    {
+        return false;
+    }
+
+    double NumberValue = 0.0;
+    if (JsonObject->TryGetNumberField(FieldName, NumberValue))
+    {
+        OutValue = static_cast<int64>(FMath::FloorToDouble(NumberValue));
+        return true;
+    }
+
+    FString StringValue;
+    if (JsonObject->TryGetStringField(FieldName, StringValue))
+    {
+        StringValue.TrimStartAndEndInline();
+        if (StringValue.IsNumeric())
+        {
+            OutValue = FCString::Atoi64(*StringValue);
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool TryGetExplicitApplyFrameFromObject(const TSharedPtr<FJsonObject>& JsonObject, int64& OutApplyFrame)
+{
+    if (!JsonObject.IsValid())
+    {
+        return false;
+    }
+
+    static const TCHAR* CandidateFields[] =
+    {
+        TEXT("applyFrame"),
+        TEXT("targetFrame"),
+        TEXT("frame"),
+        TEXT("frameNumber"),
+        TEXT("frameIndex"),
+        TEXT("target_frame"),
+        TEXT("apply_frame")
+    };
+
+    for (const TCHAR* FieldName : CandidateFields)
+    {
+        if (TryGetJsonInt64(JsonObject, FieldName, OutApplyFrame))
+        {
+            return true;
+        }
+    }
+
+    const TSharedPtr<FJsonObject>* NestedObject = nullptr;
+    if (JsonObject->TryGetObjectField(TEXT("data"), NestedObject) && NestedObject && NestedObject->IsValid())
+    {
+        for (const TCHAR* FieldName : CandidateFields)
+        {
+            if (TryGetJsonInt64(*NestedObject, FieldName, OutApplyFrame))
+            {
+                return true;
+            }
+        }
+    }
+
+    if (JsonObject->TryGetObjectField(TEXT("meta"), NestedObject) && NestedObject && NestedObject->IsValid())
+    {
+        for (const TCHAR* FieldName : CandidateFields)
+        {
+            if (TryGetJsonInt64(*NestedObject, FieldName, OutApplyFrame))
+            {
+                return true;
+            }
+        }
+
+        const TSharedPtr<FJsonObject>* MetadataData = nullptr;
+        if ((*NestedObject)->TryGetObjectField(TEXT("data"), MetadataData) && MetadataData && MetadataData->IsValid())
+        {
+            for (const TCHAR* FieldName : CandidateFields)
+            {
+                if (TryGetJsonInt64(*MetadataData, FieldName, OutApplyFrame))
+                {
+                    return true;
+                }
+            }
+        }
+    }
+
+    return false;
+}
+
 bool RshipTargetTokenMatchesLocalNode(const FString& RawValue, const FString& NodeId)
 {
     FString Trimmed = RawValue.TrimStartAndEnd();
@@ -132,15 +230,7 @@ bool RshipObjectTargetsLocalNode(
     return false;
 }
 
-bool URshipInboundQueuedMessageSortLess(const FRshipSubsystem::FRshipInboundQueuedMessage& A,
-    const FRshipSubsystem::FRshipInboundQueuedMessage& B)
-{
-    if (A.ApplyFrame != B.ApplyFrame)
-    {
-        return A.ApplyFrame < B.ApplyFrame;
-    }
-    return A.Sequence < B.Sequence;
-}
+
 }
 
 void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
@@ -189,11 +279,21 @@ void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
     NextInboundSequence = 1;
     InboundDroppedMessages = 0;
     InboundTargetFilteredMessages = 0;
+    InboundDroppedExactFrameMessages = 0;
     InboundAppliedMessages = 0;
     InboundAppliedLatencyMsTotal = 0.0;
     bLoggedInboundAuthorityDrop = false;
+    bLoggedInboundExactFrameDrop = false;
     bLoggedInboundQueueCapacityDrop = false;
     InitializeInboundMessagePolicy();
+    const URshipSettings* InitialSettings = GetDefault<URshipSettings>();
+    bInboundRequireExactFrame = InitialSettings ? InitialSettings->bInboundRequireExactFrame : false;
+
+    const int32 CVarRequireExactFrame = CVarRshipInboundRequireExactFrame.GetValueOnGameThread();
+    if (CVarRequireExactFrame >= 0)
+    {
+        bInboundRequireExactFrame = CVarRequireExactFrame != 0;
+    }
 
     const URshipSettings* Settings = GetDefault<URshipSettings>();
     ControlSyncRateHz = FMath::Max(1.0f, Settings->ControlSyncRateHz);
@@ -476,9 +576,10 @@ int32 URshipSubsystem::GetServerPort() const
     return Settings ? Settings->rshipServerPort : 5155;
 }
 
-void URshipSubsystem::EnqueueReplicatedInboundMessage(const FString& Message, int64 TargetApplyFrame)
+void URshipSubsystem::EnqueueReplicatedInboundMessage(const FString& Message, int64 TargetApplyFrame,
+                                                    bool bTargetApplyFrameWasExplicit)
 {
-    EnqueueInboundMessage(Message, true, TargetApplyFrame);
+    EnqueueInboundMessage(Message, true, TargetApplyFrame, nullptr, bTargetApplyFrameWasExplicit);
 }
 
 void URshipSubsystem::OnWebSocketConnected()
@@ -612,14 +713,22 @@ void URshipSubsystem::OnWebSocketMessage(const FString &Message)
     }
 
     TSharedPtr<FJsonObject> ParsedPayload;
+    int64 ExplicitApplyFrame = INDEX_NONE;
+    bool bTargetApplyFrameWasExplicit = false;
     TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Message);
     if (FJsonSerializer::Deserialize(Reader, ParsedPayload) && ParsedPayload.IsValid())
     {
-        EnqueueInboundMessage(Message, false, INDEX_NONE, ParsedPayload);
+        bTargetApplyFrameWasExplicit = TryGetExplicitApplyFrameFromObject(ParsedPayload, ExplicitApplyFrame);
+        EnqueueInboundMessage(
+            Message,
+            false,
+            bTargetApplyFrameWasExplicit ? ExplicitApplyFrame : INDEX_NONE,
+            ParsedPayload,
+            bTargetApplyFrameWasExplicit);
         return;
     }
 
-    EnqueueInboundMessage(Message, false, INDEX_NONE, nullptr);
+    EnqueueInboundMessage(Message, false, INDEX_NONE, nullptr, false);
 }
 
 void URshipSubsystem::InitializeInboundMessagePolicy()
@@ -709,7 +818,8 @@ bool URshipSubsystem::IsInboundMessageTargetedToLocalNode(const TSharedPtr<FJson
 }
 
 void URshipSubsystem::EnqueueInboundMessage(const FString& Message, bool bBypassAuthorityGate, int64 TargetApplyFrame,
-                                           const TSharedPtr<FJsonObject>& ParsedPayload)
+                                           const TSharedPtr<FJsonObject>& ParsedPayload,
+                                           bool bTargetApplyFrameWasExplicit)
 {
     if (Message.IsEmpty())
     {
@@ -758,6 +868,30 @@ void URshipSubsystem::EnqueueInboundMessage(const FString& Message, bool bBypass
     int64 AssignedApplyFrame = 0;
     bool bShouldLogDrop = false;
 
+    if (bInboundRequireExactFrame && bTargetApplyFrameWasExplicit && TargetApplyFrame != INDEX_NONE
+        && TargetApplyFrame <= InboundFrameCounter)
+    {
+        bool bShouldLogExactFrameDrop = false;
+        {
+            FScopeLock Lock(&InboundQueueMutex);
+            ++InboundDroppedMessages;
+            ++InboundDroppedExactFrameMessages;
+            if (!bLoggedInboundExactFrameDrop)
+            {
+                bLoggedInboundExactFrameDrop = true;
+                bShouldLogExactFrameDrop = true;
+            }
+        }
+        if (bShouldLogExactFrameDrop)
+        {
+            UE_LOG(LogRshipExec, Warning,
+                TEXT("Exact-frame enforcement dropped stale inbound payload for frame %lld (current frame %lld)."),
+                TargetApplyFrame,
+                InboundFrameCounter);
+        }
+        return;
+    }
+
     {
         FScopeLock Lock(&InboundQueueMutex);
         if (InboundQueue.Num() >= InboundQueueMaxLength)
@@ -765,7 +899,7 @@ void URshipSubsystem::EnqueueInboundMessage(const FString& Message, bool bBypass
             const int32 NumToDrop = InboundQueue.Num() - InboundQueueMaxLength + 1;
             if (NumToDrop > 0)
             {
-                InboundQueue.RemoveAt(0, NumToDrop, false);
+                InboundQueue.RemoveAt(0, NumToDrop, EAllowShrinking::No);
                 InboundDroppedMessages += NumToDrop;
 
                 if (!bLoggedInboundQueueCapacityDrop)
@@ -778,7 +912,16 @@ void URshipSubsystem::EnqueueInboundMessage(const FString& Message, bool bBypass
 
         Queued.Sequence = NextInboundSequence++;
         const int64 NextFrame = InboundFrameCounter + FMath::Max<int64>(1, InboundApplyLeadFrames);
-        Queued.ApplyFrame = (TargetApplyFrame == INDEX_NONE) ? NextFrame : FMath::Max(TargetApplyFrame, NextFrame);
+        if (TargetApplyFrame == INDEX_NONE || !bTargetApplyFrameWasExplicit)
+        {
+            Queued.ApplyFrame = (TargetApplyFrame == INDEX_NONE)
+                ? NextFrame
+                : FMath::Max<int64>(TargetApplyFrame, NextFrame);
+        }
+        else
+        {
+            Queued.ApplyFrame = TargetApplyFrame;
+        }
         AssignedApplyFrame = Queued.ApplyFrame;
         Queued.EnqueueTimeSeconds = FPlatformTime::Seconds();
         Queued.Payload = Message;
@@ -786,10 +929,18 @@ void URshipSubsystem::EnqueueInboundMessage(const FString& Message, bool bBypass
 
         int32 Low = 0;
         int32 High = InboundQueue.Num();
+        auto QueueSortLess = [](const FRshipInboundQueuedMessage& A, const FRshipInboundQueuedMessage& B)
+        {
+            if (A.ApplyFrame != B.ApplyFrame)
+            {
+                return A.ApplyFrame < B.ApplyFrame;
+            }
+            return A.Sequence < B.Sequence;
+        };
         while (Low < High)
         {
             const int32 Mid = (Low + High) / 2;
-            if (URshipInboundQueuedMessageSortLess(InboundQueue[Mid], Queued))
+            if (QueueSortLess(InboundQueue[Mid], Queued))
             {
                 Low = Mid + 1;
             }
@@ -843,7 +994,7 @@ void URshipSubsystem::ProcessInboundMessageQueue()
         {
             return;
         }
-        InboundQueue.RemoveAt(0, ApplyCount, false);
+        InboundQueue.RemoveAt(0, ApplyCount, EAllowShrinking::No);
         RemainingCount = InboundQueue.Num();
     }
 
@@ -1031,6 +1182,16 @@ void URshipSubsystem::TickSubsystems()
     if (CVarLeadFrames > 0 && InboundApplyLeadFrames != FMath::Max(1, CVarLeadFrames))
     {
         SetInboundApplyLeadFrames(CVarLeadFrames);
+    }
+
+    const int32 CVarRequireExactFrame = CVarRshipInboundRequireExactFrame.GetValueOnGameThread();
+    if (CVarRequireExactFrame >= 0)
+    {
+        const bool bRequireExactFrame = CVarRequireExactFrame != 0;
+        if (bInboundRequireExactFrame != bRequireExactFrame)
+        {
+            SetInboundRequireExactFrame(bRequireExactFrame);
+        }
     }
 
     ++InboundFrameCounter;
@@ -2967,6 +3128,12 @@ int32 URshipSubsystem::GetInboundTargetFilteredMessages() const
     return InboundTargetFilteredMessages;
 }
 
+int32 URshipSubsystem::GetInboundExactFrameDroppedMessages() const
+{
+    FScopeLock Lock(&InboundQueueMutex);
+    return InboundDroppedExactFrameMessages;
+}
+
 float URshipSubsystem::GetInboundAverageApplyLatencyMs() const
 {
     FScopeLock Lock(&InboundQueueMutex);
@@ -2980,6 +3147,11 @@ float URshipSubsystem::GetInboundAverageApplyLatencyMs() const
 bool URshipSubsystem::IsAuthoritativeIngestNode() const
 {
     return !bInboundAuthorityOnly || bIsAuthorityIngestNode;
+}
+
+bool URshipSubsystem::IsInboundRequireExactFrame() const
+{
+    return bInboundRequireExactFrame;
 }
 
 void URshipSubsystem::SetControlSyncRateHz(float SyncRateHz)
@@ -3000,4 +3172,9 @@ void URshipSubsystem::SetControlSyncRateHz(float SyncRateHz)
 void URshipSubsystem::SetInboundApplyLeadFrames(int32 LeadFrames)
 {
     InboundApplyLeadFrames = FMath::Max(1, LeadFrames);
+}
+
+void URshipSubsystem::SetInboundRequireExactFrame(bool bRequireExactFrame)
+{
+    bInboundRequireExactFrame = bRequireExactFrame;
 }

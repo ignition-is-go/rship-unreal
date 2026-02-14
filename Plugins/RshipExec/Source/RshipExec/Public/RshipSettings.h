@@ -314,6 +314,10 @@ public:
         ToolTip = "Minimum sync-frame lead time before applying inbound payloads. Higher values improve jitter tolerance at the cost of control latency."))
     int32 InboundApplyLeadFrames = 1;
 
+    UPROPERTY(EditAnywhere, config, Category = "Processing", meta = (DisplayName = "Inbound Require Exact Frame",
+        ToolTip = "When enabled, inbound payloads with explicit frame metadata are dropped if they arrive after their target frame. When disabled (legacy), payloads are clamped forward to the next frame when requested frame is behind."))
+    bool bInboundRequireExactFrame = false;
+
     UPROPERTY(EditAnywhere, config, Category = "Processing", meta = (DisplayName = "Queue Process Interval (Seconds)",
         ClampMin = "0.001", ClampMax = "1.0",
         ToolTip = "How often to process the message queue. Lower values = more responsive but higher CPU. Default 0.016 (~60Hz)."))

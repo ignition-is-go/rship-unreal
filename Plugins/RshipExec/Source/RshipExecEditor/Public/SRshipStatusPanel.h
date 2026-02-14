@@ -10,6 +10,7 @@
 class URshipSubsystem;
 class URship2110Subsystem;
 class URshipTargetComponent;
+class SCheckBox;
 
 /** Row data for the target list */
 struct FRshipTargetListItem
@@ -60,6 +61,7 @@ private:
     FReply OnRefreshTargetsClicked();
     FReply OnApplyControlSyncRateClicked();
     FReply OnApplyInboundLeadFramesClicked();
+    void OnRequireExactFrameChanged(ECheckBoxState NewState);
     void SetSyncTimingStatus(const FText& Message, const FLinearColor& Color);
     FReply OnApplySyncPresetClicked(float PresetHz);
     FReply OnApplyRenderSubstepsPresetClicked(int32 PresetSubsteps);
@@ -120,9 +122,11 @@ private:
     TSharedPtr<STextBlock> MessageRateText;
     TSharedPtr<STextBlock> ByteRateText;
     TSharedPtr<STextBlock> DroppedText;
+    TSharedPtr<STextBlock> ExactDroppedText;
     TSharedPtr<STextBlock> BackoffText;
     TSharedPtr<SEditableTextBox> ControlSyncRateInput;
     TSharedPtr<SEditableTextBox> InboundLeadFramesInput;
+    TSharedPtr<SCheckBox> InboundRequireExactFrameCheckBox;
     TSharedPtr<STextBlock> ControlSyncRateValueText;
     TSharedPtr<STextBlock> InboundLeadFramesValueText;
     TSharedPtr<STextBlock> SyncTimingStatusText;

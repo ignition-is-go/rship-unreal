@@ -269,9 +269,12 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     int64 InboundAppliedMessages = 0;
     double InboundAppliedLatencyMsTotal = 0.0;
     int32 InboundApplyLeadFrames = 1;
+    int32 InboundDroppedExactFrameMessages = 0;
     bool bInboundAuthorityOnly = true;
     bool bIsAuthorityIngestNode = true;
+    bool bInboundRequireExactFrame = false;
     bool bLoggedInboundAuthorityDrop = false;
+    bool bLoggedInboundExactFrameDrop = false;
     int32 InboundQueueMaxLength = 500;
     bool bLoggedInboundQueueCapacityDrop = false;
     FString InboundNodeId;
@@ -304,7 +307,8 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     bool IsInboundMessageTargetedToLocalNode(const FString& Message) const;
     bool IsInboundMessageTargetedToLocalNode(const TSharedPtr<FJsonObject>& JsonObject) const;
     void EnqueueInboundMessage(const FString& Message, bool bBypassAuthorityGate, int64 TargetApplyFrame = INDEX_NONE,
-                             const TSharedPtr<FJsonObject>& ParsedPayload = nullptr);
+                              const TSharedPtr<FJsonObject>& ParsedPayload = nullptr,
+                              bool bTargetApplyFrameWasExplicit = false);
     void ProcessInboundMessageQueue();
     void ClearQueueProcessTimer();
     void ScheduleQueueProcessTimer(float IntervalSeconds, bool bLooping = true);
@@ -349,7 +353,8 @@ public:
     int32 GetServerPort() const;
 
     /** Enqueue replicated authoritative state/event payload for deterministic apply on this node */
-    void EnqueueReplicatedInboundMessage(const FString& Message, int64 TargetApplyFrame = INDEX_NONE);
+    void EnqueueReplicatedInboundMessage(const FString& Message, int64 TargetApplyFrame = INDEX_NONE,
+                                        bool bTargetApplyFrameWasExplicit = false);
 
     /** Authority-side callback for cluster relays (e.g., 2110) to receive newly queued live payloads */
     FOnRshipAuthoritativeInboundQueued& OnAuthoritativeInboundQueued() { return OnAuthoritativeInboundQueuedDelegate; }
@@ -550,6 +555,12 @@ public:
     int32 GetInboundTargetFilteredMessages() const;
 
     UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    int32 GetInboundExactFrameDroppedMessages() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    bool IsInboundRequireExactFrame() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
     float GetInboundAverageApplyLatencyMs() const;
 
     UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
@@ -567,6 +578,9 @@ public:
 
     UFUNCTION(BlueprintCallable, Category = "Rship|Timing")
     int32 GetInboundApplyLeadFrames() const { return InboundApplyLeadFrames; }
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Timing")
+    void SetInboundRequireExactFrame(bool bRequireExactFrame);
 
     // Throughput metrics
     UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")

@@ -19,6 +19,7 @@
 #include "Widgets/Layout/SSpacer.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SComboBox.h"
+#include "Widgets/Input/SCheckBox.h"
 #include "Widgets/Input/SEditableTextBox.h"
 #include "Widgets/Text/STextBlock.h"
 #include "Widgets/Images/SImage.h"
@@ -27,6 +28,7 @@
 #include "ISettingsModule.h"
 #include "Engine/Engine.h"
 #include "HAL/PlatformApplicationMisc.h"
+#include "HAL/IConsoleManager.h"
 #include "SocketSubsystem.h"
 #include "IPAddress.h"
 
@@ -466,6 +468,25 @@ TSharedRef<SWidget> SRshipStatusPanel::BuildDiagnosticsSection()
                         .Text(LOCTEXT("DroppedDefault", "0"))
                     ]
                 ]
+
+                + SVerticalBox::Slot()
+                .AutoHeight()
+                .Padding(0.0f, 2.0f)
+                [
+                    SNew(SHorizontalBox)
+                    + SHorizontalBox::Slot()
+                    .AutoWidth()
+                    [
+                        SNew(STextBlock)
+                        .Text(LOCTEXT("ExactDroppedLabel", "Exact dropped: "))
+                    ]
+                    + SHorizontalBox::Slot()
+                    .AutoWidth()
+                    [
+                        SAssignNew(ExactDroppedText, STextBlock)
+                        .Text(LOCTEXT("ExactDroppedDefault", "0"))
+                    ]
+                ]
             ]
         ]
 
@@ -485,6 +506,7 @@ TSharedRef<SWidget> SRshipStatusPanel::BuildSyncTimingSection()
     const URshipSubsystem* Subsystem = GetSubsystem();
     const float InitialControlSyncRate = Subsystem ? Subsystem->GetControlSyncRateHz() : 60.0f;
     const int32 InitialLeadFrames = Subsystem ? Subsystem->GetInboundApplyLeadFrames() : 1;
+    const bool InitialRequireExactFrame = Subsystem ? Subsystem->IsInboundRequireExactFrame() : false;
 #if RSHIP_EDITOR_HAS_2110
     const URship2110Subsystem* Subsystem2110 = GEngine ? GEngine->GetEngineSubsystem<URship2110Subsystem>() : nullptr;
     const float InitialClusterSyncRate = Subsystem2110 ? Subsystem2110->GetClusterSyncRateHz() : 60.0f;
@@ -649,6 +671,31 @@ TSharedRef<SWidget> SRshipStatusPanel::BuildSyncTimingSection()
                 SAssignNew(InboundLeadFramesValueText, STextBlock)
                 .Text(LOCTEXT("LeadFramesValueLoading", "current: ..."))
                 .ColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f, 1.0f))
+            ]
+        ]
+
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 0.0f, 0.0f, 6.0f)
+        [
+            SNew(SHorizontalBox)
+
+            + SHorizontalBox::Slot()
+            .AutoWidth()
+            .VAlign(VAlign_Center)
+            .Padding(0.0f, 0.0f, 8.0f, 0.0f)
+            [
+                SNew(STextBlock)
+                .Text(LOCTEXT("RequireExactFrameLabel", "Inbound require exact frame:"))
+            ]
+
+            + SHorizontalBox::Slot()
+            .AutoWidth()
+            .VAlign(VAlign_Center)
+            [
+                SAssignNew(InboundRequireExactFrameCheckBox, SCheckBox)
+                .IsChecked(InitialRequireExactFrame ? ECheckBoxState::Checked : ECheckBoxState::Unchecked)
+                .OnCheckStateChanged(this, &SRshipStatusPanel::OnRequireExactFrameChanged)
             ]
         ]
 
@@ -1218,6 +1265,10 @@ void SRshipStatusPanel::UpdateDiagnostics()
     {
         DroppedText->SetText(FText::AsNumber(Subsystem->GetMessagesDropped()));
     }
+    if (ExactDroppedText.IsValid())
+    {
+        ExactDroppedText->SetText(FText::AsNumber(Subsystem->GetInboundExactFrameDroppedMessages()));
+    }
 
     if (BackoffText.IsValid())
     {
@@ -1267,6 +1318,14 @@ void SRshipStatusPanel::UpdateSyncSettings()
         {
             InboundLeadFramesValueText->SetText(LOCTEXT("LeadFramesUnavailable", "current: n/a"));
         }
+    }
+
+    if (InboundRequireExactFrameCheckBox.IsValid())
+    {
+        InboundRequireExactFrameCheckBox->SetIsChecked(MainSubsystem && MainSubsystem->IsInboundRequireExactFrame()
+            ? ECheckBoxState::Checked
+            : ECheckBoxState::Unchecked);
+        InboundRequireExactFrameCheckBox->SetEnabled(MainSubsystem != nullptr);
     }
 
 #if RSHIP_EDITOR_HAS_2110
@@ -1463,6 +1522,7 @@ FString SRshipStatusPanel::BuildRolloutCommandBundle() const
     TArray<FString> Commands;
     Commands.Add(FString::Printf(TEXT("rship.sync.rate %s"), *FString::SanitizeFloat(MainSubsystem->GetControlSyncRateHz(), 2)));
     Commands.Add(FString::Printf(TEXT("rship.sync.lead %d"), MainSubsystem->GetInboundApplyLeadFrames()));
+    Commands.Add(FString::Printf(TEXT("rship.sync.strict %d"), MainSubsystem->IsInboundRequireExactFrame() ? 1 : 0));
 
 #if RSHIP_EDITOR_HAS_2110
     URship2110Subsystem* Subsystem2110 = GEngine ? GEngine->GetEngineSubsystem<URship2110Subsystem>() : nullptr;
@@ -1536,13 +1596,15 @@ FString SRshipStatusPanel::BuildTimingIniSnippet() const
     const URshipSubsystem* MainSubsystem = GetSubsystem();
     if (!MainSubsystem)
     {
-        return TEXT("[/Script/RshipExec.URshipSettings]\nControlSyncRateHz=60.0\nInboundApplyLeadFrames=1");
+        return TEXT("[/Script/RshipExec.URshipSettings]\nControlSyncRateHz=60.0\nInboundApplyLeadFrames=1\nbInboundRequireExactFrame=false");
     }
 
     TArray<FString> Lines;
     Lines.Add(TEXT("[/Script/RshipExec.URshipSettings]"));
     Lines.Add(FString::Printf(TEXT("ControlSyncRateHz=%s"), *FString::SanitizeFloat(MainSubsystem->GetControlSyncRateHz(), 2)));
     Lines.Add(FString::Printf(TEXT("InboundApplyLeadFrames=%d"), MainSubsystem->GetInboundApplyLeadFrames()));
+    Lines.Add(FString::Printf(TEXT("bInboundRequireExactFrame=%s"),
+        MainSubsystem->IsInboundRequireExactFrame() ? TEXT("true") : TEXT("false")));
 
 #if RSHIP_EDITOR_HAS_2110
     if (FRship2110Module::IsAvailable())
@@ -1655,6 +1717,7 @@ FReply SRshipStatusPanel::OnSaveTimingDefaultsClicked()
 
     Settings->ControlSyncRateHz = FMath::Max(1.0f, MainSubsystem->GetControlSyncRateHz());
     Settings->InboundApplyLeadFrames = FMath::Max(1, MainSubsystem->GetInboundApplyLeadFrames());
+    Settings->bInboundRequireExactFrame = MainSubsystem->IsInboundRequireExactFrame();
     Settings->SaveConfig();
 
 #if RSHIP_EDITOR_HAS_2110
@@ -1827,6 +1890,31 @@ FReply SRshipStatusPanel::OnApplyInboundLeadFramesClicked()
     SetSyncTimingStatus(LOCTEXT("SyncTimingStatusLeadInvalid", "Invalid inbound lead value. Enter an integer >= 1."), FLinearColor(1.0f, 0.35f, 0.0f, 1.0f));
     UpdateSyncSettings();
     return FReply::Handled();
+}
+
+void SRshipStatusPanel::OnRequireExactFrameChanged(ECheckBoxState NewState)
+{
+    URshipSubsystem* Subsystem = GetSubsystem();
+    if (!Subsystem)
+    {
+        SetSyncTimingStatus(LOCTEXT("SyncTimingStatusExactFrameUnavailable", "Cannot update exact-frame mode: Rship subsystem unavailable."), FLinearColor(1.0f, 0.35f, 0.0f, 1.0f));
+        UpdateSyncSettings();
+        return;
+    }
+
+    const bool bRequireExactFrame = (NewState == ECheckBoxState::Checked);
+    Subsystem->SetInboundRequireExactFrame(bRequireExactFrame);
+    if (IConsoleVariable* ExactFrameCVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.Rship.Inbound.RequireExactFrame")))
+    {
+        ExactFrameCVar->Set(bRequireExactFrame ? 1 : 0);
+    }
+
+    SetSyncTimingStatus(
+        FText::Format(
+            LOCTEXT("SyncTimingStatusExactFrameUpdated", "Inbound exact-frame mode {0}."),
+            bRequireExactFrame ? LOCTEXT("EnabledLower", "enabled") : LOCTEXT("DisabledLower", "disabled")),
+        FLinearColor(0.2f, 0.85f, 0.45f, 1.0f));
+    UpdateSyncSettings();
 }
 
 FReply SRshipStatusPanel::OnApplySyncPresetClicked(float PresetHz)
