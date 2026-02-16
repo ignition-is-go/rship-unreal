@@ -52,7 +52,6 @@
 #include "CoreMinimal.h"
 #include "HAL/CriticalSection.h"
 #include "HAL/PlatformTime.h"
-#include "Containers/Queue.h"
 #include "Dom/JsonObject.h"
 
 // ============================================================================
@@ -407,7 +406,31 @@ private:
     // ========================================================================
 
     TArray<FRshipQueuedMessage> MessageQueue;
+    int32 MessageQueueHead = 0;
     int32 QueueBytesEstimate;         // Estimated total bytes in queue
+
+    FORCEINLINE int32 GetActiveMessageQueueCount() const
+    {
+        return MessageQueue.Num() - MessageQueueHead;
+    }
+
+    void CompactMessageQueue_NoLock()
+    {
+        if (MessageQueueHead == 0)
+        {
+            return;
+        }
+
+        if (MessageQueueHead >= MessageQueue.Num())
+        {
+            MessageQueue.Reset();
+            MessageQueueHead = 0;
+            return;
+        }
+
+        MessageQueue.RemoveAt(0, MessageQueueHead, EAllowShrinking::No);
+        MessageQueueHead = 0;
+    }
 
     // ========================================================================
     // BATCHING STATE
@@ -466,8 +489,6 @@ private:
 
     // Queue operations
     void DropExpiredMessages();
-    void CoalesceMessages();
-    void SortQueueByPriority();
     bool ShouldDownsample(const FRshipQueuedMessage& Msg);
     int32 EstimateMessageBytes(const TSharedPtr<FJsonObject>& Payload);
 

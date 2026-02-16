@@ -70,6 +70,19 @@ private:
 	struct FRshipContentMappingState* FindMappingById(const FString& MappingId, TArray<struct FRshipContentMappingState>& Mappings) const;
 	struct FRshipRenderContextState* FindContextById(const FString& ContextId, TArray<struct FRshipRenderContextState>& Contexts) const;
 	bool IsProjectionEditActiveFor(const FString& MappingId) const;
+	bool IsProjectionPrecisionControlsVisible() const;
+	bool IsProjectionPrecisionControlsCollapsed() const;
+	EVisibility GetProjectionPrecisionControlsVisibility() const;
+	EVisibility GetProjectionPrecisionControlsCollapsedVisibility() const;
+	bool IsMappingConfigExpanded(const FString& MappingId) const;
+	bool IsInlineProjectionPrecisionExpanded(const FString& MappingId) const;
+	bool IsProjectionPrecisionControlsVisibleForInlineMapping(const FString& MappingId, bool bInlineProjection) const;
+	bool IsProjectionPrecisionControlsNoticeVisibleForInlineMapping(const FString& MappingId, bool bInlineProjection) const;
+	void SetInlineProjectionConfigExpanded(const FString& MappingId, bool bExpanded);
+	void ToggleMappingConfigExpanded(const FString& MappingId, bool bInlineProjection);
+	void SetMappingConfigExpanded(const FString& MappingId, bool bExpanded);
+	void SetSelectedMappingId(const FString& NewSelectedMappingId);
+	void ClearSelectedMappingId();
 	bool ExecuteQuickCreateMapping();
 	void StoreQuickCreateDefaults();
 	void ApplyStoredQuickCreateDefaults();
@@ -225,6 +238,8 @@ private:
 	TSet<FString> SelectedSurfaceRows;
 	TSet<FString> SelectedMappingRows;
 	TSet<FString> ExpandedMappingConfigRows;
+	TSet<FString> ExpandedProjectionPrecisionRows;
+	bool bShowProjectionPrecisionControls = false;
 	bool bContextErrorsOnly = false;
 	bool bSurfaceErrorsOnly = false;
 	bool bMappingErrorsOnly = false;

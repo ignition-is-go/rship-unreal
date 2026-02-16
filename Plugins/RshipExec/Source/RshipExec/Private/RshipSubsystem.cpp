@@ -6,7 +6,6 @@
 #include "RshipTargetComponent.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
-#include "Json.h"
 #include "JsonObjectWrapper.h"
 #include "JsonObjectConverter.h"
 #include "Util.h"
@@ -29,8 +28,6 @@
 #include "Myko.h"
 #include "EmitterHandler.h"
 #include "Logs.h"
-
-using namespace std;
 
 static TAutoConsoleVariable<int32> CVarRshipInboundMaxMessagesPerTick(
     TEXT("r.Rship.Inbound.MaxMessagesPerTick"),
@@ -274,6 +271,7 @@ void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
     ContentMappingManager = nullptr;
     DisplayManager = nullptr;
     LastTickTime = 0.0;
+    InboundQueueHead = 0;
     InboundQueue.Reset();
     InboundFrameCounter = 0;
     NextInboundSequence = 1;
@@ -894,13 +892,14 @@ void URshipSubsystem::EnqueueInboundMessage(const FString& Message, bool bBypass
 
     {
         FScopeLock Lock(&InboundQueueMutex);
-        if (InboundQueue.Num() >= InboundQueueMaxLength)
+        int32 ActiveMessageCount = GetActiveInboundQueueCount();
+        if (ActiveMessageCount >= InboundQueueMaxLength)
         {
-            const int32 NumToDrop = InboundQueue.Num() - InboundQueueMaxLength + 1;
+            const int32 NumToDrop = ActiveMessageCount - InboundQueueMaxLength + 1;
             if (NumToDrop > 0)
-            {
-                InboundQueue.RemoveAt(0, NumToDrop, EAllowShrinking::No);
-                InboundDroppedMessages += NumToDrop;
+                {
+                    InboundQueueHead += NumToDrop;
+                    InboundDroppedMessages += NumToDrop;
 
                 if (!bLoggedInboundQueueCapacityDrop)
                 {
@@ -908,6 +907,13 @@ void URshipSubsystem::EnqueueInboundMessage(const FString& Message, bool bBypass
                     bShouldLogDrop = true;
                 }
             }
+        }
+
+        if (InboundQueueHead >= InboundQueue.Num())
+        {
+            InboundQueue.Reset();
+            InboundQueueHead = 0;
+            ActiveMessageCount = 0;
         }
 
         Queued.Sequence = NextInboundSequence++;
@@ -930,7 +936,7 @@ void URshipSubsystem::EnqueueInboundMessage(const FString& Message, bool bBypass
         Queued.ParsedPayload = EffectivePayload;
 
         int32 Low = 0;
-        int32 High = InboundQueue.Num();
+        int32 High = ActiveMessageCount;
         auto QueueSortLess = [](const FRshipInboundQueuedMessage& A, const FRshipInboundQueuedMessage& B)
         {
             if (A.ApplyFrame != B.ApplyFrame)
@@ -942,7 +948,7 @@ void URshipSubsystem::EnqueueInboundMessage(const FString& Message, bool bBypass
         while (Low < High)
         {
             const int32 Mid = (Low + High) / 2;
-            if (QueueSortLess(InboundQueue[Mid], Queued))
+            if (QueueSortLess(InboundQueue[InboundQueueHead + Mid], Queued))
             {
                 Low = Mid + 1;
             }
@@ -951,7 +957,14 @@ void URshipSubsystem::EnqueueInboundMessage(const FString& Message, bool bBypass
                 High = Mid;
             }
         }
-        InboundQueue.Insert(MoveTemp(Queued), FMath::Clamp(Low, 0, InboundQueue.Num()));
+        const int32 InsertIndex = InboundQueueHead + FMath::Clamp(Low, 0, ActiveMessageCount);
+        InboundQueue.Insert(MoveTemp(Queued), InsertIndex);
+        ActiveMessageCount = GetActiveInboundQueueCount();
+
+        if (InboundQueueHead > 0 && ActiveMessageCount > 0 && InboundQueueHead > FMath::Max(256, ActiveMessageCount / 2))
+        {
+            CompactInboundQueue_NoLock();
+        }
     }
 
     if (bShouldLogDrop)
@@ -974,21 +987,23 @@ void URshipSubsystem::ProcessInboundMessageQueue()
 
     {
         FScopeLock Lock(&InboundQueueMutex);
-        if (InboundQueue.Num() == 0)
+        const int32 ActiveMessageCount = GetActiveInboundQueueCount();
+        if (ActiveMessageCount == 0)
         {
             return;
         }
 
         int32 ApplyCount = 0;
-        const int32 MaxCandidates = FMath::Min(MaxMessagesPerTick, InboundQueue.Num());
+        const int32 MaxCandidates = FMath::Min(MaxMessagesPerTick, ActiveMessageCount);
         MessagesToApply.Reserve(MaxCandidates);
         for (int32 Index = 0; Index < MaxCandidates; ++Index)
         {
-            if (InboundQueue[Index].ApplyFrame > InboundFrameCounter)
+            FRshipInboundQueuedMessage& Message = InboundQueue[InboundQueueHead + Index];
+            if (Message.ApplyFrame > InboundFrameCounter)
             {
                 break;
             }
-            MessagesToApply.Add(MoveTemp(InboundQueue[Index]));
+            MessagesToApply.Add(MoveTemp(Message));
             ++ApplyCount;
         }
 
@@ -996,8 +1011,23 @@ void URshipSubsystem::ProcessInboundMessageQueue()
         {
             return;
         }
-        InboundQueue.RemoveAt(0, ApplyCount, EAllowShrinking::No);
-        RemainingCount = InboundQueue.Num();
+
+        InboundQueueHead += ApplyCount;
+        if (ApplyCount == ActiveMessageCount)
+        {
+            InboundQueue.Reset();
+            InboundQueueHead = 0;
+            RemainingCount = 0;
+        }
+        else
+        {
+            if (InboundQueueHead > 0 && InboundQueueHead > FMath::Max(256, ActiveMessageCount / 2))
+            {
+                CompactInboundQueue_NoLock();
+            }
+
+            RemainingCount = GetActiveInboundQueueCount();
+        }
     }
 
     const double ApplyTimeSeconds = FPlatformTime::Seconds();
@@ -3115,7 +3145,7 @@ URshipTargetComponent* URshipSubsystem::FindTargetComponent(const FString& FullT
 int32 URshipSubsystem::GetInboundQueueLength() const
 {
     FScopeLock Lock(&InboundQueueMutex);
-    return InboundQueue.Num();
+    return GetActiveInboundQueueCount();
 }
 
 int32 URshipSubsystem::GetInboundDroppedMessages() const
@@ -3151,17 +3181,17 @@ int64 URshipSubsystem::GetInboundNextPlannedApplyFrame() const
 int64 URshipSubsystem::GetInboundQueuedOldestApplyFrame() const
 {
     FScopeLock Lock(&InboundQueueMutex);
-    if (InboundQueue.Num() == 0)
+    if (GetActiveInboundQueueCount() == 0)
     {
         return INDEX_NONE;
     }
-    return InboundQueue[0].ApplyFrame;
+    return InboundQueue[InboundQueueHead].ApplyFrame;
 }
 
 int64 URshipSubsystem::GetInboundQueuedNewestApplyFrame() const
 {
     FScopeLock Lock(&InboundQueueMutex);
-    if (InboundQueue.Num() == 0)
+    if (GetActiveInboundQueueCount() == 0)
     {
         return INDEX_NONE;
     }

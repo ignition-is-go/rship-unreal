@@ -9,6 +9,7 @@
 #include "RshipContentMappingManager.h"
 
 #include "Widgets/Layout/SBox.h"
+#include "Widgets/Layout/SWidgetSwitcher.h"
 #include "Widgets/Layout/SSpacer.h"
 #include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/Layout/SSeparator.h"
@@ -859,6 +860,88 @@ bool SRshipContentMappingPanel::IsProjectionEditActiveFor(const FString& Mapping
 	return !ActiveProjectionMappingId.IsEmpty() && ActiveProjectionMappingId == MappingId;
 }
 
+bool SRshipContentMappingPanel::IsProjectionPrecisionControlsVisible() const
+{
+	return IsProjectionMode(MapMode) && bShowProjectionPrecisionControls;
+}
+
+bool SRshipContentMappingPanel::IsProjectionPrecisionControlsCollapsed() const
+{
+	return IsProjectionMode(MapMode) && !bShowProjectionPrecisionControls;
+}
+
+EVisibility SRshipContentMappingPanel::GetProjectionPrecisionControlsVisibility() const
+{
+	return IsProjectionPrecisionControlsVisible() ? EVisibility::Visible : EVisibility::Collapsed;
+}
+
+EVisibility SRshipContentMappingPanel::GetProjectionPrecisionControlsCollapsedVisibility() const
+{
+	return IsProjectionPrecisionControlsCollapsed() ? EVisibility::Visible : EVisibility::Collapsed;
+}
+
+bool SRshipContentMappingPanel::IsMappingConfigExpanded(const FString& MappingId) const
+{
+	return ExpandedMappingConfigRows.Contains(MappingId);
+}
+
+bool SRshipContentMappingPanel::IsInlineProjectionPrecisionExpanded(const FString& MappingId) const
+{
+	return ExpandedProjectionPrecisionRows.Contains(MappingId);
+}
+
+void SRshipContentMappingPanel::SetMappingConfigExpanded(const FString& MappingId, bool bExpanded)
+{
+	if (bExpanded)
+	{
+		ExpandedMappingConfigRows.Add(MappingId);
+	}
+	else
+	{
+		ExpandedMappingConfigRows.Remove(MappingId);
+	}
+}
+
+void SRshipContentMappingPanel::SetInlineProjectionConfigExpanded(const FString& MappingId, bool bExpanded)
+{
+	if (bExpanded)
+	{
+		ExpandedProjectionPrecisionRows.Add(MappingId);
+		ExpandedMappingConfigRows.Add(MappingId);
+	}
+	else
+	{
+		ExpandedProjectionPrecisionRows.Remove(MappingId);
+		ExpandedMappingConfigRows.Remove(MappingId);
+	}
+}
+
+void SRshipContentMappingPanel::ToggleMappingConfigExpanded(const FString& MappingId, bool bInlineProjection)
+{
+	if (bInlineProjection)
+	{
+		const bool bExpanded = !IsMappingConfigExpanded(MappingId);
+		SetInlineProjectionConfigExpanded(MappingId, bExpanded);
+		return;
+	}
+
+	SetMappingConfigExpanded(MappingId, !IsMappingConfigExpanded(MappingId));
+}
+
+bool SRshipContentMappingPanel::IsProjectionPrecisionControlsVisibleForInlineMapping(const FString& MappingId, bool bInlineProjection) const
+{
+	return bInlineProjection
+		&& IsInlineProjectionPrecisionExpanded(MappingId)
+		&& IsMappingConfigExpanded(MappingId);
+}
+
+bool SRshipContentMappingPanel::IsProjectionPrecisionControlsNoticeVisibleForInlineMapping(const FString& MappingId, bool bInlineProjection) const
+{
+	return bInlineProjection
+		&& IsMappingConfigExpanded(MappingId)
+		&& !IsInlineProjectionPrecisionExpanded(MappingId);
+}
+
 void SRshipContentMappingPanel::StartProjectionEdit(const FRshipContentMappingState& Mapping)
 {
 	const FString Mode = GetMappingModeFromState(Mapping);
@@ -885,7 +968,6 @@ void SRshipContentMappingPanel::StartProjectionEdit(const FRshipContentMappingSt
 		return;
 	}
 
-	ActiveProjectionMappingId = Mapping.Id;
 	if (!bCoveragePreviewEnabled)
 	{
 		bCoveragePreviewEnabled = true;
@@ -916,8 +998,12 @@ void SRshipContentMappingPanel::StartProjectionEdit(const FRshipContentMappingSt
 
 	if (!Actor)
 	{
+		ActiveProjectionMappingId.Reset();
 		return;
 	}
+
+	bShowProjectionPrecisionControls = false;
+	ActiveProjectionMappingId = Mapping.Id;
 
 	TArray<FRshipRenderContextState> Contexts = Manager->GetRenderContexts();
 	FRshipRenderContextState* ContextState = FindContextById(Mapping.ContextId, Contexts);
@@ -988,6 +1074,7 @@ void SRshipContentMappingPanel::StopProjectionEdit()
 	ActiveProjectionMappingId.Reset();
 	LastProjectorTransform = FTransform::Identity;
 	ProjectorUpdateAccumulator = 0.0f;
+	bShowProjectionPrecisionControls = false;
 
 	if (ARshipContentMappingPreviewActor* Actor = ProjectionActor.Get())
 	{
@@ -996,11 +1083,35 @@ void SRshipContentMappingPanel::StopProjectionEdit()
 	ProjectionActor.Reset();
 }
 
+void SRshipContentMappingPanel::SetSelectedMappingId(const FString& NewSelectedMappingId)
+{
+	const bool bSelectionChanged = !NewSelectedMappingId.Equals(SelectedMappingId);
+	if (bSelectionChanged && !ActiveProjectionMappingId.IsEmpty())
+	{
+		StopProjectionEdit();
+	}
+	if (bSelectionChanged)
+	{
+		bShowProjectionPrecisionControls = false;
+	}
+	SelectedMappingId = NewSelectedMappingId;
+}
+
+void SRshipContentMappingPanel::ClearSelectedMappingId()
+{
+	if (!ActiveProjectionMappingId.IsEmpty())
+	{
+		StopProjectionEdit();
+	}
+	SelectedMappingId.Reset();
+}
+
 void SRshipContentMappingPanel::SyncProjectionActorFromMapping(const FRshipContentMappingState& Mapping, const FRshipRenderContextState* ContextState)
 {
 	ARshipContentMappingPreviewActor* Actor = ProjectionActor.Get();
 	if (!Actor)
 	{
+		StopProjectionEdit();
 		return;
 	}
 
@@ -1062,6 +1173,7 @@ void SRshipContentMappingPanel::UpdateProjectionFromActor(float DeltaTime)
 	ARshipContentMappingPreviewActor* Actor = ProjectionActor.Get();
 	if (!Actor)
 	{
+		StopProjectionEdit();
 		return;
 	}
 
@@ -1098,11 +1210,13 @@ void SRshipContentMappingPanel::UpdateProjectionFromActor(float DeltaTime)
 	FRshipContentMappingState* Mapping = FindMappingById(ActiveProjectionMappingId, Mappings);
 	if (!Mapping)
 	{
+		StopProjectionEdit();
 		return;
 	}
 
 	if (!IsProjectionMode(GetMappingModeFromState(*Mapping)))
 	{
+		StopProjectionEdit();
 		return;
 	}
 
@@ -1704,7 +1818,7 @@ bool SRshipContentMappingPanel::DuplicateSelectedMappings()
 		{
 			++DuplicatedCount;
 			SelectedMappingRows.Add(NewMappingId);
-			SelectedMappingId = NewMappingId;
+			SetSelectedMappingId(NewMappingId);
 		}
 	}
 
@@ -1799,14 +1913,7 @@ void SRshipContentMappingPanel::SetSelectedMappingsConfigExpanded(bool bExpanded
 
 	for (const FString& MappingId : TargetIds)
 	{
-		if (bExpanded)
-		{
-			ExpandedMappingConfigRows.Add(MappingId);
-		}
-		else
-		{
-			ExpandedMappingConfigRows.Remove(MappingId);
-		}
+		SetMappingConfigExpanded(MappingId, bExpanded);
 	}
 
 	bHasListHash = false;
@@ -2187,7 +2294,7 @@ bool SRshipContentMappingPanel::ExecuteQuickCreateMapping()
 		Manager->UpdateMapping(UpdateMapping);
 	}
 
-	SelectedMappingId = MappingId;
+	SetSelectedMappingId(MappingId);
 	LastPreviewMappingId = MappingId;
 	StoreQuickCreateDefaults();
 	if (PreviewLabel.IsValid())
@@ -2497,9 +2604,9 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildQuickMappingSection()
 			[
 				SNew(SVerticalBox)
 				.Visibility_Lambda([this]() { return bQuickAdvanced ? EVisibility::Visible : EVisibility::Collapsed; })
-				+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
-				[
-					SNew(SHorizontalBox)
+					+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
+					[
+						SNew(SHorizontalBox)
 					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,6,0)
 					[
 						SNew(STextBlock).Text(LOCTEXT("QuickResLabel", "Resolution"))
@@ -2522,9 +2629,9 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildQuickMappingSection()
 						.Text(LOCTEXT("QuickCaptureDefault", "FinalColorLDR"))
 					]
 				]
-				+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
-				[
-					SNew(SHorizontalBox)
+					+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
+					[
+						SNew(SHorizontalBox)
 					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,6,0)
 					[
 						SNew(STextBlock).Text(LOCTEXT("QuickSlotsLabel", "Slots"))
@@ -2819,28 +2926,33 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildContextForm()
 			+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
 			[
 				SAssignNew(MapModeSelector, SRshipModeSelector)
-				.OnModeSelected_Lambda([this](const FString& Mode)
-				{
-					MapMode = Mode;
-					RebuildFeedRectList();
-					if (MappingCanvas.IsValid())
+					.OnModeSelected_Lambda([this](const FString& Mode)
 					{
-						MappingCanvas->SetDisplayMode(Mode);
-					}
-				})
+						MapMode = Mode;
+						bShowProjectionPrecisionControls = false;
+						if (!IsProjectionMode(Mode))
+						{
+							StopProjectionEdit();
+						}
+						RebuildFeedRectList();
+						if (MappingCanvas.IsValid())
+						{
+							MappingCanvas->SetDisplayMode(Mode);
+						}
+					})
 			]
 
-			+ SVerticalBox::Slot().AutoHeight().Padding(0,4,0,2)
-			[
-				SNew(SVerticalBox)
-				.Visibility_Lambda([this]() { return (MapMode == TEXT("direct") || MapMode == TEXT("feed")) ? EVisibility::Visible : EVisibility::Collapsed; })
-				+ SVerticalBox::Slot().AutoHeight()
+				+ SVerticalBox::Slot().AutoHeight().Padding(0,4,0,2)
 				[
-					SNew(STextBlock).Text(LOCTEXT("MapUvTransformHeader", "UV Transform"))
-				]
-				+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
-				[
-					SNew(SHorizontalBox)
+					SNew(SVerticalBox)
+					.Visibility_Lambda([this]() { return (MapMode == TEXT("direct") || MapMode == TEXT("feed")) ? EVisibility::Visible : EVisibility::Collapsed; })
+					+ SVerticalBox::Slot().AutoHeight()
+					[
+						SNew(STextBlock).Text(LOCTEXT("MapUvTransformHeader", "UV Transform"))
+					]
+					+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
+					[
+						SNew(SHorizontalBox)
 					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,6,0)
 					[
 						SNew(STextBlock).Text(LOCTEXT("MapUvScale", "Scale U/V"))
@@ -2943,9 +3055,9 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildContextForm()
 				[
 					SNew(STextBlock).Text(LOCTEXT("MapFeedHeader", "Feed Rect"))
 				]
-				+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
-				[
-					SNew(SHorizontalBox)
+					+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
+					[
+						SNew(SHorizontalBox)
 					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,6,0)
 					[
 						SNew(STextBlock).Text(LOCTEXT("MapFeedDefault", "Default (U V W H)"))
@@ -3191,11 +3303,96 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildContextForm()
 				})
 				+ SVerticalBox::Slot().AutoHeight()
 				[
-					SNew(STextBlock).Text(LOCTEXT("MapProjHeader", "Projection"))
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,6,0)
+					[
+						SNew(STextBlock).Text(LOCTEXT("MapProjHeader", "Projection"))
+					]
+					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,6,0)
+					[
+						SNew(SButton)
+						.IsEnabled_Lambda([this]()
+						{
+							return IsProjectionMode(MapMode) && !SelectedMappingId.IsEmpty();
+						})
+						.Text_Lambda([this]()
+						{
+							if (!IsProjectionMode(MapMode) || SelectedMappingId.IsEmpty())
+							{
+								return LOCTEXT("MapEditProjCreatePrompt", "Save then Edit");
+							}
+							return IsProjectionEditActiveFor(SelectedMappingId)
+								? LOCTEXT("MapEditingProj", "Editing Projection")
+								: LOCTEXT("MapEditProj", "Edit Projection");
+						})
+						.OnClicked_Lambda([this]()
+						{
+							if (!IsProjectionMode(MapMode) || SelectedMappingId.IsEmpty() || !GEngine)
+							{
+								return FReply::Handled();
+							}
+
+							URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+							URshipContentMappingManager* Manager = Subsystem ? Subsystem->GetContentMappingManager() : nullptr;
+							if (!Manager)
+							{
+								return FReply::Handled();
+							}
+
+							TArray<FRshipContentMappingState> Mappings = Manager->GetMappings();
+							FRshipContentMappingState* Mapping = FindMappingById(SelectedMappingId, Mappings);
+							if (!Mapping || !IsProjectionMode(GetMappingModeFromState(*Mapping)))
+							{
+								return FReply::Handled();
+							}
+
+							if (IsProjectionEditActiveFor(SelectedMappingId))
+							{
+								StopProjectionEdit();
+							}
+							else
+							{
+								StartProjectionEdit(*Mapping);
+							}
+							return FReply::Handled();
+						})
+					]
+					+ SHorizontalBox::Slot().AutoWidth()
+					[
+						SNew(SButton)
+						.Visibility_Lambda([this]() { return IsProjectionMode(MapMode) ? EVisibility::Visible : EVisibility::Collapsed; })
+						.Text_Lambda([this]()
+						{
+							return GetProjectionPrecisionControlsVisibility() == EVisibility::Visible
+								? LOCTEXT("MapHidePrecision", "Hide Precision Controls")
+								: LOCTEXT("MapShowPrecision", "Precision Controls");
+						})
+						.OnClicked_Lambda([this]()
+						{
+							bShowProjectionPrecisionControls = !bShowProjectionPrecisionControls;
+							return FReply::Handled();
+						})
+					]
+				]
+				+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
+					[
+						SNew(SHorizontalBox).Visibility_Lambda([this]()
+						{
+							return GetProjectionPrecisionControlsCollapsedVisibility();
+						})
+					+ SHorizontalBox::Slot().FillWidth(1.0f)
+					[
+						SNew(STextBlock)
+						.Text(LOCTEXT("MapProjectionManipulatorNotice", "Projection transforms are edited in the viewport manipulator. Open Precision Controls for numeric edits."))
+					]
 				]
 				+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
 				[
-					SNew(SHorizontalBox)
+						SNew(SHorizontalBox)
+						.Visibility_Lambda([this]()
+						{
+							return GetProjectionPrecisionControlsVisibility();
+						})
 					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,6,0)
 					[
 						SNew(STextBlock).Text(LOCTEXT("MapProjPos", "Position X/Y/Z"))
@@ -3215,7 +3412,11 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildContextForm()
 				]
 				+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
 				[
-					SNew(SHorizontalBox)
+						SNew(SHorizontalBox)
+						.Visibility_Lambda([this]()
+						{
+							return GetProjectionPrecisionControlsVisibility();
+						})
 					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,6,0)
 					[
 						SNew(STextBlock).Text(LOCTEXT("MapProjRot", "Rotation X/Y/Z"))
@@ -3235,7 +3436,11 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildContextForm()
 				]
 				+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
 				[
-					SNew(SHorizontalBox)
+						SNew(SHorizontalBox)
+						.Visibility_Lambda([this]()
+						{
+							return GetProjectionPrecisionControlsVisibility();
+						})
 					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,6,0)
 					[
 						SNew(STextBlock).Text(LOCTEXT("MapProjParams", "FOV / Aspect / Near / Far"))
@@ -3259,8 +3464,13 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildContextForm()
 				]
 				+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
 				[
-					SNew(SHorizontalBox)
-					.Visibility_Lambda([this]() { return (MapMode == TEXT("cylindrical") || MapMode == TEXT("radial")) ? EVisibility::Visible : EVisibility::Collapsed; })
+						SNew(SHorizontalBox)
+						.Visibility_Lambda([this]()
+						{
+							return (GetProjectionPrecisionControlsVisibility() == EVisibility::Visible
+								&& (MapMode == TEXT("cylindrical") || MapMode == TEXT("radial")))
+								? EVisibility::Visible : EVisibility::Collapsed;
+						})
 					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,6,0)
 					[
 						SNew(STextBlock).Text(LOCTEXT("MapCylLabel", "Cylinder Axis/Radius/Height/Start/End"))
@@ -3288,11 +3498,15 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildContextForm()
 				]
 			]
 
-			+ SVerticalBox::Slot().AutoHeight().Padding(0,4,0,2)
-			[
-				SNew(SVerticalBox)
-				.Visibility_Lambda([this]() { return MapMode == MapModeCustomMatrix ? EVisibility::Visible : EVisibility::Collapsed; })
-				+ SVerticalBox::Slot().AutoHeight()
+							+ SVerticalBox::Slot().AutoHeight().Padding(0,4,0,2)
+							[
+								SNew(SVerticalBox)
+									.Visibility_Lambda([this]()
+									{
+										return GetProjectionPrecisionControlsVisibility() == EVisibility::Visible && MapMode == MapModeCustomMatrix
+											? EVisibility::Visible : EVisibility::Collapsed;
+									})
+					+ SVerticalBox::Slot().AutoHeight()
 				[
 					SNew(STextBlock).Text(LOCTEXT("MapCustomMatrixHeader", "Custom Projection Matrix (4x4)"))
 				]
@@ -3390,10 +3604,11 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildContextForm()
 
 
 			// Parallel-specific: Size W/H
-			+ SVerticalBox::Slot().AutoHeight().Padding(0,4,0,2)
-			[
-				SNew(SVerticalBox)
-				.Visibility_Lambda([this]() { return MapMode == TEXT("parallel") ? EVisibility::Visible : EVisibility::Collapsed; })
+					+ SVerticalBox::Slot().AutoHeight().Padding(0,4,0,2)
+					[
+						SNew(SVerticalBox)
+							.Visibility_Lambda([this]() { return GetProjectionPrecisionControlsVisibility() == EVisibility::Visible && MapMode == TEXT("parallel")
+								? EVisibility::Visible : EVisibility::Collapsed; })
 				+ SVerticalBox::Slot().AutoHeight()
 				[
 					SNew(STextBlock).Text(LOCTEXT("MapParallelHeader", "Parallel Projection Size"))
@@ -3417,10 +3632,11 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildContextForm()
 			]
 
 			// Spherical-specific: Radius, HArc, VArc
-			+ SVerticalBox::Slot().AutoHeight().Padding(0,4,0,2)
-			[
-				SNew(SVerticalBox)
-				.Visibility_Lambda([this]() { return MapMode == TEXT("spherical") ? EVisibility::Visible : EVisibility::Collapsed; })
+					+ SVerticalBox::Slot().AutoHeight().Padding(0,4,0,2)
+					[
+						SNew(SVerticalBox)
+							.Visibility_Lambda([this]() { return GetProjectionPrecisionControlsVisibility() == EVisibility::Visible && MapMode == TEXT("spherical")
+								? EVisibility::Visible : EVisibility::Collapsed; })
 				+ SVerticalBox::Slot().AutoHeight()
 				[
 					SNew(STextBlock).Text(LOCTEXT("MapSphHeader", "Spherical"))
@@ -3448,10 +3664,11 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildContextForm()
 			]
 
 			// Mesh-specific: Eyepoint
-			+ SVerticalBox::Slot().AutoHeight().Padding(0,4,0,2)
-			[
-				SNew(SVerticalBox)
-				.Visibility_Lambda([this]() { return MapMode == TEXT("mesh") ? EVisibility::Visible : EVisibility::Collapsed; })
+					+ SVerticalBox::Slot().AutoHeight().Padding(0,4,0,2)
+					[
+						SNew(SVerticalBox)
+							.Visibility_Lambda([this]() { return GetProjectionPrecisionControlsVisibility() == EVisibility::Visible && MapMode == TEXT("mesh")
+								? EVisibility::Visible : EVisibility::Collapsed; })
 				+ SVerticalBox::Slot().AutoHeight()
 				[
 					SNew(STextBlock).Text(LOCTEXT("MapMeshHeader", "Mesh Mapping"))
@@ -3479,10 +3696,11 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildContextForm()
 			]
 
 			// Fisheye-specific: FOV, Lens Type
-			+ SVerticalBox::Slot().AutoHeight().Padding(0,4,0,2)
-			[
-				SNew(SVerticalBox)
-				.Visibility_Lambda([this]() { return MapMode == TEXT("fisheye") ? EVisibility::Visible : EVisibility::Collapsed; })
+					+ SVerticalBox::Slot().AutoHeight().Padding(0,4,0,2)
+					[
+						SNew(SVerticalBox)
+							.Visibility_Lambda([this]() { return GetProjectionPrecisionControlsVisibility() == EVisibility::Visible && MapMode == TEXT("fisheye")
+								? EVisibility::Visible : EVisibility::Collapsed; })
 				+ SVerticalBox::Slot().AutoHeight()
 				[
 					SNew(STextBlock).Text(LOCTEXT("MapFishHeader", "Fisheye"))
@@ -3564,15 +3782,15 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildContextForm()
 							if (MapMaskEndInput.IsValid()) MapMaskEndInput->SetValue(EndDeg);
 						})
 					]
-					+ SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center)
-					[
-						SNew(SVerticalBox)
-						+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
+						+ SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center)
 						[
-							SNew(SHorizontalBox)
-							+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,6,0)
+							SNew(SVerticalBox)
+							+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
 							[
-								SNew(STextBlock).Text(LOCTEXT("MapMaskAngle", "Angle Start/End"))
+								SNew(SHorizontalBox)
+								+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,6,0)
+								[
+									SNew(STextBlock).Text(LOCTEXT("MapMaskAngle", "Angle Start/End"))
 							]
 							+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
 							[
@@ -3591,9 +3809,9 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildContextForm()
 								})
 							]
 						]
-						+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
-						[
-							SNew(SHorizontalBox)
+							+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
+							[
+								SNew(SHorizontalBox)
 							+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,8,0)
 							[
 								SAssignNew(MapClipOutsideInput, SCheckBox)
@@ -4293,10 +4511,10 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildMappingForm()
 
 							State.Config = Config;
 
-							if (State.Id.IsEmpty())
-							{
-								SelectedMappingId = Manager->CreateMapping(State);
-							}
+								if (State.Id.IsEmpty())
+								{
+									SetSelectedMappingId(Manager->CreateMapping(State));
+								}
 							else
 							{
 								Manager->UpdateMapping(State);
@@ -4308,14 +4526,14 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildMappingForm()
 				]
 				+ SHorizontalBox::Slot().AutoWidth()
 				[
-					SNew(SButton)
-					.Text(LOCTEXT("MapReset", "New Mapping"))
-					.OnClicked_Lambda([this]()
-					{
-						SelectedMappingId.Reset();
-						ResetForms();
-						return FReply::Handled();
-					})
+						SNew(SButton)
+						.Text(LOCTEXT("MapReset", "New Mapping"))
+						.OnClicked_Lambda([this]()
+						{
+							ClearSelectedMappingId();
+							ResetForms();
+							return FReply::Handled();
+						})
 				]
 			]
 		];
@@ -4460,7 +4678,7 @@ void SRshipContentMappingPanel::PopulateSurfaceForm(const FRshipMappingSurfaceSt
 
 void SRshipContentMappingPanel::PopulateMappingForm(const FRshipContentMappingState& State)
 {
-	SelectedMappingId = State.Id;
+	SetSelectedMappingId(State.Id);
 	if (MapNameInput.IsValid()) MapNameInput->SetText(FText::FromString(State.Name));
 	if (MapProjectInput.IsValid()) MapProjectInput->SetText(FText::FromString(State.ProjectId));
 	if (MapContextInput.IsValid()) MapContextInput->SetText(FText::FromString(State.ContextId));
@@ -5068,16 +5286,30 @@ void SRshipContentMappingPanel::RefreshStatus()
 			It.RemoveCurrent();
 		}
 	}
-	for (auto It = ExpandedMappingConfigRows.CreateIterator(); It; ++It)
-	{
-		if (!ValidMappingIds.Contains(*It))
+		for (auto It = ExpandedMappingConfigRows.CreateIterator(); It; ++It)
 		{
-			It.RemoveCurrent();
+			if (!ValidMappingIds.Contains(*It))
+			{
+				It.RemoveCurrent();
+			}
 		}
-	}
+		for (auto It = ExpandedProjectionPrecisionRows.CreateIterator(); It; ++It)
+		{
+			if (!ValidMappingIds.Contains(*It))
+			{
+				It.RemoveCurrent();
+			}
+		}
+		for (const FRshipContentMappingState& Mapping : SortedMappings)
+		{
+				if (!IsProjectionMode(GetMappingModeFromState(Mapping)) && IsInlineProjectionPrecisionExpanded(Mapping.Id))
+				{
+					ExpandedProjectionPrecisionRows.Remove(Mapping.Id);
+				}
+		}
 
-	auto MatchesFilter = [](const FString& Filter, const FString& Value) -> bool
-	{
+		auto MatchesFilter = [](const FString& Filter, const FString& Value) -> bool
+		{
 		return Filter.IsEmpty() || Value.Contains(Filter, ESearchCase::IgnoreCase);
 	};
 
@@ -6043,7 +6275,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 									SurfacesBox->GetText().ToString().ParseIntoArray(Parts, TEXT(","), true);
 									State.SurfaceIds = Parts;
 								}
-								SelectedMappingId = Manager->CreateMapping(State);
+									SetSelectedMappingId(Manager->CreateMapping(State));
 								// show preview label update
 								if (PreviewLabel.IsValid())
 								{
@@ -6230,13 +6462,13 @@ void SRshipContentMappingPanel::RefreshStatus()
 						{
 							const bool bUseSelection = SelectedMappingRows.Num() > 0;
 							for (const FRshipContentMappingState& Mapping : VisibleMappings)
-							{
-								if (bUseSelection && !SelectedMappingRows.Contains(Mapping.Id))
 								{
-									continue;
+									if (bUseSelection && !SelectedMappingRows.Contains(Mapping.Id))
+									{
+										continue;
+									}
+									SetMappingConfigExpanded(Mapping.Id, true);
 								}
-								ExpandedMappingConfigRows.Add(Mapping.Id);
-							}
 							bHasListHash = false;
 							bHasPendingListHash = false;
 							RefreshStatus();
@@ -6251,13 +6483,13 @@ void SRshipContentMappingPanel::RefreshStatus()
 						{
 							const bool bUseSelection = SelectedMappingRows.Num() > 0;
 							for (const FRshipContentMappingState& Mapping : VisibleMappings)
-							{
-								if (bUseSelection && !SelectedMappingRows.Contains(Mapping.Id))
 								{
-									continue;
+									if (bUseSelection && !SelectedMappingRows.Contains(Mapping.Id))
+									{
+										continue;
+									}
+									SetMappingConfigExpanded(Mapping.Id, false);
 								}
-								ExpandedMappingConfigRows.Remove(Mapping.Id);
-							}
 							bHasListHash = false;
 							bHasPendingListHash = false;
 							RefreshStatus();
@@ -6517,13 +6749,12 @@ void SRshipContentMappingPanel::RefreshStatus()
 				TSharedPtr<SEditableTextBox> SurfacesBox;
 				TSharedPtr<SSpinBox<float>> OpacityBox;
 				TSharedPtr<SCheckBox> EnabledBox;
-				TSharedPtr<SEditableTextBox> ProjTypeBox;
 				TSharedPtr<SSpinBox<float>> PosXBox; TSharedPtr<SSpinBox<float>> PosYBox; TSharedPtr<SSpinBox<float>> PosZBox;
 				TSharedPtr<SSpinBox<float>> RotXBox; TSharedPtr<SSpinBox<float>> RotYBox; TSharedPtr<SSpinBox<float>> RotZBox;
-					TSharedPtr<SSpinBox<float>> FovBox; TSharedPtr<SSpinBox<float>> AspectBox; TSharedPtr<SSpinBox<float>> NearBox; TSharedPtr<SSpinBox<float>> FarBox;
-					TSharedPtr<SEditableTextBox> CylAxisBox; TSharedPtr<SSpinBox<float>> CylRadiusBox; TSharedPtr<SSpinBox<float>> CylHeightBox; TSharedPtr<SSpinBox<float>> CylStartBox; TSharedPtr<SSpinBox<float>> CylEndBox;
-					TSharedPtr<SSpinBox<float>> UScaleBox; TSharedPtr<SSpinBox<float>> VScaleBox; TSharedPtr<SSpinBox<float>> UOffBox; TSharedPtr<SSpinBox<float>> VOffBox; TSharedPtr<SSpinBox<float>> URotBox;
-					const bool bInlineProjection = IsProjectionMode(GetMappingModeFromState(Mapping));
+				TSharedPtr<SSpinBox<float>> FovBox; TSharedPtr<SSpinBox<float>> AspectBox; TSharedPtr<SSpinBox<float>> NearBox; TSharedPtr<SSpinBox<float>> FarBox;
+				TSharedPtr<SEditableTextBox> CylAxisBox; TSharedPtr<SSpinBox<float>> CylRadiusBox; TSharedPtr<SSpinBox<float>> CylHeightBox; TSharedPtr<SSpinBox<float>> CylStartBox; TSharedPtr<SSpinBox<float>> CylEndBox;
+				TSharedPtr<SSpinBox<float>> UScaleBox; TSharedPtr<SSpinBox<float>> VScaleBox; TSharedPtr<SSpinBox<float>> UOffBox; TSharedPtr<SSpinBox<float>> VOffBox; TSharedPtr<SSpinBox<float>> URotBox;
+				const bool bInlineProjection = IsProjectionMode(GetMappingModeFromState(Mapping));
 
 					auto GetNum = [](const TSharedPtr<FJsonObject>& Obj, const TCHAR* Field, double DefaultVal) -> double
 					{
@@ -6656,10 +6887,19 @@ void SRshipContentMappingPanel::RefreshStatus()
 							[
 								SAssignNew(ProjectBox, SEditableTextBox).Text(FText::FromString(Mapping.ProjectId))
 							]
-							+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
+						+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
+						[
+							SNew(SWidgetSwitcher)
+							.WidgetIndex(bInlineProjection ? 1 : 0)
+							+ SWidgetSwitcher::Slot()
 							[
 								SAssignNew(TypeBox, SEditableTextBox).Text(FText::FromString(Mapping.Type))
 							]
+							+ SWidgetSwitcher::Slot()
+							[
+								SNew(STextBlock).Text(FText::FromString(Mapping.Type))
+							]
+						]
 							+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
 							[
 								SAssignNew(ContextBox, SEditableTextBox).Text(FText::FromString(Mapping.ContextId))
@@ -6684,7 +6924,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 						[
 							SNew(SButton)
 							.Text(LOCTEXT("MapSaveInline", "Save"))
-							.OnClicked_Lambda([this, Mapping, NameBox, ProjectBox, TypeBox, ContextBox, SurfacesBox, OpacityBox, EnabledBox]()
+							.OnClicked_Lambda([this, Mapping, bInlineProjection, NameBox, ProjectBox, TypeBox, ContextBox, SurfacesBox, OpacityBox, EnabledBox]()
 							{
 								if (!GEngine) return FReply::Handled();
 								if (URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>())
@@ -6694,7 +6934,9 @@ void SRshipContentMappingPanel::RefreshStatus()
 										FRshipContentMappingState State = Mapping;
 										State.Name = NameBox.IsValid() ? NameBox->GetText().ToString() : State.Name;
 										State.ProjectId = ProjectBox.IsValid() ? ProjectBox->GetText().ToString() : State.ProjectId;
-										State.Type = TypeBox.IsValid() ? TypeBox->GetText().ToString() : State.Type;
+										State.Type = bInlineProjection
+											? State.Type
+											: (TypeBox.IsValid() ? TypeBox->GetText().ToString() : State.Type);
 										State.ContextId = ContextBox.IsValid() ? ContextBox->GetText().ToString() : State.ContextId;
 										State.Opacity = OpacityBox.IsValid() ? OpacityBox->GetValue() : State.Opacity;
 										State.bEnabled = !EnabledBox.IsValid() || EnabledBox->IsChecked();
@@ -6738,7 +6980,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 									if (URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager())
 									{
 										Manager->DeleteMapping(Mapping.Id);
-										if (SelectedMappingId == Mapping.Id) { SelectedMappingId.Reset(); }
+										if (SelectedMappingId == Mapping.Id) { ClearSelectedMappingId(); }
 										if (PreviewLabel.IsValid())
 										{
 											PreviewLabel->SetText(FText::FromString(FString::Printf(TEXT("Deleted %s"), *Mapping.Name)));
@@ -6766,7 +7008,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 										Duplicated.Name = Mapping.Name.IsEmpty()
 											? FString::Printf(TEXT("%s Copy"), *Mapping.Id)
 											: FString::Printf(TEXT("%s Copy"), *Mapping.Name);
-										SelectedMappingId = Manager->CreateMapping(Duplicated);
+										SetSelectedMappingId(Manager->CreateMapping(Duplicated));
 										if (PreviewLabel.IsValid())
 										{
 											PreviewLabel->SetText(FText::FromString(FString::Printf(TEXT("Duplicated %s"), *Duplicated.Name)));
@@ -6813,28 +7055,28 @@ void SRshipContentMappingPanel::RefreshStatus()
 						]
 						+ SHorizontalBox::Slot().AutoWidth().Padding(4,0,0,0)
 						[
-							SNew(SButton)
-							.Text_Lambda([this, MappingId]()
-							{
-								return ExpandedMappingConfigRows.Contains(MappingId)
-									? LOCTEXT("MapHideConfig", "Hide Config")
-									: LOCTEXT("MapShowConfig", "Show Config");
-							})
-							.OnClicked_Lambda([this, MappingId]()
-							{
-								if (ExpandedMappingConfigRows.Contains(MappingId))
+									SNew(SButton)
+									.Text_Lambda([this, MappingId, bInlineProjection]()
+									{
+										if (bInlineProjection)
+										{
+											const bool bProjectionDetailsExpanded = IsMappingConfigExpanded(MappingId);
+											return bProjectionDetailsExpanded
+												? LOCTEXT("MapHidePrecision", "Hide Precision Controls")
+												: LOCTEXT("MapShowPrecision", "Precision Controls");
+										}
+										return IsMappingConfigExpanded(MappingId)
+											? LOCTEXT("MapHideConfig", "Hide Config")
+											: LOCTEXT("MapShowConfig", "Show Config");
+								})
+								.OnClicked_Lambda([this, MappingId, bInlineProjection]()
 								{
-									ExpandedMappingConfigRows.Remove(MappingId);
-								}
-								else
-								{
-									ExpandedMappingConfigRows.Add(MappingId);
-								}
-								bHasListHash = false;
-								bHasPendingListHash = false;
-								RefreshStatus();
-								return FReply::Handled();
-							})
+									ToggleMappingConfigExpanded(MappingId, bInlineProjection);
+									bHasListHash = false;
+									bHasPendingListHash = false;
+									RefreshStatus();
+									return FReply::Handled();
+								})
 						]
 						+ SHorizontalBox::Slot().AutoWidth().Padding(4,0,0,0)
 						[
@@ -6861,6 +7103,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 									return FReply::Handled();
 								}
 
+								SetSelectedMappingId(Mapping.Id);
 								if (IsProjectionEditActiveFor(Mapping.Id))
 								{
 									StopProjectionEdit();
@@ -6875,26 +7118,59 @@ void SRshipContentMappingPanel::RefreshStatus()
 					]
 
 					// Projection / UV detail row
+					+ SVerticalBox::Slot().AutoHeight().Padding(0,4,0,0)
+					[
+						SNew(SBox)
+						.Visibility_Lambda([this, MappingId, bInlineProjection]()
+						{
+							if (!IsProjectionPrecisionControlsNoticeVisibleForInlineMapping(MappingId, bInlineProjection))
+							{
+								return EVisibility::Collapsed;
+							}
+							return EVisibility::Visible;
+						})
+						[
+							SNew(SHorizontalBox)
+							+ SHorizontalBox::Slot().FillWidth(1.0f)
+							[
+								SNew(STextBlock)
+								.Text(LOCTEXT("ProjectionManipulatorNotice", "Projection transforms are edited in the viewport manipulator. Use Precision Controls for numeric edits."))
+							]
+						]
+					]
+
+					// Projection / UV detail row
 					+ SVerticalBox::Slot().AutoHeight().Padding(0,4,0,8)
 					[
 						SNew(SBox)
-						.Visibility_Lambda([this, MappingId]()
+						.Visibility_Lambda([this, MappingId, bInlineProjection]()
 						{
-							return ExpandedMappingConfigRows.Contains(MappingId) ? EVisibility::Visible : EVisibility::Collapsed;
+							if (!IsProjectionPrecisionControlsVisibleForInlineMapping(MappingId, bInlineProjection))
+							{
+								return EVisibility::Collapsed;
+							}
+							return EVisibility::Visible;
 						})
 						[
 							SNew(SHorizontalBox)
 							+ SHorizontalBox::Slot().FillWidth(1.0f).Padding(0,0,4,0)
-							[
+								[
 								SNew(SVerticalBox)
 								+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
 								[
-									SAssignNew(ProjTypeBox, SEditableTextBox)
-									.Text(FText::FromString(InlineProjectionType))
-								]
-								+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
-								[
 									SNew(SHorizontalBox)
+									+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,8,0)
+									[
+										SNew(STextBlock).Text(LOCTEXT("MapProjTypeLabel", "Projection Type"))
+									]
+									+ SHorizontalBox::Slot().FillWidth(1.0f)
+									[
+										SNew(STextBlock).Text(FText::FromString(InlineProjectionType))
+									]
+							]
+						+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
+						[
+							SNew(SHorizontalBox)
 									+ SHorizontalBox::Slot().AutoWidth()[SNew(STextBlock).Text(LOCTEXT("PosLabel", "Pos"))]
 									+ SHorizontalBox::Slot().AutoWidth().Padding(2,0)[SAssignNew(PosXBox, SSpinBox<float>).MinValue(-100000).MaxValue(100000).Value(InlinePosX)]
 									+ SHorizontalBox::Slot().AutoWidth().Padding(2,0)[SAssignNew(PosYBox, SSpinBox<float>).MinValue(-100000).MaxValue(100000).Value(InlinePosY)]
@@ -6963,7 +7239,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 						[
 							SNew(SButton)
 							.Text(LOCTEXT("MapSaveConfig", "Save Config"))
-							.OnClicked_Lambda([this, Mapping, ProjTypeBox, PosXBox, PosYBox, PosZBox, RotXBox, RotYBox, RotZBox, FovBox, AspectBox, NearBox, FarBox, CylAxisBox, CylRadiusBox, CylHeightBox, CylStartBox, CylEndBox, UScaleBox, VScaleBox, UOffBox, VOffBox, URotBox]()
+							.OnClicked_Lambda([this, Mapping, InlineProjectionType, PosXBox, PosYBox, PosZBox, RotXBox, RotYBox, RotZBox, FovBox, AspectBox, NearBox, FarBox, CylAxisBox, CylRadiusBox, CylHeightBox, CylStartBox, CylEndBox, UScaleBox, VScaleBox, UOffBox, VOffBox, URotBox]()
 							{
 								if (!GEngine) return FReply::Handled();
 								if (URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>())
@@ -6988,9 +7264,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 											}
 											else
 										{
-											const FString InlineProjectionMode = NormalizeMapMode(
-												ProjTypeBox.IsValid() ? ProjTypeBox->GetText().ToString() : MapModePerspective,
-												MapModePerspective);
+											const FString InlineProjectionMode = NormalizeMapMode(InlineProjectionType, MapModePerspective);
 											Config->SetStringField(TEXT("projectionType"), InlineProjectionMode);
 											if (InlineProjectionMode == MapModeCustomMatrix)
 											{

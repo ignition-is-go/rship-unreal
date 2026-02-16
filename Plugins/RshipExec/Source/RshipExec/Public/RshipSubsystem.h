@@ -262,6 +262,7 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     // Deterministic inbound ingest/apply state
     mutable FCriticalSection InboundQueueMutex;
     TArray<FRshipInboundQueuedMessage> InboundQueue;
+    int32 InboundQueueHead = 0;
     int64 InboundFrameCounter = 0;
     uint64 NextInboundSequence = 1;
     int32 InboundDroppedMessages = 0;
@@ -280,6 +281,29 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     FString InboundNodeId;
     FString InboundAuthorityNodeId;
     FOnRshipAuthoritativeInboundQueued OnAuthoritativeInboundQueuedDelegate;
+
+    FORCEINLINE int32 GetActiveInboundQueueCount() const
+    {
+        return InboundQueue.Num() - InboundQueueHead;
+    }
+
+    void CompactInboundQueue_NoLock()
+    {
+        if (InboundQueueHead == 0)
+        {
+            return;
+        }
+
+        if (InboundQueueHead >= InboundQueue.Num())
+        {
+            InboundQueue.Reset();
+            InboundQueueHead = 0;
+            return;
+        }
+
+        InboundQueue.RemoveAt(0, InboundQueueHead, EAllowShrinking::No);
+        InboundQueueHead = 0;
+    }
 
     // Internal message handling
     void SetItem(FString itemType, TSharedPtr<FJsonObject> data, ERshipMessagePriority Priority = ERshipMessagePriority::Normal, const FString& CoalesceKey = TEXT(""));
