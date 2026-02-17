@@ -4,43 +4,9 @@
 
 #include "CoreMinimal.h"
 #include "Widgets/SCompoundWidget.h"
-#include "Widgets/SLeafWidget.h"
+#include "Widgets/Input/SComboBox.h"
 
 DECLARE_DELEGATE_OneParam(FOnModeSelected, const FString& /*Mode*/);
-
-class SRshipModeCard : public SLeafWidget
-{
-public:
-	SLATE_BEGIN_ARGS(SRshipModeCard)
-		: _Mode()
-		, _Label()
-		, _bSelected(false)
-	{}
-		SLATE_ARGUMENT(FString, Mode)
-		SLATE_ARGUMENT(FText, Label)
-		SLATE_ARGUMENT(FText, Tooltip)
-		SLATE_ATTRIBUTE(bool, bSelected)
-		SLATE_EVENT(FOnModeSelected, OnSelected)
-	SLATE_END_ARGS()
-
-	void Construct(const FArguments& InArgs);
-
-	virtual FVector2D ComputeDesiredSize(float LayoutScaleMultiplier) const override;
-	virtual int32 OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeometry, const FSlateRect& MyCullingRect, FSlateWindowElementList& OutDrawElements, int32 LayerId, const FWidgetStyle& InWidgetStyle, bool bParentEnabled) const override;
-	virtual FReply OnMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override;
-	virtual void OnMouseEnter(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override;
-	virtual void OnMouseLeave(const FPointerEvent& MouseEvent) override;
-
-private:
-	void DrawIllustration(const FGeometry& AllottedGeometry, FSlateWindowElementList& OutDrawElements, int32 LayerId, const FLinearColor& LineColor) const;
-
-	FString Mode;
-	FText Label;
-	FText TooltipText;
-	TAttribute<bool> bSelected;
-	FOnModeSelected OnSelected;
-	bool bHovered = false;
-};
 
 class SRshipModeSelector : public SCompoundWidget
 {
@@ -54,7 +20,14 @@ public:
 	FString GetSelectedMode() const { return SelectedMode; }
 
 private:
+	FText GetModeLabel(const FString& Mode) const;
+	void BuildModeItems();
+	TSharedPtr<FString> FindItemForMode(const FString& Mode) const;
+
 	FString SelectedMode = TEXT("direct");
 	FOnModeSelected OnModeSelected;
-	TArray<TSharedPtr<SRshipModeCard>> Cards;
+	TArray<TSharedPtr<FString>> ModeItems;
+	TMap<FString, FText> ModeLabels;
+	TSharedPtr<FString> SelectedModeItem;
+	TSharedPtr<SComboBox<TSharedPtr<FString>>> ModeCombo;
 };

@@ -59,6 +59,12 @@ namespace
 	const FString MapModeCameraPlate = TEXT("camera-plate");
 	const FString MapModeSpatial = TEXT("spatial");
 	const FString MapModeDepthMap = TEXT("depth-map");
+	const FMargin CompactMappingButtonPadding(1.0f, 0.0f);
+	const FSlateFontInfo CompactMappingButtonFont = FCoreStyle::GetDefaultFontStyle("Regular", 8);
+	const FSlateFontInfo MappingListHeaderFont = FCoreStyle::GetDefaultFontStyle("Bold", 9);
+	const FSlateFontInfo MappingListFont = FCoreStyle::GetDefaultFontStyle("Regular", 9);
+	const FSlateFontInfo CompactErrorFont = FCoreStyle::GetDefaultFontStyle("Regular", 9);
+	const FVector2D MappingTypeIconSize(4.0f, 4.0f);
 
 	FString NormalizeMapMode(const FString& InValue, const FString& DefaultValue)
 	{
@@ -5905,7 +5911,12 @@ void SRshipContentMappingPanel::RefreshStatus()
 					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
 					[
 						SNew(SButton)
-						.Text(LOCTEXT("CtxSelectVisible", "Select Visible"))
+						.ContentPadding(CompactMappingButtonPadding)
+						[
+							SNew(STextBlock)
+							.Font(CompactMappingButtonFont)
+							.Text(LOCTEXT("CtxSelectVisible", "Select Visible"))
+						]
 						.OnClicked_Lambda([this, VisibleContexts]()
 						{
 							for (const FRshipRenderContextState& Context : VisibleContexts)
@@ -5921,7 +5932,12 @@ void SRshipContentMappingPanel::RefreshStatus()
 					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,8,0)
 					[
 						SNew(SButton)
-						.Text(LOCTEXT("CtxClearSelection", "Clear Selection"))
+						.ContentPadding(CompactMappingButtonPadding)
+						[
+							SNew(STextBlock)
+							.Font(CompactMappingButtonFont)
+							.Text(LOCTEXT("CtxClearSelection", "Clear Selection"))
+						]
 						.OnClicked_Lambda([this]()
 						{
 							SelectedContextRows.Empty();
@@ -5934,7 +5950,12 @@ void SRshipContentMappingPanel::RefreshStatus()
 					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
 					[
 						SNew(SButton)
-						.Text(LOCTEXT("CtxBulkEnable", "Enable"))
+						.ContentPadding(CompactMappingButtonPadding)
+						[
+							SNew(STextBlock)
+							.Font(CompactMappingButtonFont)
+							.Text(LOCTEXT("CtxBulkEnable", "Enable"))
+						]
 						.OnClicked_Lambda([this, VisibleContexts]()
 						{
 							if (!GEngine) return FReply::Handled();
@@ -5965,7 +5986,12 @@ void SRshipContentMappingPanel::RefreshStatus()
 					+ SHorizontalBox::Slot().AutoWidth()
 					[
 						SNew(SButton)
-						.Text(LOCTEXT("CtxBulkDisable", "Disable"))
+						.ContentPadding(CompactMappingButtonPadding)
+						[
+							SNew(STextBlock)
+							.Font(CompactMappingButtonFont)
+							.Text(LOCTEXT("CtxBulkDisable", "Disable"))
+						]
 						.OnClicked_Lambda([this, VisibleContexts]()
 						{
 							if (!GEngine) return FReply::Handled();
@@ -5996,7 +6022,12 @@ void SRshipContentMappingPanel::RefreshStatus()
 					+ SHorizontalBox::Slot().AutoWidth()
 					[
 						SNew(SButton)
-						.Text(LOCTEXT("CtxBulkDelete", "Delete"))
+						.ContentPadding(CompactMappingButtonPadding)
+						[
+							SNew(STextBlock)
+							.Font(CompactMappingButtonFont)
+							.Text(LOCTEXT("CtxBulkDelete", "Delete"))
+						]
 						.OnClicked_Lambda([this, VisibleContexts]()
 						{
 							if (!GEngine) return FReply::Handled();
@@ -6033,22 +6064,80 @@ void SRshipContentMappingPanel::RefreshStatus()
 			{
 				ContextList->AddSlot()[SNew(STextBlock).Text(LOCTEXT("NoContextsMatchFilter", "No inputs match the current filter"))];
 			}
+			else
+			{
+				ContextList->AddSlot()
+				.AutoHeight()
+				.Padding(0, 0, 0, 4)
+				[
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 2, 0).VAlign(VAlign_Center)
+					[
+						SNew(STextBlock)
+					]
+					+ SHorizontalBox::Slot().FillWidth(1.0f)
+					[
+						SNew(SGridPanel)
+						.FillColumn(0, 1.6f)
+						.FillColumn(1, 0.8f)
+						.FillColumn(2, 0.8f)
+						.FillColumn(3, 1.0f)
+						.FillColumn(4, 0.9f)
+						.FillColumn(5, 0.8f)
+						+ SGridPanel::Slot(0, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
+						[
+							SNew(STextBlock)
+							.Text(LOCTEXT("CtxColName", "Input"))
+							.Font(MappingListHeaderFont)
+							.ColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f, 1.0f))
+						]
+						+ SGridPanel::Slot(1, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
+						[
+							SNew(STextBlock)
+							.Text(LOCTEXT("CtxColSource", "Source"))
+							.Font(MappingListHeaderFont)
+							.ColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f, 1.0f))
+						]
+						+ SGridPanel::Slot(2, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
+						[
+							SNew(STextBlock)
+							.Text(LOCTEXT("CtxColRes", "Res"))
+							.Font(MappingListHeaderFont)
+							.ColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f, 1.0f))
+						]
+						+ SGridPanel::Slot(3, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
+						[
+							SNew(STextBlock)
+							.Text(LOCTEXT("CtxColCapture", "Capture"))
+							.Font(MappingListHeaderFont)
+							.ColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f, 1.0f))
+						]
+						+ SGridPanel::Slot(4, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
+						[
+							SNew(STextBlock)
+							.Text(LOCTEXT("CtxColProject", "Project"))
+							.Font(MappingListHeaderFont)
+							.ColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f, 1.0f))
+						]
+						+ SGridPanel::Slot(5, 0).VAlign(VAlign_Center)
+						[
+							SNew(STextBlock)
+							.Text(LOCTEXT("CtxColStatus", "Status"))
+							.Font(MappingListHeaderFont)
+							.ColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f, 1.0f))
+						]
+					]
+				];
+			}
 
 			for (const FRshipRenderContextState& Context : VisibleContexts)
 			{
-					const FString Name = DisplayTextOrDefault(Context.Name, TEXT("(Unnamed input)"));
+				const FString Name = DisplayTextOrDefault(Context.Name, TEXT("(Unnamed input)"));
 				const FString SourceType = Context.SourceType.IsEmpty() ? TEXT("camera") : Context.SourceType;
+				const FString Resolution = FString::Printf(TEXT("%dx%d"), Context.Width, Context.Height);
 				const FString ProjectText = Context.ProjectId.IsEmpty() ? TEXT("(default)") : Context.ProjectId;
-				const FString ErrorSuffix = Context.LastError.IsEmpty() ? TEXT("") : FString::Printf(TEXT(" - %s"), *Context.LastError);
-				const FString Line = FString::Printf(TEXT("%s [%s] (res=%dx%d, capture=%s, project=%s, %s)%s"),
-					*Name,
-					*SourceType,
-					Context.Width,
-					Context.Height,
-					Context.CaptureMode.IsEmpty() ? TEXT("default") : *Context.CaptureMode,
-					*ProjectText,
-					Context.bEnabled ? TEXT("enabled") : TEXT("disabled"),
-					*ErrorSuffix);
+				const FString Capture = Context.CaptureMode.IsEmpty() ? TEXT("default") : Context.CaptureMode;
+				const FString Status = Context.bEnabled ? TEXT("Enabled") : TEXT("Disabled");
 
 				const bool bHasError = !Context.LastError.IsEmpty();
 
@@ -6080,14 +6169,59 @@ void SRshipContentMappingPanel::RefreshStatus()
 						SNew(SVerticalBox)
 						+ SVerticalBox::Slot().AutoHeight()
 						[
-							SNew(SHorizontalBox)
-							+ SHorizontalBox::Slot().FillWidth(1.0f)
+							SNew(SGridPanel)
+							.FillColumn(0, 1.6f)
+							.FillColumn(1, 0.8f)
+							.FillColumn(2, 0.8f)
+							.FillColumn(3, 1.0f)
+							.FillColumn(4, 0.9f)
+							.FillColumn(5, 0.8f)
+							+ SGridPanel::Slot(0, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
 							[
 								SNew(STextBlock)
-									.Text(FText::FromString(Line))
-									.Font(FCoreStyle::GetDefaultFontStyle("Regular", 8))
+									.Text(FText::FromString(Name))
+									.Font(MappingListFont)
 									.ColorAndOpacity(bHasError ? FLinearColor(1.f, 0.5f, 0.4f, 1.f) : FLinearColor::White)
 									.AutoWrapText(false)
+							]
+							+ SGridPanel::Slot(1, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
+							[
+								SNew(STextBlock)
+									.Text(FText::FromString(SourceType))
+									.Font(MappingListFont)
+									.ColorAndOpacity(bHasError ? FLinearColor(1.f, 0.5f, 0.4f, 1.f) : FLinearColor::White)
+									.AutoWrapText(false)
+							]
+							+ SGridPanel::Slot(2, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
+							[
+								SNew(STextBlock)
+									.Text(FText::FromString(Resolution))
+									.Font(MappingListFont)
+									.ColorAndOpacity(bHasError ? FLinearColor(1.f, 0.5f, 0.4f, 1.f) : FLinearColor::White)
+									.AutoWrapText(false)
+							]
+							+ SGridPanel::Slot(3, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
+							[
+								SNew(STextBlock)
+									.Text(FText::FromString(Capture))
+									.Font(MappingListFont)
+									.ColorAndOpacity(bHasError ? FLinearColor(1.f, 0.5f, 0.4f, 1.f) : FLinearColor::White)
+									.AutoWrapText(false)
+							]
+							+ SGridPanel::Slot(4, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
+							[
+								SNew(STextBlock)
+									.Text(FText::FromString(ProjectText))
+									.Font(MappingListFont)
+									.ColorAndOpacity(bHasError ? FLinearColor(1.f, 0.5f, 0.4f, 1.f) : FLinearColor::White)
+									.AutoWrapText(false)
+							]
+							+ SGridPanel::Slot(5, 0).VAlign(VAlign_Center)
+							[
+								SNew(STextBlock)
+									.Text(FText::FromString(Status))
+									.Font(MappingListFont)
+									.ColorAndOpacity(Context.bEnabled ? FLinearColor(0.45f, 0.9f, 0.45f, 1.f) : FLinearColor(0.85f, 0.85f, 0.85f, 1.f))
 							]
 						]
 						+ SVerticalBox::Slot().AutoHeight().Padding(1,0,0,0)
@@ -6096,7 +6230,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 								.Text(FText::FromString(Context.LastError))
 								.Visibility(bHasError ? EVisibility::Visible : EVisibility::Collapsed)
 								.ColorAndOpacity(FLinearColor(1.f, 0.35f, 0.25f, 1.f))
-								.Font(FCoreStyle::GetDefaultFontStyle("Regular", 7))
+								.Font(CompactErrorFont)
 								.AutoWrapText(true)
 						]
 						]
@@ -6110,10 +6244,10 @@ void SRshipContentMappingPanel::RefreshStatus()
 		SurfaceList->ClearChildren();
 		if (SortedSurfaces.Num() == 0)
 		{
-			SurfaceList->AddSlot()[SNew(STextBlock).Text(LOCTEXT("NoSurfaces", "No screens"))];
-		}
-		else
-		{
+				SurfaceList->AddSlot()[SNew(STextBlock).Text(LOCTEXT("NoSurfaces", "No screens"))];
+			}
+			else
+			{
 
 			if (VisibleSurfaces.Num() > 0)
 			{
@@ -6145,7 +6279,12 @@ void SRshipContentMappingPanel::RefreshStatus()
 					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
 					[
 						SNew(SButton)
-						.Text(LOCTEXT("SurfSelectVisible", "Select Visible"))
+						.ContentPadding(CompactMappingButtonPadding)
+						[
+							SNew(STextBlock)
+							.Font(CompactMappingButtonFont)
+							.Text(LOCTEXT("SurfSelectVisible", "Select Visible"))
+						]
 						.OnClicked_Lambda([this, VisibleSurfaces]()
 						{
 							for (const FRshipMappingSurfaceState& Surface : VisibleSurfaces)
@@ -6161,7 +6300,12 @@ void SRshipContentMappingPanel::RefreshStatus()
 					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,8,0)
 					[
 						SNew(SButton)
-						.Text(LOCTEXT("SurfClearSelection", "Clear Selection"))
+						.ContentPadding(CompactMappingButtonPadding)
+						[
+							SNew(STextBlock)
+							.Font(CompactMappingButtonFont)
+							.Text(LOCTEXT("SurfClearSelection", "Clear Selection"))
+						]
 						.OnClicked_Lambda([this]()
 						{
 							SelectedSurfaceRows.Empty();
@@ -6174,7 +6318,12 @@ void SRshipContentMappingPanel::RefreshStatus()
 					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
 					[
 						SNew(SButton)
-						.Text(LOCTEXT("SurfBulkEnable", "Enable"))
+						.ContentPadding(CompactMappingButtonPadding)
+						[
+							SNew(STextBlock)
+							.Font(CompactMappingButtonFont)
+							.Text(LOCTEXT("SurfBulkEnable", "Enable"))
+						]
 						.OnClicked_Lambda([this, VisibleSurfaces]()
 						{
 							if (!GEngine) return FReply::Handled();
@@ -6205,7 +6354,12 @@ void SRshipContentMappingPanel::RefreshStatus()
 					+ SHorizontalBox::Slot().AutoWidth()
 						[
 							SNew(SButton)
-							.Text(LOCTEXT("SurfBulkDisable", "Disable"))
+							.ContentPadding(CompactMappingButtonPadding)
+							[
+								SNew(STextBlock)
+								.Font(CompactMappingButtonFont)
+								.Text(LOCTEXT("SurfBulkDisable", "Disable"))
+							]
 							.OnClicked_Lambda([this, VisibleSurfaces]()
 							{
 								if (!GEngine) return FReply::Handled();
@@ -6236,7 +6390,12 @@ void SRshipContentMappingPanel::RefreshStatus()
 						+ SHorizontalBox::Slot().AutoWidth().Padding(8, 0, 0, 0)
 						[
 							SNew(SButton)
-							.Text(LOCTEXT("SurfBulkDelete", "Delete"))
+							.ContentPadding(CompactMappingButtonPadding)
+							[
+								SNew(STextBlock)
+								.Font(CompactMappingButtonFont)
+								.Text(LOCTEXT("SurfBulkDelete", "Delete"))
+							]
 							.OnClicked_Lambda([this, VisibleSurfaces]()
 							{
 								if (!GEngine) return FReply::Handled();
@@ -6273,10 +6432,75 @@ void SRshipContentMappingPanel::RefreshStatus()
 			{
 				SurfaceList->AddSlot()[SNew(STextBlock).Text(LOCTEXT("NoSurfacesMatchFilter", "No screens match the current filter"))];
 			}
+			else
+			{
+				SurfaceList->AddSlot()
+				.AutoHeight()
+				.Padding(0, 0, 0, 4)
+				[
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 2, 0).VAlign(VAlign_Center)
+					[
+						SNew(STextBlock)
+					]
+					+ SHorizontalBox::Slot().FillWidth(1.0f)
+					[
+						SNew(SGridPanel)
+						.FillColumn(0, 1.4f)
+						.FillColumn(1, 1.4f)
+						.FillColumn(2, 0.6f)
+						.FillColumn(3, 0.7f)
+						.FillColumn(4, 0.8f)
+						.FillColumn(5, 0.8f)
+						+ SGridPanel::Slot(0, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
+						[
+							SNew(STextBlock)
+							.Text(LOCTEXT("SurfColName", "Screen"))
+							.Font(MappingListHeaderFont)
+							.ColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f, 1.0f))
+						]
+						+ SGridPanel::Slot(1, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
+						[
+							SNew(STextBlock)
+							.Text(LOCTEXT("SurfColMesh", "Mesh"))
+							.Font(MappingListHeaderFont)
+							.ColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f, 1.0f))
+						]
+						+ SGridPanel::Slot(2, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
+						[
+							SNew(STextBlock)
+							.Text(LOCTEXT("SurfColUv", "UV"))
+							.Font(MappingListHeaderFont)
+							.ColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f, 1.0f))
+						]
+						+ SGridPanel::Slot(3, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
+						[
+							SNew(STextBlock)
+							.Text(LOCTEXT("SurfColSlots", "Slots"))
+							.Font(MappingListHeaderFont)
+							.ColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f, 1.0f))
+						]
+						+ SGridPanel::Slot(4, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
+						[
+							SNew(STextBlock)
+							.Text(LOCTEXT("SurfColProject", "Project"))
+							.Font(MappingListHeaderFont)
+							.ColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f, 1.0f))
+						]
+						+ SGridPanel::Slot(5, 0).VAlign(VAlign_Center)
+						[
+							SNew(STextBlock)
+							.Text(LOCTEXT("SurfColStatus", "Status"))
+							.Font(MappingListHeaderFont)
+							.ColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f, 1.0f))
+						]
+					]
+				];
+			}
 
 			for (const FRshipMappingSurfaceState& Surface : VisibleSurfaces)
 			{
-					const FString Name = DisplayTextOrDefault(Surface.Name, TEXT("(Unnamed screen)"));
+				const FString Name = DisplayTextOrDefault(Surface.Name, TEXT("(Unnamed screen)"));
 				const FString MeshName = Surface.MeshComponentName.IsEmpty() ? TEXT("No Mesh") : Surface.MeshComponentName;
 				TArray<FString> SlotValues;
 				SlotValues.Reserve(Surface.MaterialSlots.Num());
@@ -6287,15 +6511,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 				const FString SlotSummary = SlotValues.Num() == 0 ? TEXT("all") : FString::Join(SlotValues, TEXT(","));
 				const FString ProjectText = Surface.ProjectId.IsEmpty() ? TEXT("(default)") : Surface.ProjectId;
 				const FString Status = Surface.bEnabled ? TEXT("enabled") : TEXT("disabled");
-				const FString ErrorSuffix = Surface.LastError.IsEmpty() ? TEXT("") : FString::Printf(TEXT(" - %s"), *Surface.LastError);
-				const FString Line = FString::Printf(TEXT("%s | mesh=%s | uv=%d | slots=%s | project=%s | %s%s"),
-					*Name,
-					*MeshName,
-					Surface.UVChannel,
-					*SlotSummary,
-					*ProjectText,
-					*Status,
-					*ErrorSuffix);
+				const FString UvText = FString::FromInt(Surface.UVChannel);
 				const bool bHasError = !Surface.LastError.IsEmpty();
 
 				SurfaceList->AddSlot()
@@ -6326,11 +6542,60 @@ void SRshipContentMappingPanel::RefreshStatus()
 						SNew(SVerticalBox)
 						+ SVerticalBox::Slot().AutoHeight()
 						[
-							SNew(STextBlock)
-								.Text(FText::FromString(Line))
-								.Font(FCoreStyle::GetDefaultFontStyle("Regular", 8))
+							SNew(SGridPanel)
+							.FillColumn(0, 1.4f)
+							.FillColumn(1, 1.4f)
+							.FillColumn(2, 0.6f)
+							.FillColumn(3, 0.7f)
+							.FillColumn(4, 0.8f)
+							.FillColumn(5, 0.8f)
+							+ SGridPanel::Slot(0, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
+							[
+								SNew(STextBlock)
+								.Text(FText::FromString(Name))
+								.Font(MappingListFont)
 								.ColorAndOpacity(bHasError ? FLinearColor(1.f, 0.5f, 0.4f, 1.f) : FLinearColor::White)
 								.AutoWrapText(false)
+							]
+							+ SGridPanel::Slot(1, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
+							[
+								SNew(STextBlock)
+								.Text(FText::FromString(MeshName))
+								.Font(MappingListFont)
+								.ColorAndOpacity(bHasError ? FLinearColor(1.f, 0.5f, 0.4f, 1.f) : FLinearColor::White)
+								.AutoWrapText(false)
+							]
+							+ SGridPanel::Slot(2, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
+							[
+								SNew(STextBlock)
+								.Text(FText::FromString(UvText))
+								.Font(MappingListFont)
+								.ColorAndOpacity(bHasError ? FLinearColor(1.f, 0.5f, 0.4f, 1.f) : FLinearColor::White)
+								.AutoWrapText(false)
+							]
+							+ SGridPanel::Slot(3, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
+							[
+								SNew(STextBlock)
+								.Text(FText::FromString(SlotSummary))
+								.Font(MappingListFont)
+								.ColorAndOpacity(bHasError ? FLinearColor(1.f, 0.5f, 0.4f, 1.f) : FLinearColor::White)
+								.AutoWrapText(false)
+							]
+							+ SGridPanel::Slot(4, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
+							[
+								SNew(STextBlock)
+								.Text(FText::FromString(ProjectText))
+								.Font(MappingListFont)
+								.ColorAndOpacity(bHasError ? FLinearColor(1.f, 0.5f, 0.4f, 1.f) : FLinearColor::White)
+								.AutoWrapText(false)
+							]
+							+ SGridPanel::Slot(5, 0).VAlign(VAlign_Center)
+							[
+								SNew(STextBlock)
+								.Text(FText::FromString(Surface.bEnabled ? TEXT("Enabled") : TEXT("Disabled")))
+								.Font(MappingListFont)
+								.ColorAndOpacity(Surface.bEnabled ? FLinearColor(0.45f, 0.9f, 0.45f, 1.f) : FLinearColor(0.85f, 0.85f, 0.85f, 1.f))
+							]
 						]
 						+ SVerticalBox::Slot().AutoHeight().Padding(1,0,0,0)
 						[
@@ -6338,7 +6603,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 								.Text(FText::FromString(Surface.LastError))
 								.Visibility(bHasError ? EVisibility::Visible : EVisibility::Collapsed)
 								.ColorAndOpacity(FLinearColor(1.f, 0.35f, 0.25f, 1.f))
-								.Font(FCoreStyle::GetDefaultFontStyle("Regular", 7))
+								.Font(CompactErrorFont)
 								.AutoWrapText(true)
 						]
 					]
@@ -6365,12 +6630,11 @@ void SRshipContentMappingPanel::RefreshStatus()
 			[
 				SNew(STextBlock).Text(LOCTEXT("NoMappings", "No mappings"))
 			];
-		}
-		else
-		{
-			const FVector2D MappingTypeIconSize(4.0f, 4.0f);
-			if (VisibleMappings.Num() > 0)
+			}
+			else
 			{
+				if (VisibleMappings.Num() > 0)
+				{
 				MappingList->AddSlot()
 				.AutoHeight()
 				.Padding(0, 0, 0, 6)
@@ -6399,7 +6663,12 @@ void SRshipContentMappingPanel::RefreshStatus()
 					+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 4, 0)
 					[
 						SNew(SButton)
-						.Text(LOCTEXT("MapSelectVisible", "Select Visible"))
+						.ContentPadding(CompactMappingButtonPadding)
+						[
+							SNew(STextBlock)
+							.Text(LOCTEXT("MapSelectVisible", "Select Visible"))
+							.Font(CompactMappingButtonFont)
+						]
 						.OnClicked_Lambda([this, VisibleMappings]()
 						{
 							for (const FRshipContentMappingState& Mapping : VisibleMappings)
@@ -6415,7 +6684,12 @@ void SRshipContentMappingPanel::RefreshStatus()
 					+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 8, 0)
 					[
 						SNew(SButton)
-						.Text(LOCTEXT("MapClearSelection", "Clear Selection"))
+						.ContentPadding(CompactMappingButtonPadding)
+						[
+							SNew(STextBlock)
+							.Text(LOCTEXT("MapClearSelection", "Clear Selection"))
+							.Font(CompactMappingButtonFont)
+						]
 						.OnClicked_Lambda([this]()
 						{
 							SelectedMappingRows.Empty();
@@ -6428,7 +6702,12 @@ void SRshipContentMappingPanel::RefreshStatus()
 					+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 4, 0)
 					[
 						SNew(SButton)
-						.Text(LOCTEXT("MapBulkEnable", "Enable"))
+						.ContentPadding(CompactMappingButtonPadding)
+						[
+							SNew(STextBlock)
+							.Text(LOCTEXT("MapBulkEnable", "Enable"))
+							.Font(CompactMappingButtonFont)
+						]
 						.OnClicked_Lambda([this, VisibleMappings]()
 						{
 							if (!GEngine) return FReply::Handled();
@@ -6457,7 +6736,12 @@ void SRshipContentMappingPanel::RefreshStatus()
 					+ SHorizontalBox::Slot().AutoWidth()
 					[
 						SNew(SButton)
-						.Text(LOCTEXT("MapBulkDisable", "Disable"))
+						.ContentPadding(CompactMappingButtonPadding)
+						[
+							SNew(STextBlock)
+							.Text(LOCTEXT("MapBulkDisable", "Disable"))
+							.Font(CompactMappingButtonFont)
+						]
 						.OnClicked_Lambda([this, VisibleMappings]()
 						{
 							if (!GEngine) return FReply::Handled();
@@ -6486,7 +6770,12 @@ void SRshipContentMappingPanel::RefreshStatus()
 					+ SHorizontalBox::Slot().AutoWidth().Padding(8, 0, 0, 0)
 					[
 						SNew(SButton)
-						.Text(LOCTEXT("MapBulkDuplicate", "Duplicate"))
+						.ContentPadding(CompactMappingButtonPadding)
+						[
+							SNew(STextBlock)
+							.Text(LOCTEXT("MapBulkDuplicate", "Duplicate"))
+							.Font(CompactMappingButtonFont)
+						]
 						.OnClicked_Lambda([this]()
 						{
 							DuplicateSelectedMappings();
@@ -6507,52 +6796,44 @@ void SRshipContentMappingPanel::RefreshStatus()
 					+ SHorizontalBox::Slot().FillWidth(1.0f)
 					[
 						SNew(SGridPanel)
-						.FillColumn(0, 1.2f)
-						.FillColumn(1, 0.6f)
-						.FillColumn(2, 2.1f)
-						.FillColumn(3, 1.4f)
-						.FillColumn(4, 0.5f)
-						.FillColumn(5, 0.5f)
+						.FillColumn(0, 0.8f)
+						.FillColumn(1, 2.2f)
+						.FillColumn(2, 2.0f)
+						.FillColumn(3, 0.7f)
+						.FillColumn(4, 0.8f)
 						+ SGridPanel::Slot(0, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
 						[
 							SNew(STextBlock)
-							.Text(LOCTEXT("MapColName", "Name"))
-							.Font(FCoreStyle::GetDefaultFontStyle("Bold", 7))
+							.Text(LOCTEXT("MapColType", "Type"))
+							.Font(MappingListHeaderFont)
 							.ColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f, 1.0f))
 						]
 						+ SGridPanel::Slot(1, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
 						[
 							SNew(STextBlock)
-							.Text(LOCTEXT("MapColType", "Type"))
-							.Font(FCoreStyle::GetDefaultFontStyle("Bold", 7))
+							.Text(LOCTEXT("MapColCanvas", "Canvas"))
+							.Font(MappingListHeaderFont)
 							.ColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f, 1.0f))
 						]
 						+ SGridPanel::Slot(2, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
 						[
 							SNew(STextBlock)
-							.Text(LOCTEXT("MapColCanvas", "Canvas"))
-							.Font(FCoreStyle::GetDefaultFontStyle("Bold", 7))
+							.Text(LOCTEXT("MapColScreens", "Screens"))
+							.Font(MappingListHeaderFont)
 							.ColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f, 1.0f))
 						]
 						+ SGridPanel::Slot(3, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
 						[
 							SNew(STextBlock)
-							.Text(LOCTEXT("MapColScreens", "Screens"))
-							.Font(FCoreStyle::GetDefaultFontStyle("Bold", 7))
-							.ColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f, 1.0f))
-						]
-						+ SGridPanel::Slot(4, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
-						[
-							SNew(STextBlock)
 							.Text(LOCTEXT("MapColOpacity", "Opacity"))
-							.Font(FCoreStyle::GetDefaultFontStyle("Bold", 7))
+							.Font(MappingListHeaderFont)
 							.ColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f, 1.0f))
 						]
-						+ SGridPanel::Slot(5, 0).VAlign(VAlign_Center)
+						+ SGridPanel::Slot(4, 0).VAlign(VAlign_Center)
 						[
 							SNew(STextBlock)
 							.Text(LOCTEXT("MapColStatus", "Status"))
-							.Font(FCoreStyle::GetDefaultFontStyle("Bold", 7))
+							.Font(MappingListHeaderFont)
 							.ColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f, 1.0f))
 						]
 					]
@@ -6571,7 +6852,6 @@ void SRshipContentMappingPanel::RefreshStatus()
 			{
 				const FString MappingMode = GetMappingModeFromState(Mapping);
 				const FString MappingId = Mapping.Id;
-				const FString MappingName = DisplayTextOrDefault(Mapping.Name, LOCTEXT("UnnamedMapping", "Unnamed Mapping").ToString());
 				const FString MappingType = GetMappingDisplayLabel(Mapping).ToString();
 				const FString CanvasSummary = BuildMappingCanvasSummary(Mapping);
 				const FString ScreenSummary = BuildMappingScreenSummary(Mapping, SurfaceInfoById);
@@ -6610,20 +6890,12 @@ void SRshipContentMappingPanel::RefreshStatus()
 						+ SHorizontalBox::Slot().FillWidth(1.0f).Padding(0, 0, 0, 0)
 						[
 							SNew(SGridPanel)
-							.FillColumn(0, 1.2f)
-							.FillColumn(1, 0.6f)
-							.FillColumn(2, 2.1f)
-							.FillColumn(3, 1.4f)
-							.FillColumn(4, 0.5f)
-							.FillColumn(5, 0.5f)
+							.FillColumn(0, 0.8f)
+							.FillColumn(1, 2.2f)
+							.FillColumn(2, 2.0f)
+							.FillColumn(3, 0.7f)
+							.FillColumn(4, 0.8f)
 							+ SGridPanel::Slot(0, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
-							[
-								SNew(STextBlock)
-								.Text(FText::FromString(MappingName))
-								.ToolTipText(FText::FromString(MappingName))
-								.ColorAndOpacity(bHasError ? FLinearColor(1.f, 0.5f, 0.4f, 1.f) : FLinearColor::White)
-							]
-							+ SGridPanel::Slot(1, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
 							[
 								SNew(SHorizontalBox)
 								+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0, 0, 2, 0)
@@ -6637,34 +6909,39 @@ void SRshipContentMappingPanel::RefreshStatus()
 								[
 									SNew(STextBlock)
 									.Text(FText::FromString(MappingType))
-									.Font(FCoreStyle::GetDefaultFontStyle("Regular", 8))
+									.ToolTipText(FText::FromString(MappingType))
+									.Font(MappingListFont)
 								]
 							]
-							+ SGridPanel::Slot(2, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
+							+ SGridPanel::Slot(1, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
 							[
 								SNew(STextBlock)
 								.Text(FText::FromString(CanvasSummary))
 								.ToolTipText(FText::FromString(CanvasSummary))
 								.ColorAndOpacity(bHasError ? FLinearColor(1.f, 0.5f, 0.4f, 1.f) : FLinearColor::White)
+								.Font(MappingListFont)
 							]
-							+ SGridPanel::Slot(3, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
+							+ SGridPanel::Slot(2, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
 							[
 								SNew(STextBlock)
 								.Text(FText::FromString(ScreenSummary))
 								.ToolTipText(FText::FromString(ScreenSummary))
 								.ColorAndOpacity(bHasError ? FLinearColor(1.f, 0.5f, 0.4f, 1.f) : FLinearColor::White)
+								.Font(MappingListFont)
 							]
-							+ SGridPanel::Slot(4, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
+							+ SGridPanel::Slot(3, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
 							[
 								SNew(STextBlock)
 								.Text(FText::FromString(OpacityText))
 								.ColorAndOpacity(bHasError ? FLinearColor(1.f, 0.5f, 0.4f, 1.f) : FLinearColor::White)
+								.Font(MappingListFont)
 							]
-							+ SGridPanel::Slot(5, 0).VAlign(VAlign_Center)
+							+ SGridPanel::Slot(4, 0).VAlign(VAlign_Center)
 							[
 								SNew(STextBlock)
 								.Text(FText::FromString(StatusText))
 								.ColorAndOpacity(Mapping.bEnabled ? FLinearColor(0.45f, 0.9f, 0.45f, 1.f) : FLinearColor(0.85f, 0.85f, 0.85f, 1.f))
+								.Font(MappingListFont)
 							]
 						]
 					]
@@ -6674,7 +6951,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 						.Visibility_Lambda([bHasError]() { return bHasError ? EVisibility::Visible : EVisibility::Collapsed; })
 						.Text(FText::FromString(LastError))
 						.ColorAndOpacity(FLinearColor(1.f, 0.35f, 0.25f, 1.f))
-						.Font(FCoreStyle::GetDefaultFontStyle("Regular", 7))
+						.Font(MappingListFont)
 						.AutoWrapText(true)
 					]
 				];
