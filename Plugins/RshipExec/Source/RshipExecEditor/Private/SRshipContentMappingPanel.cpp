@@ -145,6 +145,8 @@ namespace
 		return LOCTEXT("MapModePerspectiveLabel", "Perspective");
 	}
 
+	bool IsProjectionMode(const FString& Mode);
+
 	struct FMappingSurfaceSummaryInfo
 	{
 		FString DisplayName;
@@ -6524,27 +6526,28 @@ void SRshipContentMappingPanel::RefreshStatus()
 							})
 						]
 						+ SHorizontalBox::Slot().FillWidth(1.0f).Padding(0, 0, 6, 0)
-								[
-									SNew(SVerticalBox)
-									+ SVerticalBox::Slot().AutoHeight()
-									[
-										SNew(STextBlock)
-										.Text(FText::FromString(HeaderText))
-										.Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
-									]
-									+ SVerticalBox::Slot().AutoHeight().Padding(0, 1, 0, 0)
-									[
-										SNew(STextBlock)
-										.Text(FText::FromString(DetailText))
-										.AutoWrapText(true)
-									]
-								+ SVerticalBox::Slot().AutoHeight().Padding(2, 2, 0, 0).VAlign(VAlign_Center).Visibility(bHasError ? EVisibility::Visible : EVisibility::Collapsed)
-								[
-									SNew(STextBlock)
-									.Text(FText::FromString(Mapping.LastError))
-									.ColorAndOpacity(ErrorColor)
-								]
+						[
+							SNew(SVerticalBox)
+							+ SVerticalBox::Slot().AutoHeight()
+							[
+								SNew(STextBlock)
+								.Text(FText::FromString(HeaderText))
+								.Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
 							]
+							+ SVerticalBox::Slot().AutoHeight().Padding(0, 1, 0, 0)
+							[
+								SNew(STextBlock)
+								.Text(FText::FromString(DetailText))
+								.AutoWrapText(true)
+							]
+							+ SVerticalBox::Slot().AutoHeight().Padding(2, 2, 0, 0).VAlign(VAlign_Center)
+							[
+								SNew(STextBlock)
+								.Text(FText::FromString(Mapping.LastError))
+								.Visibility(bHasError ? EVisibility::Visible : EVisibility::Collapsed)
+								.ColorAndOpacity(ErrorColor)
+							]
+						]
 						+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Top)
 						[
 							SNew(SButton)
@@ -6624,7 +6627,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 							})
 						]
 					]
-				}
+				];
 			}
 		}
 	}
