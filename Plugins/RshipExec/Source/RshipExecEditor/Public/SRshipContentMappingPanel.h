@@ -58,6 +58,7 @@ private:
 	void ResetForms();
 	class UWorld* GetEditorWorld() const;
 	FString ResolveTargetIdInput(const FString& InText) const;
+	FString ResolveScreenIdInput(const FString& InText) const;
 	FString ResolveTargetIdForActor(class AActor* Actor) const;
 	FString ResolveCameraIdForActor(class AActor* Actor) const;
 	bool TryApplySelectionToTarget(TSharedPtr<class SEditableTextBox> TargetInput, bool bAppend);
