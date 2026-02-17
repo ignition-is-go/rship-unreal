@@ -3,8 +3,8 @@
 # Usage: ./scripts/package-plugin.sh [ue-version] [output-dir]
 #
 # Examples:
-#   ./scripts/package-plugin.sh 5.6 ./dist
-#   ./scripts/package-plugin.sh 5.5 /path/to/output
+#   ./scripts/package-plugin.sh 5.7 ./dist
+#   ./scripts/package-plugin.sh 5.7 /path/to/output
 
 set -e
 
@@ -12,31 +12,78 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PLUGIN_DIR="$REPO_ROOT/Plugins/RshipExec"
 
-UE_VERSION="${1:-5.6}"
+UE_VERSION_REQUEST="${1:-}"
 OUTPUT_DIR="${2:-$REPO_ROOT/dist}"
 
+detect_ue_version_from_root() {
+    local build_file="$1/Engine/Build/Build.version"
+    if [[ ! -f "$build_file" ]]; then
+        return 1
+    fi
+
+    local major minor
+    major=$(grep -o '"MajorVersion"[[:space:]]*:[[:space:]]*[0-9][0-9]*' "$build_file" | head -1 | tr -dc '0-9')
+    minor=$(grep -o '"MinorVersion"[[:space:]]*:[[:space:]]*[0-9][0-9]*' "$build_file" | head -1 | tr -dc '0-9')
+
+    if [[ -z "$major" || -z "$minor" ]]; then
+        return 1
+    fi
+
+    echo "$major.$minor"
+}
+
+latest_local_ue_root() {
+    local search_roots=(
+        "/Users/Shared/Epic Games"
+        "/Users/Shared/EpicGames"
+    )
+    local latest
+
+    for root in "${search_roots[@]}"; do
+        [[ -d "$root" ]] || continue
+        latest="$(find "$root" -maxdepth 1 -type d -name 'UE_[0-9]*.[0-9]*' 2>/dev/null | sort -V | tail -n 1)"
+        if [[ -n "$latest" ]]; then
+            echo "$latest"
+            return 0
+        fi
+    done
+    return 1
+}
+
 # Detect platform and UE installation.
-# Allow overriding UE path via UE_ROOT env var for non-standard installs.
 if [[ "$OSTYPE" == "darwin"* ]]; then
     PLATFORM="Mac"
     if [[ -z "${UE_ROOT:-}" ]]; then
-        if [[ -d "/Users/Shared/Epic Games/UE_$UE_VERSION" ]]; then
-            UE_ROOT="/Users/Shared/Epic Games/UE_$UE_VERSION"
-        elif [[ -d "/Users/Shared/EpicGames/UE_$UE_VERSION" ]]; then
-            UE_ROOT="/Users/Shared/EpicGames/UE_$UE_VERSION"
+        if [[ -n "${UE_VERSION_REQUEST}" && -d "/Users/Shared/Epic Games/UE_$UE_VERSION_REQUEST" ]]; then
+            UE_ROOT="/Users/Shared/Epic Games/UE_$UE_VERSION_REQUEST"
+        elif [[ -n "${UE_VERSION_REQUEST}" && -d "/Users/Shared/EpicGames/UE_$UE_VERSION_REQUEST" ]]; then
+            UE_ROOT="/Users/Shared/EpicGames/UE_$UE_VERSION_REQUEST"
         else
-            UE_ROOT="/Users/Shared/Epic Games/UE_$UE_VERSION"
+            UE_ROOT="$(latest_local_ue_root || true)"
+            UE_ROOT="${UE_ROOT:-/Users/Shared/Epic Games/UE_5.6}"
         fi
     fi
     UAT="$UE_ROOT/Engine/Build/BatchFiles/RunUAT.sh"
 elif [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" ]]; then
     PLATFORM="Win64"
-    UE_ROOT="${UE_ROOT:-C:/Program Files/Epic Games/UE_$UE_VERSION}"
+    UE_ROOT="${UE_ROOT:-C:/Program Files/Epic Games/UE_${UE_VERSION_REQUEST:-5.6}}"
     UAT="$UE_ROOT/Engine/Build/BatchFiles/RunUAT.bat"
 else
     PLATFORM="Linux"
-    UE_ROOT="${UE_ROOT:-/opt/UnrealEngine/UE_$UE_VERSION}"
+    UE_ROOT="${UE_ROOT:-/opt/UnrealEngine/UE_${UE_VERSION_REQUEST:-5.6}}"
     UAT="$UE_ROOT/Engine/Build/BatchFiles/RunUAT.sh"
+fi
+
+DETECTED_UE_VERSION="$(detect_ue_version_from_root "$UE_ROOT" || true)"
+
+if [[ -n "$UE_VERSION_REQUEST" ]]; then
+    UE_VERSION="$UE_VERSION_REQUEST"
+else
+    UE_VERSION="${DETECTED_UE_VERSION:-5.6}"
+fi
+
+if [[ -n "$DETECTED_UE_VERSION" ]]; then
+    echo "Detected UE version: $DETECTED_UE_VERSION"
 fi
 
 # Verify UE installation
