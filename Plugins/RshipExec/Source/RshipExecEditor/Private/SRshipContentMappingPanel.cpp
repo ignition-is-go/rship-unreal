@@ -14,6 +14,7 @@
 #include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/Layout/SSeparator.h"
 #include "Widgets/Layout/SBorder.h"
+#include "Widgets/Layout/SGridPanel.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SEditableTextBox.h"
 #include "Widgets/Input/SCheckBox.h"
@@ -253,7 +254,9 @@ namespace
 			SeenSurfaceIds.Add(SurfaceId);
 
 			const FMappingSurfaceSummaryInfo* SurfaceInfo = SurfaceInfoById.Find(SurfaceId);
-			const FString ScreenName = SurfaceInfo && !SurfaceInfo->DisplayName.IsEmpty() ? SurfaceInfo->DisplayName : SurfaceId;
+			const FString ScreenName = SurfaceInfo && !SurfaceInfo->DisplayName.IsEmpty()
+				? SurfaceInfo->DisplayName
+				: TEXT("(Unnamed screen)");
 			const FString MeshName = (SurfaceInfo && !SurfaceInfo->MeshComponentName.IsEmpty()) ? SurfaceInfo->MeshComponentName : TEXT("Unassigned mesh");
 
 			TArray<FString>* ScreensForMesh = ScreensByMesh.Find(MeshName);
@@ -290,6 +293,46 @@ namespace
 		}
 
 		return FString::Printf(TEXT("%s"), *FString::Join(MeshEntries, TEXT(" | ")));
+	}
+
+	const FSlateBrush* GetMappingTypeIcon(const FString& MappingMode)
+	{
+		if (MappingMode == MapModeDirect)
+		{
+			return FAppStyle::GetBrush(TEXT("Icons.Check"));
+		}
+		if (MappingMode == MapModeFeed)
+		{
+			return FAppStyle::GetBrush(TEXT("Icons.Import"));
+		}
+		if (MappingMode == MapModeCameraPlate)
+		{
+			return FAppStyle::GetBrush(TEXT("Icons.Export"));
+		}
+		return FAppStyle::GetBrush(TEXT("Icons.FilledCircle"));
+	}
+
+	FLinearColor GetMappingTypeColor(const FString& MappingMode)
+	{
+		if (MappingMode == MapModeDirect) return FLinearColor(0.25f, 0.88f, 0.25f);
+		if (MappingMode == MapModeFeed) return FLinearColor(0.25f, 0.6f, 1.0f);
+		if (MappingMode == MapModePerspective) return FLinearColor(0.9f, 0.7f, 0.2f);
+		if (MappingMode == MapModeCustomMatrix) return FLinearColor(0.86f, 0.24f, 0.96f);
+		if (MappingMode == MapModeCylindrical) return FLinearColor(0.82f, 0.44f, 0.17f);
+		if (MappingMode == MapModeSpherical) return FLinearColor(0.52f, 0.42f, 1.0f);
+		if (MappingMode == MapModeParallel) return FLinearColor(0.2f, 0.85f, 0.85f);
+		if (MappingMode == MapModeRadial) return FLinearColor(0.95f, 0.4f, 0.3f);
+		if (MappingMode == MapModeMesh) return FLinearColor(0.9f, 0.9f, 0.28f);
+		if (MappingMode == MapModeFisheye) return FLinearColor(0.62f, 0.62f, 0.62f);
+		if (MappingMode == MapModeCameraPlate) return FLinearColor(0.2f, 0.8f, 0.36f);
+		if (MappingMode == MapModeSpatial) return FLinearColor(0.78f, 0.36f, 0.18f);
+		if (MappingMode == MapModeDepthMap) return FLinearColor(0.32f, 0.82f, 1.0f);
+		return FLinearColor::White;
+	}
+
+	FString DisplayTextOrDefault(const FString& Source, const FString& Fallback)
+	{
+		return Source.IsEmpty() ? Fallback : Source;
 	}
 
 	bool IsProjectionMode(const FString& Mode)
@@ -1643,7 +1686,7 @@ void SRshipContentMappingPanel::RebuildPickerOptions(const TArray<FRshipRenderCo
 			Opt->Id = TargetId;
 			Opt->ResolvedId = FullTargetId;
 			Opt->Actor = Component->GetOwner();
-			Opt->Label = DisplayName.IsEmpty() ? TargetId : FString::Printf(TEXT("%s (%s)"), *DisplayName, *TargetId);
+				Opt->Label = DisplayName.IsEmpty() ? TEXT("(Unnamed target)") : DisplayName;
 			TargetOptions.Add(Opt);
 		}
 	}
@@ -1661,7 +1704,7 @@ void SRshipContentMappingPanel::RebuildPickerOptions(const TArray<FRshipRenderCo
 				}
 				TSharedPtr<FRshipIdOption> Opt = MakeShared<FRshipIdOption>();
 				Opt->Id = Cam.Id;
-				Opt->Label = Cam.Name.IsEmpty() ? Cam.Id : FString::Printf(TEXT("%s (%s)"), *Cam.Name, *Cam.Id);
+				Opt->Label = DisplayTextOrDefault(Cam.Name, TEXT("(Unnamed camera)"));
 				CameraOptions.Add(Opt);
 				ExistingCameraIds.Add(Cam.Id);
 			}
@@ -1768,7 +1811,7 @@ void SRshipContentMappingPanel::RebuildPickerOptions(const TArray<FRshipRenderCo
 		{
 			TSharedPtr<FRshipIdOption> Opt = MakeShared<FRshipIdOption>();
 			Opt->Id = Ctx.Id;
-			Opt->Label = Ctx.Name.IsEmpty() ? Ctx.Id : FString::Printf(TEXT("%s (%s)"), *Ctx.Name, *Ctx.Id);
+			Opt->Label = DisplayTextOrDefault(Ctx.Name, TEXT("(Unnamed input)"));
 			ContextOptions.Add(Opt);
 		}
 		if (!Ctx.AssetId.IsEmpty())
@@ -1785,7 +1828,7 @@ void SRshipContentMappingPanel::RebuildPickerOptions(const TArray<FRshipRenderCo
 		}
 		TSharedPtr<FRshipIdOption> Opt = MakeShared<FRshipIdOption>();
 		Opt->Id = Surface.Id;
-		const FString LabelSurface = Surface.Name.IsEmpty() ? Surface.Id : Surface.Name;
+			const FString LabelSurface = DisplayTextOrDefault(Surface.Name, TEXT("(Unnamed screen)"));
 		if (Surface.Name.IsEmpty())
 		{
 			Opt->Label = Surface.MeshComponentName.IsEmpty()
@@ -2338,7 +2381,7 @@ bool SRshipContentMappingPanel::ExecuteQuickCreateMapping()
 		if (const FRshipMappingSurfaceState** Surface = SurfacesById.Find(ResolvedScreenId))
 		{
 			FoundSurface = *Surface;
-			ScreenLabel = FoundSurface->Name.IsEmpty() ? FoundSurface->Id : FoundSurface->Name;
+			ScreenLabel = DisplayTextOrDefault(FoundSurface->Name, TEXT("(Unnamed screen)"));
 		}
 		else
 		{
@@ -2386,7 +2429,7 @@ bool SRshipContentMappingPanel::ExecuteQuickCreateMapping()
 							}
 						}
 						FoundSurface = Candidate;
-						ScreenLabel = Candidate->Name.IsEmpty() ? Candidate->Id : Candidate->Name;
+						ScreenLabel = DisplayTextOrDefault(Candidate->Name, TEXT("(Unnamed screen)"));
 						break;
 					}
 				}
@@ -2422,7 +2465,7 @@ bool SRshipContentMappingPanel::ExecuteQuickCreateMapping()
 			{
 				AddedSurfaceIds.Add(FoundSurface->Id);
 				SurfaceIds.Add(FoundSurface->Id);
-				SurfaceLabels.Add(ScreenLabel.IsEmpty() ? FoundSurface->Id : ScreenLabel);
+					SurfaceLabels.Add(DisplayTextOrDefault(ScreenLabel, TEXT("(Unnamed screen)")));
 			}
 		}
 	}
@@ -5993,7 +6036,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 
 			for (const FRshipRenderContextState& Context : VisibleContexts)
 			{
-				const FString Name = Context.Name.IsEmpty() ? Context.Id : Context.Name;
+					const FString Name = DisplayTextOrDefault(Context.Name, TEXT("(Unnamed input)"));
 				const FString SourceType = Context.SourceType.IsEmpty() ? TEXT("camera") : Context.SourceType;
 				const FString ProjectText = Context.ProjectId.IsEmpty() ? TEXT("(default)") : Context.ProjectId;
 				const FString ErrorSuffix = Context.LastError.IsEmpty() ? TEXT("") : FString::Printf(TEXT(" - %s"), *Context.LastError);
@@ -6233,7 +6276,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 
 			for (const FRshipMappingSurfaceState& Surface : VisibleSurfaces)
 			{
-				const FString Name = Surface.Name.IsEmpty() ? Surface.Id : Surface.Name;
+					const FString Name = DisplayTextOrDefault(Surface.Name, TEXT("(Unnamed screen)"));
 				const FString MeshName = Surface.MeshComponentName.IsEmpty() ? TEXT("No Mesh") : Surface.MeshComponentName;
 				TArray<FString> SlotValues;
 				SlotValues.Reserve(Surface.MaterialSlots.Num());
@@ -6311,7 +6354,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 		SurfaceInfoById.Reserve(SortedSurfaces.Num());
 		for (const FRshipMappingSurfaceState& Surface : SortedSurfaces)
 		{
-			const FString SurfaceName = Surface.Name.IsEmpty() ? Surface.Id : Surface.Name;
+				const FString SurfaceName = DisplayTextOrDefault(Surface.Name, TEXT("(Unnamed screen)"));
 			SurfaceInfoById.Add(Surface.Id, { SurfaceName, Surface.MeshComponentName });
 		}
 
@@ -6325,6 +6368,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 		}
 		else
 		{
+			const FVector2D MappingTypeIconSize(4.0f, 4.0f);
 			if (VisibleMappings.Num() > 0)
 			{
 				MappingList->AddSlot()
@@ -6450,6 +6494,69 @@ void SRshipContentMappingPanel::RefreshStatus()
 						})
 					]
 				];
+
+				MappingList->AddSlot()
+				.AutoHeight()
+				.Padding(0, 0, 0, 4)
+				[
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 2, 0).VAlign(VAlign_Center)
+					[
+						SNew(STextBlock)
+					]
+					+ SHorizontalBox::Slot().FillWidth(1.0f)
+					[
+						SNew(SGridPanel)
+						.FillColumn(0, 1.2f)
+						.FillColumn(1, 0.6f)
+						.FillColumn(2, 2.1f)
+						.FillColumn(3, 1.4f)
+						.FillColumn(4, 0.5f)
+						.FillColumn(5, 0.5f)
+						+ SGridPanel::Slot(0, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
+						[
+							SNew(STextBlock)
+							.Text(LOCTEXT("MapColName", "Name"))
+							.Font(FCoreStyle::GetDefaultFontStyle("Bold", 7))
+							.ColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f, 1.0f))
+						]
+						+ SGridPanel::Slot(1, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
+						[
+							SNew(STextBlock)
+							.Text(LOCTEXT("MapColType", "Type"))
+							.Font(FCoreStyle::GetDefaultFontStyle("Bold", 7))
+							.ColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f, 1.0f))
+						]
+						+ SGridPanel::Slot(2, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
+						[
+							SNew(STextBlock)
+							.Text(LOCTEXT("MapColCanvas", "Canvas"))
+							.Font(FCoreStyle::GetDefaultFontStyle("Bold", 7))
+							.ColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f, 1.0f))
+						]
+						+ SGridPanel::Slot(3, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
+						[
+							SNew(STextBlock)
+							.Text(LOCTEXT("MapColScreens", "Screens"))
+							.Font(FCoreStyle::GetDefaultFontStyle("Bold", 7))
+							.ColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f, 1.0f))
+						]
+						+ SGridPanel::Slot(4, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
+						[
+							SNew(STextBlock)
+							.Text(LOCTEXT("MapColOpacity", "Opacity"))
+							.Font(FCoreStyle::GetDefaultFontStyle("Bold", 7))
+							.ColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f, 1.0f))
+						]
+						+ SGridPanel::Slot(5, 0).VAlign(VAlign_Center)
+						[
+							SNew(STextBlock)
+							.Text(LOCTEXT("MapColStatus", "Status"))
+							.Font(FCoreStyle::GetDefaultFontStyle("Bold", 7))
+							.ColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f, 1.0f))
+						]
+					]
+				];
 			}
 
 			if (VisibleMappings.Num() == 0)
@@ -6462,67 +6569,113 @@ void SRshipContentMappingPanel::RefreshStatus()
 
 			for (const FRshipContentMappingState& Mapping : VisibleMappings)
 			{
+				const FString MappingMode = GetMappingModeFromState(Mapping);
 				const FString MappingId = Mapping.Id;
-				const FString MappingName = Mapping.Name.IsEmpty() ? Mapping.Id : Mapping.Name;
+				const FString MappingName = DisplayTextOrDefault(Mapping.Name, LOCTEXT("UnnamedMapping", "Unnamed Mapping").ToString());
 				const FString MappingType = GetMappingDisplayLabel(Mapping).ToString();
 				const FString CanvasSummary = BuildMappingCanvasSummary(Mapping);
 				const FString ScreenSummary = BuildMappingScreenSummary(Mapping, SurfaceInfoById);
-				const FString RowText = FString::Printf(TEXT("%s [%s] | Canvas: %s | Screens by mesh: %s | Opacity %.2f"),
-					*MappingName,
-					*MappingType,
-					*CanvasSummary,
-					*ScreenSummary,
-					Mapping.Opacity);
+				const FString OpacityText = FString::Printf(TEXT("%0.2f"), Mapping.Opacity);
+				const FString StatusText = Mapping.bEnabled ? TEXT("Enabled") : TEXT("Disabled");
 				const bool bHasError = !Mapping.LastError.IsEmpty();
+				const FString LastError = bHasError ? Mapping.LastError : TEXT("");
 
 				MappingList->AddSlot()
 				.AutoHeight()
-				.Padding(0, 0, 0, 1)
+				.Padding(0, 0, 0, 2)
 				[
-					SNew(SHorizontalBox)
-					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0, 0, 4, 0)
-					[
-						SNew(SCheckBox)
-						.IsChecked_Lambda([this, MappingId]()
-						{
-							return SelectedMappingRows.Contains(MappingId) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
-						})
-						.OnCheckStateChanged_Lambda([this, MappingId](ECheckBoxState NewState)
-						{
-							if (NewState == ECheckBoxState::Checked)
-							{
-								SelectedMappingRows.Add(MappingId);
-							}
-							else
-							{
-								SelectedMappingRows.Remove(MappingId);
-							}
-						})
-					]
-					+ SHorizontalBox::Slot().FillWidth(1.0f)
+					SNew(SVerticalBox)
+					+ SVerticalBox::Slot().AutoHeight()
 					[
 						SNew(SHorizontalBox)
-						+ SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center).Padding(0, 0, 4, 0)
+						+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Top).Padding(0, 2, 4, 0)
 						[
-							SNew(SVerticalBox)
-							+ SVerticalBox::Slot().AutoHeight()
+							SNew(SCheckBox)
+							.IsChecked_Lambda([this, MappingId]()
+							{
+								return SelectedMappingRows.Contains(MappingId) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
+							})
+							.OnCheckStateChanged_Lambda([this, MappingId](ECheckBoxState NewState)
+							{
+								if (NewState == ECheckBoxState::Checked)
+								{
+									SelectedMappingRows.Add(MappingId);
+								}
+								else
+								{
+									SelectedMappingRows.Remove(MappingId);
+								}
+							})
+						]
+						+ SHorizontalBox::Slot().FillWidth(1.0f).Padding(0, 0, 0, 0)
+						[
+							SNew(SGridPanel)
+							.FillColumn(0, 1.2f)
+							.FillColumn(1, 0.6f)
+							.FillColumn(2, 2.1f)
+							.FillColumn(3, 1.4f)
+							.FillColumn(4, 0.5f)
+							.FillColumn(5, 0.5f)
+							+ SGridPanel::Slot(0, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
 							[
 								SNew(STextBlock)
-								.Text(FText::FromString(RowText))
-								.Font(FCoreStyle::GetDefaultFontStyle("Regular", 8))
-								.ColorAndOpacity(bHasError ? FLinearColor(1.f, 0.5f, 0.4f, 1.f) : FLinearColor(0.95f, 0.95f, 0.95f, 1.f))
-								.AutoWrapText(false)
+								.Text(FText::FromString(MappingName))
+								.ToolTipText(FText::FromString(MappingName))
+								.ColorAndOpacity(bHasError ? FLinearColor(1.f, 0.5f, 0.4f, 1.f) : FLinearColor::White)
 							]
-							+ SVerticalBox::Slot().AutoHeight().Padding(1, 0, 0, 0)
+							+ SGridPanel::Slot(1, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
+							[
+								SNew(SHorizontalBox)
+								+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0, 0, 2, 0)
+								[
+									SNew(SImage)
+									.Image(GetMappingTypeIcon(MappingMode))
+									.ColorAndOpacity(GetMappingTypeColor(MappingMode))
+									.DesiredSizeOverride(MappingTypeIconSize)
+								]
+								+ SHorizontalBox::Slot().FillWidth(1.0f)
+								[
+									SNew(STextBlock)
+									.Text(FText::FromString(MappingType))
+									.Font(FCoreStyle::GetDefaultFontStyle("Regular", 8))
+								]
+							]
+							+ SGridPanel::Slot(2, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
 							[
 								SNew(STextBlock)
-								.Text(FText::FromString(Mapping.LastError))
-								.Visibility(bHasError ? EVisibility::Visible : EVisibility::Collapsed)
-								.ColorAndOpacity(FLinearColor(1.f, 0.35f, 0.25f, 1.f))
-								.Font(FCoreStyle::GetDefaultFontStyle("Regular", 7))
-								.AutoWrapText(true)
+								.Text(FText::FromString(CanvasSummary))
+								.ToolTipText(FText::FromString(CanvasSummary))
+								.ColorAndOpacity(bHasError ? FLinearColor(1.f, 0.5f, 0.4f, 1.f) : FLinearColor::White)
+							]
+							+ SGridPanel::Slot(3, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
+							[
+								SNew(STextBlock)
+								.Text(FText::FromString(ScreenSummary))
+								.ToolTipText(FText::FromString(ScreenSummary))
+								.ColorAndOpacity(bHasError ? FLinearColor(1.f, 0.5f, 0.4f, 1.f) : FLinearColor::White)
+							]
+							+ SGridPanel::Slot(4, 0).VAlign(VAlign_Center).Padding(0, 0, 6, 0)
+							[
+								SNew(STextBlock)
+								.Text(FText::FromString(OpacityText))
+								.ColorAndOpacity(bHasError ? FLinearColor(1.f, 0.5f, 0.4f, 1.f) : FLinearColor::White)
+							]
+							+ SGridPanel::Slot(5, 0).VAlign(VAlign_Center)
+							[
+								SNew(STextBlock)
+								.Text(FText::FromString(StatusText))
+								.ColorAndOpacity(Mapping.bEnabled ? FLinearColor(0.45f, 0.9f, 0.45f, 1.f) : FLinearColor(0.85f, 0.85f, 0.85f, 1.f))
 							]
 						]
+					]
+					+ SVerticalBox::Slot().AutoHeight().Padding(1, 0, 0, 2)
+					[
+						SNew(STextBlock)
+						.Visibility_Lambda([bHasError]() { return bHasError ? EVisibility::Visible : EVisibility::Collapsed; })
+						.Text(FText::FromString(LastError))
+						.ColorAndOpacity(FLinearColor(1.f, 0.35f, 0.25f, 1.f))
+						.Font(FCoreStyle::GetDefaultFontStyle("Regular", 7))
+						.AutoWrapText(true)
 					]
 				];
 			}
