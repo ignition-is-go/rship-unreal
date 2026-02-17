@@ -931,7 +931,7 @@ bool SRshipContentMappingPanel::TryApplySelectionToTarget(TSharedPtr<SEditableTe
 		return false;
 	}
 
-	FString ResolvedId;
+	TArray<FString> ResolvedIds;
 	for (FSelectionIterator It(*Selection); It; ++It)
 	{
 		AActor* Actor = Cast<AActor>(*It);
@@ -940,21 +940,21 @@ bool SRshipContentMappingPanel::TryApplySelectionToTarget(TSharedPtr<SEditableTe
 			continue;
 		}
 
-		ResolvedId = ResolveTargetIdForActor(Actor);
+		const FString ResolvedId = ResolveTargetIdForActor(Actor);
 		if (!ResolvedId.IsEmpty())
 		{
-			break;
+			ResolvedIds.AddUnique(ResolvedId);
 		}
 	}
 
-	if (ResolvedId.IsEmpty())
+	if (ResolvedIds.Num() == 0)
 	{
 		return false;
 	}
 
 	if (!bAppend)
 	{
-		TargetInput->SetText(FText::FromString(ResolvedId));
+		TargetInput->SetText(FText::FromString(ResolvedIds[0]));
 		return true;
 	}
 
@@ -965,9 +965,12 @@ bool SRshipContentMappingPanel::TryApplySelectionToTarget(TSharedPtr<SEditableTe
 	{
 		Part = Part.TrimStartAndEnd();
 	}
-	if (!Parts.Contains(ResolvedId))
+	for (const FString& ResolvedId : ResolvedIds)
 	{
-		Parts.Add(ResolvedId);
+		if (!Parts.Contains(ResolvedId))
+		{
+			Parts.Add(ResolvedId);
+		}
 	}
 	TargetInput->SetText(FText::FromString(FString::Join(Parts, TEXT(","))));
 	return true;
@@ -2240,46 +2243,27 @@ bool SRshipContentMappingPanel::ExecuteQuickCreateMapping()
 	const FString ProjectId = QuickProjectIdInput.IsValid() ? QuickProjectIdInput->GetText().ToString().TrimStartAndEnd() : TEXT("");
 	const FString SourceId = QuickSourceIdInput.IsValid() ? QuickSourceIdInput->GetText().ToString().TrimStartAndEnd() : TEXT("");
 	const FString ScreenInput = QuickTargetIdInput.IsValid() ? QuickTargetIdInput->GetText().ToString().TrimStartAndEnd() : TEXT("");
-	const FString ResolvedScreenId = ResolveScreenIdInput(ScreenInput);
 	const TArray<FRshipMappingSurfaceState> Surfaces = Manager->GetMappingSurfaces();
-	FString SurfaceId;
-	FString ScreenLabel;
+	TMap<FString, const FRshipMappingSurfaceState*> SurfacesById;
+	TMultiMap<FString, const FRshipMappingSurfaceState*> SurfacesByTarget;
 	for (const FRshipMappingSurfaceState& Surface : Surfaces)
 	{
-		if (Surface.Id.Equals(ResolvedScreenId, ESearchCase::IgnoreCase))
+		if (!Surface.Id.IsEmpty())
 		{
-			SurfaceId = Surface.Id;
-			ScreenLabel = Surface.Name.IsEmpty() ? Surface.Id : Surface.Name;
-			break;
+			SurfacesById.Add(Surface.Id, &Surface);
+		}
+		if (!Surface.TargetId.IsEmpty())
+		{
+			SurfacesByTarget.Add(Surface.TargetId, &Surface);
 		}
 	}
 
-	FString ScreenTargetId;
-	if (SurfaceId.IsEmpty())
-	{
-		ScreenTargetId = ResolveTargetIdInput(ResolvedScreenId);
-		ScreenLabel = ShortTargetLabel(ScreenTargetId);
-	}
-	else
-	{
-		ScreenTargetId = TEXT("");
-	}
 	const int32 Width = bQuickAdvanced && QuickWidthInput.IsValid() ? QuickWidthInput->GetValue() : 0;
 	const int32 Height = bQuickAdvanced && QuickHeightInput.IsValid() ? QuickHeightInput->GetValue() : 0;
 	const FString CaptureMode = bQuickAdvanced && QuickCaptureModeInput.IsValid() ? QuickCaptureModeInput->GetText().ToString().TrimStartAndEnd() : TEXT("");
 	const int32 UVChannel = QuickUvChannelInput.IsValid() ? QuickUvChannelInput->GetValue() : 0;
 	const float Opacity = QuickOpacityInput.IsValid() ? QuickOpacityInput->GetValue() : 1.0f;
 	const FString MeshName = bQuickAdvanced && QuickMeshNameInput.IsValid() ? QuickMeshNameInput->GetText().ToString().TrimStartAndEnd() : TEXT("");
-
-	if (SourceId.IsEmpty() || (SurfaceId.IsEmpty() && ScreenTargetId.IsEmpty()))
-	{
-		if (PreviewLabel.IsValid())
-		{
-			PreviewLabel->SetText(LOCTEXT("QuickMissing", "Source and screen are required."));
-			PreviewLabel->SetColorAndOpacity(FLinearColor::Red);
-		}
-		return false;
-	}
 
 	auto ParseSlots = [](const FString& Text)
 	{
@@ -2295,90 +2279,200 @@ bool SRshipContentMappingPanel::ExecuteQuickCreateMapping()
 		return Out;
 	};
 
+	auto ParseTokenList = [](const FString& Text)
+	{
+		TArray<FString> Out;
+		TArray<FString> Parts;
+		Text.ParseIntoArray(Parts, TEXT(","), true);
+		for (FString& Part : Parts)
+		{
+			const FString Token = Part.TrimStartAndEnd();
+			if (!Token.IsEmpty() && !Out.Contains(Token))
+			{
+				Out.Add(Token);
+			}
+		}
+		return Out;
+	};
+
+	auto NormalizeSurfaceIds = [](const TArray<FString>& SurfaceIdList)
+	{
+		TArray<FString> Out;
+		Out.Reserve(SurfaceIdList.Num());
+		for (const FString& SurfaceId : SurfaceIdList)
+		{
+			if (!SurfaceId.IsEmpty())
+			{
+				Out.Add(SurfaceId);
+			}
+		}
+		Out.Sort();
+		TArray<FString> Normalized;
+		Normalized.Reserve(Out.Num());
+		for (const FString& SurfaceId : Out)
+		{
+			if (Normalized.Num() == 0 || Normalized.Last() != SurfaceId)
+			{
+				Normalized.Add(SurfaceId);
+			}
+		}
+		return Normalized;
+	};
+
 	const FString SlotsText = bQuickAdvanced && QuickMaterialSlotsInput.IsValid() ? QuickMaterialSlotsInput->GetText().ToString() : TEXT("");
 	TArray<int32> RequestedSlots = SlotsText.IsEmpty() ? TArray<int32>() : ParseSlots(SlotsText);
+	const TArray<FString> ScreenTokens = ParseTokenList(ScreenInput);
+	TArray<FString> SurfaceIds;
+	TArray<FString> SurfaceLabels;
+	SurfaceIds.Reserve(ScreenTokens.Num());
+	SurfaceLabels.Reserve(ScreenTokens.Num());
+	TSet<FString> AddedSurfaceIds;
 
-	FString ContextId;
-	const TArray<FRshipRenderContextState> Contexts = Manager->GetRenderContexts();
-	for (const FRshipRenderContextState& Ctx : Contexts)
+	for (const FString& RawToken : ScreenTokens)
 	{
-		if (ProjectId.IsEmpty())
-		{
-			if (!Ctx.ProjectId.IsEmpty()) continue;
-		}
-		else if (Ctx.ProjectId != ProjectId)
-		{
-			continue;
-		}
-		if (Ctx.SourceType != QuickSourceType) continue;
-		if (QuickSourceType == TEXT("camera") && Ctx.CameraId != SourceId) continue;
-		if (QuickSourceType == TEXT("asset-store") && Ctx.AssetId != SourceId) continue;
-		if (Width > 0 && Ctx.Width != Width) continue;
-		if (Height > 0 && Ctx.Height != Height) continue;
-		if (!CaptureMode.IsEmpty() && Ctx.CaptureMode != CaptureMode) continue;
-		ContextId = Ctx.Id;
-		break;
-	}
+		const FString ResolvedScreenId = ResolveScreenIdInput(RawToken);
 
-	if (ContextId.IsEmpty())
-	{
-		FRshipRenderContextState NewCtx;
-		NewCtx.Name = FString::Printf(TEXT("Ctx %s"), *SourceId);
-		NewCtx.ProjectId = ProjectId;
-		NewCtx.SourceType = QuickSourceType;
-		if (QuickSourceType == TEXT("camera"))
+		const FRshipMappingSurfaceState* FoundSurface = nullptr;
+		FString ScreenLabel;
+
+		if (const FRshipMappingSurfaceState** Surface = SurfacesById.Find(ResolvedScreenId))
 		{
-			NewCtx.CameraId = SourceId;
+			FoundSurface = *Surface;
+			ScreenLabel = FoundSurface->Name.IsEmpty() ? FoundSurface->Id : FoundSurface->Name;
 		}
 		else
 		{
-			NewCtx.AssetId = SourceId;
+			const FString ScreenTargetId = ResolveTargetIdInput(ResolvedScreenId);
+			ScreenLabel = ShortTargetLabel(ScreenTargetId);
+
+			if (!ScreenTargetId.IsEmpty())
+			{
+				TArray<const FRshipMappingSurfaceState*> TargetMatches;
+				SurfacesByTarget.MultiFind(ScreenTargetId, TargetMatches);
+				if (TargetMatches.Num() > 0)
+				{
+					for (const FRshipMappingSurfaceState* Candidate : TargetMatches)
+					{
+						if (!Candidate)
+						{
+							continue;
+						}
+						if (ProjectId.IsEmpty())
+						{
+							if (!Candidate->ProjectId.IsEmpty())
+							{
+								continue;
+							}
+						}
+						else if (Candidate->ProjectId != ProjectId)
+						{
+							continue;
+						}
+						if (Candidate->UVChannel != UVChannel)
+						{
+							continue;
+						}
+						if (!MeshName.IsEmpty() && Candidate->MeshComponentName != MeshName)
+						{
+							continue;
+						}
+						if (RequestedSlots.Num() > 0)
+						{
+							TArray<int32> ExistingSlots = Candidate->MaterialSlots;
+							ExistingSlots.Sort();
+							if (ExistingSlots != RequestedSlots)
+							{
+								continue;
+							}
+						}
+						FoundSurface = Candidate;
+						ScreenLabel = Candidate->Name.IsEmpty() ? Candidate->Id : Candidate->Name;
+						break;
+					}
+				}
+
+				if (FoundSurface == nullptr)
+				{
+					FRshipMappingSurfaceState NewSurface;
+					NewSurface.Name = ScreenLabel.IsEmpty() ? TEXT("Screen") : FString::Printf(TEXT("Screen %s"), *ScreenLabel);
+					NewSurface.ProjectId = ProjectId;
+					NewSurface.TargetId = ScreenTargetId;
+					NewSurface.UVChannel = UVChannel;
+					NewSurface.MaterialSlots = RequestedSlots;
+					NewSurface.MeshComponentName = MeshName;
+					NewSurface.bEnabled = true;
+					const FString NewSurfaceId = Manager->CreateMappingSurface(NewSurface);
+					if (!NewSurfaceId.IsEmpty())
+					{
+						if (!AddedSurfaceIds.Contains(NewSurfaceId))
+						{
+							AddedSurfaceIds.Add(NewSurfaceId);
+							SurfaceIds.Add(NewSurfaceId);
+						}
+						SurfaceLabels.Add(NewSurface.Name);
+						continue;
+					}
+				}
+			}
 		}
-		NewCtx.Width = Width;
-		NewCtx.Height = Height;
-		NewCtx.CaptureMode = CaptureMode.IsEmpty() ? TEXT("FinalColorLDR") : CaptureMode;
-		NewCtx.bEnabled = true;
-		ContextId = Manager->CreateRenderContext(NewCtx);
+
+		if (FoundSurface != nullptr && !FoundSurface->Id.IsEmpty())
+		{
+			if (!AddedSurfaceIds.Contains(FoundSurface->Id))
+			{
+				AddedSurfaceIds.Add(FoundSurface->Id);
+				SurfaceIds.Add(FoundSurface->Id);
+				SurfaceLabels.Add(ScreenLabel.IsEmpty() ? FoundSurface->Id : ScreenLabel);
+			}
+		}
 	}
 
-	if (SurfaceId.IsEmpty() && !ScreenTargetId.IsEmpty())
+	const TArray<FString> SortedSurfaceIds = NormalizeSurfaceIds(SurfaceIds);
+
+	FString ContextId;
+	if (!SourceId.IsEmpty())
 	{
-		for (const FRshipMappingSurfaceState& Surface : Surfaces)
+		const TArray<FRshipRenderContextState> Contexts = Manager->GetRenderContexts();
+		for (const FRshipRenderContextState& Ctx : Contexts)
 		{
 			if (ProjectId.IsEmpty())
 			{
-				if (!Surface.ProjectId.IsEmpty()) continue;
+				if (!Ctx.ProjectId.IsEmpty()) continue;
 			}
-			else if (Surface.ProjectId != ProjectId)
+			else if (Ctx.ProjectId != ProjectId)
 			{
 				continue;
 			}
-			if (Surface.TargetId != ScreenTargetId) continue;
-			if (Surface.UVChannel != UVChannel) continue;
-			if (!MeshName.IsEmpty() && Surface.MeshComponentName != MeshName) continue;
-			if (RequestedSlots.Num() > 0)
-			{
-				TArray<int32> ExistingSlots = Surface.MaterialSlots;
-				ExistingSlots.Sort();
-				if (ExistingSlots != RequestedSlots) continue;
-			}
-			SurfaceId = Surface.Id;
-			ScreenLabel = Surface.Name.IsEmpty() ? Surface.Id : Surface.Name;
+			if (Ctx.SourceType != QuickSourceType) continue;
+			if (QuickSourceType == TEXT("camera") && Ctx.CameraId != SourceId) continue;
+			if (QuickSourceType == TEXT("asset-store") && Ctx.AssetId != SourceId) continue;
+			if (Width > 0 && Ctx.Width != Width) continue;
+			if (Height > 0 && Ctx.Height != Height) continue;
+			if (!CaptureMode.IsEmpty() && Ctx.CaptureMode != CaptureMode) continue;
+			ContextId = Ctx.Id;
 			break;
 		}
-	}
 
-	if (SurfaceId.IsEmpty())
-	{
-		FRshipMappingSurfaceState NewSurface;
-		NewSurface.Name = FString::Printf(TEXT("Screen %s"), *ScreenLabel);
-		NewSurface.ProjectId = ProjectId;
-		NewSurface.TargetId = ScreenTargetId;
-		NewSurface.UVChannel = UVChannel;
-		NewSurface.MaterialSlots = RequestedSlots;
-		NewSurface.MeshComponentName = MeshName;
-		NewSurface.bEnabled = true;
-		SurfaceId = Manager->CreateMappingSurface(NewSurface);
+		if (ContextId.IsEmpty())
+		{
+			FRshipRenderContextState NewCtx;
+			NewCtx.Name = FString::Printf(TEXT("Ctx %s"), *SourceId);
+			NewCtx.ProjectId = ProjectId;
+			NewCtx.SourceType = QuickSourceType;
+			if (QuickSourceType == TEXT("camera"))
+			{
+				NewCtx.CameraId = SourceId;
+			}
+			else
+			{
+				NewCtx.AssetId = SourceId;
+			}
+			NewCtx.Width = Width;
+			NewCtx.Height = Height;
+			NewCtx.CaptureMode = CaptureMode.IsEmpty() ? TEXT("FinalColorLDR") : CaptureMode;
+			NewCtx.bEnabled = true;
+			ContextId = Manager->CreateRenderContext(NewCtx);
+		}
 	}
 
 	const bool bQuickIsUv = QuickMapMode == TEXT("direct") || QuickMapMode == TEXT("feed");
@@ -2413,21 +2507,42 @@ bool SRshipContentMappingPanel::ExecuteQuickCreateMapping()
 			if (NormalizeMapMode(ExistingProj, MapModePerspective) != NormalizeMapMode(DesiredProjectionType, MapModePerspective)) continue;
 		}
 		if (Mapping.ContextId != ContextId) continue;
-		if (Mapping.SurfaceIds.Num() == 1 && Mapping.SurfaceIds[0] == SurfaceId)
+		if (NormalizeSurfaceIds(Mapping.SurfaceIds) != SortedSurfaceIds) continue;
+		MappingId = Mapping.Id;
+		break;
+	}
+
+	FString MappingName;
+	if (SortedSurfaceIds.Num() == 0)
+	{
+		MappingName = TEXT("Map (Abstract)");
+	}
+	else if (SortedSurfaceIds.Num() == 1)
+	{
+		const FString* ScreenLabel = SurfaceLabels.Num() > 0 ? &SurfaceLabels[0] : nullptr;
+		if (ScreenLabel)
 		{
-			MappingId = Mapping.Id;
-			break;
+			MappingName = TEXT("Map ");
+			MappingName += **ScreenLabel;
 		}
+		else
+		{
+			MappingName = TEXT("Map");
+		}
+	}
+	else
+	{
+		MappingName = FString::Printf(TEXT("Map %d Screens"), SortedSurfaceIds.Num());
 	}
 
 	if (MappingId.IsEmpty())
 	{
 		FRshipContentMappingState NewMapping;
-		NewMapping.Name = FString::Printf(TEXT("Map %s"), *ScreenLabel);
+		NewMapping.Name = MappingName;
 		NewMapping.ProjectId = ProjectId;
 		NewMapping.Type = DesiredType;
 		NewMapping.ContextId = ContextId;
-		NewMapping.SurfaceIds = { SurfaceId };
+		NewMapping.SurfaceIds = SortedSurfaceIds;
 		NewMapping.Opacity = Opacity;
 		NewMapping.bEnabled = true;
 		NewMapping.Config = MakeShared<FJsonObject>();
@@ -2539,7 +2654,7 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildQuickMappingSection()
 			+ SVerticalBox::Slot().AutoHeight().Padding(0, 2, 0, 6)
 			[
 				SNew(STextBlock)
-				.Text(LOCTEXT("QuickNote", "Pick an input + screen, then choose a map mode."))
+				.Text(LOCTEXT("QuickNote", "Create a mapping with optional input/screen values, then refine later."))
 				.ColorAndOpacity(FLinearColor::Gray)
 			]
 			+ SVerticalBox::Slot().AutoHeight().Padding(0, 2)
@@ -2661,12 +2776,12 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildQuickMappingSection()
 				SNew(SHorizontalBox)
 				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,6,0)
 				[
-					SNew(STextBlock).Text(LOCTEXT("QuickTargetLabel", "Screen"))
+					SNew(STextBlock).Text(LOCTEXT("QuickTargetLabel", "Screens"))
 				]
 				+ SHorizontalBox::Slot().FillWidth(1.2f).Padding(0,0,4,0)
 				[
 					SAssignNew(QuickTargetIdInput, SEditableTextBox)
-					.HintText(LOCTEXT("QuickTargetHint", "Pick or type screen"))
+					.HintText(LOCTEXT("QuickTargetHint", "Pick or type screens (comma-separated)"))
 					.Visibility_Lambda([this]()
 					{
 						return bQuickAdvanced ? EVisibility::Visible : EVisibility::Collapsed;
@@ -2677,7 +2792,7 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildQuickMappingSection()
 					SNew(SComboButton)
 					.OnGetMenuContent_Lambda([this]()
 					{
-						return BuildIdPickerMenu(SurfaceOptions, LOCTEXT("QuickNoScreens", "No screens found"), QuickTargetIdInput, false);
+						return BuildIdPickerMenu(SurfaceOptions, LOCTEXT("QuickNoScreens", "No screens found"), QuickTargetIdInput, true);
 					})
 					.ButtonContent()
 					[
@@ -2699,7 +2814,7 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildQuickMappingSection()
 								}
 								return FText::FromString(Current);
 							}
-							return LOCTEXT("QuickPickTarget", "Pick Screen");
+							return LOCTEXT("QuickPickTarget", "Add Screen");
 						})
 					]
 				]
@@ -2709,7 +2824,7 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildQuickMappingSection()
 					.Text(LOCTEXT("QuickUseSelectedTarget", "Use Selected"))
 					.OnClicked_Lambda([this]()
 					{
-						const bool bOk = TryApplySelectionToTarget(QuickTargetIdInput, false);
+						const bool bOk = TryApplySelectionToTarget(QuickTargetIdInput, true);
 						if (!bOk && PreviewLabel.IsValid())
 						{
 							PreviewLabel->SetText(LOCTEXT("QuickSelectTargetFail", "Select a screen actor (with a RshipTargetComponent) in the level."));
