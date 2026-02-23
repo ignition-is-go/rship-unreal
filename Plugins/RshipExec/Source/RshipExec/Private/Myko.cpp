@@ -19,15 +19,16 @@ FString GetIso8601Timestamp()
     return FDateTime::UtcNow().ToIso8601();
 }
 
-TSharedPtr<FJsonObject> MakeSet(FString itemType, TSharedPtr<FJsonObject> data)
+TSharedPtr<FJsonObject> MakeEvent(FString itemType, FString changeType, TSharedPtr<FJsonObject> data, const FString& sourceId)
 {
     // Inner event data object (matches myko MEvent structure)
     TSharedPtr<FJsonObject> eventData = MakeShareable(new FJsonObject);
-    eventData->SetStringField(TEXT("changeType"), TEXT("SET"));
+    eventData->SetStringField(TEXT("changeType"), changeType);
     eventData->SetStringField(TEXT("itemType"), itemType);
     eventData->SetObjectField(TEXT("item"), data);
     eventData->SetStringField(TEXT("tx"), GenerateTransactionId());
     eventData->SetStringField(TEXT("createdAt"), GetIso8601Timestamp());
+    eventData->SetStringField(TEXT("sourceId"), sourceId.IsEmpty() ? GetUniqueMachineId() : sourceId);
 
     // Outer wrapper (matches myko WSMEvent structure: { event: "ws:m:event", data: MEvent })
     TSharedPtr<FJsonObject> payload = MakeShareable(new FJsonObject);
@@ -35,6 +36,16 @@ TSharedPtr<FJsonObject> MakeSet(FString itemType, TSharedPtr<FJsonObject> data)
     payload->SetObjectField(TEXT("data"), eventData);
 
     return payload;
+}
+
+TSharedPtr<FJsonObject> MakeSet(FString itemType, TSharedPtr<FJsonObject> data)
+{
+    return MakeEvent(itemType, TEXT("SET"), data);
+}
+
+TSharedPtr<FJsonObject> MakeDel(FString itemType, TSharedPtr<FJsonObject> data)
+{
+    return MakeEvent(itemType, TEXT("DEL"), data);
 }
 
 FString GetUniqueMachineId()

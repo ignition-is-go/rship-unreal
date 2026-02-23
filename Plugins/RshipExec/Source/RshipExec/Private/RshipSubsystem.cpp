@@ -285,7 +285,7 @@ void URshipSubsystem::ConnectTo(const FString& Host, int32 Port)
         Settings->rshipHostAddress = Host;
         Settings->rshipServerPort = Port;
         Settings->SaveConfig();
-        Settings->UpdateDefaultConfigFile();  // Also update DefaultGame.ini
+        Settings->TryUpdateDefaultConfigFile();  // Also update DefaultGame.ini
 
         UE_LOG(LogRshipExec, Log, TEXT("Saved server settings to config: %s:%d"), *Host, Port);
     }
@@ -340,6 +340,7 @@ void URshipSubsystem::OnWebSocketConnected()
         int64 Timestamp = FDateTime::UtcNow().ToUnixTimestamp() * 1000 + FDateTime::UtcNow().GetMillisecond();
 
         TSharedPtr<FJsonObject> PingData = MakeShareable(new FJsonObject);
+        PingData->SetStringField(TEXT("id"), GenerateTransactionId());
         PingData->SetNumberField(TEXT("timestamp"), (double)Timestamp);
 
         TSharedPtr<FJsonObject> PingPayload = MakeShareable(new FJsonObject);
@@ -874,13 +875,15 @@ void URshipSubsystem::ProcessMessage(const FString &message)
                 }
             }
 
-            TSharedPtr<FJsonObject> responseData = MakeShareable(new FJsonObject);
-            responseData->SetStringField(TEXT("commandId"), commandId);
-            responseData->SetStringField(TEXT("tx"), txId);
-
             if (result)
             {
-                // Send success response - CRITICAL priority
+                // Send success response - ws:m:command-response expects { response, tx }
+                TSharedPtr<FJsonObject> responseData = MakeShareable(new FJsonObject);
+                responseData->SetStringField(TEXT("tx"), txId);
+                TSharedPtr<FJsonObject> commandResponse = MakeShareable(new FJsonObject);
+                commandResponse->SetBoolField(TEXT("ok"), true);
+                responseData->SetObjectField(TEXT("response"), commandResponse);
+
                 TSharedPtr<FJsonObject> response = MakeShareable(new FJsonObject);
                 response->SetStringField(TEXT("event"), TEXT("ws:m:command-response"));
                 response->SetObjectField(TEXT("data"), responseData);
@@ -889,8 +892,13 @@ void URshipSubsystem::ProcessMessage(const FString &message)
             }
             else
             {
-                // Send failure response - CRITICAL priority
+                // Send failure response - ws:m:command-error expects { tx, commandId, message }
                 UE_LOG(LogRshipExec, Warning, TEXT("Action not taken: %s on Target %s"), *actionId, *targetId);
+                TSharedPtr<FJsonObject> responseData = MakeShareable(new FJsonObject);
+                responseData->SetStringField(TEXT("tx"), txId);
+                responseData->SetStringField(TEXT("commandId"), commandId);
+                responseData->SetStringField(TEXT("message"), TEXT("Action was not handled by any target"));
+
                 TSharedPtr<FJsonObject> response = MakeShareable(new FJsonObject);
                 response->SetStringField(TEXT("event"), TEXT("ws:m:command-error"));
                 response->SetObjectField(TEXT("data"), responseData);
@@ -900,28 +908,29 @@ void URshipSubsystem::ProcessMessage(const FString &message)
         }
         obj.Reset();
     }
-    else if (type == "ws:m:event")
+    auto ProcessEntityEvent = [this](const TSharedPtr<FJsonObject>& data) -> void
     {
-        // Entity event - route to appropriate manager
-        // Myko protocol: { event: "ws:m:event", data: { changeType: "SET"|"DEL", itemType, item, tx, createdAt } }
-        TSharedPtr<FJsonObject> data = obj->GetObjectField(TEXT("data"));
-
         if (!data.IsValid())
         {
             return;
         }
 
-        FString changeType = data->GetStringField(TEXT("changeType"));
-        bool bIsDelete = (changeType == TEXT("DEL"));
+        FString changeType;
+        FString itemType;
+        const TSharedPtr<FJsonObject>* itemPtr = nullptr;
 
-        FString itemType = data->GetStringField(TEXT("itemType"));
-        TSharedPtr<FJsonObject> item = data->GetObjectField(TEXT("item"));
-
-        if (!item.IsValid())
+        if (!data->TryGetStringField(TEXT("changeType"), changeType) ||
+            !data->TryGetStringField(TEXT("itemType"), itemType) ||
+            !data->TryGetObjectField(TEXT("item"), itemPtr) ||
+            itemPtr == nullptr ||
+            !itemPtr->IsValid())
         {
+            UE_LOG(LogRshipExec, Verbose, TEXT("Ignoring malformed ws:m:event payload"));
             return;
         }
 
+        TSharedPtr<FJsonObject> item = *itemPtr;
+        bool bIsDelete = (changeType == TEXT("DEL"));
         UE_LOG(LogRshipExec, Log, TEXT("Entity event: %s %s"), *changeType, *itemType);
 
         // Route to fixture manager
@@ -975,12 +984,17 @@ void URshipSubsystem::ProcessMessage(const FString &message)
             if (PulseReceiver)
             {
                 // Extract emitterId and data from the pulse
-                FString EmitterId = item->GetStringField(TEXT("emitterId"));
-                TSharedPtr<FJsonObject> PulseData = item->GetObjectField(TEXT("data"));
+                FString EmitterId;
+                const TSharedPtr<FJsonObject>* PulseDataPtr = nullptr;
 
-                if (!EmitterId.IsEmpty() && PulseData.IsValid())
+                if (item->TryGetStringField(TEXT("emitterId"), EmitterId) &&
+                    item->TryGetObjectField(TEXT("data"), PulseDataPtr) &&
+                    PulseDataPtr != nullptr &&
+                    PulseDataPtr->IsValid() &&
+                    !EmitterId.IsEmpty() &&
+                    (*PulseDataPtr).IsValid())
                 {
-                    PulseReceiver->ProcessPulseEvent(EmitterId, PulseData);
+                    PulseReceiver->ProcessPulseEvent(EmitterId, *PulseDataPtr);
                 }
             }
         }
@@ -1026,6 +1040,36 @@ void URshipSubsystem::ProcessMessage(const FString &message)
                 View.Id = item->GetStringField(TEXT("id"));
                 View.Name = item->GetStringField(TEXT("name"));
                 MultiCameraManager->AddView(View);
+            }
+        }
+    };
+
+    if (type == "ws:m:event")
+    {
+        // Myko protocol: { event: "ws:m:event", data: MEvent }
+        const TSharedPtr<FJsonObject>* dataPtr = nullptr;
+        if (obj->TryGetObjectField(TEXT("data"), dataPtr) &&
+            dataPtr != nullptr &&
+            dataPtr->IsValid())
+        {
+            ProcessEntityEvent(*dataPtr);
+        }
+    }
+    else if (type == "ws:m:event-batch")
+    {
+        // Myko protocol: { event: "ws:m:event-batch", data: MEvent[] }
+        const TArray<TSharedPtr<FJsonValue>>* events = nullptr;
+        if (obj->TryGetArrayField(TEXT("data"), events) && events != nullptr)
+        {
+            for (const TSharedPtr<FJsonValue>& eventValue : *events)
+            {
+                if (!eventValue.IsValid() || eventValue->Type != EJson::Object)
+                {
+                    continue;
+                }
+
+                TSharedPtr<FJsonObject> eventObj = eventValue->AsObject();
+                ProcessEntityEvent(eventObj);
             }
         }
     }
@@ -1646,7 +1690,7 @@ void URshipSubsystem::SendJson(TSharedPtr<FJsonObject> Payload)
 
 void URshipSubsystem::SetItem(FString itemType, TSharedPtr<FJsonObject> data, ERshipMessagePriority Priority, const FString& CoalesceKey)
 {
-    // MakeSet produces the complete WSMEvent format: { event: "ws:m:event", data: { itemType, changeType, item, tx, createdAt } }
+    // MakeSet produces the complete WSMEvent format: { event: "ws:m:event", data: { itemType, changeType, item, tx, createdAt, sourceId } }
     TSharedPtr<FJsonObject> payload = MakeSet(itemType, data);
 
     // Debug: Log registration events to help diagnose protocol issues
@@ -2442,24 +2486,23 @@ void URshipSubsystem::UnregisterTargetComponent(URshipTargetComponent* Component
         return;
     }
 
-    // Find and remove by value since we might not have TargetData anymore during destruction
-    FString KeyToRemove;
-    for (auto& Pair : *TargetComponents)
+    // Remove all entries that reference this exact component pointer.
+    // A component can be duplicated in the map due to re-registration flows;
+    // only removing one entry leaves stale references behind.
+    int32 RemovedCount = 0;
+    for (auto It = TargetComponents->CreateIterator(); It; ++It)
     {
-        if (Pair.Value == Component)
+        if (It.Value() == Component)
         {
-            KeyToRemove = Pair.Key;
-            break;
+            It.RemoveCurrent();
+            RemovedCount++;
         }
     }
 
-    if (!KeyToRemove.IsEmpty())
+    if (RemovedCount > 0)
     {
-        // RemoveSingle removes exactly one entry matching both key AND value
-        // This is important for TMultiMap where multiple components can share a target ID
-        TargetComponents->RemoveSingle(KeyToRemove, Component);
-        UE_LOG(LogRshipExec, Log, TEXT("Unregistered target component: %s (remaining: %d)"),
-            *KeyToRemove, TargetComponents->Num());
+        UE_LOG(LogRshipExec, Log, TEXT("Unregistered target component refs: %d (remaining: %d)"),
+            RemovedCount, TargetComponents->Num());
     }
 }
 

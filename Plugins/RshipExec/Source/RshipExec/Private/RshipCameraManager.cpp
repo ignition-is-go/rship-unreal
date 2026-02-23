@@ -2,6 +2,7 @@
 
 #include "RshipCameraManager.h"
 #include "RshipSubsystem.h"
+#include "Myko.h"
 #include "Logs.h"
 
 void URshipCameraManager::Initialize(URshipSubsystem* InSubsystem)
@@ -252,19 +253,10 @@ bool URshipCameraManager::UnregisterCamera(const FString& CameraId)
         return false;
     }
 
-    // Send DELETE command
+    // Send DELETE command using ws:m:event + changeType=DEL
     TSharedPtr<FJsonObject> DeleteJson = MakeShareable(new FJsonObject);
     DeleteJson->SetStringField(TEXT("id"), CameraId);
-
-    TSharedPtr<FJsonObject> EventData = MakeShareable(new FJsonObject);
-    EventData->SetStringField(TEXT("itemType"), TEXT("Camera"));
-    EventData->SetObjectField(TEXT("item"), DeleteJson);
-
-    TSharedPtr<FJsonObject> Event = MakeShareable(new FJsonObject);
-    Event->SetStringField(TEXT("event"), TEXT("ws:m:del"));
-    Event->SetObjectField(TEXT("data"), EventData);
-
-    Subsystem->SendJson(Event);
+    Subsystem->SendJson(MakeDel(TEXT("Camera"), DeleteJson));
 
     // Remove from local cache
     if (Cameras.Remove(CameraId) > 0)

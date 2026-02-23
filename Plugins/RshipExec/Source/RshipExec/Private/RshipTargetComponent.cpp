@@ -139,6 +139,10 @@ void URshipTargetComponent::Register()
     }
 
     FString outlinerName = parent->GetName();
+#if WITH_EDITOR
+    // Prefer editor label for human-readable defaults (avoids object names with UUID-like suffixes).
+    outlinerName = parent->GetActorLabel();
+#endif
 
     // Default target name to actor name if not set
     if (this->targetName.IsEmpty())
