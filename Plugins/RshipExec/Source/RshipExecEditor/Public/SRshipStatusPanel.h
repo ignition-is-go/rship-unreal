@@ -9,6 +9,10 @@
 
 class URshipSubsystem;
 class URshipTargetComponent;
+class Action;
+class SCheckBox;
+class SVerticalBox;
+class FJsonObject;
 
 /** Row data for the target list */
 struct FRshipTargetListItem
@@ -26,6 +30,27 @@ struct FRshipTargetListItem
         , EmitterCount(0)
         , ActionCount(0)
     {}
+};
+
+/** Runtime UI state for one action parameter input field */
+struct FRshipActionFieldState
+{
+    TArray<FString> FieldPath;
+    FString ParamName;
+    FString ParamType;
+    int32 IndentDepth = 0;
+    TSharedPtr<class SEditableTextBox> ValueBox;
+    TSharedPtr<SCheckBox> BoolBox;
+};
+
+/** Runtime UI state for one invokable action */
+struct FRshipActionEntryState
+{
+    FString ActionId;
+    FString ActionName;
+    Action* ActionPtr = nullptr;
+    TArray<FRshipActionFieldState> Fields;
+    TSharedPtr<class STextBlock> ResultText;
 };
 
 /**
@@ -73,7 +98,17 @@ private:
     // Build UI sections
     TSharedRef<SWidget> BuildConnectionSection();
     TSharedRef<SWidget> BuildTargetsSection();
+    TSharedRef<SWidget> BuildActionsSection();
     TSharedRef<SWidget> BuildDiagnosticsSection();
+    void RefreshActionsSection();
+    FReply OnExecuteActionClicked(TSharedPtr<FRshipActionEntryState> ActionEntry);
+    bool BuildActionPayload(const TSharedPtr<FRshipActionEntryState>& ActionEntry, TSharedPtr<FJsonObject>& OutPayload, FString& OutError) const;
+    void AddSchemaFieldsRecursive(
+        const TSharedPtr<FJsonObject>& ParamSchema,
+        const TArray<FString>& FieldPath,
+        int32 Depth,
+        const TSharedPtr<FRshipActionEntryState>& Entry,
+        const TSharedPtr<SVerticalBox>& CardBody);
 
 #if RSHIP_EDITOR_HAS_2110
     TSharedRef<SWidget> Build2110Section();
@@ -83,6 +118,9 @@ private:
     // Data
     TArray<TSharedPtr<FRshipTargetListItem>> TargetItems;
     TSharedPtr<SListView<TSharedPtr<FRshipTargetListItem>>> TargetListView;
+    TWeakObjectPtr<URshipTargetComponent> SelectedTargetComponent;
+    TArray<TSharedPtr<FRshipActionEntryState>> ActionEntries;
+    TSharedPtr<SVerticalBox> ActionsListBox;
 
     // Cached UI elements for updates
     TSharedPtr<STextBlock> ConnectionStatusText;

@@ -5,6 +5,7 @@
 #include "RshipSubsystem.h"
 #include "RshipTargetComponent.h"
 #include "RshipSettings.h"
+#include "Action.h"
 
 #if RSHIP_EDITOR_HAS_2110
 #include "Rship2110.h"  // For SMPTE 2110 status
@@ -16,10 +17,12 @@
 #include "Widgets/Layout/SSeparator.h"
 #include "Widgets/Layout/SSpacer.h"
 #include "Widgets/Input/SButton.h"
+#include "Widgets/Input/SCheckBox.h"
 #include "Widgets/Input/SEditableTextBox.h"
 #include "Widgets/Text/STextBlock.h"
 #include "Widgets/Images/SImage.h"
 #include "Widgets/Views/SHeaderRow.h"
+#include "Styling/AppStyle.h"
 #include "EditorStyleSet.h"
 #include "ISettingsModule.h"
 #include "Engine/Engine.h"
@@ -28,6 +31,8 @@
 #include "Editor.h"
 #include "Selection.h"
 #include "Widgets/Text/SInlineEditableTextBlock.h"
+#include "Dom/JsonObject.h"
+#include "Misc/DefaultValueHelper.h"
 
 #define LOCTEXT_NAMESPACE "SRshipStatusPanel"
 
@@ -103,6 +108,7 @@ void SRshipStatusPanel::Construct(const FArguments& InArgs)
 
     // Initial data load
     RefreshTargetList();
+    RefreshActionsSection();
     UpdateConnectionStatus();
     UpdateDiagnostics();
 #if RSHIP_EDITOR_HAS_2110
@@ -351,6 +357,44 @@ TSharedRef<SWidget> SRshipStatusPanel::BuildTargetsSection()
                     .HAlignCell(HAlign_Center)
                 )
             ]
+        ]
+
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 8.0f, 0.0f, 0.0f)
+        [
+            BuildActionsSection()
+        ];
+}
+
+TSharedRef<SWidget> SRshipStatusPanel::BuildActionsSection()
+{
+    return SNew(SVerticalBox)
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 0.0f, 0.0f, 6.0f)
+        [
+            SNew(STextBlock)
+            .Text(LOCTEXT("ActionsTitle", "Actions"))
+            .Font(FCoreStyle::GetDefaultFontStyle("Bold", 12))
+        ]
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        [
+            SNew(SBorder)
+            .BorderImage(FAppStyle::GetBrush("ToolPanel.GroupBorder"))
+            .Padding(6.0f)
+            [
+                SNew(SBox)
+                .MaxDesiredHeight(260.0f)
+                [
+                    SNew(SScrollBox)
+                    + SScrollBox::Slot()
+                    [
+                        SAssignNew(ActionsListBox, SVerticalBox)
+                    ]
+                ]
+            ]
         ];
 }
 
@@ -502,12 +546,53 @@ void SRshipStatusPanel::RefreshTargetList()
 
     // Build new items list
     TArray<TSharedPtr<FRshipTargetListItem>> NewItems;
+    TSet<URshipTargetComponent*> SeenComponents;
+
+    enum class ERshipTargetViewMode : uint8
+    {
+        Editor,
+        PIE,
+        Simulate
+    };
+
+    const bool bIsSimulating = (GEditor && GEditor->bIsSimulatingInEditor);
+    const bool bIsPIE = (GEditor && GEditor->PlayWorld != nullptr && !bIsSimulating);
+
+    const ERshipTargetViewMode ActiveMode =
+        bIsSimulating ? ERshipTargetViewMode::Simulate :
+        (bIsPIE ? ERshipTargetViewMode::PIE : ERshipTargetViewMode::Editor);
 
     for (auto& Pair : *Subsystem->TargetComponents)
     {
         URshipTargetComponent* Component = Pair.Value;
-        if (Component && Component->IsValidLowLevel())
+        if (Component && Component->IsValidLowLevel() && !SeenComponents.Contains(Component))
         {
+            ERshipTargetViewMode ComponentMode = ERshipTargetViewMode::Editor;
+            if (AActor* Owner = Component->GetOwner())
+            {
+                if (UWorld* World = Owner->GetWorld())
+                {
+                    if (World->WorldType == EWorldType::PIE)
+                    {
+                        ComponentMode = bIsSimulating ? ERshipTargetViewMode::Simulate : ERshipTargetViewMode::PIE;
+                    }
+                    else if (World->WorldType != EWorldType::Editor &&
+                             World->WorldType != EWorldType::EditorPreview)
+                    {
+                        // Hide non-editor/non-PIE worlds in this panel.
+                        continue;
+                    }
+                }
+            }
+
+            // Show only targets relevant to the current editor mode.
+            if (ComponentMode != ActiveMode)
+            {
+                continue;
+            }
+
+            SeenComponents.Add(Component);
+
             TSharedPtr<FRshipTargetListItem> Item = MakeShareable(new FRshipTargetListItem());
             Item->TargetId = Component->targetName;
             Item->DisplayName = Component->GetOwner() ? Component->GetOwner()->GetActorLabel() : Component->targetName;
@@ -515,19 +600,15 @@ void SRshipStatusPanel::RefreshTargetList()
             // Add suffix for PIE/Simulate instances
             if (AActor* Owner = Component->GetOwner())
             {
-                if (UWorld* World = Owner->GetWorld())
+                if (Owner->GetWorld())
                 {
-                    if (World->WorldType == EWorldType::PIE)
+                    if (ComponentMode == ERshipTargetViewMode::Simulate)
                     {
-                        // Check if simulating vs playing
-                        if (GEditor && GEditor->bIsSimulatingInEditor)
-                        {
-                            Item->DisplayName += TEXT(" (Simulate)");
-                        }
-                        else
-                        {
-                            Item->DisplayName += TEXT(" (PIE)");
-                        }
+                        Item->DisplayName += TEXT(" (Simulate)");
+                    }
+                    else if (ComponentMode == ERshipTargetViewMode::PIE)
+                    {
+                        Item->DisplayName += TEXT(" (PIE)");
                     }
                 }
             }
@@ -572,6 +653,27 @@ void SRshipStatusPanel::RefreshTargetList()
                 }
             }
         }
+    }
+
+    bool bShouldRefreshActions = false;
+
+    if (SelectedComponent.IsValid())
+    {
+        bShouldRefreshActions = (SelectedTargetComponent.Get() != SelectedComponent.Get());
+        SelectedTargetComponent = SelectedComponent;
+    }
+    else if (!TargetItems.ContainsByPredicate([this](const TSharedPtr<FRshipTargetListItem>& Item)
+        {
+            return Item.IsValid() && Item->Component.Get() == SelectedTargetComponent.Get();
+        }))
+    {
+        bShouldRefreshActions = SelectedTargetComponent.IsValid();
+        SelectedTargetComponent.Reset();
+    }
+
+    if (bShouldRefreshActions)
+    {
+        RefreshActionsSection();
     }
 }
 
@@ -738,6 +840,9 @@ void SRshipStatusPanel::OnTargetSelectionChanged(TSharedPtr<FRshipTargetListItem
 
     if (Item.IsValid() && Item->Component.IsValid() && GEditor)
     {
+        SelectedTargetComponent = Item->Component;
+        RefreshActionsSection();
+
         // Select the actor in the outliner
         AActor* Owner = Item->Component->GetOwner();
         if (Owner)
@@ -745,6 +850,11 @@ void SRshipStatusPanel::OnTargetSelectionChanged(TSharedPtr<FRshipTargetListItem
             GEditor->SelectNone(false, true, false);
             GEditor->SelectActor(Owner, true, true, true);
         }
+    }
+    else
+    {
+        SelectedTargetComponent.Reset();
+        RefreshActionsSection();
     }
 }
 
@@ -791,10 +901,371 @@ void SRshipStatusPanel::SyncSelectionFromOutliner()
                 // Select this item in the list (Direct = programmatic, won't trigger OnTargetSelectionChanged loop)
                 TargetListView->SetSelection(Item, ESelectInfo::Direct);
                 TargetListView->RequestScrollIntoView(Item);
+                SelectedTargetComponent = TargetComp;
+                RefreshActionsSection();
                 return;
             }
         }
     }
+}
+
+void SRshipStatusPanel::RefreshActionsSection()
+{
+    if (!ActionsListBox.IsValid())
+    {
+        return;
+    }
+
+    ActionsListBox->ClearChildren();
+    ActionEntries.Empty();
+
+    URshipTargetComponent* TargetComponent = SelectedTargetComponent.Get();
+    if (!TargetComponent || !TargetComponent->TargetData)
+    {
+        ActionsListBox->AddSlot()
+        .AutoHeight()
+        [
+            SNew(STextBlock)
+            .Text(LOCTEXT("ActionsNoSelection", "Select a target to view and invoke actions."))
+            .ColorAndOpacity(FSlateColor::UseSubduedForeground())
+        ];
+        return;
+    }
+
+    TMap<FString, Action*> Actions = TargetComponent->TargetData->GetActions();
+    if (Actions.Num() == 0)
+    {
+        ActionsListBox->AddSlot()
+        .AutoHeight()
+        [
+            SNew(STextBlock)
+            .Text(LOCTEXT("ActionsNone", "No actions registered for this target."))
+            .ColorAndOpacity(FSlateColor::UseSubduedForeground())
+        ];
+        return;
+    }
+
+    TArray<TPair<FString, Action*>> SortedActions;
+    SortedActions.Reserve(Actions.Num());
+    for (const TPair<FString, Action*>& Pair : Actions)
+    {
+        SortedActions.Add(Pair);
+    }
+
+    SortedActions.Sort([](const TPair<FString, Action*>& A, const TPair<FString, Action*>& B)
+    {
+        return A.Key < B.Key;
+    });
+
+    for (const TPair<FString, Action*>& Pair : SortedActions)
+    {
+        if (!Pair.Value)
+        {
+            continue;
+        }
+
+        TSharedPtr<FRshipActionEntryState> Entry = MakeShared<FRshipActionEntryState>();
+        Entry->ActionId = Pair.Key;
+        Entry->ActionName = Pair.Value->GetName();
+        Entry->ActionPtr = Pair.Value;
+        ActionEntries.Add(Entry);
+
+        TSharedPtr<SVerticalBox> CardBody;
+
+        ActionsListBox->AddSlot()
+        .AutoHeight()
+        .Padding(0.0f, 0.0f, 0.0f, 8.0f)
+        [
+            SNew(SBorder)
+            .BorderImage(FAppStyle::GetBrush("DetailsView.CategoryTop"))
+            .Padding(6.0f)
+            [
+                SAssignNew(CardBody, SVerticalBox)
+
+                + SVerticalBox::Slot()
+                .AutoHeight()
+                .Padding(0.0f, 0.0f, 0.0f, 6.0f)
+                [
+                    SNew(STextBlock)
+                    .Text(FText::FromString(Entry->ActionName.IsEmpty() ? Entry->ActionId : Entry->ActionName))
+                    .Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))
+                ]
+            ]
+        ];
+
+        if (!CardBody.IsValid())
+        {
+            continue;
+        }
+
+        const TSharedPtr<FJsonObject> Schema = Entry->ActionPtr->GetSchema();
+        const TSharedPtr<FJsonObject>* PropertiesPtr = nullptr;
+        if (Schema.IsValid() && Schema->TryGetObjectField(TEXT("properties"), PropertiesPtr) && PropertiesPtr && (*PropertiesPtr).IsValid())
+        {
+            TArray<FString> ParamNames;
+            (*PropertiesPtr)->Values.GetKeys(ParamNames);
+            ParamNames.Sort();
+
+            for (const FString& ParamName : ParamNames)
+            {
+                const TSharedPtr<FJsonObject>* ParamSchemaPtr = nullptr;
+                if (!(*PropertiesPtr)->TryGetObjectField(ParamName, ParamSchemaPtr) || !ParamSchemaPtr || !(*ParamSchemaPtr).IsValid())
+                {
+                    continue;
+                }
+                TArray<FString> RootPath;
+                RootPath.Add(ParamName);
+                AddSchemaFieldsRecursive(*ParamSchemaPtr, RootPath, 0, Entry, CardBody);
+            }
+        }
+
+        if (Entry->Fields.Num() == 0)
+        {
+            CardBody->AddSlot()
+            .AutoHeight()
+            .Padding(0.0f, 0.0f, 0.0f, 4.0f)
+            [
+                SNew(STextBlock)
+                .Text(LOCTEXT("ActionNoParams", "No parameters"))
+                .ColorAndOpacity(FSlateColor::UseSubduedForeground())
+            ];
+        }
+
+        CardBody->AddSlot()
+        .AutoHeight()
+        .Padding(0.0f, 4.0f, 0.0f, 0.0f)
+        [
+            SNew(SHorizontalBox)
+            + SHorizontalBox::Slot()
+            .AutoWidth()
+            [
+                SNew(SButton)
+                .Text(LOCTEXT("ActionGoButton", "GO"))
+                .OnClicked(this, &SRshipStatusPanel::OnExecuteActionClicked, Entry)
+            ]
+            + SHorizontalBox::Slot()
+            .FillWidth(1.0f)
+            .VAlign(VAlign_Center)
+            .Padding(8.0f, 0.0f, 0.0f, 0.0f)
+            [
+                SAssignNew(Entry->ResultText, STextBlock)
+                .Text(FText::GetEmpty())
+            ]
+        ];
+    }
+}
+
+void SRshipStatusPanel::AddSchemaFieldsRecursive(
+    const TSharedPtr<FJsonObject>& ParamSchema,
+    const TArray<FString>& FieldPath,
+    int32 Depth,
+    const TSharedPtr<FRshipActionEntryState>& Entry,
+    const TSharedPtr<SVerticalBox>& CardBody)
+{
+    if (!ParamSchema.IsValid() || !Entry.IsValid() || !CardBody.IsValid() || FieldPath.Num() == 0)
+    {
+        return;
+    }
+
+    FString ParamType = TEXT("string");
+    ParamSchema->TryGetStringField(TEXT("type"), ParamType);
+
+    if (ParamType == TEXT("object"))
+    {
+        const TSharedPtr<FJsonObject>* ChildPropsPtr = nullptr;
+        if (ParamSchema->TryGetObjectField(TEXT("properties"), ChildPropsPtr) && ChildPropsPtr && (*ChildPropsPtr).IsValid())
+        {
+            TArray<FString> ChildNames;
+            (*ChildPropsPtr)->Values.GetKeys(ChildNames);
+            ChildNames.Sort();
+
+            for (const FString& ChildName : ChildNames)
+            {
+                const TSharedPtr<FJsonObject>* ChildSchemaPtr = nullptr;
+                if (!(*ChildPropsPtr)->TryGetObjectField(ChildName, ChildSchemaPtr) || !ChildSchemaPtr || !(*ChildSchemaPtr).IsValid())
+                {
+                    continue;
+                }
+
+                TArray<FString> ChildPath = FieldPath;
+                ChildPath.Add(ChildName);
+                AddSchemaFieldsRecursive(*ChildSchemaPtr, ChildPath, Depth + 1, Entry, CardBody);
+            }
+        }
+        return;
+    }
+
+    FRshipActionFieldState& Field = Entry->Fields.AddDefaulted_GetRef();
+    Field.FieldPath = FieldPath;
+    Field.ParamName = FieldPath.Last();
+    Field.ParamType = ParamType;
+    Field.IndentDepth = Depth;
+
+    CardBody->AddSlot()
+    .AutoHeight()
+    .Padding(0.0f, 0.0f, 0.0f, 4.0f)
+    [
+        SNew(SHorizontalBox)
+        + SHorizontalBox::Slot()
+        .AutoWidth()
+        .VAlign(VAlign_Center)
+        .Padding(0.0f, 0.0f, 8.0f, 0.0f)
+        [
+            SNew(SHorizontalBox)
+            + SHorizontalBox::Slot()
+            .AutoWidth()
+            [
+                SNew(SSpacer)
+                .Size(FVector2D(FMath::Max(0, Field.IndentDepth) * 12.0f, 1.0f))
+            ]
+            + SHorizontalBox::Slot()
+            .AutoWidth()
+            .VAlign(VAlign_Center)
+            [
+                SNew(STextBlock)
+                .Text(FText::FromString(FString::Join(Field.FieldPath, TEXT("."))))
+                .MinDesiredWidth(110.0f)
+            ]
+        ]
+        + SHorizontalBox::Slot()
+        .FillWidth(1.0f)
+        [
+            (ParamType == TEXT("boolean"))
+            ? StaticCastSharedRef<SWidget>(
+                SAssignNew(Field.BoolBox, SCheckBox)
+            )
+            : StaticCastSharedRef<SWidget>(
+                SAssignNew(Field.ValueBox, SEditableTextBox)
+                .HintText(
+                    ParamType == TEXT("number")
+                    ? LOCTEXT("ActionNumberHint", "number")
+                    : LOCTEXT("ActionStringHint", "value"))
+            )
+        ]
+    ];
+}
+
+bool SRshipStatusPanel::BuildActionPayload(const TSharedPtr<FRshipActionEntryState>& ActionEntry, TSharedPtr<FJsonObject>& OutPayload, FString& OutError) const
+{
+    OutPayload = MakeShared<FJsonObject>();
+    OutError.Empty();
+
+    if (!ActionEntry.IsValid())
+    {
+        OutError = TEXT("Invalid action entry");
+        return false;
+    }
+
+    auto FindOrCreateObjectForPath = [](const TSharedPtr<FJsonObject>& Root, const TArray<FString>& PathSegments) -> TSharedPtr<FJsonObject>
+    {
+        TSharedPtr<FJsonObject> Current = Root;
+        for (const FString& Segment : PathSegments)
+        {
+            const TSharedPtr<FJsonObject>* ExistingChildPtr = nullptr;
+            if (Current->TryGetObjectField(Segment, ExistingChildPtr) && ExistingChildPtr && (*ExistingChildPtr).IsValid())
+            {
+                Current = *ExistingChildPtr;
+                continue;
+            }
+
+            TSharedPtr<FJsonObject> NewChild = MakeShared<FJsonObject>();
+            Current->SetObjectField(Segment, NewChild);
+            Current = NewChild;
+        }
+        return Current;
+    };
+
+    for (const FRshipActionFieldState& Field : ActionEntry->Fields)
+    {
+        if (Field.FieldPath.Num() == 0)
+        {
+            OutError = TEXT("Invalid field path");
+            return false;
+        }
+
+        TArray<FString> ParentPath = Field.FieldPath;
+        const FString LeafName = ParentPath.Pop();
+        TSharedPtr<FJsonObject> ParentObject = FindOrCreateObjectForPath(OutPayload, ParentPath);
+        if (!ParentObject.IsValid())
+        {
+            OutError = FString::Printf(TEXT("Failed to build payload path for '%s'"), *Field.ParamName);
+            return false;
+        }
+
+        if (Field.ParamType == TEXT("boolean"))
+        {
+            const bool bValue = Field.BoolBox.IsValid() && (Field.BoolBox->GetCheckedState() == ECheckBoxState::Checked);
+            ParentObject->SetBoolField(LeafName, bValue);
+        }
+        else if (Field.ParamType == TEXT("number"))
+        {
+            if (!Field.ValueBox.IsValid())
+            {
+                OutError = FString::Printf(TEXT("Missing input field for '%s'"), *Field.ParamName);
+                return false;
+            }
+
+            const FString Raw = Field.ValueBox->GetText().ToString().TrimStartAndEnd();
+            double NumberValue = 0.0;
+            if (!Raw.IsEmpty() && !FDefaultValueHelper::ParseDouble(Raw, NumberValue))
+            {
+                OutError = FString::Printf(TEXT("Invalid number for '%s'"), *Field.ParamName);
+                return false;
+            }
+
+            ParentObject->SetNumberField(LeafName, NumberValue);
+        }
+        else
+        {
+            if (!Field.ValueBox.IsValid())
+            {
+                OutError = FString::Printf(TEXT("Missing input field for '%s'"), *Field.ParamName);
+                return false;
+            }
+
+            ParentObject->SetStringField(LeafName, Field.ValueBox->GetText().ToString());
+        }
+    }
+
+    return true;
+}
+
+FReply SRshipStatusPanel::OnExecuteActionClicked(TSharedPtr<FRshipActionEntryState> ActionEntry)
+{
+    URshipTargetComponent* TargetComponent = SelectedTargetComponent.Get();
+    if (!TargetComponent || !TargetComponent->TargetData || !TargetComponent->GetOwner() || !ActionEntry.IsValid() || !ActionEntry->ActionPtr)
+    {
+        if (ActionEntry.IsValid() && ActionEntry->ResultText.IsValid())
+        {
+            ActionEntry->ResultText->SetText(LOCTEXT("ActionRunInvalidState", "Unable to execute (invalid target/action)"));
+            ActionEntry->ResultText->SetColorAndOpacity(FLinearColor::Red);
+        }
+        return FReply::Handled();
+    }
+
+    TSharedPtr<FJsonObject> Payload;
+    FString Error;
+    if (!BuildActionPayload(ActionEntry, Payload, Error))
+    {
+        if (ActionEntry->ResultText.IsValid())
+        {
+            ActionEntry->ResultText->SetText(FText::FromString(Error));
+            ActionEntry->ResultText->SetColorAndOpacity(FLinearColor::Red);
+        }
+        return FReply::Handled();
+    }
+
+    const bool bSuccess = ActionEntry->ActionPtr->Take(TargetComponent->GetOwner(), Payload.ToSharedRef());
+    if (ActionEntry->ResultText.IsValid())
+    {
+        ActionEntry->ResultText->SetText(
+            bSuccess
+            ? LOCTEXT("ActionRunSuccess", "Action executed locally")
+            : LOCTEXT("ActionRunFail", "Action execution failed"));
+        ActionEntry->ResultText->SetColorAndOpacity(bSuccess ? FLinearColor::Green : FLinearColor::Red);
+    }
+
+    return FReply::Handled();
 }
 
 #if RSHIP_EDITOR_HAS_2110
