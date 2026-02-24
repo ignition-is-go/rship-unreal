@@ -6,6 +6,7 @@
 #include "Widgets/SCompoundWidget.h"
 #include "Widgets/DeclarativeSyntaxSupport.h"
 #include "Widgets/Views/SListView.h"
+#include "Widgets/Input/SCheckBox.h"
 
 class URshipSubsystem;
 class URshipTargetComponent;
@@ -94,6 +95,12 @@ private:
     void OnServerAddressCommitted(const FText& NewText, ETextCommit::Type CommitType);
     void OnServerPortCommitted(const FText& NewText, ETextCommit::Type CommitType);
 
+    // Global remote communication toggle
+    ECheckBoxState GetRemoteToggleState() const;
+    void OnRemoteToggleChanged(ECheckBoxState NewState);
+    EVisibility GetRemoteOffBannerVisibility() const;
+    bool IsRemoteControlsEnabled() const;
+
     // Target list
     TSharedRef<ITableRow> GenerateTargetRow(TSharedPtr<FRshipTargetListItem> Item, const TSharedRef<STableViewBase>& OwnerTable);
     void OnTargetSelectionChanged(TSharedPtr<FRshipTargetListItem> Item, ESelectInfo::Type SelectInfo);
@@ -137,6 +144,7 @@ private:
     TSharedPtr<SImage> StatusIndicator;
     TSharedPtr<SEditableTextBox> ServerAddressBox;
     TSharedPtr<SEditableTextBox> ServerPortBox;
+    TSharedPtr<class SCheckBox> RemoteToggleCheckBox;
 
     // Diagnostics text blocks
     TSharedPtr<STextBlock> QueueLengthText;

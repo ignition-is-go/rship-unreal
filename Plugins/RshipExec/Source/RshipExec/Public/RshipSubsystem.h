@@ -88,6 +88,7 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     TSharedPtr<FRshipWebSocket> WebSocket;
     bool bPingResponseReceived = false;                  // Diagnostic: tracks if ping response came back
     bool bIsManuallyReconnecting = false;                // Prevents auto-reconnect during manual reconnect
+    bool bRemoteCommunicationEnabled = true;             // Global hard gate for all remote server communication
 
     FString InstanceId;
     FString ServiceId;
@@ -313,6 +314,13 @@ public:
     /** Get the current server port from settings */
     UFUNCTION(BlueprintCallable, Category = "Rship|Connection")
     int32 GetServerPort() const;
+
+    /** Enable/disable all remote server communication. Disabling immediately disconnects and blocks reconnect/send. */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Connection")
+    void SetRemoteCommunicationEnabled(bool bEnabled);
+    /** Whether remote server communication is globally enabled. */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Connection")
+    bool IsRemoteCommunicationEnabled() const { return bRemoteCommunicationEnabled; }
 
     void PulseEmitter(FString TargetId, FString EmitterId, TSharedPtr<FJsonObject> data);
     void SendAll();

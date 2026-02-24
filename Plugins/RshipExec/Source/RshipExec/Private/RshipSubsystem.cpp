@@ -73,8 +73,15 @@ void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
     // Initialize rate limiter
     InitializeRateLimiter();
 
-    // Connect to server
-    Reconnect();
+    // Connect to server (if globally enabled)
+    if (bRemoteCommunicationEnabled)
+    {
+        Reconnect();
+    }
+    else
+    {
+        UE_LOG(LogRshipExec, Warning, TEXT("Remote communication is disabled; skipping initial connect"));
+    }
 
     auto world = GetWorld();
 
@@ -174,6 +181,12 @@ void URshipSubsystem::InitializeRateLimiter()
 
 void URshipSubsystem::Reconnect()
 {
+    if (!bRemoteCommunicationEnabled)
+    {
+        UE_LOG(LogRshipExec, Log, TEXT("Reconnect skipped: remote communication is disabled"));
+        ConnectionState = ERshipConnectionState::Disconnected;
+        return;
+    }
     // Set flag to prevent OnWebSocketClosed from scheduling auto-reconnect
     bIsManuallyReconnecting = true;
 
@@ -281,6 +294,47 @@ void URshipSubsystem::Reconnect()
     bIsManuallyReconnecting = false;
 }
 
+void URshipSubsystem::SetRemoteCommunicationEnabled(bool bEnabled)
+{
+    if (bRemoteCommunicationEnabled == bEnabled)
+    {
+        return;
+    }
+    bRemoteCommunicationEnabled = bEnabled;
+    if (!bRemoteCommunicationEnabled)
+    {
+        UE_LOG(LogRshipExec, Warning, TEXT("Remote communication disabled - disconnecting and stopping all remote traffic"));
+        if (ReconnectTickerHandle.IsValid())
+        {
+            FTSTicker::GetCoreTicker().RemoveTicker(ReconnectTickerHandle);
+            ReconnectTickerHandle.Reset();
+        }
+        if (ConnectionTimeoutTickerHandle.IsValid())
+        {
+            FTSTicker::GetCoreTicker().RemoveTicker(ConnectionTimeoutTickerHandle);
+            ConnectionTimeoutTickerHandle.Reset();
+        }
+        if (WebSocket)
+        {
+            WebSocket->Close();
+            WebSocket.Reset();
+        }
+        ConnectionState = ERshipConnectionState::Disconnected;
+        ReconnectAttempts = 0;
+        if (RateLimiter)
+        {
+            RateLimiter->ClearQueue();
+        }
+    }
+    else
+    {
+        UE_LOG(LogRshipExec, Log, TEXT("Remote communication enabled - reconnecting"));
+        ReconnectAttempts = 0;
+        Reconnect();
+    }
+
+}
+
 void URshipSubsystem::ConnectTo(const FString& Host, int32 Port)
 {
     // Update settings with new values
@@ -295,10 +349,18 @@ void URshipSubsystem::ConnectTo(const FString& Host, int32 Port)
         UE_LOG(LogRshipExec, Log, TEXT("Saved server settings to config: %s:%d"), *Host, Port);
     }
 
-    // Force reconnect with new settings
+    // Force reconnect with new settings when remote communication is enabled
     ReconnectAttempts = 0;
     ConnectionState = ERshipConnectionState::Disconnected;
-    Reconnect();
+
+    if (bRemoteCommunicationEnabled)
+    {
+        Reconnect();
+    }
+    else
+    {
+        UE_LOG(LogRshipExec, Log, TEXT("Saved server settings while remote communication is disabled"));
+    }
 }
 
 FString URshipSubsystem::GetServerAddress() const
@@ -406,7 +468,7 @@ void URshipSubsystem::OnWebSocketConnectionError(const FString &Error)
 
     // Schedule reconnection if enabled
     const URshipSettings *Settings = GetDefault<URshipSettings>();
-    if (Settings->bAutoReconnect)
+    if (Settings->bAutoReconnect && bRemoteCommunicationEnabled)
     {
         ScheduleReconnect();
     }
@@ -432,7 +494,7 @@ void URshipSubsystem::OnWebSocketClosed(int32 StatusCode, const FString &Reason,
     // Schedule reconnection if enabled and this wasn't a clean close
     // Skip if we're in the middle of a manual reconnect (user called Reconnect())
     const URshipSettings *Settings = GetDefault<URshipSettings>();
-    if (Settings->bAutoReconnect && !bWasClean && !bIsManuallyReconnecting)
+    if (Settings->bAutoReconnect && bRemoteCommunicationEnabled && !bWasClean && !bIsManuallyReconnecting)
     {
         ScheduleReconnect();
     }
@@ -445,6 +507,11 @@ void URshipSubsystem::OnWebSocketMessage(const FString &Message)
 
 void URshipSubsystem::ScheduleReconnect()
 {
+    if (!bRemoteCommunicationEnabled)
+    {
+        ConnectionState = ERshipConnectionState::Disconnected;
+        return;
+    }
     const URshipSettings *Settings = GetDefault<URshipSettings>();
 
     // Check max reconnect attempts
@@ -506,7 +573,7 @@ void URshipSubsystem::OnConnectionTimeout()
 
     // Schedule reconnection if enabled
     const URshipSettings* Settings = GetDefault<URshipSettings>();
-    if (Settings->bAutoReconnect)
+    if (Settings->bAutoReconnect && bRemoteCommunicationEnabled)
     {
         ScheduleReconnect();
     }
@@ -737,6 +804,10 @@ void URshipSubsystem::FlushPendingOnDataReceived()
 void URshipSubsystem::QueueMessage(TSharedPtr<FJsonObject> Payload, ERshipMessagePriority Priority,
                                     ERshipMessageType Type, const FString& CoalesceKey)
 {
+    if (!bRemoteCommunicationEnabled)
+    {
+        return;
+    }
     const URshipSettings *Settings = GetDefault<URshipSettings>();
 
     // If rate limiting is disabled, send directly
@@ -771,6 +842,10 @@ void URshipSubsystem::QueueMessage(TSharedPtr<FJsonObject> Payload, ERshipMessag
 
 void URshipSubsystem::SendJsonDirect(const FString& JsonString)
 {
+    if (!bRemoteCommunicationEnabled)
+    {
+        return;
+    }
     bool bConnected = WebSocket.IsValid() && WebSocket->IsConnected();
 
     if (!bConnected)
@@ -779,7 +854,7 @@ void URshipSubsystem::SendJsonDirect(const FString& JsonString)
         if (ConnectionState == ERshipConnectionState::Disconnected)
         {
             const URshipSettings *Settings = GetDefault<URshipSettings>();
-            if (Settings->bAutoReconnect && !ReconnectTickerHandle.IsValid())
+            if (Settings->bAutoReconnect && bRemoteCommunicationEnabled && !ReconnectTickerHandle.IsValid())
             {
                 ScheduleReconnect();
             }
@@ -1132,10 +1207,6 @@ bool URshipSubsystem::ExecuteTargetAction(const FString& TargetId, const FString
         {
             bTakeResult = TargetData->TakeAction(Owner, ActionId, Data);
         }
-
-        // Always queue data-received notification when an action execution was attempted
-        // on a resolved target component (independent of TakeAction return value).
-        QueueOnDataReceived(Comp);
 
         bResult |= bTakeResult;
     }
@@ -1876,7 +1947,7 @@ FString URshipSubsystem::GetInstanceId()
 
 bool URshipSubsystem::IsConnected() const
 {
-    return WebSocket.IsValid() && WebSocket->IsConnected();
+    return bRemoteCommunicationEnabled && WebSocket.IsValid() && WebSocket->IsConnected();
 }
 
 int32 URshipSubsystem::GetQueueLength() const

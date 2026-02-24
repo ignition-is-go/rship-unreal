@@ -57,9 +57,35 @@ TSharedRef<FSlateStyleSet> FRshipStatusPanelStyle::Create()
     const FVector2D Icon40x40(40.0f, 40.0f);
 
     const FString IconPath = Style->RootToContentDir(TEXT("RshipIcon"), TEXT(".png"));
+    const FString ToolbarIconPath = Style->RootToContentDir(TEXT("RshipToolbarIcon"), TEXT(".png"));
+    const FString ToolbarIconGreenPath = Style->RootToContentDir(TEXT("RshipToolbarIconGreen"), TEXT(".png"));
+    const FString ToolbarIconRedPath = Style->RootToContentDir(TEXT("RshipToolbarIconRed"), TEXT(".png"));
     if (IFileManager::Get().FileExists(*IconPath))
     {
         Style->Set("Rship.StatusPanel.TabIcon", new IMAGE_BRUSH(TEXT("RshipIcon"), Icon16x16));
+
+        if (IFileManager::Get().FileExists(*ToolbarIconGreenPath))
+        {
+            Style->Set("Rship.StatusPanel.ToolbarIcon.Connected", new IMAGE_BRUSH(TEXT("RshipToolbarIconGreen"), Icon40x40));
+        }
+        else
+        {
+            Style->Set("Rship.StatusPanel.ToolbarIcon.Connected", new IMAGE_BRUSH(TEXT("RshipIcon"), Icon40x40));
+        }
+
+        if (IFileManager::Get().FileExists(*ToolbarIconRedPath))
+        {
+            Style->Set("Rship.StatusPanel.ToolbarIcon.Disconnected", new IMAGE_BRUSH(TEXT("RshipToolbarIconRed"), Icon40x40));
+        }
+        else if (IFileManager::Get().FileExists(*ToolbarIconPath))
+        {
+            Style->Set("Rship.StatusPanel.ToolbarIcon.Disconnected", new IMAGE_BRUSH(TEXT("RshipToolbarIcon"), Icon40x40));
+        }
+        else
+        {
+            Style->Set("Rship.StatusPanel.ToolbarIcon.Disconnected", new IMAGE_BRUSH(TEXT("RshipIcon"), Icon40x40));
+        }
+
         Style->Set("Rship.StatusPanel.ToolbarIcon", new IMAGE_BRUSH(TEXT("RshipIcon"), Icon40x40));
     }
     else
@@ -67,6 +93,8 @@ TSharedRef<FSlateStyleSet> FRshipStatusPanelStyle::Create()
         // Fallback while icon file is missing.
         Style->Set("Rship.StatusPanel.TabIcon", new FSlateRoundedBoxBrush(FLinearColor(0.1f, 0.6f, 0.9f, 1.0f), 4.0f, FLinearColor::Transparent, 0.0f, Icon16x16));
         Style->Set("Rship.StatusPanel.ToolbarIcon", new FSlateRoundedBoxBrush(FLinearColor(0.1f, 0.6f, 0.9f, 1.0f), 4.0f, FLinearColor::Transparent, 0.0f, Icon40x40));
+        Style->Set("Rship.StatusPanel.ToolbarIcon.Connected", new FSlateRoundedBoxBrush(FLinearColor(0.1f, 0.6f, 0.9f, 1.0f), 4.0f, FLinearColor::Transparent, 0.0f, Icon40x40));
+        Style->Set("Rship.StatusPanel.ToolbarIcon.Disconnected", new FSlateRoundedBoxBrush(FLinearColor(0.1f, 0.6f, 0.9f, 1.0f), 4.0f, FLinearColor::Transparent, 0.0f, Icon40x40));
     }
 
     // Status indicator brushes

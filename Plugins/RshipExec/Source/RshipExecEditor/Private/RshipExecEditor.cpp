@@ -11,6 +11,7 @@
 #include "SRshipNDIPanel.h"
 #include "RshipStatusPanelStyle.h"
 #include "RshipStatusPanelCommands.h"
+#include "RshipSubsystem.h"
 
 #include "LevelEditor.h"
 #include "ToolMenus.h"
@@ -18,6 +19,7 @@
 #include "WorkspaceMenuStructureModule.h"
 #include "Widgets/Docking/SDockTab.h"
 #include "Framework/Docking/TabManager.h"
+#include "Engine/Engine.h"
 
 #define LOCTEXT_NAMESPACE "FRshipExecEditorModule"
 
@@ -29,6 +31,7 @@ static const FName RshipAssetSyncPanelTabName("RshipAssetSyncPanel");
 static const FName RshipFixturePanelTabName("RshipFixturePanel");
 static const FName RshipTestPanelTabName("RshipTestPanel");
 static const FName RshipNDIPanelTabName("RshipNDIPanel");
+static const FName RshipToolbarEntryName("RshipStatusToolbarButton");
 
 void FRshipExecEditorModule::StartupModule()
 {
@@ -53,12 +56,24 @@ void FRshipExecEditorModule::StartupModule()
 
     // Register menus after ToolMenus is ready
     UToolMenus::RegisterStartupCallback(FSimpleMulticastDelegate::FDelegate::CreateRaw(this, &FRshipExecEditorModule::RegisterMenus));
+
+    bLastToolbarConnectedState = false;
+    ToolbarStatusTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
+        FTickerDelegate::CreateRaw(this, &FRshipExecEditorModule::OnToolbarStatusTick),
+        0.25f
+    );
 }
 
 void FRshipExecEditorModule::ShutdownModule()
 {
     UToolMenus::UnRegisterStartupCallback(this);
     UToolMenus::UnregisterOwner(this);
+
+    if (ToolbarStatusTickerHandle.IsValid())
+    {
+        FTSTicker::GetCoreTicker().RemoveTicker(ToolbarStatusTickerHandle);
+        ToolbarStatusTickerHandle.Reset();
+    }
 
     FRshipStatusPanelCommands::Unregister();
     FRshipStatusPanelStyle::Shutdown();
@@ -270,6 +285,54 @@ TSharedRef<SDockTab> FRshipExecEditorModule::SpawnStatusPanelTab(const FSpawnTab
         ];
 }
 
+void FRshipExecEditorModule::UpdateToolbarStatusIcon(bool bConnected)
+{
+    UToolMenus* ToolMenus = UToolMenus::Get();
+    if (!ToolMenus)
+    {
+        return;
+    }
+
+    UToolMenu* ToolbarMenu = ToolMenus->ExtendMenu("LevelEditor.LevelEditorToolBar.PlayToolBar");
+    if (!ToolbarMenu)
+    {
+        return;
+    }
+
+    FToolMenuSection* Section = ToolbarMenu->FindSection("PluginTools");
+    if (!Section)
+    {
+        return;
+    }
+
+    FToolMenuEntry* Entry = Section->FindEntry(RshipToolbarEntryName);
+    if (!Entry)
+    {
+        return;
+    }
+
+    Entry->Icon = FSlateIcon(
+        FRshipStatusPanelStyle::GetStyleSetName(),
+        bConnected ? "Rship.StatusPanel.ToolbarIcon.Connected" : "Rship.StatusPanel.ToolbarIcon.Disconnected"
+    );
+
+    ToolMenus->RefreshAllWidgets();
+}
+
+bool FRshipExecEditorModule::OnToolbarStatusTick(float DeltaTime)
+{
+    URshipSubsystem* Subsystem = GEngine ? GEngine->GetEngineSubsystem<URshipSubsystem>() : nullptr;
+    const bool bConnected = Subsystem && Subsystem->IsConnected();
+
+    if (bConnected != bLastToolbarConnectedState)
+    {
+        bLastToolbarConnectedState = bConnected;
+        UpdateToolbarStatusIcon(bConnected);
+    }
+
+    return true;
+}
+
 void FRshipExecEditorModule::RegisterMenus()
 {
     // Owner will be used for cleanup in call to UToolMenus::UnregisterOwner
@@ -297,9 +360,10 @@ void FRshipExecEditorModule::RegisterMenus()
             FRshipStatusPanelCommands::Get().OpenStatusPanel,
             LOCTEXT("RshipToolbarButton", "Rship"),
             LOCTEXT("RshipToolbarTooltip", "Open Rocketship Status Panel"),
-            FSlateIcon(FRshipStatusPanelStyle::GetStyleSetName(), "Rship.StatusPanel.ToolbarIcon")
+            FSlateIcon(FRshipStatusPanelStyle::GetStyleSetName(), "Rship.StatusPanel.ToolbarIcon.Disconnected")
         ));
         Entry.SetCommandList(PluginCommands);
+        Entry.Name = RshipToolbarEntryName;
     }
 
     // Bind the command

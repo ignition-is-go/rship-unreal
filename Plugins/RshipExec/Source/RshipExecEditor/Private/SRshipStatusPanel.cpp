@@ -17,6 +17,7 @@
 #include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/Layout/SSeparator.h"
 #include "Widgets/Input/SButton.h"
+#include "Widgets/Input/SCheckBox.h"
 #include "Widgets/Input/SEditableTextBox.h"
 #include "Widgets/Input/SVectorInputBox.h"
 #include "Widgets/Text/STextBlock.h"
@@ -218,6 +219,67 @@ TSharedRef<SWidget> SRshipStatusPanel::BuildConnectionSection()
             ]
         ]
 
+
+        // Prominent local-only banner when remote communication is disabled
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 0.0f, 0.0f, 8.0f)
+        [
+            SNew(SBorder)
+            .Visibility(this, &SRshipStatusPanel::GetRemoteOffBannerVisibility)
+            .Padding(8.0f)
+            .BorderBackgroundColor(FLinearColor(0.75f, 0.1f, 0.1f, 1.0f))
+            [
+                SNew(STextBlock)
+                .Text(LOCTEXT("RemoteOffBanner", "REMOTE OFF  -  LOCAL ACTIONS ONLY"))
+                .ColorAndOpacity(FLinearColor::White)
+                .Font(FCoreStyle::GetDefaultFontStyle("Bold", 12))
+            ]
+        ]
+
+        // Global remote communication toggle
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 0.0f, 0.0f, 8.0f)
+        [
+            SNew(SHorizontalBox)
+
+            + SHorizontalBox::Slot()
+            .AutoWidth()
+            .VAlign(VAlign_Center)
+            .Padding(0.0f, 0.0f, 8.0f, 0.0f)
+            [
+                SNew(STextBlock)
+                .Text(LOCTEXT("RemoteToggleLabel", "Remote Server:"))
+                .Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))
+            ]
+
+            + SHorizontalBox::Slot()
+            .AutoWidth()
+            .VAlign(VAlign_Center)
+            [
+                SAssignNew(RemoteToggleCheckBox, SCheckBox)
+                .OnCheckStateChanged(this, &SRshipStatusPanel::OnRemoteToggleChanged)
+                .IsChecked(this, &SRshipStatusPanel::GetRemoteToggleState)
+                [
+                    SNew(STextBlock)
+                    .Text_Lambda([this]()
+                    {
+                        return IsRemoteControlsEnabled()
+                            ? LOCTEXT("RemoteOnLabel", "ON")
+                            : LOCTEXT("RemoteOffLabel", "OFF");
+                    })
+                    .Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))
+                    .ColorAndOpacity_Lambda([this]()
+                    {
+                        return IsRemoteControlsEnabled()
+                            ? FLinearColor(0.1f, 0.7f, 0.1f, 1.0f)
+                            : FLinearColor(0.9f, 0.1f, 0.1f, 1.0f);
+                    })
+                ]
+            ]
+        ]
+
         // Server address row
         + SVerticalBox::Slot()
         .AutoHeight()
@@ -243,6 +305,7 @@ TSharedRef<SWidget> SRshipStatusPanel::BuildConnectionSection()
                 .Text(FText::FromString(InitialAddress))
                 .HintText(LOCTEXT("ServerAddressHint", "hostname or IP"))
                 .OnTextCommitted(this, &SRshipStatusPanel::OnServerAddressCommitted)
+                .IsEnabled(this, &SRshipStatusPanel::IsRemoteControlsEnabled)
             ]
 
             + SHorizontalBox::Slot()
@@ -264,6 +327,7 @@ TSharedRef<SWidget> SRshipStatusPanel::BuildConnectionSection()
                     .Text(FText::FromString(FString::FromInt(InitialPort)))
                     .HintText(LOCTEXT("PortHint", "port"))
                     .OnTextCommitted(this, &SRshipStatusPanel::OnServerPortCommitted)
+                    .IsEnabled(this, &SRshipStatusPanel::IsRemoteControlsEnabled)
                 ]
             ]
         ]
@@ -281,6 +345,7 @@ TSharedRef<SWidget> SRshipStatusPanel::BuildConnectionSection()
             [
                 SNew(SButton)
                 .Text(LOCTEXT("ReconnectButton", "Reconnect"))
+                .IsEnabled(this, &SRshipStatusPanel::IsRemoteControlsEnabled)
                 .OnClicked(this, &SRshipStatusPanel::OnReconnectClicked)
             ]
 
@@ -394,15 +459,7 @@ TSharedRef<SWidget> SRshipStatusPanel::BuildActionsSection()
             .BorderImage(FAppStyle::GetBrush("ToolPanel.GroupBorder"))
             .Padding(2.0f)
             [
-                SNew(SBox)
-                .MaxDesiredHeight(260.0f)
-                [
-                    SNew(SScrollBox)
-                    + SScrollBox::Slot()
-                    [
-                        SAssignNew(ActionsListBox, SVerticalBox)
-                    ]
-                ]
+                SAssignNew(ActionsListBox, SVerticalBox)
             ]
         ];
 }
@@ -739,6 +796,41 @@ void SRshipStatusPanel::RefreshTargetList()
     }
 }
 
+ECheckBoxState SRshipStatusPanel::GetRemoteToggleState() const
+{
+    URshipSubsystem* Subsystem = GetSubsystem();
+    if (!Subsystem)
+    {
+        return ECheckBoxState::Checked;
+    }
+    return Subsystem->IsRemoteCommunicationEnabled() ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
+}
+
+void SRshipStatusPanel::OnRemoteToggleChanged(ECheckBoxState NewState)
+{
+    URshipSubsystem* Subsystem = GetSubsystem();
+    if (!Subsystem)
+    {
+        return;
+    }
+
+    const bool bEnableRemote = (NewState == ECheckBoxState::Checked);
+    Subsystem->SetRemoteCommunicationEnabled(bEnableRemote);
+    UpdateConnectionStatus();
+    UpdateDiagnostics();
+}
+
+EVisibility SRshipStatusPanel::GetRemoteOffBannerVisibility() const
+{
+    return IsRemoteControlsEnabled() ? EVisibility::Collapsed : EVisibility::Visible;
+}
+
+bool SRshipStatusPanel::IsRemoteControlsEnabled() const
+{
+    URshipSubsystem* Subsystem = GetSubsystem();
+    return !Subsystem || Subsystem->IsRemoteCommunicationEnabled();
+}
+
 void SRshipStatusPanel::UpdateConnectionStatus()
 {
     URshipSubsystem* Subsystem = GetSubsystem();
@@ -756,13 +848,19 @@ void SRshipStatusPanel::UpdateConnectionStatus()
         return;
     }
 
+    const bool bRemoteEnabled = Subsystem->IsRemoteCommunicationEnabled();
     bool bConnected = Subsystem->IsConnected();
     bool bBackingOff = Subsystem->IsRateLimiterBackingOff();
 
     FText StatusText;
     FName BrushName;
 
-    if (bConnected)
+    if (!bRemoteEnabled)
+    {
+        StatusText = LOCTEXT("StatusRemoteOff", "REMOTE OFF (Local Only)");
+        BrushName = "Rship.Status.Disconnected";
+    }
+    else if (bConnected)
     {
         StatusText = LOCTEXT("StatusConnected", "Connected");
         BrushName = "Rship.Status.Connected";
@@ -782,6 +880,7 @@ void SRshipStatusPanel::UpdateConnectionStatus()
     if (ConnectionStatusText.IsValid())
     {
         ConnectionStatusText->SetText(StatusText);
+        ConnectionStatusText->SetColorAndOpacity(bRemoteEnabled ? FSlateColor::UseForeground() : FLinearColor(0.9f, 0.1f, 0.1f, 1.0f));
     }
     if (StatusIndicator.IsValid())
     {
@@ -837,7 +936,7 @@ void SRshipStatusPanel::UpdateDiagnostics()
 FReply SRshipStatusPanel::OnReconnectClicked()
 {
     URshipSubsystem* Subsystem = GetSubsystem();
-    if (Subsystem)
+    if (Subsystem && Subsystem->IsRemoteCommunicationEnabled())
     {
         // Get address from text boxes
         FString Address = ServerAddressBox.IsValid() ? ServerAddressBox->GetText().ToString() : TEXT("");

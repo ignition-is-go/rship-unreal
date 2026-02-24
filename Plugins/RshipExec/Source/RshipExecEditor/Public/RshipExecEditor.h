@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Modules/ModuleManager.h"
+#include "Containers/Ticker.h"
 
 class FRshipExecEditorModule : public IModuleInterface
 {
@@ -91,5 +92,11 @@ private:
     TSharedRef<class SDockTab> SpawnNDIPanelTab(const class FSpawnTabArgs& Args);
 
     /** Register menu extensions */
+    void UpdateToolbarStatusIcon(bool bConnected);
+    bool OnToolbarStatusTick(float DeltaTime);
+
+    FTSTicker::FDelegateHandle ToolbarStatusTickerHandle;
+    bool bLastToolbarConnectedState = false;
+
     void RegisterMenus();
 };
