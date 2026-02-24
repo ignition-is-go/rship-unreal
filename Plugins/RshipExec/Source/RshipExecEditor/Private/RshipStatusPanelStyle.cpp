@@ -5,6 +5,7 @@
 #include "Styling/SlateTypes.h"
 #include "Styling/CoreStyle.h"
 #include "Interfaces/IPluginManager.h"
+#include "HAL/FileManager.h"
 
 #define IMAGE_BRUSH(RelativePath, ...) FSlateImageBrush(Style->RootToContentDir(RelativePath, TEXT(".png")), __VA_ARGS__)
 #define BOX_BRUSH(RelativePath, ...) FSlateBoxBrush(Style->RootToContentDir(RelativePath, TEXT(".png")), __VA_ARGS__)
@@ -52,14 +53,21 @@ TSharedRef<FSlateStyleSet> FRshipStatusPanelStyle::Create()
     TSharedRef<FSlateStyleSet> Style = MakeShareable(new FSlateStyleSet("RshipStatusPanelStyle"));
     Style->SetContentRoot(IPluginManager::Get().FindPlugin("RshipExec")->GetBaseDir() / TEXT("Resources"));
 
-    // Use built-in icons since we don't have custom ones yet
     const FVector2D Icon16x16(16.0f, 16.0f);
-    const FVector2D Icon20x20(20.0f, 20.0f);
     const FVector2D Icon40x40(40.0f, 40.0f);
 
-    // Tab and toolbar icons - use editor style icons as placeholders
-    Style->Set("Rship.StatusPanel.TabIcon", new FSlateRoundedBoxBrush(FLinearColor(0.1f, 0.6f, 0.9f, 1.0f), 4.0f, FLinearColor::Transparent, 0.0f, Icon16x16));
-    Style->Set("Rship.StatusPanel.ToolbarIcon", new FSlateRoundedBoxBrush(FLinearColor(0.1f, 0.6f, 0.9f, 1.0f), 4.0f, FLinearColor::Transparent, 0.0f, Icon40x40));
+    const FString IconPath = Style->RootToContentDir(TEXT("RshipIcon"), TEXT(".png"));
+    if (IFileManager::Get().FileExists(*IconPath))
+    {
+        Style->Set("Rship.StatusPanel.TabIcon", new IMAGE_BRUSH(TEXT("RshipIcon"), Icon16x16));
+        Style->Set("Rship.StatusPanel.ToolbarIcon", new IMAGE_BRUSH(TEXT("RshipIcon"), Icon40x40));
+    }
+    else
+    {
+        // Fallback while icon file is missing.
+        Style->Set("Rship.StatusPanel.TabIcon", new FSlateRoundedBoxBrush(FLinearColor(0.1f, 0.6f, 0.9f, 1.0f), 4.0f, FLinearColor::Transparent, 0.0f, Icon16x16));
+        Style->Set("Rship.StatusPanel.ToolbarIcon", new FSlateRoundedBoxBrush(FLinearColor(0.1f, 0.6f, 0.9f, 1.0f), 4.0f, FLinearColor::Transparent, 0.0f, Icon40x40));
+    }
 
     // Status indicator brushes
     Style->Set("Rship.Status.Connected", new FSlateRoundedBoxBrush(GetConnectedColor(), 6.0f, FLinearColor::Transparent, 0.0f, FVector2D(12.0f, 12.0f)));

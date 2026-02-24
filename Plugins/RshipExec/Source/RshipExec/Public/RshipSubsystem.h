@@ -232,13 +232,17 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     FTSTicker::FDelegateHandle ReconnectTickerHandle;
     FTSTicker::FDelegateHandle SubsystemTickerHandle;
     FTSTicker::FDelegateHandle ConnectionTimeoutTickerHandle;
+    FTSTicker::FDelegateHandle DeferredOnDataReceivedTickerHandle;
     double LastTickTime;
+    // Components that had successful Take() calls this frame; flushed once per tick.
+    TSet<TWeakObjectPtr<URshipTargetComponent>> PendingOnDataReceivedComponents;
 
     // Ticker callbacks (return true to keep ticking, false to stop)
     bool OnQueueProcessTick(float DeltaTime);
     bool OnReconnectTick(float DeltaTime);
     bool OnSubsystemTick(float DeltaTime);
     bool OnConnectionTimeoutTick(float DeltaTime);
+    bool OnDeferredOnDataReceivedTick(float DeltaTime);
 
     // Internal message handling
     void SetItem(FString itemType, TSharedPtr<FJsonObject> data, ERshipMessagePriority Priority = ERshipMessagePriority::Normal, const FString& CoalesceKey = TEXT(""));
@@ -262,6 +266,7 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     void AttemptReconnect();
     void TickSubsystems();
     void OnConnectionTimeout();
+    void FlushPendingOnDataReceived();
 
     // WebSocket event handlers
     void OnWebSocketConnected();
@@ -331,6 +336,12 @@ public:
 
     // Find all target components with the given target ID
     TArray<URshipTargetComponent*> FindAllTargetComponents(const FString& FullTargetId) const;
+
+    // Execute an action using the same routing/guards as server commands.
+    bool ExecuteTargetAction(const FString& TargetId, const FString& ActionId, const TSharedRef<FJsonObject>& Data);
+    
+    // Queue OnRshipData broadcast for end-of-frame dispatch.
+    void QueueOnDataReceived(URshipTargetComponent* Component);
 
     FString GetServiceId();
     FString GetInstanceId();

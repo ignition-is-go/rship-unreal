@@ -9,10 +9,13 @@
 
 class URshipSubsystem;
 class URshipTargetComponent;
+class AActor;
 class Action;
-class SCheckBox;
 class SVerticalBox;
 class FJsonObject;
+struct FInstancedPropertyBag;
+class FInstancePropertyBagStructureDataProvider;
+class ISinglePropertyView;
 
 /** Row data for the target list */
 struct FRshipTargetListItem
@@ -32,15 +35,16 @@ struct FRshipTargetListItem
     {}
 };
 
-/** Runtime UI state for one action parameter input field */
-struct FRshipActionFieldState
+/** Maps one property bag field to the original schema field path/type */
+struct FRshipActionFieldBinding
 {
+    FName BagPropertyName;
     TArray<FString> FieldPath;
-    FString ParamName;
     FString ParamType;
-    int32 IndentDepth = 0;
-    TSharedPtr<class SEditableTextBox> ValueBox;
-    TSharedPtr<SCheckBox> BoolBox;
+    bool bIsVector3 = false;
+    FString VectorXName;
+    FString VectorYName;
+    FString VectorZName;
 };
 
 /** Runtime UI state for one invokable action */
@@ -49,7 +53,10 @@ struct FRshipActionEntryState
     FString ActionId;
     FString ActionName;
     Action* ActionPtr = nullptr;
-    TArray<FRshipActionFieldState> Fields;
+    TArray<FRshipActionFieldBinding> FieldBindings;
+    TSharedPtr<FInstancedPropertyBag> ParameterBag;
+    TSharedPtr<FInstancePropertyBagStructureDataProvider> BagDataProvider;
+    TArray<TSharedPtr<ISinglePropertyView>> FieldViews;
     TSharedPtr<class STextBlock> ResultText;
 };
 
@@ -102,13 +109,13 @@ private:
     TSharedRef<SWidget> BuildDiagnosticsSection();
     void RefreshActionsSection();
     FReply OnExecuteActionClicked(TSharedPtr<FRshipActionEntryState> ActionEntry);
+    void OnActionExpansionChanged(bool bIsExpanded, FString ActionId);
     bool BuildActionPayload(const TSharedPtr<FRshipActionEntryState>& ActionEntry, TSharedPtr<FJsonObject>& OutPayload, FString& OutError) const;
     void AddSchemaFieldsRecursive(
         const TSharedPtr<FJsonObject>& ParamSchema,
         const TArray<FString>& FieldPath,
-        int32 Depth,
         const TSharedPtr<FRshipActionEntryState>& Entry,
-        const TSharedPtr<SVerticalBox>& CardBody);
+        TSet<FName>& UsedBagNames);
 
 #if RSHIP_EDITOR_HAS_2110
     TSharedRef<SWidget> Build2110Section();
@@ -119,8 +126,11 @@ private:
     TArray<TSharedPtr<FRshipTargetListItem>> TargetItems;
     TSharedPtr<SListView<TSharedPtr<FRshipTargetListItem>>> TargetListView;
     TWeakObjectPtr<URshipTargetComponent> SelectedTargetComponent;
+    TWeakObjectPtr<AActor> SelectedTargetOwner;
+    FString SelectedTargetId;
     TArray<TSharedPtr<FRshipActionEntryState>> ActionEntries;
     TSharedPtr<SVerticalBox> ActionsListBox;
+    TMap<FString, bool> ActionExpansionState;
 
     // Cached UI elements for updates
     TSharedPtr<STextBlock> ConnectionStatusText;

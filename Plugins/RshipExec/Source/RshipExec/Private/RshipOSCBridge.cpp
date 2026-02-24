@@ -526,7 +526,6 @@ void URshipOSCBridge::ProcessIncomingMessage(const FRshipOSCMessage& Message)
                             bool bResult = Comp->TargetData->TakeAction(Owner, ActionId, ActionData);
                             if (bResult)
                             {
-                                Comp->OnDataReceived();
                                 UE_LOG(LogRshipExec, Verbose, TEXT("OSCBridge: Executed action %s on %s"), *ActionId, *TargetId);
                             }
                         }

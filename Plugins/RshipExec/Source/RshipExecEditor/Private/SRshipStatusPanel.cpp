@@ -13,15 +13,25 @@
 
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SBorder.h"
+#include "Widgets/Layout/SExpandableArea.h"
 #include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/Layout/SSeparator.h"
-#include "Widgets/Layout/SSpacer.h"
 #include "Widgets/Input/SButton.h"
-#include "Widgets/Input/SCheckBox.h"
 #include "Widgets/Input/SEditableTextBox.h"
+#include "Widgets/Input/SVectorInputBox.h"
 #include "Widgets/Text/STextBlock.h"
 #include "Widgets/Images/SImage.h"
 #include "Widgets/Views/SHeaderRow.h"
+#include "PropertyEditorModule.h"
+#include "ISinglePropertyView.h"
+#if __has_include("InstancedPropertyBagStructureDataProvider.h")
+#include "InstancedPropertyBagStructureDataProvider.h"
+#elif __has_include("InstancePropertyBagStructureDataProvider.h")
+#include "InstancePropertyBagStructureDataProvider.h"
+#else
+#error "Property bag structure data provider header not found"
+#endif
+#include "StructUtils/PropertyBag.h"
 #include "Styling/AppStyle.h"
 #include "EditorStyleSet.h"
 #include "ISettingsModule.h"
@@ -32,7 +42,6 @@
 #include "Selection.h"
 #include "Widgets/Text/SInlineEditableTextBlock.h"
 #include "Dom/JsonObject.h"
-#include "Misc/DefaultValueHelper.h"
 
 #define LOCTEXT_NAMESPACE "SRshipStatusPanel"
 
@@ -376,14 +385,14 @@ TSharedRef<SWidget> SRshipStatusPanel::BuildActionsSection()
         [
             SNew(STextBlock)
             .Text(LOCTEXT("ActionsTitle", "Actions"))
-            .Font(FCoreStyle::GetDefaultFontStyle("Bold", 12))
+            .Font(FAppStyle::GetFontStyle("PropertyWindow.BoldFont"))
         ]
         + SVerticalBox::Slot()
         .AutoHeight()
         [
             SNew(SBorder)
             .BorderImage(FAppStyle::GetBrush("ToolPanel.GroupBorder"))
-            .Padding(6.0f)
+            .Padding(2.0f)
             [
                 SNew(SBox)
                 .MaxDesiredHeight(260.0f)
@@ -543,6 +552,38 @@ void SRshipStatusPanel::RefreshTargetList()
             SelectedComponent = SelectedItems[0]->Component;
         }
     }
+    // If list selection is temporarily cleared (e.g. after an action mutates editor state),
+    // keep using our last known selected component so selection is stable across refreshes.
+    if (!SelectedComponent.IsValid() && SelectedTargetComponent.IsValid())
+    {
+        SelectedComponent = SelectedTargetComponent;
+    }
+    // If the selected component instance was recreated, recover by owner actor.
+    if (!SelectedComponent.IsValid() && SelectedTargetOwner.IsValid())
+    {
+        for (auto& Pair : *Subsystem->TargetComponents)
+        {
+            URshipTargetComponent* Candidate = Pair.Value;
+            if (Candidate && Candidate->IsValidLowLevel() && Candidate->GetOwner() == SelectedTargetOwner.Get())
+            {
+                SelectedComponent = Candidate;
+                break;
+            }
+        }
+    }
+    // Final fallback: recover selection by target ID across component/world recreation.
+    if (!SelectedComponent.IsValid() && !SelectedTargetId.IsEmpty())
+    {
+        for (auto& Pair : *Subsystem->TargetComponents)
+        {
+            URshipTargetComponent* Candidate = Pair.Value;
+            if (Candidate && Candidate->IsValidLowLevel() && Candidate->targetName == SelectedTargetId)
+            {
+                SelectedComponent = Candidate;
+                break;
+            }
+        }
+    }
 
     // Build new items list
     TArray<TSharedPtr<FRshipTargetListItem>> NewItems;
@@ -642,6 +683,7 @@ void SRshipStatusPanel::RefreshTargetList()
         TargetListView->RequestListRefresh();
 
         // Restore selection if the component still exists
+        bool bSelectionRestored = false;
         if (SelectedComponent.IsValid())
         {
             for (const auto& Item : TargetItems)
@@ -649,6 +691,23 @@ void SRshipStatusPanel::RefreshTargetList()
                 if (Item.IsValid() && Item->Component.Get() == SelectedComponent.Get())
                 {
                     TargetListView->SetSelection(Item, ESelectInfo::Direct);
+                    TargetListView->RequestScrollIntoView(Item);
+                    bSelectionRestored = true;
+                    break;
+                }
+            }
+        }
+        // If component instance changed, restore by target id.
+        if (!bSelectionRestored && !SelectedTargetId.IsEmpty())
+        {
+            for (const auto& Item : TargetItems)
+            {
+                if (Item.IsValid() && Item->TargetId == SelectedTargetId)
+                {
+                    TargetListView->SetSelection(Item, ESelectInfo::Direct);
+                    TargetListView->RequestScrollIntoView(Item);
+                    SelectedComponent = Item->Component;
+                    bSelectionRestored = true;
                     break;
                 }
             }
@@ -661,6 +720,8 @@ void SRshipStatusPanel::RefreshTargetList()
     {
         bShouldRefreshActions = (SelectedTargetComponent.Get() != SelectedComponent.Get());
         SelectedTargetComponent = SelectedComponent;
+        SelectedTargetOwner = SelectedComponent->GetOwner();
+        SelectedTargetId = SelectedComponent->targetName;
     }
     else if (!TargetItems.ContainsByPredicate([this](const TSharedPtr<FRshipTargetListItem>& Item)
         {
@@ -669,6 +730,7 @@ void SRshipStatusPanel::RefreshTargetList()
     {
         bShouldRefreshActions = SelectedTargetComponent.IsValid();
         SelectedTargetComponent.Reset();
+        // Keep owner fallback; do not clear SelectedTargetOwner here.
     }
 
     if (bShouldRefreshActions)
@@ -841,6 +903,8 @@ void SRshipStatusPanel::OnTargetSelectionChanged(TSharedPtr<FRshipTargetListItem
     if (Item.IsValid() && Item->Component.IsValid() && GEditor)
     {
         SelectedTargetComponent = Item->Component;
+        SelectedTargetOwner = Item->Component->GetOwner();
+        SelectedTargetId = Item->TargetId;
         RefreshActionsSection();
 
         // Select the actor in the outliner
@@ -854,6 +918,8 @@ void SRshipStatusPanel::OnTargetSelectionChanged(TSharedPtr<FRshipTargetListItem
     else
     {
         SelectedTargetComponent.Reset();
+        SelectedTargetOwner.Reset();
+        // Keep SelectedTargetId so selection can recover across editor state transitions.
         RefreshActionsSection();
     }
 }
@@ -902,6 +968,8 @@ void SRshipStatusPanel::SyncSelectionFromOutliner()
                 TargetListView->SetSelection(Item, ESelectInfo::Direct);
                 TargetListView->RequestScrollIntoView(Item);
                 SelectedTargetComponent = TargetComp;
+                SelectedTargetOwner = TargetComp->GetOwner();
+                SelectedTargetId = TargetComp->targetName;
                 RefreshActionsSection();
                 return;
             }
@@ -968,35 +1036,10 @@ void SRshipStatusPanel::RefreshActionsSection()
         Entry->ActionId = Pair.Key;
         Entry->ActionName = Pair.Value->GetName();
         Entry->ActionPtr = Pair.Value;
+        Entry->ParameterBag = MakeShared<FInstancedPropertyBag>();
         ActionEntries.Add(Entry);
 
-        TSharedPtr<SVerticalBox> CardBody;
-
-        ActionsListBox->AddSlot()
-        .AutoHeight()
-        .Padding(0.0f, 0.0f, 0.0f, 8.0f)
-        [
-            SNew(SBorder)
-            .BorderImage(FAppStyle::GetBrush("DetailsView.CategoryTop"))
-            .Padding(6.0f)
-            [
-                SAssignNew(CardBody, SVerticalBox)
-
-                + SVerticalBox::Slot()
-                .AutoHeight()
-                .Padding(0.0f, 0.0f, 0.0f, 6.0f)
-                [
-                    SNew(STextBlock)
-                    .Text(FText::FromString(Entry->ActionName.IsEmpty() ? Entry->ActionId : Entry->ActionName))
-                    .Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))
-                ]
-            ]
-        ];
-
-        if (!CardBody.IsValid())
-        {
-            continue;
-        }
+        TSet<FName> UsedBagNames;
 
         const TSharedPtr<FJsonObject> Schema = Entry->ActionPtr->GetSchema();
         const TSharedPtr<FJsonObject>* PropertiesPtr = nullptr;
@@ -1015,15 +1058,153 @@ void SRshipStatusPanel::RefreshActionsSection()
                 }
                 TArray<FString> RootPath;
                 RootPath.Add(ParamName);
-                AddSchemaFieldsRecursive(*ParamSchemaPtr, RootPath, 0, Entry, CardBody);
+                AddSchemaFieldsRecursive(*ParamSchemaPtr, RootPath, Entry, UsedBagNames);
             }
         }
 
-        if (Entry->Fields.Num() == 0)
+        TSharedPtr<SVerticalBox> CardBody;
+        const FString ExpansionKey = SelectedTargetId + TEXT("::") + Entry->ActionId;
+        const bool bInitiallyExpanded = ActionExpansionState.FindRef(ExpansionKey);
+
+        ActionsListBox->AddSlot()
+        .AutoHeight()
+        .Padding(1.0f, 0.0f, 1.0f, 2.0f)
+        [
+            SNew(SBorder)
+            .BorderImage(FAppStyle::GetBrush("ToolPanel.GroupBorder"))
+            .Padding(0.0f)
+            [
+                SNew(SExpandableArea)
+                .AreaTitle(FText::FromString(Entry->ActionName.IsEmpty() ? Entry->ActionId : Entry->ActionName))
+                .InitiallyCollapsed(!bInitiallyExpanded)
+                .HeaderPadding(FMargin(6.0f, 3.0f))
+                .BorderImage(FAppStyle::GetBrush("DetailsView.CategoryTop"))
+                .BodyBorderImage(FAppStyle::GetBrush("DetailsView.CollapsedCategory"))
+                .AreaTitleFont(FAppStyle::GetFontStyle("PropertyWindow.BoldFont"))
+                .OnAreaExpansionChanged(this, &SRshipStatusPanel::OnActionExpansionChanged, Entry->ActionId)
+                .BodyContent()
+                [
+                    SNew(SBorder)
+                    .BorderImage(FAppStyle::GetBrush("NoBorder"))
+                    .Padding(FMargin(6.0f, 4.0f, 6.0f, 6.0f))
+                    [
+                        SAssignNew(CardBody, SVerticalBox)
+                    ]
+                ]
+            ]
+        ];
+
+        if (!CardBody.IsValid())
+        {
+            continue;
+        }
+
+        if (Entry->FieldBindings.Num() > 0)
+        {
+            FPropertyEditorModule& PropertyEditorModule = FModuleManager::LoadModuleChecked<FPropertyEditorModule>("PropertyEditor");
+            Entry->BagDataProvider = MakeShared<FInstancePropertyBagStructureDataProvider>(*Entry->ParameterBag);
+
+            for (const FRshipActionFieldBinding& Binding : Entry->FieldBindings)
+            {
+                if (Binding.bIsVector3)
+                {
+                    const FRshipActionFieldBinding BindingCopy = Binding;
+                    const FString LabelText = FString::Join(Binding.FieldPath, TEXT("."));
+
+                    auto GetVectorValue = [Entry, BindingCopy]() -> FVector
+                    {
+                        if (!Entry.IsValid() || !Entry->ParameterBag.IsValid())
+                        {
+                            return FVector::ZeroVector;
+                        }
+                        const TValueOrError<FVector*, EPropertyBagResult> Result =
+                            Entry->ParameterBag->GetValueStruct<FVector>(BindingCopy.BagPropertyName);
+                        return (Result.IsValid() && Result.GetValue() != nullptr) ? *Result.GetValue() : FVector::ZeroVector;
+                    };
+
+                    auto SetVectorComponent = [Entry, BindingCopy](int32 Axis, float NewValue)
+                    {
+                        if (!Entry.IsValid() || !Entry->ParameterBag.IsValid())
+                        {
+                            return;
+                        }
+
+                        const TValueOrError<FVector*, EPropertyBagResult> CurrentResult =
+                            Entry->ParameterBag->GetValueStruct<FVector>(BindingCopy.BagPropertyName);
+                        FVector Value = (CurrentResult.IsValid() && CurrentResult.GetValue() != nullptr)
+                            ? *CurrentResult.GetValue()
+                            : FVector::ZeroVector;
+
+                        if (Axis == 0) { Value.X = NewValue; }
+                        else if (Axis == 1) { Value.Y = NewValue; }
+                        else { Value.Z = NewValue; }
+
+                        Entry->ParameterBag->SetValueStruct(BindingCopy.BagPropertyName, Value);
+                    };
+
+                    CardBody->AddSlot()
+                    .AutoHeight()
+                    .Padding(0.0f)
+                    [
+                        SNew(SHorizontalBox)
+                        + SHorizontalBox::Slot()
+                        .AutoWidth()
+                        .VAlign(VAlign_Center)
+                        .Padding(0.0f, 0.0f, 8.0f, 0.0f)
+                        [
+                            SNew(STextBlock)
+                            .Text(FText::FromString(LabelText))
+                            .MinDesiredWidth(150.0f)
+                            .Font(FAppStyle::GetFontStyle("PropertyWindow.NormalFont"))
+                            .ColorAndOpacity(FSlateColor::UseSubduedForeground())
+                        ]
+                        + SHorizontalBox::Slot()
+                        .FillWidth(1.0f)
+                        .VAlign(VAlign_Center)
+                        [
+                            SNew(SVectorInputBox)
+                            .bColorAxisLabels(true)
+                            .X_Lambda([GetVectorValue]() { return TOptional<float>(GetVectorValue().X); })
+                            .Y_Lambda([GetVectorValue]() { return TOptional<float>(GetVectorValue().Y); })
+                            .Z_Lambda([GetVectorValue]() { return TOptional<float>(GetVectorValue().Z); })
+                            .OnXChanged_Lambda([SetVectorComponent](float V) { SetVectorComponent(0, V); })
+                            .OnYChanged_Lambda([SetVectorComponent](float V) { SetVectorComponent(1, V); })
+                            .OnZChanged_Lambda([SetVectorComponent](float V) { SetVectorComponent(2, V); })
+                            .OnXCommitted_Lambda([SetVectorComponent](float V, ETextCommit::Type) { SetVectorComponent(0, V); })
+                            .OnYCommitted_Lambda([SetVectorComponent](float V, ETextCommit::Type) { SetVectorComponent(1, V); })
+                            .OnZCommitted_Lambda([SetVectorComponent](float V, ETextCommit::Type) { SetVectorComponent(2, V); })
+                        ]
+                    ];
+                    continue;
+                }
+
+                FSinglePropertyParams SinglePropertyParams;
+                SinglePropertyParams.bHideResetToDefault = true;
+                SinglePropertyParams.bHideAssetThumbnail = true;
+                SinglePropertyParams.NamePlacement = EPropertyNamePlacement::Left;
+                SinglePropertyParams.NameOverride = FText::FromString(FString::Join(Binding.FieldPath, TEXT(".")));
+
+                TSharedPtr<ISinglePropertyView> SinglePropertyView =
+                    PropertyEditorModule.CreateSingleProperty(Entry->BagDataProvider, Binding.BagPropertyName, SinglePropertyParams);
+                if (!SinglePropertyView.IsValid() || !SinglePropertyView->HasValidProperty())
+                {
+                    continue;
+                }
+
+                Entry->FieldViews.Add(SinglePropertyView);
+                CardBody->AddSlot()
+                .AutoHeight()
+                .Padding(0.0f)
+                [
+                    SinglePropertyView.ToSharedRef()
+                ];
+            }
+        }
+        else
         {
             CardBody->AddSlot()
             .AutoHeight()
-            .Padding(0.0f, 0.0f, 0.0f, 4.0f)
+            .Padding(0.0f, 2.0f, 0.0f, 6.0f)
             [
                 SNew(STextBlock)
                 .Text(LOCTEXT("ActionNoParams", "No parameters"))
@@ -1033,7 +1214,7 @@ void SRshipStatusPanel::RefreshActionsSection()
 
         CardBody->AddSlot()
         .AutoHeight()
-        .Padding(0.0f, 4.0f, 0.0f, 0.0f)
+        .Padding(0.0f, 2.0f, 0.0f, 4.0f)
         [
             SNew(SHorizontalBox)
             + SHorizontalBox::Slot()
@@ -1055,14 +1236,46 @@ void SRshipStatusPanel::RefreshActionsSection()
     }
 }
 
+void SRshipStatusPanel::OnActionExpansionChanged(bool bIsExpanded, FString ActionId)
+{
+    if (ActionId.IsEmpty())
+    {
+        return;
+    }
+
+    const FString ExpansionKey = SelectedTargetId + TEXT("::") + ActionId;
+    ActionExpansionState.Add(ExpansionKey, bIsExpanded);
+}
+
+namespace
+{
+FName MakeUniqueBagFieldName(const TArray<FString>& FieldPath, TSet<FName>& UsedBagNames)
+{
+    FString BaseName = FString::Join(FieldPath, TEXT("_"));
+    if (BaseName.IsEmpty())
+    {
+        BaseName = TEXT("Param");
+    }
+
+    FName Candidate(*BaseName);
+    int32 Suffix = 2;
+    while (UsedBagNames.Contains(Candidate))
+    {
+        Candidate = FName(*FString::Printf(TEXT("%s_%d"), *BaseName, Suffix++));
+    }
+
+    UsedBagNames.Add(Candidate);
+    return Candidate;
+}
+}
+
 void SRshipStatusPanel::AddSchemaFieldsRecursive(
     const TSharedPtr<FJsonObject>& ParamSchema,
     const TArray<FString>& FieldPath,
-    int32 Depth,
     const TSharedPtr<FRshipActionEntryState>& Entry,
-    const TSharedPtr<SVerticalBox>& CardBody)
+    TSet<FName>& UsedBagNames)
 {
-    if (!ParamSchema.IsValid() || !Entry.IsValid() || !CardBody.IsValid() || FieldPath.Num() == 0)
+    if (!ParamSchema.IsValid() || !Entry.IsValid() || !Entry->ParameterBag.IsValid() || FieldPath.Num() == 0)
     {
         return;
     }
@@ -1072,6 +1285,86 @@ void SRshipStatusPanel::AddSchemaFieldsRecursive(
 
     if (ParamType == TEXT("object"))
     {
+        auto TryBuildVector3Binding = [](const TSharedPtr<FJsonObject>& ObjectSchema, FString& OutX, FString& OutY, FString& OutZ) -> bool
+        {
+            const TSharedPtr<FJsonObject>* ChildPropsPtr = nullptr;
+            if (!ObjectSchema.IsValid() ||
+                !ObjectSchema->TryGetObjectField(TEXT("properties"), ChildPropsPtr) ||
+                !ChildPropsPtr || !(*ChildPropsPtr).IsValid())
+            {
+                return false;
+            }
+
+            const TSharedPtr<FJsonObject>& Props = *ChildPropsPtr;
+            TArray<FString> Keys;
+            Props->Values.GetKeys(Keys);
+            if (Keys.Num() != 3)
+            {
+                return false;
+            }
+
+            auto FindKeyIgnoreCase = [&Keys](const TCHAR* Expected) -> FString
+            {
+                for (const FString& Key : Keys)
+                {
+                    if (Key.Equals(Expected, ESearchCase::IgnoreCase))
+                    {
+                        return Key;
+                    }
+                }
+                return FString();
+            };
+
+            const FString XKey = FindKeyIgnoreCase(TEXT("x"));
+            const FString YKey = FindKeyIgnoreCase(TEXT("y"));
+            const FString ZKey = FindKeyIgnoreCase(TEXT("z"));
+            if (XKey.IsEmpty() || YKey.IsEmpty() || ZKey.IsEmpty())
+            {
+                return false;
+            }
+
+            const FString AxisKeys[3] = { XKey, YKey, ZKey };
+            for (const FString& AxisKey : AxisKeys)
+            {
+                const TSharedPtr<FJsonObject>* AxisSchemaPtr = nullptr;
+                if (!Props->TryGetObjectField(AxisKey, AxisSchemaPtr) || !AxisSchemaPtr || !(*AxisSchemaPtr).IsValid())
+                {
+                    return false;
+                }
+
+                FString AxisType;
+                if (!(*AxisSchemaPtr)->TryGetStringField(TEXT("type"), AxisType) || AxisType != TEXT("number"))
+                {
+                    return false;
+                }
+            }
+
+            OutX = XKey;
+            OutY = YKey;
+            OutZ = ZKey;
+            return true;
+        };
+
+        FString XKey;
+        FString YKey;
+        FString ZKey;
+        if (TryBuildVector3Binding(ParamSchema, XKey, YKey, ZKey))
+        {
+            const FName BagFieldName = MakeUniqueBagFieldName(FieldPath, UsedBagNames);
+            Entry->ParameterBag->AddProperty(BagFieldName, EPropertyBagPropertyType::Struct, TBaseStructure<FVector>::Get());
+            Entry->ParameterBag->SetValueStruct(BagFieldName, FVector::ZeroVector);
+
+            FRshipActionFieldBinding& Binding = Entry->FieldBindings.AddDefaulted_GetRef();
+            Binding.BagPropertyName = BagFieldName;
+            Binding.FieldPath = FieldPath;
+            Binding.ParamType = TEXT("number");
+            Binding.bIsVector3 = true;
+            Binding.VectorXName = XKey;
+            Binding.VectorYName = YKey;
+            Binding.VectorZName = ZKey;
+            return;
+        }
+
         const TSharedPtr<FJsonObject>* ChildPropsPtr = nullptr;
         if (ParamSchema->TryGetObjectField(TEXT("properties"), ChildPropsPtr) && ChildPropsPtr && (*ChildPropsPtr).IsValid())
         {
@@ -1089,60 +1382,43 @@ void SRshipStatusPanel::AddSchemaFieldsRecursive(
 
                 TArray<FString> ChildPath = FieldPath;
                 ChildPath.Add(ChildName);
-                AddSchemaFieldsRecursive(*ChildSchemaPtr, ChildPath, Depth + 1, Entry, CardBody);
+                AddSchemaFieldsRecursive(*ChildSchemaPtr, ChildPath, Entry, UsedBagNames);
             }
         }
         return;
     }
 
-    FRshipActionFieldState& Field = Entry->Fields.AddDefaulted_GetRef();
-    Field.FieldPath = FieldPath;
-    Field.ParamName = FieldPath.Last();
-    Field.ParamType = ParamType;
-    Field.IndentDepth = Depth;
+    EPropertyBagPropertyType BagType = EPropertyBagPropertyType::String;
+    if (ParamType == TEXT("boolean"))
+    {
+        BagType = EPropertyBagPropertyType::Bool;
+    }
+    else if (ParamType == TEXT("number"))
+    {
+        BagType = EPropertyBagPropertyType::Double;
+    }
 
-    CardBody->AddSlot()
-    .AutoHeight()
-    .Padding(0.0f, 0.0f, 0.0f, 4.0f)
-    [
-        SNew(SHorizontalBox)
-        + SHorizontalBox::Slot()
-        .AutoWidth()
-        .VAlign(VAlign_Center)
-        .Padding(0.0f, 0.0f, 8.0f, 0.0f)
-        [
-            SNew(SHorizontalBox)
-            + SHorizontalBox::Slot()
-            .AutoWidth()
-            [
-                SNew(SSpacer)
-                .Size(FVector2D(FMath::Max(0, Field.IndentDepth) * 12.0f, 1.0f))
-            ]
-            + SHorizontalBox::Slot()
-            .AutoWidth()
-            .VAlign(VAlign_Center)
-            [
-                SNew(STextBlock)
-                .Text(FText::FromString(FString::Join(Field.FieldPath, TEXT("."))))
-                .MinDesiredWidth(110.0f)
-            ]
-        ]
-        + SHorizontalBox::Slot()
-        .FillWidth(1.0f)
-        [
-            (ParamType == TEXT("boolean"))
-            ? StaticCastSharedRef<SWidget>(
-                SAssignNew(Field.BoolBox, SCheckBox)
-            )
-            : StaticCastSharedRef<SWidget>(
-                SAssignNew(Field.ValueBox, SEditableTextBox)
-                .HintText(
-                    ParamType == TEXT("number")
-                    ? LOCTEXT("ActionNumberHint", "number")
-                    : LOCTEXT("ActionStringHint", "value"))
-            )
-        ]
-    ];
+    const FName BagFieldName = MakeUniqueBagFieldName(FieldPath, UsedBagNames);
+
+    Entry->ParameterBag->AddProperty(BagFieldName, BagType, nullptr);
+
+    if (BagType == EPropertyBagPropertyType::Bool)
+    {
+        Entry->ParameterBag->SetValueBool(BagFieldName, false);
+    }
+    else if (BagType == EPropertyBagPropertyType::Double)
+    {
+        Entry->ParameterBag->SetValueDouble(BagFieldName, 0.0);
+    }
+    else
+    {
+        Entry->ParameterBag->SetValueString(BagFieldName, FString());
+    }
+
+    FRshipActionFieldBinding& Binding = Entry->FieldBindings.AddDefaulted_GetRef();
+    Binding.BagPropertyName = BagFieldName;
+    Binding.FieldPath = FieldPath;
+    Binding.ParamType = ParamType;
 }
 
 bool SRshipStatusPanel::BuildActionPayload(const TSharedPtr<FRshipActionEntryState>& ActionEntry, TSharedPtr<FJsonObject>& OutPayload, FString& OutError) const
@@ -1175,7 +1451,13 @@ bool SRshipStatusPanel::BuildActionPayload(const TSharedPtr<FRshipActionEntrySta
         return Current;
     };
 
-    for (const FRshipActionFieldState& Field : ActionEntry->Fields)
+    if (!ActionEntry->ParameterBag.IsValid())
+    {
+        OutError = TEXT("Invalid action parameter state");
+        return false;
+    }
+
+    for (const FRshipActionFieldBinding& Field : ActionEntry->FieldBindings)
     {
         if (Field.FieldPath.Num() == 0)
         {
@@ -1188,42 +1470,59 @@ bool SRshipStatusPanel::BuildActionPayload(const TSharedPtr<FRshipActionEntrySta
         TSharedPtr<FJsonObject> ParentObject = FindOrCreateObjectForPath(OutPayload, ParentPath);
         if (!ParentObject.IsValid())
         {
-            OutError = FString::Printf(TEXT("Failed to build payload path for '%s'"), *Field.ParamName);
+            OutError = FString::Printf(TEXT("Failed to build payload path for '%s'"), *LeafName);
             return false;
+        }
+
+        if (Field.bIsVector3)
+        {
+            const TValueOrError<FVector*, EPropertyBagResult> VecResult = ActionEntry->ParameterBag->GetValueStruct<FVector>(Field.BagPropertyName);
+            if (!VecResult.IsValid() || VecResult.GetValue() == nullptr)
+            {
+                OutError = FString::Printf(TEXT("Missing vector value for '%s'"), *LeafName);
+                return false;
+            }
+
+            const FVector* Vec = VecResult.GetValue();
+            TSharedPtr<FJsonObject> VectorObject = MakeShared<FJsonObject>();
+            VectorObject->SetNumberField(Field.VectorXName, Vec->X);
+            VectorObject->SetNumberField(Field.VectorYName, Vec->Y);
+            VectorObject->SetNumberField(Field.VectorZName, Vec->Z);
+            ParentObject->SetObjectField(LeafName, VectorObject);
+            continue;
         }
 
         if (Field.ParamType == TEXT("boolean"))
         {
-            const bool bValue = Field.BoolBox.IsValid() && (Field.BoolBox->GetCheckedState() == ECheckBoxState::Checked);
-            ParentObject->SetBoolField(LeafName, bValue);
+            const TValueOrError<bool, EPropertyBagResult> BoolResult = ActionEntry->ParameterBag->GetValueBool(Field.BagPropertyName);
+            if (!BoolResult.HasValue())
+            {
+                OutError = FString::Printf(TEXT("Missing boolean value for '%s'"), *LeafName);
+                return false;
+            }
+            ParentObject->SetBoolField(LeafName, BoolResult.GetValue());
         }
         else if (Field.ParamType == TEXT("number"))
         {
-            if (!Field.ValueBox.IsValid())
+            const TValueOrError<double, EPropertyBagResult> NumberResult = ActionEntry->ParameterBag->GetValueDouble(Field.BagPropertyName);
+            if (!NumberResult.HasValue())
             {
-                OutError = FString::Printf(TEXT("Missing input field for '%s'"), *Field.ParamName);
+                OutError = FString::Printf(TEXT("Missing number value for '%s'"), *LeafName);
                 return false;
             }
 
-            const FString Raw = Field.ValueBox->GetText().ToString().TrimStartAndEnd();
-            double NumberValue = 0.0;
-            if (!Raw.IsEmpty() && !FDefaultValueHelper::ParseDouble(Raw, NumberValue))
-            {
-                OutError = FString::Printf(TEXT("Invalid number for '%s'"), *Field.ParamName);
-                return false;
-            }
-
-            ParentObject->SetNumberField(LeafName, NumberValue);
+            ParentObject->SetNumberField(LeafName, NumberResult.GetValue());
         }
         else
         {
-            if (!Field.ValueBox.IsValid())
+            const TValueOrError<FString, EPropertyBagResult> StringResult = ActionEntry->ParameterBag->GetValueString(Field.BagPropertyName);
+            if (!StringResult.HasValue())
             {
-                OutError = FString::Printf(TEXT("Missing input field for '%s'"), *Field.ParamName);
+                OutError = FString::Printf(TEXT("Missing text value for '%s'"), *LeafName);
                 return false;
             }
 
-            ParentObject->SetStringField(LeafName, Field.ValueBox->GetText().ToString());
+            ParentObject->SetStringField(LeafName, StringResult.GetValue());
         }
     }
 
@@ -1233,7 +1532,7 @@ bool SRshipStatusPanel::BuildActionPayload(const TSharedPtr<FRshipActionEntrySta
 FReply SRshipStatusPanel::OnExecuteActionClicked(TSharedPtr<FRshipActionEntryState> ActionEntry)
 {
     URshipTargetComponent* TargetComponent = SelectedTargetComponent.Get();
-    if (!TargetComponent || !TargetComponent->TargetData || !TargetComponent->GetOwner() || !ActionEntry.IsValid() || !ActionEntry->ActionPtr)
+    if (!TargetComponent || !TargetComponent->TargetData || !TargetComponent->GetOwner() || !ActionEntry.IsValid())
     {
         if (ActionEntry.IsValid() && ActionEntry->ResultText.IsValid())
         {
@@ -1255,7 +1554,27 @@ FReply SRshipStatusPanel::OnExecuteActionClicked(TSharedPtr<FRshipActionEntrySta
         return FReply::Handled();
     }
 
-    const bool bSuccess = ActionEntry->ActionPtr->Take(TargetComponent->GetOwner(), Payload.ToSharedRef());
+    bool bSuccess = false;
+    const FString TargetId = TargetComponent->TargetData ? TargetComponent->TargetData->GetId() : FString();
+    URshipSubsystem* Subsystem = GetSubsystem();
+#if WITH_EDITOR
+    // Allow Blueprint/script action execution while not in PIE/Simulate.
+    if (GEditor && GEditor->PlayWorld == nullptr)
+    {
+        FEditorScriptExecutionGuard ScriptGuard;
+        bSuccess = (Subsystem && !TargetId.IsEmpty())
+            ? Subsystem->ExecuteTargetAction(TargetId, ActionEntry->ActionId, Payload.ToSharedRef())
+            : TargetComponent->TargetData->TakeAction(TargetComponent->GetOwner(), ActionEntry->ActionId, Payload.ToSharedRef());
+        GEditor->RedrawAllViewports(false);
+    }
+    else
+#endif
+    {
+        bSuccess = (Subsystem && !TargetId.IsEmpty())
+            ? Subsystem->ExecuteTargetAction(TargetId, ActionEntry->ActionId, Payload.ToSharedRef())
+            : TargetComponent->TargetData->TakeAction(TargetComponent->GetOwner(), ActionEntry->ActionId, Payload.ToSharedRef());
+    }
+
     if (ActionEntry->ResultText.IsValid())
     {
         ActionEntry->ResultText->SetText(

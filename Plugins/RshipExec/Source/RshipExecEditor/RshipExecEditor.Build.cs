@@ -41,6 +41,9 @@ public class RshipExecEditor : ModuleRules
 				"LiveLink",          // For LiveLinkClient and LiveLink roles
 				"DesktopPlatform",   // For DesktopPlatformModule in SRshipAssetSyncPanel
 				"Json",              // For FJsonObject in SRshipTimecodePanel
+				"PropertyEditor",    // Native Details panel widgets
+				"StructUtils",       // FInstancedPropertyBag
+				"StructUtilsEditor", // FInstancePropertyBagStructureDataProvider
 			}
 		);
 

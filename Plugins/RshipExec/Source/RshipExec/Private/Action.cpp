@@ -41,6 +41,11 @@ FString Action::GetName()
     return this->name;
 }
 
+UObject* Action::GetOwnerObject() const
+{
+    return owner;
+}
+
 bool Action::Take(AActor *actor, const TSharedRef<FJsonObject> data)
 {
     UE_LOG(LogRshipExec, Verbose, TEXT("Taking Action %s"), *this->id);

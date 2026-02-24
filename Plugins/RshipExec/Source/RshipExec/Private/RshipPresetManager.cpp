@@ -573,8 +573,8 @@ void URshipPresetManager::ApplySnapshot(const FRshipEmitterSnapshot& Snapshot)
 			AActor* OwningActor = TargetComp->GetOwner();
 			if (OwningActor)
 			{
-				// Invoke the action with the snapshot values
-				bool bSuccess = (*FoundAction)->Take(OwningActor, Values.ToSharedRef());
+				// Invoke through Target::TakeAction so data-received dispatch and routing are consistent.
+				bool bSuccess = TargetComp->TargetData->TakeAction(OwningActor, (*FoundAction)->GetId(), Values.ToSharedRef());
 				if (bSuccess)
 				{
 					UE_LOG(LogTemp, Log, TEXT("RshipPresets: Applied snapshot for %s:%s via action"),
@@ -644,7 +644,7 @@ void URshipPresetManager::ApplyInterpolatedSnapshot(const FRshipEmitterSnapshot&
 			AActor* OwningActor = TargetComp->GetOwner();
 			if (OwningActor)
 			{
-				(*FoundAction)->Take(OwningActor, Interpolated.ToSharedRef());
+				TargetComp->TargetData->TakeAction(OwningActor, (*FoundAction)->GetId(), Interpolated.ToSharedRef());
 			}
 		}
 

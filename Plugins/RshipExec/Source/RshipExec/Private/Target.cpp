@@ -2,6 +2,9 @@
 
 #include "Target.h"
 #include "Logs.h"
+#include "Engine/Engine.h"
+#include "RshipSubsystem.h"
+#include "RshipTargetComponent.h"
 
 Target::Target(FString id)
 {
@@ -46,5 +49,26 @@ bool Target::TakeAction(AActor *actor, FString actionId, const TSharedRef<FJsonO
 		return false;
 	}
 
-	return this->actions[actionId]->Take(actor, data);
+	const bool bTaken = this->actions[actionId]->Take(actor, data);
+
+	// Defer OnRshipData dispatch to end-of-frame for any TakeAction call on a valid target/action.
+	// Some property imports can mutate values but still return false; event emission must not depend on that return.
+	if (actor && GEngine)
+	{
+		if (URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>())
+		{
+			TArray<URshipTargetComponent*> TargetComponentsOnActor;
+			actor->GetComponents<URshipTargetComponent>(TargetComponentsOnActor);
+			for (URshipTargetComponent* Comp : TargetComponentsOnActor)
+			{
+				if (Comp && Comp->TargetData == this)
+				{
+					Subsystem->QueueOnDataReceived(Comp);
+					break;
+				}
+			}
+		}
+	}
+
+	return bTaken;
 }

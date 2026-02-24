@@ -246,6 +246,11 @@ void URshipSubsystem::Reconnect()
         FTSTicker::GetCoreTicker().RemoveTicker(ConnectionTimeoutTickerHandle);
         ConnectionTimeoutTickerHandle.Reset();
     }
+    if (DeferredOnDataReceivedTickerHandle.IsValid())
+    {
+        FTSTicker::GetCoreTicker().RemoveTicker(DeferredOnDataReceivedTickerHandle);
+        DeferredOnDataReceivedTickerHandle.Reset();
+    }
     ConnectionTimeoutTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
         FTickerDelegate::CreateUObject(this, &URshipSubsystem::OnConnectionTimeoutTick),
         10.0f  // 10 second timeout (one-shot, callback returns false)
@@ -676,8 +681,57 @@ void URshipSubsystem::TickSubsystems()
         PCGManager->Tick(DeltaTime);
     }
 
+    // Fire OnRshipData once per target/component at end-of-frame for all successful Take() calls.
+    FlushPendingOnDataReceived();
+
     // Process message queue every tick to ensure messages are sent
     ProcessMessageQueue();
+}
+
+bool URshipSubsystem::OnDeferredOnDataReceivedTick(float DeltaTime)
+{
+    if (!IsValid(this))
+    {
+        return false;
+    }
+
+    FlushPendingOnDataReceived();
+    DeferredOnDataReceivedTickerHandle.Reset();
+    return false; // one-shot
+}
+
+void URshipSubsystem::QueueOnDataReceived(URshipTargetComponent* Component)
+{
+    if (Component)
+    {
+        PendingOnDataReceivedComponents.Add(Component);
+
+        // Ensure this also fires in editor paths even if subsystem tick is temporarily idle.
+        if (!DeferredOnDataReceivedTickerHandle.IsValid())
+        {
+            DeferredOnDataReceivedTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
+                FTickerDelegate::CreateUObject(this, &URshipSubsystem::OnDeferredOnDataReceivedTick),
+                0.0f
+            );
+        }
+    }
+}
+
+void URshipSubsystem::FlushPendingOnDataReceived()
+{
+    if (PendingOnDataReceivedComponents.Num() == 0)
+    {
+        return;
+    }
+
+    for (const TWeakObjectPtr<URshipTargetComponent>& WeakComp : PendingOnDataReceivedComponents)
+    {
+        if (URshipTargetComponent* Comp = WeakComp.Get())
+        {
+            Comp->OnDataReceived();
+        }
+    }
+    PendingOnDataReceivedComponents.Reset();
 }
 
 void URshipSubsystem::QueueMessage(TSharedPtr<FJsonObject> Payload, ERshipMessagePriority Priority,
@@ -793,87 +847,7 @@ void URshipSubsystem::ProcessMessage(const FString &message)
             FString actionId = execAction->GetStringField(TEXT("id"));
             FString targetId = execAction->GetStringField(TEXT("targetId"));
 
-            bool result = false;
-
-            // Check if this is a PCG target (paths start with "/pcg/")
-            if (targetId.StartsWith(TEXT("/pcg/")))
-            {
-                if (PCGManager)
-                {
-                    result = PCGManager->RouteAction(targetId, actionId, execData);
-                }
-                else
-                {
-                    UE_LOG(LogRshipExec, Warning, TEXT("PCG target action received but PCGManager not initialized: %s"), *targetId);
-                }
-            }
-            else
-            {
-                // Standard target component routing - get ALL components with this target ID
-                TArray<URshipTargetComponent*> comps = FindAllTargetComponents(targetId);
-                if (comps.Num() > 0)
-                {
-                    for (URshipTargetComponent* comp : comps)
-                    {
-                        if (!comp) continue;
-
-                        Target* target = comp->TargetData;
-                        AActor* owner = comp->GetOwner();
-
-                        // Determine world type for logging
-                        FString WorldTypeStr = TEXT("Unknown");
-                        if (owner)
-                        {
-                            if (UWorld* World = owner->GetWorld())
-                            {
-                                switch (World->WorldType)
-                                {
-                                    case EWorldType::Editor: WorldTypeStr = TEXT("Editor"); break;
-                                    case EWorldType::PIE:
-#if WITH_EDITOR
-                                        WorldTypeStr = (GEditor && GEditor->bIsSimulatingInEditor) ? TEXT("Simulate") : TEXT("PIE");
-#else
-                                        WorldTypeStr = TEXT("PIE");
-#endif
-                                        break;
-                                    case EWorldType::Game: WorldTypeStr = TEXT("Game"); break;
-                                    case EWorldType::EditorPreview: WorldTypeStr = TEXT("EditorPreview"); break;
-                                    default: WorldTypeStr = TEXT("Other"); break;
-                                }
-                            }
-                        }
-
-                        if (target != nullptr)
-                        {
-                            // Skip action execution in Editor world - only run in PIE/Simulate/Game
-                            if (owner)
-                            {
-                                if (UWorld* World = owner->GetWorld())
-                                {
-                                    if (World->WorldType == EWorldType::Editor)
-                                    {
-                                        UE_LOG(LogRshipExec, Verbose, TEXT("Skipping action [%s] on target [%s] (Editor)"), *actionId, *targetId);
-                                        continue;
-                                    }
-                                }
-                            }
-
-                            UE_LOG(LogRshipExec, Log, TEXT("Executing action [%s] on target [%s] (%s)"), *actionId, *targetId, *WorldTypeStr);
-                            bool takeResult = target->TakeAction(owner, actionId, execData);
-                            result |= takeResult;
-                            comp->OnDataReceived();
-                        }
-                        else
-                        {
-                            UE_LOG(LogRshipExec, Warning, TEXT("Target data null for: %s (%s)"), *targetId, *WorldTypeStr);
-                        }
-                    }
-                }
-                else
-                {
-                    UE_LOG(LogRshipExec, Warning, TEXT("Target not found: %s"), *targetId);
-                }
-            }
+            const bool result = ExecuteTargetAction(targetId, actionId, execData);
 
             if (result)
             {
@@ -1075,6 +1049,103 @@ void URshipSubsystem::ProcessMessage(const FString &message)
     }
 }
 
+bool URshipSubsystem::ExecuteTargetAction(const FString& TargetId, const FString& ActionId, const TSharedRef<FJsonObject>& Data)
+{
+    // Check if this is a PCG target (paths start with "/pcg/")
+    if (TargetId.StartsWith(TEXT("/pcg/")))
+    {
+        if (PCGManager)
+        {
+            return PCGManager->RouteAction(TargetId, ActionId, Data);
+        }
+
+        UE_LOG(LogRshipExec, Warning, TEXT("PCG target action received but PCGManager not initialized: %s"), *TargetId);
+        return false;
+    }
+
+    bool bResult = false;
+
+    // Standard target component routing - execute against all matching components.
+    TArray<URshipTargetComponent*> Comps = FindAllTargetComponents(TargetId);
+    if (Comps.Num() == 0)
+    {
+        UE_LOG(LogRshipExec, Warning, TEXT("Target not found: %s"), *TargetId);
+        return false;
+    }
+
+    for (URshipTargetComponent* Comp : Comps)
+    {
+        if (!Comp)
+        {
+            continue;
+        }
+
+        Target* TargetData = Comp->TargetData;
+        AActor* Owner = Comp->GetOwner();
+
+        FString WorldTypeStr = TEXT("Unknown");
+        if (Owner)
+        {
+            if (UWorld* World = Owner->GetWorld())
+            {
+                switch (World->WorldType)
+                {
+                    case EWorldType::Editor: WorldTypeStr = TEXT("Editor"); break;
+                    case EWorldType::PIE:
+#if WITH_EDITOR
+                        WorldTypeStr = (GEditor && GEditor->bIsSimulatingInEditor) ? TEXT("Simulate") : TEXT("PIE");
+#else
+                        WorldTypeStr = TEXT("PIE");
+#endif
+                        break;
+                    case EWorldType::Game: WorldTypeStr = TEXT("Game"); break;
+                    case EWorldType::EditorPreview: WorldTypeStr = TEXT("EditorPreview"); break;
+                    default: WorldTypeStr = TEXT("Other"); break;
+                }
+            }
+        }
+
+        if (!TargetData)
+        {
+            UE_LOG(LogRshipExec, Warning, TEXT("Target data null for: %s (%s)"), *TargetId, *WorldTypeStr);
+            continue;
+        }
+
+        bool bTakeResult = false;
+#if WITH_EDITOR
+        bool bIsEditorWorld = false;
+        if (Owner)
+        {
+            if (UWorld* World = Owner->GetWorld())
+            {
+                bIsEditorWorld = (World->WorldType == EWorldType::Editor);
+            }
+        }
+
+        if (bIsEditorWorld && GEditor && GEditor->PlayWorld == nullptr)
+        {
+            FEditorScriptExecutionGuard ScriptGuard;
+            bTakeResult = TargetData->TakeAction(Owner, ActionId, Data);
+        }
+        else
+#endif
+        {
+            bTakeResult = TargetData->TakeAction(Owner, ActionId, Data);
+        }
+
+        // Always queue data-received notification when an action execution was attempted
+        // on a resolved target component (independent of TakeAction return value).
+        QueueOnDataReceived(Comp);
+
+        bResult |= bTakeResult;
+    }
+
+    // Ensure OnRshipData dispatch is not delayed/lost in editor.
+    FlushPendingOnDataReceived();
+
+    return bResult;
+}
+
 void URshipSubsystem::Deinitialize()
 {
     UE_LOG(LogRshipExec, Log, TEXT("RshipSubsystem::Deinitialize"));
@@ -1099,6 +1170,11 @@ void URshipSubsystem::Deinitialize()
     {
         FTSTicker::GetCoreTicker().RemoveTicker(ConnectionTimeoutTickerHandle);
         ConnectionTimeoutTickerHandle.Reset();
+    }
+    if (DeferredOnDataReceivedTickerHandle.IsValid())
+    {
+        FTSTicker::GetCoreTicker().RemoveTicker(DeferredOnDataReceivedTickerHandle);
+        DeferredOnDataReceivedTickerHandle.Reset();
     }
 
     // Shutdown health monitor
@@ -1349,6 +1425,11 @@ void URshipSubsystem::BeginDestroy()
         FTSTicker::GetCoreTicker().RemoveTicker(ConnectionTimeoutTickerHandle);
         ConnectionTimeoutTickerHandle.Reset();
     }
+    if (DeferredOnDataReceivedTickerHandle.IsValid())
+    {
+        FTSTicker::GetCoreTicker().RemoveTicker(DeferredOnDataReceivedTickerHandle);
+        DeferredOnDataReceivedTickerHandle.Reset();
+    }
 
     // Clean up WebSocket connection without callbacks (object is being destroyed)
     if (WebSocket.IsValid())
@@ -1387,6 +1468,11 @@ void URshipSubsystem::PrepareForHotReload()
     {
         FTSTicker::GetCoreTicker().RemoveTicker(ConnectionTimeoutTickerHandle);
         ConnectionTimeoutTickerHandle.Reset();
+    }
+    if (DeferredOnDataReceivedTickerHandle.IsValid())
+    {
+        FTSTicker::GetCoreTicker().RemoveTicker(DeferredOnDataReceivedTickerHandle);
+        DeferredOnDataReceivedTickerHandle.Reset();
     }
 
     // Close WebSocket - its callbacks also hold function pointers

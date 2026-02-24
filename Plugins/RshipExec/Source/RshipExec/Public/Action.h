@@ -26,6 +26,7 @@ public:
 	~Action();
 	FString GetId();
 	FString GetName();
+	UObject* GetOwnerObject() const;
 	TSharedPtr<FJsonObject> GetSchema();
 	bool Take(AActor *actor, const TSharedRef<FJsonObject> data);
 	void UpdateSchema(UFunction *handler);
