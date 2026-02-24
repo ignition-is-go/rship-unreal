@@ -17,6 +17,12 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RTLightColor")
 	UTextureRenderTarget2D* ColorRenderTarget;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RTLightColor", meta = (ClampMin = "1"))
+	int32 GridWidth = 1;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RTLightColor", meta = (ClampMin = "1"))
+	int32 GridHeight = 1;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RTLightColor")
 	TArray<URectLightComponent*> Lights;
 
