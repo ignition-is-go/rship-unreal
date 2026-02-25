@@ -7,7 +7,6 @@
 
 using namespace std;
 
-const FString MEVENT_EVENT = "ws:m:event";
 
 FString GenerateTransactionId()
 {
@@ -32,7 +31,7 @@ TSharedPtr<FJsonObject> MakeEvent(FString itemType, FString changeType, TSharedP
 
     // Outer wrapper (matches myko WSMEvent structure: { event: "ws:m:event", data: MEvent })
     TSharedPtr<FJsonObject> payload = MakeShareable(new FJsonObject);
-    payload->SetStringField(TEXT("event"), TEXT("ws:m:event"));
+    payload->SetStringField(TEXT("event"), MykoEventNames::Event);
     payload->SetObjectField(TEXT("data"), eventData);
 
     return payload;
@@ -58,7 +57,53 @@ FString GetUniqueMachineId()
 TSharedPtr<FJsonObject> WrapWSEvent(TSharedPtr<FJsonObject> payload)
 {
     TSharedPtr<FJsonObject> wrapped = MakeShareable(new FJsonObject);
-    wrapped->SetStringField(TEXT("event"), MEVENT_EVENT);
+    wrapped->SetStringField(TEXT("event"), MykoEventNames::Event);
     wrapped->SetObjectField(TEXT("data"), payload);
     return wrapped;
+}
+
+bool TryGetMykoEventData(const TSharedPtr<FJsonObject>& Payload, TSharedPtr<FJsonObject>& OutEventData)
+{
+    OutEventData.Reset();
+
+    if (!Payload.IsValid())
+    {
+        return false;
+    }
+
+    FString EventType;
+    if (!Payload->TryGetStringField(TEXT("event"), EventType) || EventType != MykoEventNames::Event)
+    {
+        return false;
+    }
+
+    const TSharedPtr<FJsonObject>* DataPtr = nullptr;
+    if (!Payload->TryGetObjectField(TEXT("data"), DataPtr) || !DataPtr || !DataPtr->IsValid())
+    {
+        return false;
+    }
+
+    const TSharedPtr<FJsonObject>& Data = *DataPtr;
+
+    FString ChangeType;
+    FString ItemType;
+    const TSharedPtr<FJsonObject>* ItemPtr = nullptr;
+
+    if (!Data->TryGetStringField(TEXT("changeType"), ChangeType) ||
+        !Data->TryGetStringField(TEXT("itemType"), ItemType) ||
+        !Data->TryGetObjectField(TEXT("item"), ItemPtr) ||
+        !ItemPtr ||
+        !ItemPtr->IsValid())
+    {
+        return false;
+    }
+
+    OutEventData = Data;
+    return true;
+}
+
+bool IsMykoEventEnvelope(const TSharedPtr<FJsonObject>& Payload)
+{
+    TSharedPtr<FJsonObject> EventData;
+    return TryGetMykoEventData(Payload, EventData);
 }

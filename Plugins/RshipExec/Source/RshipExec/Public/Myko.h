@@ -2,6 +2,11 @@
 
 #include "CoreMinimal.h"
 #include "Dom/JsonObject.h"
+namespace MykoEventNames
+{
+	inline constexpr const TCHAR* Event = TEXT("ws:m:event");
+	inline constexpr const TCHAR* EventBatch = TEXT("ws:m:event-batch");
+}
 
 // Generate a unique transaction ID (UUID) for myko event tracking
 FString GenerateTransactionId();
@@ -24,3 +29,10 @@ FString GetUniqueMachineId();
 // Wrap payload in ws:m:event envelope
 TSharedPtr<FJsonObject> WrapWSEvent(TSharedPtr<FJsonObject> payload);
 
+
+// Validate that a payload is a ws:m:event envelope with required MEvent fields.
+bool IsMykoEventEnvelope(const TSharedPtr<FJsonObject>& Payload);
+
+// Extract MEvent object from a ws:m:event envelope.
+// Returns false if payload is not a valid Myko event envelope.
+bool TryGetMykoEventData(const TSharedPtr<FJsonObject>& Payload, TSharedPtr<FJsonObject>& OutEventData);

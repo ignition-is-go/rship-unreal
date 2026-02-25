@@ -10,6 +10,7 @@
  */
 
 #include "RshipRateLimiter.h"
+#include "Myko.h"
 #include "Logs.h"
 #include "Serialization/JsonWriter.h"
 #include "Serialization/JsonSerializer.h"
@@ -20,8 +21,6 @@
 
 namespace RshipRateLimiterConstants
 {
-    // Batch wrapper event name for server-side batch processing
-    constexpr const TCHAR* BatchEventName = TEXT("ws:m:batch");
 
     // Minimum bytes estimate for a JSON message (object wrapper overhead)
     constexpr int32 MinMessageBytes = 20;
@@ -367,6 +366,33 @@ int32 FRshipRateLimiter::ProcessQueue()
         // Batching logic
         if (Config.bEnableBatching)
         {
+            // Only Myko ws:m:event envelopes can be packed into ws:m:event-batch.
+            if (!IsMykoEventEnvelope(Msg.Payload))
+            {
+                if (CurrentBatch.Num() > 0)
+                {
+                    FlushBatch();
+                }
+
+                ConsumeMessageToken();
+                ConsumeBytesTokens(Msg.EstimatedBytes);
+
+                FString JsonString = SerializeMessage(Msg.Payload);
+                if (!JsonString.IsEmpty() && OnMessageReadyToSend.IsBound())
+                {
+                    OnMessageReadyToSend.Execute(JsonString);
+                    MessagesSent++;
+
+                    int32 BytesSent = JsonString.Len();
+                    RecentSendTimes.Add(Now);
+                    RecentSendBytes.Add(BytesSent);
+                }
+
+                QueueBytesEstimate -= Msg.EstimatedBytes;
+                MessageQueue.RemoveAt(0);
+                continue;
+            }
+
             // Check if batch should be flushed before adding this message
             if (ShouldFlushBatch())
             {
@@ -983,18 +1009,33 @@ FString FRshipRateLimiter::SerializeBatch(const TArray<FRshipQueuedMessage>& Bat
         return SerializeMessage(Batch[0].Payload);
     }
 
-    // Create batch wrapper
+        // Create typed Myko event-batch wrapper.
     TSharedPtr<FJsonObject> BatchWrapper = MakeShareable(new FJsonObject);
-    BatchWrapper->SetStringField(TEXT("event"), RshipRateLimiterConstants::BatchEventName);
+    BatchWrapper->SetStringField(TEXT("event"), MykoEventNames::EventBatch);
 
-    // Create array of payloads
+    // data must be an array of MEvent objects (not ws:m:event envelopes).
     TArray<TSharedPtr<FJsonValue>> PayloadArray;
     for (const FRshipQueuedMessage& Msg : Batch)
     {
-        if (Msg.Payload.IsValid())
+        if (!Msg.Payload.IsValid())
         {
-            PayloadArray.Add(MakeShareable(new FJsonValueObject(Msg.Payload)));
+            continue;
         }
+
+        TSharedPtr<FJsonObject> EventData;
+        if (!TryGetMykoEventData(Msg.Payload, EventData))
+        {
+            LogMessage(0, TEXT("SerializeBatch received non-Myko payload; dropping from event-batch"));
+            continue;
+        }
+
+        PayloadArray.Add(MakeShareable(new FJsonValueObject(EventData)));
+    }
+
+    if (PayloadArray.Num() == 0)
+    {
+        LogMessage(0, TEXT("SerializeBatch produced empty event-batch payload"));
+        return FString();
     }
 
     BatchWrapper->SetArrayField(TEXT("data"), PayloadArray);

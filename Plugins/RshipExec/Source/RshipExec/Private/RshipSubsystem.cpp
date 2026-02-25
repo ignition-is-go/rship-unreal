@@ -21,6 +21,7 @@
 #include "Action.h"
 #include "Target.h"
 
+
 #include "Myko.h"
 #include "EmitterHandler.h"
 #include "Logs.h"
@@ -1146,7 +1147,7 @@ void URshipSubsystem::ProcessMessage(const FString &message)
             ProcessEntityEvent(*dataPtr);
         }
     }
-    else if (type == "ws:m:event-batch")
+    else if (type == MykoEventNames::EventBatch)
     {
         // Myko protocol: { event: "ws:m:event-batch", data: MEvent[] }
         const TArray<TSharedPtr<FJsonValue>>* events = nullptr;
