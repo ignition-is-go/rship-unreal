@@ -4,10 +4,13 @@
 #include "Components/SceneComponent.h"
 #include "GameFramework/Actor.h"
 #include "Engine/World.h"
+#if WITH_EDITOR
+#include "Editor.h"
+#endif
 
 namespace
 {
-	void RequestControllerRescan(AActor* Owner, const bool bOnlyIfRegistered)
+	void RequestTransformControllerRescan(AActor* Owner, const bool bOnlyIfRegistered)
 	{
 		if (!Owner)
 		{
@@ -39,13 +42,13 @@ void URshipTransformController::OnRegister()
 		}
 	}
 
-	RequestControllerRescan(GetOwner(), false);
+	RequestTransformControllerRescan(GetOwner(), false);
 }
 
 void URshipTransformController::BeginPlay()
 {
 	Super::BeginPlay();
-	RequestControllerRescan(GetOwner(), false);
+	RequestTransformControllerRescan(GetOwner(), false);
 }
 
 void URshipTransformController::RegisterRshipWhitelistedActions(URshipTargetComponent* TargetComponent)
@@ -111,17 +114,41 @@ void URshipTransformController::ApplyTransformRuntimeRefresh(USceneComponent* Ro
 		return;
 	}
 
+	const UWorld* World = Root->GetWorld();
+	const bool bIsEditorWorld = (World && !World->IsGameWorld());
+
 	if (ActionName == TEXT("RelativeLocation") || ActionName == TEXT("Location"))
 	{
-		Root->SetRelativeLocation_Direct(Root->GetRelativeLocation());
+		if (bIsEditorWorld)
+		{
+			Root->SetRelativeLocation(Root->GetRelativeLocation(), false, nullptr, ETeleportType::TeleportPhysics);
+		}
+		else
+		{
+			Root->SetRelativeLocation_Direct(Root->GetRelativeLocation());
+		}
 	}
 	else if (ActionName == TEXT("RelativeRotation") || ActionName == TEXT("Rotation"))
 	{
-		Root->SetRelativeRotation_Direct(Root->GetRelativeRotation());
+		if (bIsEditorWorld)
+		{
+			Root->SetRelativeRotation(Root->GetRelativeRotation(), false, nullptr, ETeleportType::TeleportPhysics);
+		}
+		else
+		{
+			Root->SetRelativeRotation_Direct(Root->GetRelativeRotation());
+		}
 	}
 	else if (ActionName == TEXT("RelativeScale3D") || ActionName == TEXT("Scale"))
 	{
-		Root->SetRelativeScale3D_Direct(Root->GetRelativeScale3D());
+		if (bIsEditorWorld)
+		{
+			Root->SetRelativeScale3D(Root->GetRelativeScale3D());
+		}
+		else
+		{
+			Root->SetRelativeScale3D_Direct(Root->GetRelativeScale3D());
+		}
 	}
 
 	Root->UpdateComponentToWorld(EUpdateTransformFlags::PropagateFromParent, ETeleportType::TeleportPhysics);
@@ -157,9 +184,9 @@ void URshipTransformController::NotifyEditorTransformChanged() const
 		return;
 	}
 
-	Owner->Modify();
-	Owner->PostEditMove(true);
-	Owner->MarkPackageDirty();
+
+	// Keep editor viewport updated without PostEdit transaction/reconstruction paths.
+	Owner->MarkComponentsRenderStateDirty();
 #endif
 }
 

@@ -9,7 +9,7 @@
 
 namespace
 {
-	void RequestControllerRescan(AActor* Owner, const bool bOnlyIfRegistered)
+	void RequestLightControllerRescan(AActor* Owner, const bool bOnlyIfRegistered)
 	{
 		if (!Owner)
 		{
@@ -29,13 +29,13 @@ namespace
 void URshipLightController::OnRegister()
 {
 	Super::OnRegister();
-	RequestControllerRescan(GetOwner(), false);
+	RequestLightControllerRescan(GetOwner(), false);
 }
 
 void URshipLightController::BeginPlay()
 {
 	Super::BeginPlay();
-	RequestControllerRescan(GetOwner(), false);
+	RequestLightControllerRescan(GetOwner(), false);
 }
 
 ULightComponent* URshipLightController::ResolveLightComponent() const
@@ -58,13 +58,6 @@ void URshipLightController::NotifyLightEdited(ULightComponent* InLight) const
 	InLight->MarkRenderStateDirty();
 
 #if WITH_EDITOR
-	InLight->Modify();
-	InLight->PostEditChange();
-	if (AActor* Owner = GetOwner())
-	{
-		Owner->Modify();
-		Owner->MarkPackageDirty();
-	}
 #endif
 }
 

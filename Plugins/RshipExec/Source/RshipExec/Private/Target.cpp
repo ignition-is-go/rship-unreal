@@ -12,6 +12,19 @@ Target::Target(FString id)
 
 Target::~Target()
 {
+	for (TPair<FString, Action*>& Pair : actions)
+	{
+		delete Pair.Value;
+		Pair.Value = nullptr;
+	}
+	actions.Empty();
+
+	for (TPair<FString, EmitterContainer*>& Pair : emitters)
+	{
+		delete Pair.Value;
+		Pair.Value = nullptr;
+	}
+	emitters.Empty();
 }
 
 void Target::AddAction(Action* action)

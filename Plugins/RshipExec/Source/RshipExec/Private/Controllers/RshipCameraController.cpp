@@ -6,7 +6,7 @@
 
 namespace
 {
-	void RequestControllerRescan(AActor* Owner, const bool bOnlyIfRegistered)
+	void RequestCameraControllerRescan(AActor* Owner, const bool bOnlyIfRegistered)
 	{
 		if (!Owner)
 		{
@@ -26,13 +26,13 @@ namespace
 void URshipCameraController::OnRegister()
 {
 	Super::OnRegister();
-	RequestControllerRescan(GetOwner(), false);
+	RequestCameraControllerRescan(GetOwner(), false);
 }
 
 void URshipCameraController::BeginPlay()
 {
 	Super::BeginPlay();
-	RequestControllerRescan(GetOwner(), false);
+	RequestCameraControllerRescan(GetOwner(), false);
 }
 
 UCameraComponent* URshipCameraController::ResolveCameraComponent() const
@@ -69,13 +69,6 @@ void URshipCameraController::NotifyCameraEdited(UCameraComponent* InCamera) cons
 	InCamera->MarkRenderStateDirty();
 
 #if WITH_EDITOR
-	InCamera->Modify();
-	InCamera->PostEditChange();
-	if (AActor* Owner = GetOwner())
-	{
-		Owner->Modify();
-		Owner->MarkPackageDirty();
-	}
 #endif
 }
 

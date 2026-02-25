@@ -31,23 +31,27 @@ void URshipTargetComponent::OnComponentDestroyed(bool bDestoryHierarchy)
 	}
 	EmitterHandlers.Empty();
 
-	if (!GEngine)
+	if (GEngine)
 	{
-		return;
+		if (URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>())
+		{
+			Subsystem->UnregisterTargetComponent(this);
+
+			if (URshipTargetGroupManager* GroupManager = Subsystem->GetGroupManager())
+			{
+				GroupManager->UnregisterTarget(this);
+			}
+		}
 	}
 
-	URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
-	if (!Subsystem)
+	if (TargetData)
 	{
-		return;
+		TargetData->SetBoundTargetComponent(nullptr);
+		delete TargetData;
+		TargetData = nullptr;
 	}
 
-	Subsystem->UnregisterTargetComponent(this);
-
-	if (URshipTargetGroupManager* GroupManager = Subsystem->GetGroupManager())
-	{
-		GroupManager->UnregisterTarget(this);
-	}
+	Super::OnComponentDestroyed(bDestoryHierarchy);
 }
 
 void URshipTargetComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
