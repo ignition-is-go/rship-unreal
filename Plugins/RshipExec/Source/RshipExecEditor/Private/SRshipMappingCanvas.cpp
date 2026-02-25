@@ -15,12 +15,22 @@ void SRshipMappingCanvas::Construct(const FArguments& InArgs)
 {
 	DesiredHeight = InArgs._DesiredHeight;
 	OnFeedRectChanged = InArgs._OnFeedRectChanged;
+	OnFeedRectSelectionChanged = InArgs._OnFeedRectSelectionChanged;
 	OnUvTransformChanged = InArgs._OnUvTransformChanged;
 }
 
 FVector2D SRshipMappingCanvas::ComputeDesiredSize(float) const
 {
-	return FVector2D(DesiredHeight * (16.0f / 9.0f), DesiredHeight);
+	if (DisplayMode == TEXT("feed") && bFeedRectValuesArePixels)
+	{
+		return FVector2D(
+			static_cast<float>(FMath::Max(1, CanvasWidthPx)),
+			static_cast<float>(FMath::Max(1, CanvasHeightPx)));
+	}
+
+	const float SafeHeight = FMath::Max(1.0f, static_cast<float>(CanvasHeightPx));
+	const float Aspect = FMath::Max(0.01f, static_cast<float>(CanvasWidthPx) / SafeHeight);
+	return FVector2D(DesiredHeight * Aspect, DesiredHeight);
 }
 
 int32 SRshipMappingCanvas::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeometry, const FSlateRect& MyCullingRect, FSlateWindowElementList& OutDrawElements, int32 LayerId, const FWidgetStyle& InWidgetStyle, bool bParentEnabled) const
@@ -141,64 +151,147 @@ void SRshipMappingCanvas::PaintUvGrid(const FGeometry& AllottedGeometry, FSlateW
 void SRshipMappingCanvas::PaintFeedRect(const FGeometry& AllottedGeometry, FSlateWindowElementList& OutDrawElements, int32 LayerId) const
 {
 	const FVector2D Size = AllottedGeometry.GetLocalSize();
-	const FLinearColor YellowAccent(1.0f, 0.85f, 0.0f, 1.0f);
-	const FLinearColor YellowFill(1.0f, 0.85f, 0.0f, 0.1f);
-
-	// Convert normalized feed rect to pixel coords
-	const float PX = FeedU * Size.X;
-	const float PY = FeedV * Size.Y;
-	const float PW = FeedW * Size.X;
-	const float PH = FeedH * Size.Y;
-
-	// Fill
-	FSlateDrawElement::MakeBox(OutDrawElements, LayerId, AllottedGeometry.ToPaintGeometry(FVector2D(PW, PH), FSlateLayoutTransform(FVector2D(PX, PY))), FAppStyle::GetBrush("WhiteBrush"), ESlateDrawEffect::None, YellowFill);
-
-	// Border
-	TArray<FVector2D> RectLines;
-	RectLines.Add(FVector2D(PX, PY));
-	RectLines.Add(FVector2D(PX + PW, PY));
-	RectLines.Add(FVector2D(PX + PW, PY + PH));
-	RectLines.Add(FVector2D(PX, PY + PH));
-	RectLines.Add(FVector2D(PX, PY));
-	FSlateDrawElement::MakeLines(OutDrawElements, LayerId + 1, AllottedGeometry.ToPaintGeometry(), RectLines, ESlateDrawEffect::None, YellowAccent, true, 2.0f);
-
-	// Handles (corners + edge midpoints)
-	auto DrawHandle = [&](float HX, float HY, bool bActive)
+	const FSlateFontInfo LabelFont = FCoreStyle::GetDefaultFontStyle("Regular", 8);
+	const float SafeCanvasW = static_cast<float>(FMath::Max(1, CanvasWidthPx));
+	const float SafeCanvasH = static_cast<float>(FMath::Max(1, CanvasHeightPx));
+	auto ToNormX = [this, SafeCanvasW](float Value) -> float
 	{
-		const FLinearColor HandleColor = bActive ? YellowAccent : FLinearColor::White;
-		const FVector2D HandlePos(HX - HandleSize * 0.5f, HY - HandleSize * 0.5f);
-		FSlateDrawElement::MakeBox(OutDrawElements, LayerId + 2, AllottedGeometry.ToPaintGeometry(FVector2D(HandleSize, HandleSize), FSlateLayoutTransform(HandlePos)), FAppStyle::GetBrush("WhiteBrush"), ESlateDrawEffect::None, HandleColor);
+		return bFeedRectValuesArePixels ? (Value / SafeCanvasW) : Value;
+	};
+	auto ToNormY = [this, SafeCanvasH](float Value) -> float
+	{
+		return bFeedRectValuesArePixels ? (Value / SafeCanvasH) : Value;
 	};
 
-	// Corners
+	for (int32 Index = 0; Index < FeedRects.Num(); ++Index)
+	{
+		const FRshipCanvasFeedRectEntry& Rect = FeedRects[Index];
+		const bool bIsActive = Index == ActiveFeedRectIndex;
+		const uint8 Hue = static_cast<uint8>((Index * 43) % 255);
+		const FLinearColor Accent = bIsActive
+			? FLinearColor::MakeFromHSV8(Hue, 180, 255)
+			: FLinearColor::MakeFromHSV8(Hue, 120, 220).CopyWithNewOpacity(0.85f);
+		const FLinearColor Fill = Accent.CopyWithNewOpacity(bIsActive ? 0.17f : 0.08f);
+
+		const float PX = ToNormX(Rect.U) * Size.X;
+		const float PY = ToNormY(Rect.V) * Size.Y;
+		const float PW = ToNormX(Rect.W) * Size.X;
+		const float PH = ToNormY(Rect.H) * Size.Y;
+
+		FSlateDrawElement::MakeBox(
+			OutDrawElements,
+			LayerId,
+			AllottedGeometry.ToPaintGeometry(FVector2D(PW, PH), FSlateLayoutTransform(FVector2D(PX, PY))),
+			FAppStyle::GetBrush("WhiteBrush"),
+			ESlateDrawEffect::None,
+			Fill);
+
+		TArray<FVector2D> RectLines;
+		RectLines.Add(FVector2D(PX, PY));
+		RectLines.Add(FVector2D(PX + PW, PY));
+		RectLines.Add(FVector2D(PX + PW, PY + PH));
+		RectLines.Add(FVector2D(PX, PY + PH));
+		RectLines.Add(FVector2D(PX, PY));
+		FSlateDrawElement::MakeLines(
+			OutDrawElements,
+			LayerId + 1,
+			AllottedGeometry.ToPaintGeometry(),
+			RectLines,
+			ESlateDrawEffect::None,
+			Accent,
+			true,
+			bIsActive ? 2.0f : 1.0f);
+
+		const FString LabelText = Rect.Label.IsEmpty() ? Rect.SurfaceId : Rect.Label;
+		FSlateDrawElement::MakeText(
+			OutDrawElements,
+			LayerId + 2,
+			AllottedGeometry.ToPaintGeometry(FVector2D(200.0f, 12.0f), FSlateLayoutTransform(FVector2D(PX + 2.0f, PY + 2.0f))),
+			FText::FromString(LabelText),
+			LabelFont,
+			ESlateDrawEffect::None,
+			Accent.CopyWithNewOpacity(0.95f));
+	}
+
+	if (ActiveFeedRectIndex == INDEX_NONE || !FeedRects.IsValidIndex(ActiveFeedRectIndex))
+	{
+		return;
+	}
+
+	const FLinearColor ActiveAccent(1.0f, 0.85f, 0.0f, 1.0f);
+	const float PX = ToNormX(FeedU) * Size.X;
+	const float PY = ToNormY(FeedV) * Size.Y;
+	const float PW = ToNormX(FeedW) * Size.X;
+	const float PH = ToNormY(FeedH) * Size.Y;
+
+	auto DrawHandle = [&](float HX, float HY, bool bActiveHandle)
+	{
+		const FLinearColor HandleColor = bActiveHandle ? ActiveAccent : FLinearColor::White;
+		const FVector2D HandlePos(HX - HandleSize * 0.5f, HY - HandleSize * 0.5f);
+		FSlateDrawElement::MakeBox(
+			OutDrawElements,
+			LayerId + 3,
+			AllottedGeometry.ToPaintGeometry(FVector2D(HandleSize, HandleSize), FSlateLayoutTransform(HandlePos)),
+			FAppStyle::GetBrush("WhiteBrush"),
+			ESlateDrawEffect::None,
+			HandleColor);
+	};
+
 	DrawHandle(PX, PY, ActiveDrag == EDragMode::ResizeTopLeft);
 	DrawHandle(PX + PW, PY, ActiveDrag == EDragMode::ResizeTopRight);
 	DrawHandle(PX, PY + PH, ActiveDrag == EDragMode::ResizeBottomLeft);
 	DrawHandle(PX + PW, PY + PH, ActiveDrag == EDragMode::ResizeBottomRight);
-
-	// Edge midpoints
 	DrawHandle(PX + PW * 0.5f, PY, ActiveDrag == EDragMode::ResizeTop);
 	DrawHandle(PX + PW * 0.5f, PY + PH, ActiveDrag == EDragMode::ResizeBottom);
 	DrawHandle(PX, PY + PH * 0.5f, ActiveDrag == EDragMode::ResizeLeft);
 	DrawHandle(PX + PW, PY + PH * 0.5f, ActiveDrag == EDragMode::ResizeRight);
 
-	// Value labels
-	const FSlateFontInfo Font = FCoreStyle::GetDefaultFontStyle("Regular", 8);
-	const FLinearColor LabelColor(1.0f, 1.0f, 1.0f, 0.7f);
+	const FString ULabel = bFeedRectValuesArePixels
+		? FString::Printf(TEXT("X:%dpx"), FMath::RoundToInt(FeedU))
+		: FString::Printf(TEXT("U:%.3f"), FeedU);
+	const FString VLabel = bFeedRectValuesArePixels
+		? FString::Printf(TEXT("Y:%dpx"), FMath::RoundToInt(FeedV))
+		: FString::Printf(TEXT("V:%.3f"), FeedV);
+	const FString WLabel = bFeedRectValuesArePixels
+		? FString::Printf(TEXT("W:%dpx"), FMath::RoundToInt(FeedW))
+		: FString::Printf(TEXT("W:%.3f"), FeedW);
+	const FString HLabel = bFeedRectValuesArePixels
+		? FString::Printf(TEXT("H:%dpx"), FMath::RoundToInt(FeedH))
+		: FString::Printf(TEXT("H:%.3f"), FeedH);
+	const FLinearColor LabelColor(1.0f, 1.0f, 1.0f, 0.85f);
 
-	const FString ULabel = FString::Printf(TEXT("U:%.2f"), FeedU);
-	const FString VLabel = FString::Printf(TEXT("V:%.2f"), FeedV);
-	const FString WLabel = FString::Printf(TEXT("W:%.2f"), FeedW);
-	const FString HLabel = FString::Printf(TEXT("H:%.2f"), FeedH);
-
-	// U label at top-left
-	FSlateDrawElement::MakeText(OutDrawElements, LayerId + 2, AllottedGeometry.ToPaintGeometry(FVector2D(60, 14), FSlateLayoutTransform(FVector2D(PX + 2, PY + 2))), FText::FromString(ULabel), Font, ESlateDrawEffect::None, LabelColor);
-	// V label below U
-	FSlateDrawElement::MakeText(OutDrawElements, LayerId + 2, AllottedGeometry.ToPaintGeometry(FVector2D(60, 14), FSlateLayoutTransform(FVector2D(PX + 2, PY + 14))), FText::FromString(VLabel), Font, ESlateDrawEffect::None, LabelColor);
-	// W label at bottom edge
-	FSlateDrawElement::MakeText(OutDrawElements, LayerId + 2, AllottedGeometry.ToPaintGeometry(FVector2D(60, 14), FSlateLayoutTransform(FVector2D(PX + PW * 0.5f - 20, PY + PH - 14))), FText::FromString(WLabel), Font, ESlateDrawEffect::None, LabelColor);
-	// H label at right edge
-	FSlateDrawElement::MakeText(OutDrawElements, LayerId + 2, AllottedGeometry.ToPaintGeometry(FVector2D(60, 14), FSlateLayoutTransform(FVector2D(PX + PW - 50, PY + PH * 0.5f - 7))), FText::FromString(HLabel), Font, ESlateDrawEffect::None, LabelColor);
+	FSlateDrawElement::MakeText(
+		OutDrawElements,
+		LayerId + 4,
+		AllottedGeometry.ToPaintGeometry(FVector2D(72.0f, 12.0f), FSlateLayoutTransform(FVector2D(PX + 2.0f, PY + 14.0f))),
+		FText::FromString(ULabel),
+		LabelFont,
+		ESlateDrawEffect::None,
+		LabelColor);
+	FSlateDrawElement::MakeText(
+		OutDrawElements,
+		LayerId + 4,
+		AllottedGeometry.ToPaintGeometry(FVector2D(72.0f, 12.0f), FSlateLayoutTransform(FVector2D(PX + 2.0f, PY + 26.0f))),
+		FText::FromString(VLabel),
+		LabelFont,
+		ESlateDrawEffect::None,
+		LabelColor);
+	FSlateDrawElement::MakeText(
+		OutDrawElements,
+		LayerId + 4,
+		AllottedGeometry.ToPaintGeometry(FVector2D(72.0f, 12.0f), FSlateLayoutTransform(FVector2D(PX + PW * 0.5f - 22.0f, PY + PH - 14.0f))),
+		FText::FromString(WLabel),
+		LabelFont,
+		ESlateDrawEffect::None,
+		LabelColor);
+	FSlateDrawElement::MakeText(
+		OutDrawElements,
+		LayerId + 4,
+		AllottedGeometry.ToPaintGeometry(FVector2D(72.0f, 12.0f), FSlateLayoutTransform(FVector2D(PX + PW - 54.0f, PY + PH * 0.5f - 6.0f))),
+		FText::FromString(HLabel),
+		LabelFont,
+		ESlateDrawEffect::None,
+		LabelColor);
 }
 
 SRshipMappingCanvas::EDragMode SRshipMappingCanvas::HitTestHandle(const FGeometry& MyGeometry, const FVector2D& LocalPos) const
@@ -208,11 +301,22 @@ SRshipMappingCanvas::EDragMode SRshipMappingCanvas::HitTestHandle(const FGeometr
 		return EDragMode::UvOffset;
 	}
 
+	if (ActiveFeedRectIndex == INDEX_NONE || !FeedRects.IsValidIndex(ActiveFeedRectIndex))
+	{
+		return EDragMode::None;
+	}
+
 	const FVector2D Size = MyGeometry.GetLocalSize();
-	const float PX = FeedU * Size.X;
-	const float PY = FeedV * Size.Y;
-	const float PW = FeedW * Size.X;
-	const float PH = FeedH * Size.Y;
+	const float SafeCanvasW = static_cast<float>(FMath::Max(1, CanvasWidthPx));
+	const float SafeCanvasH = static_cast<float>(FMath::Max(1, CanvasHeightPx));
+	const float U = bFeedRectValuesArePixels ? (FeedU / SafeCanvasW) : FeedU;
+	const float V = bFeedRectValuesArePixels ? (FeedV / SafeCanvasH) : FeedV;
+	const float W = bFeedRectValuesArePixels ? (FeedW / SafeCanvasW) : FeedW;
+	const float H = bFeedRectValuesArePixels ? (FeedH / SafeCanvasH) : FeedH;
+	const float PX = U * Size.X;
+	const float PY = V * Size.Y;
+	const float PW = W * Size.X;
+	const float PH = H * Size.Y;
 
 	struct FHandleHit { FVector2D Pos; EDragMode Mode; };
 	const TArray<FHandleHit> Handles = {
@@ -243,6 +347,59 @@ SRshipMappingCanvas::EDragMode SRshipMappingCanvas::HitTestHandle(const FGeometr
 	return EDragMode::None;
 }
 
+int32 SRshipMappingCanvas::HitTestFeedRectBody(const FGeometry& MyGeometry, const FVector2D& LocalPos) const
+{
+	if (DisplayMode != TEXT("feed"))
+	{
+		return INDEX_NONE;
+	}
+
+	const FVector2D Size = MyGeometry.GetLocalSize();
+	const float SafeCanvasW = static_cast<float>(FMath::Max(1, CanvasWidthPx));
+	const float SafeCanvasH = static_cast<float>(FMath::Max(1, CanvasHeightPx));
+	for (int32 Index = FeedRects.Num() - 1; Index >= 0; --Index)
+	{
+		const FRshipCanvasFeedRectEntry& Rect = FeedRects[Index];
+		const float U = bFeedRectValuesArePixels ? (Rect.U / SafeCanvasW) : Rect.U;
+		const float V = bFeedRectValuesArePixels ? (Rect.V / SafeCanvasH) : Rect.V;
+		const float W = bFeedRectValuesArePixels ? (Rect.W / SafeCanvasW) : Rect.W;
+		const float H = bFeedRectValuesArePixels ? (Rect.H / SafeCanvasH) : Rect.H;
+		const float PX = U * Size.X;
+		const float PY = V * Size.Y;
+		const float PW = W * Size.X;
+		const float PH = H * Size.Y;
+		if (LocalPos.X >= PX && LocalPos.X <= PX + PW && LocalPos.Y >= PY && LocalPos.Y <= PY + PH)
+		{
+			return Index;
+		}
+	}
+	return INDEX_NONE;
+}
+
+void SRshipMappingCanvas::SyncActiveRectFromCachedValues()
+{
+	if (FeedRects.IsValidIndex(ActiveFeedRectIndex))
+	{
+		FRshipCanvasFeedRectEntry& ActiveRect = FeedRects[ActiveFeedRectIndex];
+		ActiveRect.U = FeedU;
+		ActiveRect.V = FeedV;
+		ActiveRect.W = FeedW;
+		ActiveRect.H = FeedH;
+	}
+}
+
+void SRshipMappingCanvas::SyncCachedValuesFromActiveRect()
+{
+	if (FeedRects.IsValidIndex(ActiveFeedRectIndex))
+	{
+		const FRshipCanvasFeedRectEntry& ActiveRect = FeedRects[ActiveFeedRectIndex];
+		FeedU = ActiveRect.U;
+		FeedV = ActiveRect.V;
+		FeedW = ActiveRect.W;
+		FeedH = ActiveRect.H;
+	}
+}
+
 FReply SRshipMappingCanvas::OnMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent)
 {
 	if (MouseEvent.GetEffectingButton() != EKeys::LeftMouseButton)
@@ -255,6 +412,22 @@ FReply SRshipMappingCanvas::OnMouseButtonDown(const FGeometry& MyGeometry, const
 	EDragMode HitMode;
 	if (DisplayMode == TEXT("feed"))
 	{
+		const int32 HitRectIndex = HitTestFeedRectBody(MyGeometry, LocalPos);
+		if (HitRectIndex == INDEX_NONE)
+		{
+			return FReply::Unhandled();
+		}
+
+		if (HitRectIndex != ActiveFeedRectIndex)
+		{
+			ActiveFeedRectIndex = HitRectIndex;
+			SyncCachedValuesFromActiveRect();
+			if (FeedRects.IsValidIndex(ActiveFeedRectIndex))
+			{
+				OnFeedRectSelectionChanged.ExecuteIfBound(FeedRects[ActiveFeedRectIndex].SurfaceId);
+			}
+		}
+
 		HitMode = HitTestHandle(MyGeometry, LocalPos);
 	}
 	else
@@ -293,63 +466,107 @@ FReply SRshipMappingCanvas::OnMouseMove(const FGeometry& MyGeometry, const FPoin
 	const FVector2D DeltaPx = LocalPos - DragStartMouse;
 	const float DeltaU = DeltaPx.X / FMath::Max(Size.X, 1.0f);
 	const float DeltaV = DeltaPx.Y / FMath::Max(Size.Y, 1.0f);
+	const float DeltaX = bFeedRectValuesArePixels
+		? (DeltaPx.X * static_cast<float>(FMath::Max(1, CanvasWidthPx)) / FMath::Max(Size.X, 1.0f))
+		: DeltaU;
+	const float DeltaY = bFeedRectValuesArePixels
+		? (DeltaPx.Y * static_cast<float>(FMath::Max(1, CanvasHeightPx)) / FMath::Max(Size.Y, 1.0f))
+		: DeltaV;
+
+	auto EmitFeedRect = [this]()
+	{
+		SyncActiveRectFromCachedValues();
+		OnFeedRectChanged.ExecuteIfBound(
+			FeedRects.IsValidIndex(ActiveFeedRectIndex) ? FeedRects[ActiveFeedRectIndex].SurfaceId : FString(),
+			FeedU, FeedV, FeedW, FeedH);
+	};
+
+	auto ClampToPixelCanvas = [this]()
+	{
+		if (!bFeedRectValuesArePixels)
+		{
+			FeedW = FMath::Max(0.01f, FeedW);
+			FeedH = FMath::Max(0.01f, FeedH);
+			return;
+		}
+
+		const float MaxX = static_cast<float>(FMath::Max(0, CanvasWidthPx - 1));
+		const float MaxY = static_cast<float>(FMath::Max(0, CanvasHeightPx - 1));
+		FeedU = FMath::Clamp(FMath::RoundToFloat(FeedU), 0.0f, MaxX);
+		FeedV = FMath::Clamp(FMath::RoundToFloat(FeedV), 0.0f, MaxY);
+		FeedW = FMath::Max(1.0f, FMath::RoundToFloat(FeedW));
+		FeedH = FMath::Max(1.0f, FMath::RoundToFloat(FeedH));
+		FeedW = FMath::Min(FeedW, static_cast<float>(FMath::Max(1, CanvasWidthPx)) - FeedU);
+		FeedH = FMath::Min(FeedH, static_cast<float>(FMath::Max(1, CanvasHeightPx)) - FeedV);
+		FeedW = FMath::Max(1.0f, FeedW);
+		FeedH = FMath::Max(1.0f, FeedH);
+	};
 
 	switch (ActiveDrag)
 	{
 	case EDragMode::MoveRect:
-		FeedU = DragStartFeedU + DeltaU;
-		FeedV = DragStartFeedV + DeltaV;
-		OnFeedRectChanged.ExecuteIfBound(FeedU, FeedV, FeedW, FeedH);
+		FeedU = DragStartFeedU + DeltaX;
+		FeedV = DragStartFeedV + DeltaY;
+		ClampToPixelCanvas();
+		EmitFeedRect();
 		break;
 
 	case EDragMode::ResizeTopLeft:
-		FeedU = DragStartFeedU + DeltaU;
-		FeedV = DragStartFeedV + DeltaV;
-		FeedW = FMath::Max(DragStartFeedW - DeltaU, 0.01f);
-		FeedH = FMath::Max(DragStartFeedH - DeltaV, 0.01f);
-		OnFeedRectChanged.ExecuteIfBound(FeedU, FeedV, FeedW, FeedH);
+		FeedU = DragStartFeedU + DeltaX;
+		FeedV = DragStartFeedV + DeltaY;
+		FeedW = DragStartFeedW - DeltaX;
+		FeedH = DragStartFeedH - DeltaY;
+		ClampToPixelCanvas();
+		EmitFeedRect();
 		break;
 
 	case EDragMode::ResizeTopRight:
-		FeedV = DragStartFeedV + DeltaV;
-		FeedW = FMath::Max(DragStartFeedW + DeltaU, 0.01f);
-		FeedH = FMath::Max(DragStartFeedH - DeltaV, 0.01f);
-		OnFeedRectChanged.ExecuteIfBound(FeedU, FeedV, FeedW, FeedH);
+		FeedV = DragStartFeedV + DeltaY;
+		FeedW = DragStartFeedW + DeltaX;
+		FeedH = DragStartFeedH - DeltaY;
+		ClampToPixelCanvas();
+		EmitFeedRect();
 		break;
 
 	case EDragMode::ResizeBottomLeft:
-		FeedU = DragStartFeedU + DeltaU;
-		FeedW = FMath::Max(DragStartFeedW - DeltaU, 0.01f);
-		FeedH = FMath::Max(DragStartFeedH + DeltaV, 0.01f);
-		OnFeedRectChanged.ExecuteIfBound(FeedU, FeedV, FeedW, FeedH);
+		FeedU = DragStartFeedU + DeltaX;
+		FeedW = DragStartFeedW - DeltaX;
+		FeedH = DragStartFeedH + DeltaY;
+		ClampToPixelCanvas();
+		EmitFeedRect();
 		break;
 
 	case EDragMode::ResizeBottomRight:
-		FeedW = FMath::Max(DragStartFeedW + DeltaU, 0.01f);
-		FeedH = FMath::Max(DragStartFeedH + DeltaV, 0.01f);
-		OnFeedRectChanged.ExecuteIfBound(FeedU, FeedV, FeedW, FeedH);
+		FeedW = DragStartFeedW + DeltaX;
+		FeedH = DragStartFeedH + DeltaY;
+		ClampToPixelCanvas();
+		EmitFeedRect();
 		break;
 
 	case EDragMode::ResizeLeft:
-		FeedU = DragStartFeedU + DeltaU;
-		FeedW = FMath::Max(DragStartFeedW - DeltaU, 0.01f);
-		OnFeedRectChanged.ExecuteIfBound(FeedU, FeedV, FeedW, FeedH);
+		FeedU = DragStartFeedU + DeltaX;
+		FeedW = DragStartFeedW - DeltaX;
+		ClampToPixelCanvas();
+		EmitFeedRect();
 		break;
 
 	case EDragMode::ResizeRight:
-		FeedW = FMath::Max(DragStartFeedW + DeltaU, 0.01f);
-		OnFeedRectChanged.ExecuteIfBound(FeedU, FeedV, FeedW, FeedH);
+		FeedW = DragStartFeedW + DeltaX;
+		ClampToPixelCanvas();
+		EmitFeedRect();
 		break;
 
 	case EDragMode::ResizeTop:
-		FeedV = DragStartFeedV + DeltaV;
-		FeedH = FMath::Max(DragStartFeedH - DeltaV, 0.01f);
-		OnFeedRectChanged.ExecuteIfBound(FeedU, FeedV, FeedW, FeedH);
+		FeedV = DragStartFeedV + DeltaY;
+		FeedH = DragStartFeedH - DeltaY;
+		ClampToPixelCanvas();
+		EmitFeedRect();
 		break;
 
 	case EDragMode::ResizeBottom:
-		FeedH = FMath::Max(DragStartFeedH + DeltaV, 0.01f);
-		OnFeedRectChanged.ExecuteIfBound(FeedU, FeedV, FeedW, FeedH);
+		FeedH = DragStartFeedH + DeltaY;
+		ClampToPixelCanvas();
+		EmitFeedRect();
 		break;
 
 	case EDragMode::UvOffset:
@@ -448,6 +665,10 @@ FCursorReply SRshipMappingCanvas::OnCursorQuery(const FGeometry& MyGeometry, con
 	case EDragMode::ResizeBottom:
 		return FCursorReply::Cursor(EMouseCursor::ResizeUpDown);
 	default:
+		if (DisplayMode == TEXT("feed") && HitTestFeedRectBody(MyGeometry, LocalPos) != INDEX_NONE)
+		{
+			return FCursorReply::Cursor(EMouseCursor::CardinalCross);
+		}
 		return FCursorReply::Cursor(EMouseCursor::Crosshairs);
 	}
 }
@@ -458,6 +679,48 @@ void SRshipMappingCanvas::SetFeedRect(float U, float V, float W, float H)
 	FeedV = V;
 	FeedW = W;
 	FeedH = H;
+	FeedRects.Reset();
+	FRshipCanvasFeedRectEntry DefaultEntry;
+	DefaultEntry.SurfaceId = TEXT("");
+	DefaultEntry.Label = TEXT("Default");
+	DefaultEntry.U = FeedU;
+	DefaultEntry.V = FeedV;
+	DefaultEntry.W = FeedW;
+	DefaultEntry.H = FeedH;
+	DefaultEntry.bActive = true;
+	FeedRects.Add(DefaultEntry);
+	ActiveFeedRectIndex = 0;
+}
+
+void SRshipMappingCanvas::SetFeedRects(const TArray<FRshipCanvasFeedRectEntry>& InFeedRects)
+{
+	FeedRects = InFeedRects;
+	ActiveFeedRectIndex = INDEX_NONE;
+	for (int32 Index = 0; Index < FeedRects.Num(); ++Index)
+	{
+		if (FeedRects[Index].bActive)
+		{
+			ActiveFeedRectIndex = Index;
+			break;
+		}
+	}
+
+	if (ActiveFeedRectIndex == INDEX_NONE && FeedRects.Num() > 0)
+	{
+		ActiveFeedRectIndex = 0;
+	}
+
+	if (ActiveFeedRectIndex != INDEX_NONE)
+	{
+		SyncCachedValuesFromActiveRect();
+	}
+	else
+	{
+		FeedU = 0.0f;
+		FeedV = 0.0f;
+		FeedW = 1.0f;
+		FeedH = 1.0f;
+	}
 }
 
 void SRshipMappingCanvas::SetUvTransform(float InScaleU, float InScaleV, float InOffsetU, float InOffsetV, float InRotDeg)
@@ -495,6 +758,30 @@ void SRshipMappingCanvas::SetBackgroundTexture(UTexture* Texture)
 void SRshipMappingCanvas::SetDisplayMode(const FString& Mode)
 {
 	DisplayMode = Mode;
+}
+
+void SRshipMappingCanvas::SetCanvasResolution(int32 WidthPx, int32 HeightPx)
+{
+	const int32 NewWidth = FMath::Max(1, WidthPx);
+	const int32 NewHeight = FMath::Max(1, HeightPx);
+	if (CanvasWidthPx == NewWidth && CanvasHeightPx == NewHeight)
+	{
+		return;
+	}
+
+	CanvasWidthPx = NewWidth;
+	CanvasHeightPx = NewHeight;
+	Invalidate(EInvalidateWidgetReason::LayoutAndVolatility);
+}
+
+void SRshipMappingCanvas::SetFeedRectValueModePixels(bool bInPixels)
+{
+	if (bFeedRectValuesArePixels == bInPixels)
+	{
+		return;
+	}
+	bFeedRectValuesArePixels = bInPixels;
+	Invalidate(EInvalidateWidgetReason::Paint);
 }
 
 #undef LOCTEXT_NAMESPACE

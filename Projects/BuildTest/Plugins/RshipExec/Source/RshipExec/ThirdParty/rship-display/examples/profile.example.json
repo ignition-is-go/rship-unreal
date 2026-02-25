@@ -1,0 +1,64 @@
+{
+  "profile_id": "wall-demo",
+  "name": "Wall Demo",
+  "strict": true,
+  "required_displays": [
+    "DISPLAY1",
+    "DISPLAY2"
+  ],
+  "overlap_policy": "forbid",
+  "topology": {
+    "strict": true,
+    "expected_rects": [
+      {
+        "canonical_display_id": "DISPLAY1",
+        "rect_px": { "x": 0, "y": 0, "w": 1920, "h": 1080 }
+      },
+      {
+        "canonical_display_id": "DISPLAY2",
+        "rect_px": { "x": 1920, "y": 0, "w": 1920, "h": 1080 }
+      }
+    ]
+  },
+  "mosaics": [
+    {
+      "id": "wall-main",
+      "members": ["DISPLAY1", "DISPLAY2"],
+      "rows": 1,
+      "cols": 2,
+      "expected_canvas_width": 3840,
+      "expected_canvas_height": 1080,
+      "backend": "nvidia",
+      "must_be_single_os_display": false,
+      "allow_software_fallback": true
+    }
+  ],
+  "pixel_routes": [
+    {
+      "route_id": "route-left",
+      "source_canvas_id": "ctx-main",
+      "source_rect_px": { "x": 0, "y": 0, "w": 1920, "h": 1080 },
+      "dest_display_id": "DISPLAY1",
+      "dest_rect_px": { "x": 0, "y": 0, "w": 1920, "h": 1080 },
+      "transform": "none",
+      "sampling": "linear",
+      "priority": 0,
+      "enabled": true
+    },
+    {
+      "route_id": "route-right",
+      "source_canvas_id": "ctx-main",
+      "source_rect_px": { "x": 1920, "y": 0, "w": 1920, "h": 1080 },
+      "dest_display_id": "DISPLAY2",
+      "dest_rect_px": { "x": 0, "y": 0, "w": 1920, "h": 1080 },
+      "transform": "none",
+      "sampling": "linear",
+      "priority": 0,
+      "enabled": true
+    }
+  ],
+  "pins": [],
+  "metadata": {
+    "notes": "Example profile for two-panel wall"
+  }
+}

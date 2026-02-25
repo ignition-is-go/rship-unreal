@@ -11,11 +11,14 @@
 class URshipSubsystem;
 class URshipAssetStoreClient;
 class ARshipCameraActor;
+class ACameraActor;
 class UMeshComponent;
 class UMaterialInterface;
 class UMaterialInstanceDynamic;
+class USceneCaptureComponent2D;
 class UTexture;
 class UTexture2D;
+class UTextureRenderTarget2D;
 
 USTRUCT(BlueprintType)
 struct RSHIPEXEC_API FRshipRenderContextState
@@ -41,6 +44,9 @@ struct RSHIPEXEC_API FRshipRenderContextState
     FString AssetId;
 
     UPROPERTY(BlueprintReadOnly, Category = "Rship|ContentMapping")
+    FString DepthAssetId;
+
+    UPROPERTY(BlueprintReadOnly, Category = "Rship|ContentMapping")
     int32 Width = 0;
 
     UPROPERTY(BlueprintReadOnly, Category = "Rship|ContentMapping")
@@ -50,13 +56,31 @@ struct RSHIPEXEC_API FRshipRenderContextState
     FString CaptureMode;
 
     UPROPERTY(BlueprintReadOnly, Category = "Rship|ContentMapping")
+    FString DepthCaptureMode;
+
+    UPROPERTY(BlueprintReadOnly, Category = "Rship|ContentMapping")
     bool bEnabled = true;
+
+    UPROPERTY(BlueprintReadOnly, Category = "Rship|ContentMapping")
+    bool bDepthCaptureEnabled = false;
 
     UPROPERTY(Transient)
     TWeakObjectPtr<ARshipCameraActor> CameraActor;
 
     UPROPERTY(Transient)
+    TWeakObjectPtr<ACameraActor> SourceCameraActor;
+
+    UPROPERTY(Transient)
     UTexture* ResolvedTexture = nullptr;
+
+    UPROPERTY(Transient)
+    UTexture* ResolvedDepthTexture = nullptr;
+
+    UPROPERTY(Transient)
+    TWeakObjectPtr<UTextureRenderTarget2D> DepthRenderTarget;
+
+    UPROPERTY(Transient)
+    TWeakObjectPtr<USceneCaptureComponent2D> DepthCaptureComponent;
 
     UPROPERTY(BlueprintReadOnly, Category = "Rship|ContentMapping")
     FString LastError;
@@ -92,13 +116,16 @@ struct RSHIPEXEC_API FRshipMappingSurfaceState
     FString MeshComponentName;
 
     UPROPERTY(BlueprintReadOnly, Category = "Rship|ContentMapping")
+    FString ActorPath;
+
+    UPROPERTY(BlueprintReadOnly, Category = "Rship|ContentMapping")
     FString LastError;
 
     UPROPERTY(Transient)
     TWeakObjectPtr<UMeshComponent> MeshComponent;
 
     UPROPERTY(Transient)
-    TMap<int32, UMaterialInterface*> OriginalMaterials;
+    TMap<int32, TWeakObjectPtr<UMaterialInterface>> OriginalMaterials;
 
     UPROPERTY(Transient)
     TMap<int32, UMaterialInstanceDynamic*> MaterialInstances;
@@ -177,6 +204,27 @@ public:
     bool UpdateMapping(const FRshipContentMappingState& InState);
     bool DeleteMapping(const FString& Id);
 
+#if WITH_DEV_AUTOMATION_TESTS
+    bool ValidateMaterialContractForTest(UMaterialInterface* Material, FString& OutError) const
+    {
+        return ValidateMaterialContract(Material, OutError);
+    }
+
+    void ApplyMaterialParametersForTest(
+        UMaterialInstanceDynamic* MID,
+        const FRshipContentMappingState& MappingState,
+        const FRshipMappingSurfaceState& SurfaceState,
+        const FRshipRenderContextState* ContextState)
+    {
+        ApplyMaterialParameters(MID, MappingState, SurfaceState, ContextState);
+    }
+
+    TSharedPtr<FJsonObject> BuildRenderContextJsonForTest(const FRshipRenderContextState& ContextState) const
+    {
+        return BuildRenderContextJson(ContextState);
+    }
+#endif
+
 private:
     UPROPERTY()
     URshipSubsystem* Subsystem = nullptr;
@@ -190,20 +238,33 @@ private:
     TMap<FString, FRshipRenderContextState> RenderContexts;
     TMap<FString, FRshipMappingSurfaceState> MappingSurfaces;
     TMap<FString, FRshipContentMappingState> Mappings;
+    UPROPERTY(Transient)
+    TMap<FString, TObjectPtr<UTextureRenderTarget2D>> FeedCompositeTargets;
+    TMap<FString, FRshipContentMappingState> PendingMappingUpserts;
+    TMap<FString, double> PendingMappingUpsertExpiry;
+    TMap<FString, double> PendingMappingDeletes;
 
     TMap<FString, TWeakObjectPtr<UTexture2D>> AssetTextureCache;
     TSet<FString> PendingAssetDownloads;
 
     bool bMappingsDirty = false;
     bool bCacheDirty = false;
+    bool bMappingsArmed = false;
     bool bWasConnected = false;
+    bool bNeedsWorldResolutionRetry = false;
     bool bDebugOverlayEnabled = false;
     bool bCoveragePreviewEnabled = false;
+    bool bMaterialContractValid = false;
+    bool bMaterialContractChecked = false;
+    TWeakObjectPtr<UMaterialInterface> LastContractMaterial;
+    FString MaterialContractError;
     float DebugOverlayAccumulated = 0.0f;
     mutable TWeakObjectPtr<UWorld> LastValidWorld;
 
     void MarkMappingsDirty();
+    void ArmMappings();
     void MarkCacheDirty();
+    void RefreshLiveMappings();
     UWorld* GetBestWorld() const;
 
     void ResolveRenderContext(FRshipRenderContextState& ContextState);
@@ -220,7 +281,30 @@ private:
         UMaterialInstanceDynamic* MID,
         const FRshipContentMappingState& MappingState,
         const FRshipMappingSurfaceState& SurfaceState,
-        const FRshipRenderContextState* ContextState);
+        const FRshipRenderContextState* ContextState,
+        bool bUseFeedV2 = false);
+
+    bool IsFeedV2Mapping(const FRshipContentMappingState& MappingState) const;
+    bool IsKnownRenderContextId(const FString& ContextId) const;
+    FString GetPreferredRuntimeContextId() const;
+    void PrepareMappingsForRuntime(bool bEmitChanges);
+    void CollectRequiredContextIdsForMappings(
+        TSet<FString>& OutRequiredContextIds,
+        bool& OutHasEnabledMappings,
+        bool& OutKeepAllContextsAlive,
+        bool& OutHasInvalidContextReference) const;
+    const FRshipRenderContextState* ResolveEffectiveContextState(
+        const FRshipContentMappingState& MappingState,
+        bool bRequireTexture) const;
+    bool EnsureMappingRuntimeReady(FRshipContentMappingState& MappingState);
+    bool EnsureFeedMappingRuntimeReady(FRshipContentMappingState& MappingState);
+    UTexture* BuildFeedCompositeTextureForSurface(
+        const FRshipContentMappingState& MappingState,
+        const FRshipMappingSurfaceState& SurfaceState,
+        FString& OutError);
+    FString MakeFeedCompositeKey(const FString& MappingId, const FString& SurfaceId) const;
+    void RemoveFeedCompositeTexturesForMapping(const FString& MappingId);
+    void RemoveFeedCompositeTexturesForSurface(const FString& SurfaceId);
 
     void RegisterAllTargets();
     void RegisterContextTarget(const FRshipRenderContextState& ContextState);
@@ -256,6 +340,11 @@ private:
     void OnAssetDownloadFailed(const FString& AssetId, const FString& ErrorMessage);
     UTexture2D* LoadTextureFromFile(const FString& LocalPath) const;
     void BuildFallbackMaterial();
+    bool ValidateMaterialContract(UMaterialInterface* Material, FString& OutError) const;
+    void EnsureMaterialContract();
+    void TrackPendingMappingUpsert(const FRshipContentMappingState& State);
+    void TrackPendingMappingDelete(const FString& MappingId);
+    void PrunePendingMappingGuards(double NowSeconds);
 
     static FString GetStringField(const TSharedPtr<FJsonObject>& Obj, const FString& Field, const FString& DefaultValue = TEXT(""));
     static bool GetBoolField(const TSharedPtr<FJsonObject>& Obj, const FString& Field, bool DefaultValue);

@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Containers/Ticker.h"
 #include "Subsystems/EngineSubsystem.h"
 #include "Subsystems/SubsystemCollection.h"
 #include "IWebSocket.h"
@@ -247,6 +248,7 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     FTimerHandle ReconnectTimerHandle;
     FTimerHandle SubsystemTickTimerHandle;
     FTimerHandle ConnectionTimeoutHandle;
+    FTSTicker::FDelegateHandle SubsystemCoreTickerHandle;
     double LastTickTime;
     float ControlSyncRateHz = 60.0f;
 

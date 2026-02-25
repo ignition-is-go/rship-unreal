@@ -1,0 +1,65 @@
+{
+  "timestamp_utc": "2026-02-12T00:00:00Z",
+  "machine_id": "RENDER-NODE-01",
+  "displays": [
+    {
+      "os_display_name": "DISPLAY1",
+      "adapter_id": 1,
+      "target_id": 1,
+      "monitor_device_path": "MONITOR\\ABC123",
+      "pnp_id": "ABC123",
+      "friendly_name": "Panel Left",
+      "edid_vendor": "ABC",
+      "edid_product_code": 100,
+      "edid_serial": 111111,
+      "edid_hash": "hash-left",
+      "connector": "display-port",
+      "native_width": 1920,
+      "native_height": 1080,
+      "native_refresh_hz": 60.0,
+      "current_rect_px": { "x": 0, "y": 0, "w": 1920, "h": 1080 },
+      "current_rotation": "deg0",
+      "hdr_enabled": false,
+      "bits_per_color": 8,
+      "is_active": true
+    },
+    {
+      "os_display_name": "DISPLAY2",
+      "adapter_id": 1,
+      "target_id": 2,
+      "monitor_device_path": "MONITOR\\ABC124",
+      "pnp_id": "ABC124",
+      "friendly_name": "Panel Right",
+      "edid_vendor": "ABC",
+      "edid_product_code": 101,
+      "edid_serial": 222222,
+      "edid_hash": "hash-right",
+      "connector": "display-port",
+      "native_width": 1920,
+      "native_height": 1080,
+      "native_refresh_hz": 60.0,
+      "current_rect_px": { "x": 1920, "y": 0, "w": 1920, "h": 1080 },
+      "current_rotation": "deg0",
+      "hdr_enabled": false,
+      "bits_per_color": 8,
+      "is_active": true
+    }
+  ],
+  "paths": [
+    {
+      "source_display_name": "DISPLAY1",
+      "target_display_name": "DISPLAY1",
+      "source_rect_px": { "x": 0, "y": 0, "w": 1920, "h": 1080 },
+      "target_rect_px": { "x": 0, "y": 0, "w": 1920, "h": 1080 },
+      "active": true
+    },
+    {
+      "source_display_name": "DISPLAY2",
+      "target_display_name": "DISPLAY2",
+      "source_rect_px": { "x": 1920, "y": 0, "w": 1920, "h": 1080 },
+      "target_rect_px": { "x": 1920, "y": 0, "w": 1920, "h": 1080 },
+      "active": true
+    }
+  ],
+  "metadata": {}
+}

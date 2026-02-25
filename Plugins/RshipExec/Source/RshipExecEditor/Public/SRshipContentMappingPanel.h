@@ -29,6 +29,10 @@ public:
 	virtual FReply OnKeyDown(const FGeometry& MyGeometry, const FKeyEvent& InKeyEvent) override;
 
 private:
+	struct FFeedSourceV2;
+	struct FFeedDestinationV2;
+	struct FFeedRouteV2;
+
 	struct FRshipIdOption
 	{
 		FString Id;
@@ -59,11 +63,13 @@ private:
 	class UWorld* GetEditorWorld() const;
 	FString ResolveTargetIdInput(const FString& InText) const;
 	FString ResolveScreenIdInput(const FString& InText) const;
+	class URshipTargetComponent* EnsureTargetComponentForActor(class AActor* Actor) const;
 	FString ResolveTargetIdForActor(class AActor* Actor) const;
 	FString ResolveScreenIdForActor(class AActor* Actor) const;
 	FString ResolveCameraIdForActor(class AActor* Actor) const;
 	bool TryApplySelectionToTarget(TSharedPtr<class SEditableTextBox> TargetInput, bool bAppend);
 	bool TryApplySelectionToCamera(TSharedPtr<class SEditableTextBox> CameraInput);
+	int32 CreateScreensFromSelectedActors();
 	static FString ShortTargetLabel(const FString& TargetId);
 	void StartProjectionEdit(const struct FRshipContentMappingState& Mapping);
 	void StopProjectionEdit();
@@ -85,6 +91,8 @@ private:
 	void SetMappingConfigExpanded(const FString& MappingId, bool bExpanded);
 	void SetSelectedMappingId(const FString& NewSelectedMappingId);
 	void ClearSelectedMappingId();
+	void OpenMappingEditorWindow(const struct FRshipContentMappingState& Mapping);
+	void CloseMappingEditorWindow();
 	bool ExecuteQuickCreateMapping();
 	void StoreQuickCreateDefaults();
 	void ApplyStoredQuickCreateDefaults();
@@ -92,6 +100,25 @@ private:
 	bool ToggleSelectedMappingsEnabled();
 	void SetSelectedMappingsConfigExpanded(bool bExpanded);
 	void RebuildFeedRectList();
+	void RefreshMappingCanvasFeedRects();
+	void ResetFeedV2State();
+	void PopulateFeedV2FromMapping(const struct FRshipContentMappingState& State);
+	void RebuildFeedV2Lists();
+	void RefreshFeedV2Canvases();
+	void WriteFeedV2Config(const TSharedPtr<class FJsonObject>& Config) const;
+	FFeedSourceV2* FindFeedSourceById(const FString& Id);
+	FFeedDestinationV2* FindFeedDestinationById(const FString& Id);
+	FFeedRouteV2* FindFeedRouteById(const FString& Id);
+	bool TryGetFeedSourceDimensions(const FString& SourceId, int32& OutWidth, int32& OutHeight) const;
+	bool TryGetFeedDestinationDimensions(const FString& DestinationId, int32& OutWidth, int32& OutHeight) const;
+	TArray<FString> GetCurrentMappingSurfaceIds() const;
+	void ClampFeedRouteToCanvas(FFeedRouteV2& Route);
+	void ClampAllFeedRoutesToCanvases();
+	void EnsureFeedSourcesBoundToContext(const FString& DefaultContextId);
+	void EnsureFeedDestinationsBoundToSurfaces(const TArray<FString>& MappingSurfaceIds);
+	void EnsureFeedRoutesForDestinations(const TArray<FString>& MappingSurfaceIds);
+	bool ApplyCurrentFormToSelectedMapping(bool bCreateIfMissing);
+	uint32 ComputeMappingFormLiveHash() const;
 
 	struct FFeedRect
 	{
@@ -99,6 +126,42 @@ private:
 		float V = 0.0f;
 		float W = 1.0f;
 		float H = 1.0f;
+	};
+
+	struct FFeedSourceV2
+	{
+		FString Id;
+		FString Label;
+		FString ContextId;
+		int32 Width = 1920;
+		int32 Height = 1080;
+	};
+
+	struct FFeedDestinationV2
+	{
+		FString Id;
+		FString Label;
+		FString SurfaceId;
+		int32 Width = 1920;
+		int32 Height = 1080;
+	};
+
+	struct FFeedRouteV2
+	{
+		FString Id;
+		FString Label;
+		FString SourceId;
+		FString DestinationId;
+		int32 SourceX = 0;
+		int32 SourceY = 0;
+		int32 SourceW = 1920;
+		int32 SourceH = 1080;
+		int32 DestinationX = 0;
+		int32 DestinationY = 0;
+		int32 DestinationW = 1920;
+		int32 DestinationH = 1080;
+		float Opacity = 1.0f;
+		bool bEnabled = true;
 	};
 
 	TSharedPtr<STextBlock> ConnectionText;
@@ -188,14 +251,28 @@ private:
 	TSharedPtr<SSpinBox<float>> MapFeedHInput;
 	TArray<TSharedPtr<SSpinBox<float>>> MapCustomMatrixInputs;
 	TSharedPtr<SVerticalBox> MapFeedRectList;
+	TSharedPtr<SVerticalBox> MapFeedSourceList;
+	TSharedPtr<SVerticalBox> MapFeedDestinationList;
+	TSharedPtr<SVerticalBox> MapFeedRouteList;
 	TMap<FString, FFeedRect> MapFeedRectOverrides;
+	FString ActiveFeedSurfaceId;
+	TArray<FFeedSourceV2> MapFeedSources;
+	TArray<FFeedDestinationV2> MapFeedDestinations;
+	TArray<FFeedRouteV2> MapFeedRoutes;
+	FString ActiveFeedSourceId;
+	FString ActiveFeedDestinationId;
+	FString ActiveFeedRouteId;
 
 	// Graphical widgets
 	TSharedPtr<SRshipModeSelector> QuickModeSelector;
 	TSharedPtr<SRshipModeSelector> MapModeSelector;
 	TSharedPtr<SRshipMappingCanvas> MappingCanvas;
+	TSharedPtr<SRshipMappingCanvas> FeedSourceCanvas;
+	TSharedPtr<SRshipMappingCanvas> FeedDestinationCanvas;
+	TSharedPtr<SVerticalBox> FeedDestinationCanvasList;
 	TSharedPtr<SRshipAngleMaskWidget> AngleMaskWidget;
 	TSharedPtr<SRshipContentModeSelector> ContentModeSelector;
+	TSharedPtr<class SWindow> MappingEditorWindow;
 
 	TArray<TSharedPtr<FRshipIdOption>> TargetOptions;
 	TArray<TSharedPtr<FRshipIdOption>> CameraOptions;
@@ -222,7 +299,7 @@ private:
 	void UpdatePreviewImage(class UTexture* Texture, const struct FRshipContentMappingState& Mapping);
 
 	float TimeSinceLastRefresh = 0.0f;
-	float RefreshInterval = 1.0f;
+	float RefreshInterval = 0.1f;
 	uint32 LastListHash = 0;
 	bool bHasListHash = false;
 	uint32 PendingListHash = 0;
@@ -245,4 +322,7 @@ private:
 	bool bContextErrorsOnly = false;
 	bool bSurfaceErrorsOnly = false;
 	bool bMappingErrorsOnly = false;
+	uint32 LastLiveMappingFormHash = 0;
+	bool bHasLiveMappingFormHash = false;
+	bool bSuspendLiveMappingSync = false;
 };

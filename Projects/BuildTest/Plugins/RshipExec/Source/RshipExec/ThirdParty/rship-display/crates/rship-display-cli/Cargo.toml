@@ -1,0 +1,17 @@
+[package]
+name = "rship-display-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "rship-display-cli"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+rship-display-core = { path = "../rship-display-core" }
+rship-display-windows = { path = "../rship-display-windows" }

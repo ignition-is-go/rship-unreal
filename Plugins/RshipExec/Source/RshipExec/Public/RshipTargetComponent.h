@@ -91,6 +91,8 @@ public:
 
 private: 
 
+	FString ResolveRuntimeTargetName(class URshipSubsystem* Subsystem, class AActor* OwnerActor) const;
+
 	void RegisterFunction(UObject* owner, UFunction* func, FString *targetId);
 	void RegisterProperty(UObject* owner, FProperty* prop, FString* targetId);
 };

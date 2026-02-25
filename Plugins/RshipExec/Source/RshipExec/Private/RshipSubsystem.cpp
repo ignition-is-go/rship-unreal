@@ -24,6 +24,7 @@
 #include "Target.h"
 #include "RshipContentMappingManager.h"
 #include "RshipDisplayManager.h"
+#include "Containers/Ticker.h"
 
 #include "Myko.h"
 #include "EmitterHandler.h"
@@ -270,6 +271,7 @@ void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
     PCGManager = nullptr;
     ContentMappingManager = nullptr;
     DisplayManager = nullptr;
+    SubsystemCoreTickerHandle.Reset();
     LastTickTime = 0.0;
     InboundQueueHead = 0;
     InboundQueue.Reset();
@@ -324,17 +326,8 @@ void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
 
     this->TargetComponents = new TMap<FString, URshipTargetComponent*>;
 
-    // Start subsystem tick timer (60Hz for smooth updates)
-    if (world != nullptr)
-    {
-        world->GetTimerManager().SetTimer(
-            SubsystemTickTimerHandle,
-            this,
-            &URshipSubsystem::TickSubsystems,
-            1.0f / ControlSyncRateHz,
-            true  // Looping
-        );
-    }
+    // Start subsystem ticker independent of world availability.
+    SetControlSyncRateHz(ControlSyncRateHz);
 
     if (Settings->bEnableContentMapping)
     {
@@ -1753,6 +1746,11 @@ void URshipSubsystem::Deinitialize()
         world->GetTimerManager().ClearTimer(ReconnectTimerHandle);
         world->GetTimerManager().ClearTimer(SubsystemTickTimerHandle);
     }
+    if (SubsystemCoreTickerHandle.IsValid())
+    {
+        FTSTicker::GetCoreTicker().RemoveTicker(SubsystemCoreTickerHandle);
+        SubsystemCoreTickerHandle.Reset();
+    }
 
     // Shutdown health monitor
     if (HealthMonitor)
@@ -3099,6 +3097,16 @@ void URshipSubsystem::RegisterTargetComponent(URshipTargetComponent* Component)
     }
 
     const FString& TargetId = Component->TargetData->GetId();
+    URshipTargetComponent* const* Existing = TargetComponents->Find(TargetId);
+    if (Existing && *Existing && *Existing != Component)
+    {
+        const FString ExistingOwner = (*Existing)->GetOwner() ? (*Existing)->GetOwner()->GetName() : TEXT("<none>");
+        const FString NewOwner = Component->GetOwner() ? Component->GetOwner()->GetName() : TEXT("<none>");
+        UE_LOG(LogRshipExec, Error,
+            TEXT("RegisterTargetComponent collision on '%s'. Existing owner='%s', new owner='%s'. Replacing existing registration."),
+            *TargetId, *ExistingOwner, *NewOwner);
+    }
+
     TargetComponents->Add(TargetId, Component);
 
     UE_LOG(LogRshipExec, Log, TEXT("Registered target component: %s (total: %d)"),
@@ -3222,15 +3230,26 @@ void URshipSubsystem::SetControlSyncRateHz(float SyncRateHz)
 {
     ControlSyncRateHz = FMath::Max(1.0f, SyncRateHz);
 
+    if (SubsystemCoreTickerHandle.IsValid())
+    {
+        FTSTicker::GetCoreTicker().RemoveTicker(SubsystemCoreTickerHandle);
+        SubsystemCoreTickerHandle.Reset();
+    }
+
+    // Avoid double ticking; we drive subsystem updates from the core ticker.
     if (UWorld* World = GetWorld())
     {
-        World->GetTimerManager().SetTimer(
-            SubsystemTickTimerHandle,
-            this,
-            &URshipSubsystem::TickSubsystems,
-            1.0f / ControlSyncRateHz,
-            true);
+        World->GetTimerManager().ClearTimer(SubsystemTickTimerHandle);
     }
+
+    const float TickInterval = 1.0f / ControlSyncRateHz;
+    SubsystemCoreTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
+        FTickerDelegate::CreateWeakLambda(this, [this](float)
+        {
+            TickSubsystems();
+            return true;
+        }),
+        TickInterval);
 }
 
 void URshipSubsystem::SetInboundApplyLeadFrames(int32 LeadFrames)

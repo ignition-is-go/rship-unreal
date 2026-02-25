@@ -6,6 +6,7 @@
 #include "Engine/Engine.h"
 #include "RshipSubsystem.h"
 #include "GameFramework/Actor.h"
+#include "EngineUtils.h"
 #include "Misc/DefaultValueHelper.h"
 #include "Util.h"
 #include "Logs.h"
@@ -150,13 +151,7 @@ void URshipTargetComponent::Register()
     }
 
     FString outlinerName = parent->GetName();
-
-    // Default target name to actor name if not set
-    if (this->targetName.IsEmpty())
-    {
-        this->targetName = outlinerName;
-        UE_LOG(LogRshipExec, Log, TEXT("Target Id not set, defaulting to actor name: %s"), *this->targetName);
-    }
+    this->targetName = ResolveRuntimeTargetName(subsystem, parent);
 
     UE_LOG(LogRshipExec, Log, TEXT("Registering OUTLINER: %s as %s"), *outlinerName, *this->targetName);
 
@@ -295,6 +290,89 @@ void URshipTargetComponent::Register()
     }
 
     UE_LOG(LogRshipExec, Log, TEXT("Component Registered: %s"), *parent->GetName());
+}
+
+FString URshipTargetComponent::ResolveRuntimeTargetName(URshipSubsystem* Subsystem, AActor* OwnerActor) const
+{
+    const FString OwnerName = OwnerActor ? OwnerActor->GetName() : FString();
+    FString Candidate = targetName.TrimStartAndEnd();
+
+    // Default to owner name unless a meaningful custom target name is provided.
+    bool bUseOwnerName = Candidate.IsEmpty();
+
+    // If this target name looks like an auto-generated actor name from the same class but
+    // does not match the current owner, prefer the owner name.
+    if (!bUseOwnerName && OwnerActor && Candidate != OwnerName)
+    {
+        const FString AutoPrefix = OwnerActor->GetClass()->GetName() + TEXT("_");
+        if (!AutoPrefix.IsEmpty() && Candidate.StartsWith(AutoPrefix) && OwnerName.StartsWith(AutoPrefix))
+        {
+            bUseOwnerName = true;
+            UE_LOG(LogRshipExec, Warning,
+                TEXT("Target Id '%s' on '%s' appears copied from another actor instance. Using owner name '%s'."),
+                *Candidate, *OwnerName, *OwnerName);
+        }
+    }
+
+    // If this target name matches another actor's name, it's usually stale copied data
+    // from duplicated actors. Prefer the owning actor's current name.
+    if (!bUseOwnerName && OwnerActor && Candidate != OwnerName)
+    {
+        if (UWorld* World = OwnerActor->GetWorld())
+        {
+            for (TActorIterator<AActor> It(World); It; ++It)
+            {
+                AActor* OtherActor = *It;
+                if (OtherActor && OtherActor != OwnerActor && OtherActor->GetName() == Candidate)
+                {
+                    bUseOwnerName = true;
+                    UE_LOG(LogRshipExec, Warning,
+                        TEXT("Target Id '%s' on '%s' appears stale (belongs to '%s'). Using owner name '%s'."),
+                        *Candidate, *OwnerName, *OtherActor->GetName(), *OwnerName);
+                    break;
+                }
+            }
+        }
+    }
+
+    FString BaseName = bUseOwnerName ? OwnerName : Candidate;
+    if (BaseName.IsEmpty())
+    {
+        BaseName = TEXT("Target");
+    }
+
+    FString UniqueName = BaseName;
+    if (Subsystem)
+    {
+        const FString ServicePrefix = Subsystem->GetServiceId() + TEXT(":");
+        int32 Suffix = 2;
+        while (true)
+        {
+            const FString FullTargetId = ServicePrefix + UniqueName;
+            URshipTargetComponent* Existing = Subsystem->FindTargetComponent(FullTargetId);
+            if (!Existing || Existing == this)
+            {
+                break;
+            }
+
+            // Prefer owner name when collision comes from stale duplicated IDs.
+            if (BaseName != OwnerName && !OwnerName.IsEmpty())
+            {
+                BaseName = OwnerName;
+                UniqueName = BaseName;
+                continue;
+            }
+
+            UniqueName = FString::Printf(TEXT("%s_%d"), *BaseName, Suffix++);
+        }
+    }
+
+    if (UniqueName != targetName)
+    {
+        UE_LOG(LogRshipExec, Log, TEXT("Resolved target ID for actor '%s': '%s' -> '%s'"), *OwnerName, *targetName, *UniqueName);
+    }
+
+    return UniqueName;
 }
 
 bool URshipTargetComponent::HasTag(const FString& Tag) const

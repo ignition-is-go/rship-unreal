@@ -19,12 +19,20 @@ public class RshipExec : ModuleRules
 		MinSourceFilesForUnityBuildOverride = 16; // Group more files to reduce memory (RshipExec has many files)
 		NumIncludedBytesPerUnityCPPOverride = 1048576; // 1MB per unity file
 
-		// Check if IXWebSocket is available (bundled as submodule)
+		// IXWebSocket is only enabled on desktop targets where we've validated this path.
+		bool bSupportsIXWebSocketPlatform =
+			Target.Platform == UnrealTargetPlatform.Win64
+			|| Target.Platform == UnrealTargetPlatform.Mac
+			|| Target.Platform == UnrealTargetPlatform.Linux;
 		string IXWebSocketPath = Path.Combine(ModuleDirectory, "ThirdParty", "IXWebSocket", "ixwebsocket");
-		if (Directory.Exists(IXWebSocketPath))
+		if (Directory.Exists(IXWebSocketPath) && bSupportsIXWebSocketPlatform)
 		{
 			bUseIXWebSocket = true;
 			System.Console.WriteLine("RshipExec: IXWebSocket found, enabling high-performance WebSocket");
+		}
+		else if (!bSupportsIXWebSocketPlatform)
+		{
+			System.Console.WriteLine("RshipExec: IXWebSocket disabled on this platform, using UE WebSocket fallback");
 		}
 		else
 		{
@@ -57,20 +65,6 @@ public class RshipExec : ModuleRules
 
 			// Disable shadowing warnings for third-party code (IXWebSocket has variable shadowing)
 			CppCompileWarningSettings.ShadowVariableWarningLevel = WarningLevel.Off;
-
-			// Platform-specific defines
-			if (Target.Platform == UnrealTargetPlatform.Win64)
-			{
-				PublicDefinitions.Add("_WIN32");
-			}
-			else if (Target.Platform == UnrealTargetPlatform.Mac)
-			{
-				PublicDefinitions.Add("__APPLE__");
-			}
-			else if (Target.Platform == UnrealTargetPlatform.Linux)
-			{
-				PublicDefinitions.Add("__linux__");
-			}
 
 			// Enable exceptions for IXWebSocket (it uses them internally)
 			bEnableExceptions = true;
@@ -245,6 +239,7 @@ public class RshipExec : ModuleRules
 				{
 					"UnrealEd",
 					"LevelEditor",
+					"AssetRegistry",
 				}
 			);
 		}

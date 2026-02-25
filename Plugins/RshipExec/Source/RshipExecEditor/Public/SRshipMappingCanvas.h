@@ -6,7 +6,19 @@
 #include "Widgets/SLeafWidget.h"
 #include "Styling/SlateBrush.h"
 
-DECLARE_DELEGATE_FourParams(FOnFeedRectChanged, float /*U*/, float /*V*/, float /*W*/, float /*H*/);
+struct FRshipCanvasFeedRectEntry
+{
+	FString SurfaceId;
+	FString Label;
+	float U = 0.0f;
+	float V = 0.0f;
+	float W = 1.0f;
+	float H = 1.0f;
+	bool bActive = false;
+};
+
+DECLARE_DELEGATE_FiveParams(FOnFeedRectChanged, const FString& /*SurfaceId*/, float /*U*/, float /*V*/, float /*W*/, float /*H*/);
+DECLARE_DELEGATE_OneParam(FOnFeedRectSelectionChanged, const FString& /*SurfaceId*/);
 DECLARE_DELEGATE_FiveParams(FOnUvTransformChanged, float /*ScaleU*/, float /*ScaleV*/, float /*OffsetU*/, float /*OffsetV*/, float /*RotDeg*/);
 
 class SRshipMappingCanvas : public SLeafWidget
@@ -17,6 +29,7 @@ public:
 	{}
 		SLATE_ARGUMENT(float, DesiredHeight)
 		SLATE_EVENT(FOnFeedRectChanged, OnFeedRectChanged)
+		SLATE_EVENT(FOnFeedRectSelectionChanged, OnFeedRectSelectionChanged)
 		SLATE_EVENT(FOnUvTransformChanged, OnUvTransformChanged)
 	SLATE_END_ARGS()
 
@@ -32,9 +45,12 @@ public:
 
 	/** Setters that do NOT fire delegates (prevents loops) */
 	void SetFeedRect(float U, float V, float W, float H);
+	void SetFeedRects(const TArray<FRshipCanvasFeedRectEntry>& InFeedRects);
 	void SetUvTransform(float ScaleU, float ScaleV, float OffsetU, float OffsetV, float RotDeg);
 	void SetBackgroundTexture(class UTexture* Texture);
 	void SetDisplayMode(const FString& Mode);
+	void SetCanvasResolution(int32 WidthPx, int32 HeightPx);
+	void SetFeedRectValueModePixels(bool bInPixels);
 
 private:
 	enum class EDragMode : uint8
@@ -54,9 +70,12 @@ private:
 	};
 
 	EDragMode HitTestHandle(const FGeometry& MyGeometry, const FVector2D& LocalPos) const;
+	int32 HitTestFeedRectBody(const FGeometry& MyGeometry, const FVector2D& LocalPos) const;
 	void PaintCheckerboard(const FGeometry& AllottedGeometry, FSlateWindowElementList& OutDrawElements, int32 LayerId) const;
 	void PaintUvGrid(const FGeometry& AllottedGeometry, FSlateWindowElementList& OutDrawElements, int32 LayerId) const;
 	void PaintFeedRect(const FGeometry& AllottedGeometry, FSlateWindowElementList& OutDrawElements, int32 LayerId) const;
+	void SyncActiveRectFromCachedValues();
+	void SyncCachedValuesFromActiveRect();
 
 	float DesiredHeight = 300.0f;
 
@@ -65,6 +84,8 @@ private:
 	float FeedV = 0.0f;
 	float FeedW = 1.0f;
 	float FeedH = 1.0f;
+	TArray<FRshipCanvasFeedRectEntry> FeedRects;
+	int32 ActiveFeedRectIndex = INDEX_NONE;
 
 	// UV transform
 	float UvScaleU = 1.0f;
@@ -75,6 +96,9 @@ private:
 
 	// Display mode
 	FString DisplayMode = TEXT("feed");
+	int32 CanvasWidthPx = 1920;
+	int32 CanvasHeightPx = 1080;
+	bool bFeedRectValuesArePixels = false;
 
 	// Texture
 	TWeakObjectPtr<class UTexture> BackgroundTexture;
@@ -94,8 +118,9 @@ private:
 
 	// Delegates
 	FOnFeedRectChanged OnFeedRectChanged;
+	FOnFeedRectSelectionChanged OnFeedRectSelectionChanged;
 	FOnUvTransformChanged OnUvTransformChanged;
 
-	static constexpr float HandleSize = 8.0f;
-	static constexpr float HandleHitRadius = 12.0f;
+	static constexpr float HandleSize = 12.0f;
+	static constexpr float HandleHitRadius = 20.0f;
 };
