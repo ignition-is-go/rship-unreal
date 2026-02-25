@@ -55,6 +55,7 @@ DECLARE_DYNAMIC_DELEGATE(FRshipMessageDelegate);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnRshipSelectionChanged);
 
 // Connection state for tracking
+// Connection state for tracking
 enum class ERshipConnectionState : uint8
 {
     Disconnected,
@@ -62,6 +63,14 @@ enum class ERshipConnectionState : uint8
     Connected,
     Reconnecting,
     BackingOff
+};
+
+struct FRshipPendingExecTargetAction
+{
+    FString TargetId;
+    FString ActionId;
+    TSharedPtr<FJsonObject> Data;
+    TArray<FString> TxIds;
 };
 
 /**
@@ -237,6 +246,7 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     double LastTickTime;
     // Components that had successful Take() calls this frame; flushed once per tick.
     TSet<TWeakObjectPtr<URshipTargetComponent>> PendingOnDataReceivedComponents;
+    TMap<FString, FRshipPendingExecTargetAction> PendingExecTargetActions;
 
     // Ticker callbacks (return true to keep ticking, false to stop)
     bool OnQueueProcessTick(float DeltaTime);
@@ -268,6 +278,9 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     void TickSubsystems();
     void OnConnectionTimeout();
     void FlushPendingOnDataReceived();
+    void EnqueueExecTargetAction(const FString& TargetId, const FString& ActionId, const TSharedRef<FJsonObject>& Data, const FString& TxId);
+    void ProcessPendingExecTargetActions();
+    void QueueCommandResponse(const FString& TxId, bool bOk, const FString& CommandId, const FString& ErrorMessage = TEXT(""));
 
     // WebSocket event handlers
     void OnWebSocketConnected();
@@ -538,3 +551,7 @@ public:
     // Legacy compatibility - direct send (use sparingly, bypasses queue)
     void SendJson(TSharedPtr<FJsonObject> Payload);
 };
+
+
+
+

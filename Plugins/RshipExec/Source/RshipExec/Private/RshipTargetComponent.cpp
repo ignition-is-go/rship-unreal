@@ -2,545 +2,567 @@
 
 #include "RshipTargetComponent.h"
 #include "RshipTargetGroup.h"
-#include <iostream>
+#include "RshipActionProvider.h"
 #include "Engine/World.h"
 #include "Engine/Engine.h"
 #include "RshipSubsystem.h"
 #include "GameFramework/Actor.h"
-#include "Misc/DefaultValueHelper.h"
 #include "Util.h"
 #include "Logs.h"
+#include "Algo/Sort.h"
+#include "Misc/Crc.h"
 
-using namespace std;
-
-// Sets default values for this component's properties
 void URshipTargetComponent::OnRegister()
 {
-
-    Super::OnRegister();
-    // Set this component to be initialized when the game starts, and to be ticked every frame.  You can turn these features
-    // off to improve performance if you don't need them.
-    PrimaryComponentTick.bCanEverTick = true;
-
-    Register();
+	Super::OnRegister();
+	PrimaryComponentTick.bCanEverTick = false;
+	SetComponentTickEnabled(false);
+	Register();
 }
 
 void URshipTargetComponent::OnComponentDestroyed(bool bDestoryHierarchy)
 {
-    for (const auto &handler : EmitterHandlers)
-    {
-        if (handler.Value)
-        {
-            handler.Value->Destroy();
-        }
-    }
-    EmitterHandlers.Empty();
+	for (const auto& Handler : EmitterHandlers)
+	{
+		if (Handler.Value)
+		{
+			Handler.Value->Destroy();
+		}
+	}
+	EmitterHandlers.Empty();
 
-    // GEngine can be null during editor shutdown - check before accessing
-    if (!GEngine)
-    {
-        return;
-    }
+	if (!GEngine)
+	{
+		return;
+	}
 
-    URshipSubsystem *subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+	URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+	if (!Subsystem)
+	{
+		return;
+	}
 
-    if(!subsystem)
-    {
-        return;
-    }
+	Subsystem->UnregisterTargetComponent(this);
 
-    // Unregister from subsystem's target registry
-    subsystem->UnregisterTargetComponent(this);
-
-    // Unregister from GroupManager
-    if (URshipTargetGroupManager* GroupManager = subsystem->GetGroupManager())
-    {
-        GroupManager->UnregisterTarget(this);
-    }
+	if (URshipTargetGroupManager* GroupManager = Subsystem->GetGroupManager())
+	{
+		GroupManager->UnregisterTarget(this);
+	}
 }
 
-// Called every frame
-void URshipTargetComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction *ThisTickFunction)
+void URshipTargetComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
-    Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 }
 
-void URshipTargetComponent::OnDataReceived() {
-    this->OnRshipData.Broadcast();
+uint32 URshipTargetComponent::ComputeSiblingComponentSignature() const
+{
+	TArray<UActorComponent*> Components;
+	GatherSiblingComponents(Components);
+
+	TArray<FString> Keys;
+	Keys.Reserve(Components.Num());
+	for (UActorComponent* Component : Components)
+	{
+		if (!Component)
+		{
+			continue;
+		}
+		Keys.Add(Component->GetClass()->GetPathName() + TEXT("|") + Component->GetName());
+	}
+	Keys.Sort();
+
+	uint32 Signature = 0;
+	for (const FString& Key : Keys)
+	{
+		Signature = FCrc::StrCrc32(*Key, Signature);
+	}
+	return Signature;
+}
+void URshipTargetComponent::OnDataReceived()
+{
+	OnRshipData.Broadcast();
+}
+
+void URshipTargetComponent::HandleAfterTake(const FString& ActionName, UObject* ActionOwner)
+{
+	for (int32 Index = CachedActionProviderObjects.Num() - 1; Index >= 0; --Index)
+	{
+		UObject* ProviderObject = CachedActionProviderObjects[Index].Get();
+		if (!ProviderObject)
+		{
+			CachedActionProviderObjects.RemoveAtSwap(Index);
+			continue;
+		}
+
+		if (IRshipActionProvider* Provider = Cast<IRshipActionProvider>(ProviderObject))
+		{
+			Provider->OnRshipAfterTake(this, ActionName, ActionOwner);
+		}
+	}
+}
+
+void URshipTargetComponent::GatherSiblingComponents(TArray<UActorComponent*>& OutSiblingComponents) const
+{
+	OutSiblingComponents.Reset();
+	if (AActor* Owner = GetOwner())
+	{
+		Owner->GetComponents(OutSiblingComponents);
+	}
+}
+
+void URshipTargetComponent::RebuildActionProviderCache()
+{
+	CachedActionProviderObjects.Reset();
+
+	AActor* Owner = GetOwner();
+	if (!Owner)
+	{
+		return;
+	}
+
+	if (Owner->GetClass()->ImplementsInterface(URshipActionProvider::StaticClass()))
+	{
+		CachedActionProviderObjects.Add(Owner);
+	}
+
+	TArray<UActorComponent*> SiblingComponents;
+	GatherSiblingComponents(SiblingComponents);
+	for (UActorComponent* Sibling : SiblingComponents)
+	{
+		if (Sibling && Sibling->GetClass()->ImplementsInterface(URshipActionProvider::StaticClass()))
+		{
+			CachedActionProviderObjects.Add(Sibling);
+		}
+	}
+}
+
+void URshipTargetComponent::RegisterScannableMembers(UObject* OwnerObject, const FString& FullTargetId, const FString& MutableTargetId, bool bRequireRSPrefix)
+{
+	if (!OwnerObject)
+	{
+		return;
+	}
+
+	UClass* OwnerClass = OwnerObject->GetClass();
+	for (TFieldIterator<UFunction> FuncIt(OwnerClass, EFieldIteratorFlags::ExcludeSuper); FuncIt; ++FuncIt)
+	{
+		TryRegisterFunctionAction(OwnerObject, *FuncIt, MutableTargetId, TEXT(""), bRequireRSPrefix);
+	}
+	for (TFieldIterator<FProperty> PropIt(OwnerClass, EFieldIteratorFlags::ExcludeSuper); PropIt; ++PropIt)
+	{
+		TryRegisterPropertyAction(OwnerObject, *PropIt, MutableTargetId, TEXT(""), bRequireRSPrefix);
+	}
+	for (TFieldIterator<FMulticastInlineDelegateProperty> EmitIt(OwnerClass, EFieldIteratorFlags::ExcludeSuper); EmitIt; ++EmitIt)
+	{
+		TryRegisterEmitter(OwnerObject, *EmitIt, FullTargetId, TEXT(""), bRequireRSPrefix);
+	}
+}
+
+void URshipTargetComponent::RegisterProviderWhitelistActions(AActor* OwnerActor, const TArray<UActorComponent*>& SiblingComponents)
+{
+	if (!OwnerActor)
+	{
+		return;
+	}
+
+	RebuildActionProviderCache();
+
+	if (IRshipActionProvider* OwnerProvider = Cast<IRshipActionProvider>(OwnerActor))
+	{
+		OwnerProvider->RegisterRshipWhitelistedActions(this);
+	}
+	for (UActorComponent* Sibling : SiblingComponents)
+	{
+		if (IRshipActionProvider* Provider = Cast<IRshipActionProvider>(Sibling))
+		{
+			Provider->RegisterRshipWhitelistedActions(this);
+		}
+	}
 }
 
 void URshipTargetComponent::Reconnect()
 {
-    URshipSubsystem *subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
-    subsystem->Reconnect();
+	if (URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>())
+	{
+		Subsystem->Reconnect();
+	}
 }
 
-void URshipTargetComponent::RegisterFunction(UObject* owner, UFunction* func, FString *targetId) {
-    FString name = func->GetName();
+bool URshipTargetComponent::TryRegisterFunctionAction(UObject* owner, UFunction* func, const FString& fullTargetId, const FString& actionName, bool bRequireRSPrefix)
+{
+	if (!owner || !func || !TargetData)
+	{
+		return false;
+	}
 
-    if (!name.StartsWith("RS_")) {
-        return;
-    }
+	const FString NameToCheck = func->GetName();
+	if (bRequireRSPrefix && !NameToCheck.StartsWith(TEXT("RS_")))
+	{
+		return false;
+	}
 
-    // Skip auto-generated delegate signature functions (e.g., RS_FocalLengthEmitter__DelegateSignature)
-    if (name.Contains("__DelegateSignature")) {
-        return;
-    }
+	if (NameToCheck.Contains(TEXT("__DelegateSignature")))
+	{
+		return false;
+	}
 
-    FString fullActionId = *targetId + ":" + name;
+	const FString FinalName = actionName.IsEmpty() ? NameToCheck : actionName;
+	const FString FullActionId = fullTargetId + TEXT(":") + FinalName;
 
-    auto action = new Action(fullActionId, name, func, owner);
-    this->TargetData->AddAction(action);
+	if (TargetData->GetActions().Contains(FullActionId))
+	{
+		return false;
+	}
+
+	TargetData->AddAction(new Action(FullActionId, FinalName, func, owner));
+	return true;
 }
 
-void URshipTargetComponent::RegisterProperty(UObject* owner, FProperty* prop, FString* targetId) {
-    FString name = prop->GetName();
-    UE_LOG(LogRshipExec, Verbose, TEXT("RshipTargetComponent: Processing Property [%s]"), *name);
+bool URshipTargetComponent::TryRegisterPropertyAction(UObject* owner, FProperty* prop, const FString& fullTargetId, const FString& actionName, bool bRequireRSPrefix)
+{
+	if (!owner || !prop || !TargetData)
+	{
+		return false;
+	}
 
-    if (!name.StartsWith("RS_")) {
-        return;
-    }
+	const FString NameToCheck = prop->GetName();
+	if (bRequireRSPrefix && !NameToCheck.StartsWith(TEXT("RS_")))
+	{
+		return false;
+	}
 
-    // Skip delegate properties - they are registered as emitters, not actions
-    if (prop->IsA<FMulticastDelegateProperty>()) {
-        return;
-    }
+	if (prop->IsA<FMulticastDelegateProperty>())
+	{
+		return false;
+	}
 
-    FString fullActionId = *targetId + ":" + name;
-    auto action = new Action(fullActionId, name, prop, owner);
-    this->TargetData->AddAction(action);
-    UE_LOG(LogRshipExec, Verbose, TEXT("RshipTargetComponent: Added Action [%s]"), *fullActionId);
+	const FString FinalName = actionName.IsEmpty() ? NameToCheck : actionName;
+	const FString FullActionId = fullTargetId + TEXT(":") + FinalName;
+
+	if (TargetData->GetActions().Contains(FullActionId))
+	{
+		return false;
+	}
+
+	TargetData->AddAction(new Action(FullActionId, FinalName, prop, owner));
+	UE_LOG(LogRshipExec, Verbose, TEXT("RshipTargetComponent: Added Action [%s]"), *FullActionId);
+	return true;
+}
+
+bool URshipTargetComponent::TryRegisterEmitter(UObject* owner, FMulticastInlineDelegateProperty* emitterProp, const FString& fullTargetId, const FString& emitterName, bool bRequireRSPrefix)
+{
+	if (!owner || !emitterProp || !TargetData)
+	{
+		return false;
+	}
+
+	if (!GEngine)
+	{
+		return false;
+	}
+
+	URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+	if (!Subsystem)
+	{
+		return false;
+	}
+
+	const FString NameToCheck = emitterProp->GetName();
+	if (bRequireRSPrefix && !NameToCheck.StartsWith(TEXT("RS_")))
+	{
+		return false;
+	}
+
+	const FString FinalName = emitterName.IsEmpty() ? NameToCheck : emitterName;
+	const FString FullEmitterId = fullTargetId + TEXT(":") + FinalName;
+
+	if (TargetData->GetEmitters().Contains(FullEmitterId) || EmitterHandlers.Contains(FinalName))
+	{
+		return false;
+	}
+
+	AActor* Parent = GetOwner();
+	UWorld* World = GetWorld();
+	if (!Parent || !World)
+	{
+		return false;
+	}
+
+	TargetData->AddEmitter(new EmitterContainer(FullEmitterId, FinalName, emitterProp));
+
+	FMulticastScriptDelegate EmitterDelegate = emitterProp->GetPropertyValue_InContainer(owner);
+	TScriptDelegate LocalDelegate;
+
+	FActorSpawnParameters SpawnInfo;
+	SpawnInfo.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	SpawnInfo.Owner = Parent;
+	SpawnInfo.bNoFail = true;
+	SpawnInfo.bDeferConstruction = false;
+	SpawnInfo.bAllowDuringConstructionScript = true;
+
+	AEmitterHandler* Handler = World->SpawnActor<AEmitterHandler>(SpawnInfo);
+#if WITH_EDITOR
+	Handler->SetActorLabel(Parent->GetActorLabel() + TEXT(" ") + FinalName + TEXT(" Handler"));
+#endif
+
+	Handler->SetServiceId(Subsystem->GetServiceId());
+	Handler->SetTargetId(fullTargetId);
+	Handler->SetEmitterId(FinalName);
+	Handler->SetDelegate(&LocalDelegate);
+
+	LocalDelegate.BindUFunction(Handler, TEXT("ProcessEmitter"));
+	EmitterDelegate.Add(LocalDelegate);
+	emitterProp->SetPropertyValue_InContainer(owner, EmitterDelegate);
+
+	EmitterHandlers.Add(FinalName, Handler);
+	return true;
+}
+
+bool URshipTargetComponent::RegisterWhitelistedFunction(UObject* Owner, const FName& FunctionName, const FString& ExposedActionName)
+{
+	if (!TargetData || !Owner)
+	{
+		return false;
+	}
+
+	UFunction* Func = Owner->FindFunction(FunctionName);
+	if (!Func)
+	{
+		UE_LOG(LogRshipExec, Warning, TEXT("RegisterWhitelistedFunction failed: function '%s' not found on %s"), *FunctionName.ToString(), *Owner->GetName());
+		return false;
+	}
+
+	return TryRegisterFunctionAction(Owner, Func, TargetData->GetId(), ExposedActionName, false);
+}
+
+bool URshipTargetComponent::RegisterWhitelistedProperty(UObject* Owner, const FName& PropertyName, const FString& ExposedActionName)
+{
+	if (!TargetData || !Owner)
+	{
+		return false;
+	}
+
+	FProperty* Prop = Owner->GetClass()->FindPropertyByName(PropertyName);
+	if (!Prop)
+	{
+		UE_LOG(LogRshipExec, Warning, TEXT("RegisterWhitelistedProperty failed: property '%s' not found on %s"), *PropertyName.ToString(), *Owner->GetName());
+		return false;
+	}
+
+	return TryRegisterPropertyAction(Owner, Prop, TargetData->GetId(), ExposedActionName, false);
+}
+
+bool URshipTargetComponent::RegisterWhitelistedEmitter(UObject* Owner, const FName& DelegateName, const FString& ExposedEmitterName)
+{
+	if (!TargetData || !Owner)
+	{
+		return false;
+	}
+
+	FProperty* Prop = Owner->GetClass()->FindPropertyByName(DelegateName);
+	FMulticastInlineDelegateProperty* EmitterProp = CastField<FMulticastInlineDelegateProperty>(Prop);
+	if (!EmitterProp)
+	{
+		UE_LOG(LogRshipExec, Warning, TEXT("RegisterWhitelistedEmitter failed: delegate '%s' not found on %s"), *DelegateName.ToString(), *Owner->GetName());
+		return false;
+	}
+
+	return TryRegisterEmitter(Owner, EmitterProp, TargetData->GetId(), ExposedEmitterName, false);
 }
 
 void URshipTargetComponent::Register()
 {
-    // Skip registration in blueprint editor preview worlds
-    UWorld* World = GetWorld();
-    if (World && World->WorldType == EWorldType::EditorPreview)
-    {
-        UE_LOG(LogRshipExec, Verbose, TEXT("Skipping registration for blueprint preview actor: %s"), *targetName);
-        return;
-    }
-
-    // If already registered, unregister first to clean up
-    if (TargetData != nullptr)
-    {
-        UE_LOG(LogRshipExec, Log, TEXT("Register called on already-registered target '%s', re-registering..."), *targetName);
-        Unregister();
-    }
-
-    URshipSubsystem *subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
-
-    AActor *parent = GetOwner();
-
-    if (!parent)
-    {
-        UE_LOG(LogRshipExec, Warning, TEXT("Parent not found"));
-    }
-
-    FString outlinerName = parent->GetName();
-#if WITH_EDITOR
-    // Prefer editor label for human-readable defaults (avoids object names with UUID-like suffixes).
-    outlinerName = parent->GetActorLabel();
-#endif
-
-    // Default target name to actor name if not set
-    if (this->targetName.IsEmpty())
-    {
-        this->targetName = outlinerName;
-        UE_LOG(LogRshipExec, Log, TEXT("Target Id not set, defaulting to actor name: %s"), *this->targetName);
-    }
-
-    UE_LOG(LogRshipExec, Log, TEXT("Registering OUTLINER: %s as %s"), *outlinerName, *this->targetName);
-
-    FString fullTargetId = subsystem->GetServiceId() + ":" + this->targetName;
-
-    this->TargetData = new Target(fullTargetId);
-
-    // Register with subsystem for O(1) lookups by target ID
-    subsystem->RegisterTargetComponent(this);
-
-    UClass *ownerClass = parent->GetClass();
-
-    for (TFieldIterator<UFunction> field(ownerClass, EFieldIteratorFlags::ExcludeSuper); field; ++field)
-    {
-        this->RegisterFunction(parent, *field, &fullTargetId);
-    }
-
-    for(TFieldIterator<FProperty> propIt(ownerClass, EFieldIteratorFlags::ExcludeSuper); propIt; ++propIt) {
-        FProperty* property = *propIt;
-        this->RegisterProperty(parent, property, &fullTargetId);
+	UWorld* World = GetWorld();
+	if (World && World->WorldType == EWorldType::EditorPreview)
+	{
+		UE_LOG(LogRshipExec, Verbose, TEXT("Skipping registration for blueprint preview actor: %s"), *targetName);
+		return;
 	}
 
-    TArray<UActorComponent*> siblingComponents;
+	if (TargetData != nullptr)
+	{
+		UE_LOG(LogRshipExec, Log, TEXT("Register called on already-registered target '%s', re-registering..."), *targetName);
+		Unregister();
+	}
 
-    parent->GetComponents(siblingComponents);
+	URshipSubsystem* Subsystem = GEngine ? GEngine->GetEngineSubsystem<URshipSubsystem>() : nullptr;
+	AActor* Parent = GetOwner();
+	if (!Subsystem || !Parent)
+	{
+		UE_LOG(LogRshipExec, Warning, TEXT("Register failed: missing subsystem or owner"));
+		return;
+	}
 
-    UE_LOG(LogRshipExec, Log, TEXT("Scanning %d sibling components for RS_ members"), siblingComponents.Num());
-
-    for (UActorComponent* sibling : siblingComponents) {
-        UClass* siblingClass = sibling->GetClass();
-        UE_LOG(LogRshipExec, Log, TEXT("  Sibling: %s (Class: %s)"), *sibling->GetName(), *siblingClass->GetName());
-
-        for (TFieldIterator<UFunction> siblingFunc(siblingClass, EFieldIteratorFlags::ExcludeSuper); siblingFunc; ++siblingFunc) {
-            FString funcName = (*siblingFunc)->GetName();
-            if (funcName.StartsWith("RS_")) {
-                UE_LOG(LogRshipExec, Log, TEXT("    Found RS_ function: %s"), *funcName);
-            }
-            this->RegisterFunction(sibling, *siblingFunc, &fullTargetId);
-        }
-
-        for (TFieldIterator<FProperty> siblingProp(siblingClass, EFieldIteratorFlags::ExcludeSuper); siblingProp; ++siblingProp) {
-            FString propName = (*siblingProp)->GetName();
-            if (propName.StartsWith("RS_")) {
-                UE_LOG(LogRshipExec, Log, TEXT("    Found RS_ property: %s"), *propName);
-            }
-            this->RegisterProperty(sibling, *siblingProp, &fullTargetId);
-        }
-    }
-
-    // Helper lambda to register emitters from a class/object pair
-    auto RegisterEmittersFromObject = [&](UClass* targetClass, UObject* targetObject) {
-        for (TFieldIterator<FMulticastInlineDelegateProperty> It(targetClass, EFieldIteratorFlags::ExcludeSuper); It; ++It)
-        {
-            FMulticastInlineDelegateProperty *EmitterProp = *It;
-            FString EmitterName = EmitterProp->GetName();
-            FName EmitterType = EmitterProp->GetClass()->GetFName();
-
-            UE_LOG(LogRshipExec, Log, TEXT("Emitter: %s, Type: %s"), *EmitterName, *EmitterType.ToString());
-
-            if (!EmitterName.StartsWith("RS_"))
-            {
-                continue;
-            }
-
-            auto emitters = this->TargetData->GetEmitters();
-
-            FString fullEmitterId = fullTargetId + ":" + EmitterName;
-
-            auto emitter = new EmitterContainer(fullEmitterId, EmitterName, EmitterProp);
-            this->TargetData->AddEmitter(emitter);
-
-            FMulticastScriptDelegate EmitterDelegate = EmitterProp->GetPropertyValue_InContainer(targetObject);
-
-            TScriptDelegate localDelegate;
-
-            auto world = GetWorld();
-
-            if (!world)
-            {
-                UE_LOG(LogRshipExec, Warning, TEXT("World Not Found"));
-                return;
-            }
-
-            FActorSpawnParameters spawnInfo;
-            spawnInfo.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-            spawnInfo.Owner = parent;
-            spawnInfo.bNoFail = true;
-            spawnInfo.bDeferConstruction = false;
-            spawnInfo.bAllowDuringConstructionScript = true;
-
-            if (this->EmitterHandlers.Contains(EmitterName))
-            {
-                return;
-            }
-
-            AEmitterHandler *handler = world->SpawnActor<AEmitterHandler>(spawnInfo);
+	FString OutlinerName = Parent->GetName();
 #if WITH_EDITOR
-            handler->SetActorLabel(parent->GetActorLabel() + " " + EmitterName + " Handler");
+	OutlinerName = Parent->GetActorLabel();
 #endif
 
-            handler->SetServiceId(subsystem->GetServiceId());
-            handler->SetTargetId(fullTargetId);
-            handler->SetEmitterId(EmitterName);
-            handler->SetDelegate(&localDelegate);
+	if (targetName.IsEmpty())
+	{
+		targetName = OutlinerName;
+		UE_LOG(LogRshipExec, Log, TEXT("Target Id not set, defaulting to actor name: %s"), *targetName);
+	}
 
-            localDelegate.BindUFunction(handler, TEXT("ProcessEmitter"));
+	const FString FullTargetId = Subsystem->GetServiceId() + TEXT(":") + targetName;
+	FString MutableTargetId = FullTargetId;
 
-            EmitterDelegate.Add(localDelegate);
+	TargetData = new Target(FullTargetId);
+	TargetData->SetBoundTargetComponent(this);
+	Subsystem->RegisterTargetComponent(this);
 
-            EmitterProp->SetPropertyValue_InContainer(targetObject, EmitterDelegate);
+	RegisterScannableMembers(Parent, FullTargetId, MutableTargetId, true);
 
-            this->EmitterHandlers.Add(EmitterName, handler);
-        }
-    };
+	TArray<UActorComponent*> SiblingComponents;
+	GatherSiblingComponents(SiblingComponents);
+	for (UActorComponent* Sibling : SiblingComponents)
+	{
+		RegisterScannableMembers(Sibling, FullTargetId, MutableTargetId, true);
+	}
 
-    // Register emitters from owner actor
-    RegisterEmittersFromObject(ownerClass, parent);
+	RegisterProviderWhitelistActions(Parent, SiblingComponents);
 
-    // Register emitters from sibling components
-    for (UActorComponent* sibling : siblingComponents) {
-        UClass* siblingClass = sibling->GetClass();
-        UE_LOG(LogRshipExec, Log, TEXT("  Scanning sibling %s for emitters"), *siblingClass->GetName());
-        RegisterEmittersFromObject(siblingClass, sibling);
-    }
+	Subsystem->SendTarget(TargetData);
+	Subsystem->ProcessMessageQueue();
 
-    UE_LOG(LogRshipExec, Log, TEXT("Target %s: %d emitters, %d actions registered"),
-        *fullTargetId,
-        this->TargetData->GetEmitters().Num(),
-        this->TargetData->GetActions().Num());
+	if (URshipTargetGroupManager* GroupManager = Subsystem->GetGroupManager())
+	{
+		GroupManager->RegisterTarget(this);
+	}
 
-    // Send only this target (not all targets) to avoid redundant sends
-    if (this->TargetData)
-    {
-        subsystem->SendTarget(this->TargetData);
-        subsystem->ProcessMessageQueue();
-    }
+	CachedSiblingComponentSignature = ComputeSiblingComponentSignature();
+	bHasCachedSiblingComponentSignature = true;
 
-    // Register with GroupManager for tagging/grouping support
-    if (URshipTargetGroupManager* GroupManager = subsystem->GetGroupManager())
-    {
-        GroupManager->RegisterTarget(this);
-    }
-
-    UE_LOG(LogRshipExec, Log, TEXT("Component Registered: %s"), *parent->GetName());
+	UE_LOG(LogRshipExec, Log, TEXT("Component Registered: %s (actions=%d emitters=%d)"), *Parent->GetName(), TargetData->GetActions().Num(), TargetData->GetEmitters().Num());
 }
 
 bool URshipTargetComponent::HasTag(const FString& Tag) const
 {
-    // Case-insensitive tag search
-    FString NormalizedTag = Tag.TrimStartAndEnd().ToLower();
-    for (const FString& ExistingTag : Tags)
-    {
-        if (ExistingTag.TrimStartAndEnd().ToLower() == NormalizedTag)
-        {
-            return true;
-        }
-    }
-    return false;
+	const FString NormalizedTag = Tag.TrimStartAndEnd().ToLower();
+	for (const FString& ExistingTag : Tags)
+	{
+		if (ExistingTag.TrimStartAndEnd().ToLower() == NormalizedTag)
+		{
+			return true;
+		}
+	}
+	return false;
 }
 
 void URshipTargetComponent::Unregister()
 {
-    // Remove from subsystem first (before cleanup)
-    if (!GEngine)
-    {
-        return;
-    }
+	if (!GEngine)
+	{
+		return;
+	}
 
-    URshipSubsystem* subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
-    if (!subsystem)
-    {
-        return;
-    }
+	URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+	if (!Subsystem)
+	{
+		return;
+	}
 
-    // Send deletion events to server BEFORE cleaning up local state
-    if (TargetData)
-    {
-        subsystem->DeleteTarget(TargetData);
-    }
+	if (TargetData)
+	{
+		Subsystem->DeleteTarget(TargetData);
+	}
 
-    // Clean up emitter handlers
-    for (const auto& handler : EmitterHandlers)
-    {
-        if (handler.Value)
-        {
-            handler.Value->Destroy();
-        }
-    }
-    EmitterHandlers.Empty();
+	for (const auto& Handler : EmitterHandlers)
+	{
+		if (Handler.Value)
+		{
+			Handler.Value->Destroy();
+		}
+	}
+	EmitterHandlers.Empty();
 
-    // Unregister from subsystem before cleaning up target data
-    subsystem->UnregisterTargetComponent(this);
+	Subsystem->UnregisterTargetComponent(this);
 
-    // Clean up target data
-    if (TargetData)
-    {
-        delete TargetData;
-        TargetData = nullptr;
-    }
+	if (TargetData)
+	{
+		TargetData->SetBoundTargetComponent(nullptr);
+		delete TargetData;
+		TargetData = nullptr;
+	}
 
-    // Unregister from GroupManager
-    if (URshipTargetGroupManager* GroupManager = subsystem->GetGroupManager())
-    {
-        GroupManager->UnregisterTarget(this);
-    }
+	if (URshipTargetGroupManager* GroupManager = Subsystem->GetGroupManager())
+	{
+		GroupManager->UnregisterTarget(this);
+	}
 
-    UE_LOG(LogRshipExec, Log, TEXT("Target unregistered: %s"), *targetName);
+	bHasCachedSiblingComponentSignature = false;
+	CachedSiblingComponentSignature = 0;
+	CachedActionProviderObjects.Reset();
+
+	UE_LOG(LogRshipExec, Log, TEXT("Target unregistered: %s"), *targetName);
 }
 
 void URshipTargetComponent::SetTargetId(const FString& NewTargetId)
 {
-    if (NewTargetId.IsEmpty())
-    {
-        UE_LOG(LogRshipExec, Warning, TEXT("SetTargetId called with empty ID - ignoring"));
-        return;
-    }
+	if (NewTargetId.IsEmpty())
+	{
+		UE_LOG(LogRshipExec, Warning, TEXT("SetTargetId called with empty ID - ignoring"));
+		return;
+	}
 
-    // If same ID, no need to re-register
-    if (targetName == NewTargetId)
-    {
-        UE_LOG(LogRshipExec, Verbose, TEXT("SetTargetId called with same ID (%s) - no change needed"), *NewTargetId);
-        return;
-    }
+	if (targetName == NewTargetId)
+	{
+		return;
+	}
 
-    FString OldTargetId = targetName;
+	const FString OldTargetId = targetName;
+	if (TargetData != nullptr)
+	{
+		Unregister();
+	}
 
-    // Unregister with old ID if we were registered
-    if (TargetData != nullptr)
-    {
-        UE_LOG(LogRshipExec, Log, TEXT("Changing Target ID from '%s' to '%s'"), *OldTargetId, *NewTargetId);
-        Unregister();
-    }
+	targetName = NewTargetId;
+	Register();
 
-    // Set new ID
-    targetName = NewTargetId;
-
-    // Re-register with new ID
-    Register();
-
-    UE_LOG(LogRshipExec, Log, TEXT("Target ID changed: %s -> %s"), *OldTargetId, *NewTargetId);
+	UE_LOG(LogRshipExec, Log, TEXT("Target ID changed: %s -> %s"), *OldTargetId, *NewTargetId);
 }
 
 void URshipTargetComponent::RescanSiblingComponents()
 {
-    if (!GEngine)
-    {
-        return;
-    }
+	if (!GEngine)
+	{
+		return;
+	}
 
-    URshipSubsystem* subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
-    if (!subsystem)
-    {
-        return;
-    }
+	URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+	AActor* Parent = GetOwner();
+	if (!Subsystem || !Parent)
+	{
+		return;
+	}
 
-    AActor* parent = GetOwner();
-    if (!parent)
-    {
-        return;
-    }
+	if (!TargetData)
+	{
+		Register();
+		return;
+	}
 
-    if (!TargetData)
-    {
-        UE_LOG(LogRshipExec, Warning, TEXT("RescanSiblingComponents called before Register() - calling Register() first"));
-        Register();
-        return;
-    }
+	const FString FullTargetId = Subsystem->GetServiceId() + TEXT(":") + targetName;
+	FString MutableTargetId = FullTargetId;
 
-    FString fullTargetId = subsystem->GetServiceId() + ":" + this->targetName;
+	TArray<UActorComponent*> SiblingComponents;
+	GatherSiblingComponents(SiblingComponents);
+	for (UActorComponent* Sibling : SiblingComponents)
+	{
+		RegisterScannableMembers(Sibling, FullTargetId, MutableTargetId, true);
+	}
 
-    TArray<UActorComponent*> siblingComponents;
-    parent->GetComponents(siblingComponents);
+	RegisterProviderWhitelistActions(Parent, SiblingComponents);
 
-    UE_LOG(LogRshipExec, Log, TEXT("Rescanning %d sibling components for new RS_ members"), siblingComponents.Num());
+	CachedSiblingComponentSignature = ComputeSiblingComponentSignature();
+	bHasCachedSiblingComponentSignature = true;
 
-    int32 newActionsCount = 0;
-    int32 newEmittersCount = 0;
-
-    for (UActorComponent* sibling : siblingComponents)
-    {
-        UClass* siblingClass = sibling->GetClass();
-
-        // Scan for new RS_ functions (Actions)
-        for (TFieldIterator<UFunction> siblingFunc(siblingClass, EFieldIteratorFlags::ExcludeSuper); siblingFunc; ++siblingFunc)
-        {
-            FString funcName = (*siblingFunc)->GetName();
-            if (funcName.StartsWith("RS_"))
-            {
-                FString fullActionId = fullTargetId + ":" + funcName;
-                // Check if this action is already registered
-                if (!TargetData->GetActions().Contains(fullActionId))
-                {
-                    this->RegisterFunction(sibling, *siblingFunc, &fullTargetId);
-                    UE_LOG(LogRshipExec, Log, TEXT("  New action found: %s"), *funcName);
-                    newActionsCount++;
-                }
-            }
-        }
-
-        // Scan for new RS_ properties (Actions)
-        for (TFieldIterator<FProperty> siblingProp(siblingClass, EFieldIteratorFlags::ExcludeSuper); siblingProp; ++siblingProp)
-        {
-            FString propName = (*siblingProp)->GetName();
-            if (propName.StartsWith("RS_") && !(*siblingProp)->IsA<FMulticastDelegateProperty>())
-            {
-                FString fullActionId = fullTargetId + ":" + propName;
-                // Check if this action is already registered
-                if (!TargetData->GetActions().Contains(fullActionId))
-                {
-                    this->RegisterProperty(sibling, *siblingProp, &fullTargetId);
-                    UE_LOG(LogRshipExec, Log, TEXT("  New property action found: %s"), *propName);
-                    newActionsCount++;
-                }
-            }
-        }
-
-        // Scan for new RS_ emitters
-        for (TFieldIterator<FMulticastInlineDelegateProperty> It(siblingClass, EFieldIteratorFlags::ExcludeSuper); It; ++It)
-        {
-            FMulticastInlineDelegateProperty* EmitterProp = *It;
-            FString EmitterName = EmitterProp->GetName();
-
-            if (!EmitterName.StartsWith("RS_"))
-            {
-                continue;
-            }
-
-            // Check if this emitter is already registered
-            if (EmitterHandlers.Contains(EmitterName))
-            {
-                continue;
-            }
-
-            FString fullEmitterId = fullTargetId + ":" + EmitterName;
-
-            auto emitter = new EmitterContainer(fullEmitterId, EmitterName, EmitterProp);
-            this->TargetData->AddEmitter(emitter);
-
-            FMulticastScriptDelegate EmitterDelegate = EmitterProp->GetPropertyValue_InContainer(sibling);
-
-            TScriptDelegate localDelegate;
-
-            auto world = GetWorld();
-            if (!world)
-            {
-                UE_LOG(LogRshipExec, Warning, TEXT("World Not Found during rescan"));
-                continue;
-            }
-
-            FActorSpawnParameters spawnInfo;
-            spawnInfo.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-            spawnInfo.Owner = parent;
-            spawnInfo.bNoFail = true;
-            spawnInfo.bDeferConstruction = false;
-            spawnInfo.bAllowDuringConstructionScript = true;
-
-            AEmitterHandler* handler = world->SpawnActor<AEmitterHandler>(spawnInfo);
-#if WITH_EDITOR
-            handler->SetActorLabel(parent->GetActorLabel() + " " + EmitterName + " Handler");
-#endif
-
-            handler->SetServiceId(subsystem->GetServiceId());
-            handler->SetTargetId(fullTargetId);
-            handler->SetEmitterId(EmitterName);
-            handler->SetDelegate(&localDelegate);
-
-            localDelegate.BindUFunction(handler, TEXT("ProcessEmitter"));
-
-            EmitterDelegate.Add(localDelegate);
-
-            EmitterProp->SetPropertyValue_InContainer(sibling, EmitterDelegate);
-
-            this->EmitterHandlers.Add(EmitterName, handler);
-
-            UE_LOG(LogRshipExec, Log, TEXT("  New emitter found: %s"), *EmitterName);
-            newEmittersCount++;
-        }
-    }
-
-    if (newActionsCount > 0 || newEmittersCount > 0)
-    {
-        UE_LOG(LogRshipExec, Log, TEXT("Rescan complete: %d new actions, %d new emitters. Sending update to server."), newActionsCount, newEmittersCount);
-        // Send only this target (not all targets) to avoid redundant sends
-        if (this->TargetData)
-        {
-            subsystem->SendTarget(this->TargetData);
-            subsystem->ProcessMessageQueue();
-        }
-    }
-    else
-    {
-        UE_LOG(LogRshipExec, Log, TEXT("Rescan complete: no new RS_ members found"));
-    }
+	// Re-send target on every rescan. Registration is idempotent and this avoids stale routing/state across world transitions.
+	Subsystem->SendTarget(TargetData);
+	Subsystem->ProcessMessageQueue();
 }
+
+
+
+

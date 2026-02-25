@@ -658,14 +658,14 @@ void URshipSubsystem::ProcessMessageQueue()
     int32 QueueSize = RateLimiter->GetQueueLength();
     if (QueueSize > 0)
     {
-        UE_LOG(LogRshipExec, Log, TEXT("ProcessMessageQueue: Queue has %d messages, processing..."), QueueSize);
+        UE_LOG(LogRshipExec, VeryVerbose, TEXT("ProcessMessageQueue: Queue has %d messages, processing..."), QueueSize);
     }
 
     int32 Sent = RateLimiter->ProcessQueue();
 
     if (Sent > 0 || QueueSize > 0)
     {
-        UE_LOG(LogRshipExec, Log, TEXT("ProcessMessageQueue: Sent %d messages, %d remaining"), Sent, RateLimiter->GetQueueLength());
+        UE_LOG(LogRshipExec, VeryVerbose, TEXT("ProcessMessageQueue: Sent %d messages, %d remaining"), Sent, RateLimiter->GetQueueLength());
     }
 }
 
@@ -675,6 +675,9 @@ void URshipSubsystem::TickSubsystems()
     double CurrentTime = FPlatformTime::Seconds();
     float DeltaTime = (LastTickTime > 0.0) ? (float)(CurrentTime - LastTickTime) : 0.0f;
     LastTickTime = CurrentTime;
+
+    // Apply coalesced target actions once per frame.
+    ProcessPendingExecTargetActions();
 
     // Tick timecode sync for playback and cue points
     if (TimecodeSync)
@@ -801,6 +804,75 @@ void URshipSubsystem::FlushPendingOnDataReceived()
     PendingOnDataReceivedComponents.Reset();
 }
 
+void URshipSubsystem::EnqueueExecTargetAction(const FString& TargetId, const FString& ActionId, const TSharedRef<FJsonObject>& Data, const FString& TxId)
+{
+    const FString Key = TargetId + TEXT("|") + ActionId;
+    FRshipPendingExecTargetAction& Pending = PendingExecTargetActions.FindOrAdd(Key);
+    Pending.TargetId = TargetId;
+    Pending.ActionId = ActionId;
+    Pending.Data = Data;
+    Pending.TxIds.Add(TxId);
+}
+
+void URshipSubsystem::QueueCommandResponse(const FString& TxId, bool bOk, const FString& CommandId, const FString& ErrorMessage)
+{
+    if (bOk)
+    {
+        TSharedPtr<FJsonObject> ResponseData = MakeShareable(new FJsonObject);
+        ResponseData->SetStringField(TEXT("tx"), TxId);
+        TSharedPtr<FJsonObject> CommandResponse = MakeShareable(new FJsonObject);
+        CommandResponse->SetBoolField(TEXT("ok"), true);
+        ResponseData->SetObjectField(TEXT("response"), CommandResponse);
+
+        TSharedPtr<FJsonObject> Response = MakeShareable(new FJsonObject);
+        Response->SetStringField(TEXT("event"), TEXT("ws:m:command-response"));
+        Response->SetObjectField(TEXT("data"), ResponseData);
+
+        QueueMessage(Response, ERshipMessagePriority::Critical, ERshipMessageType::CommandResponse);
+        return;
+    }
+
+    TSharedPtr<FJsonObject> ResponseData = MakeShareable(new FJsonObject);
+    ResponseData->SetStringField(TEXT("tx"), TxId);
+    ResponseData->SetStringField(TEXT("commandId"), CommandId);
+    ResponseData->SetStringField(TEXT("message"), ErrorMessage.IsEmpty() ? TEXT("Action was not handled by any target") : ErrorMessage);
+
+    TSharedPtr<FJsonObject> Response = MakeShareable(new FJsonObject);
+    Response->SetStringField(TEXT("event"), TEXT("ws:m:command-error"));
+    Response->SetObjectField(TEXT("data"), ResponseData);
+
+    QueueMessage(Response, ERshipMessagePriority::Critical, ERshipMessageType::CommandResponse);
+}
+
+void URshipSubsystem::ProcessPendingExecTargetActions()
+{
+    if (PendingExecTargetActions.Num() == 0)
+    {
+        return;
+    }
+
+    TMap<FString, FRshipPendingExecTargetAction> PendingBatch = MoveTemp(PendingExecTargetActions);
+    PendingExecTargetActions.Reset();
+
+    for (TPair<FString, FRshipPendingExecTargetAction>& Pair : PendingBatch)
+    {
+        FRshipPendingExecTargetAction& Pending = Pair.Value;
+        if (!Pending.Data.IsValid())
+        {
+            for (const FString& TxId : Pending.TxIds)
+            {
+                QueueCommandResponse(TxId, false, TEXT("ExecTargetAction"), TEXT("Action payload missing"));
+            }
+            continue;
+        }
+
+        const bool bResult = ExecuteTargetAction(Pending.TargetId, Pending.ActionId, Pending.Data.ToSharedRef());
+        for (const FString& TxId : Pending.TxIds)
+        {
+            QueueCommandResponse(TxId, bResult, TEXT("ExecTargetAction"), TEXT("Action was not handled by any target"));
+        }
+    }
+}
 void URshipSubsystem::QueueMessage(TSharedPtr<FJsonObject> Payload, ERshipMessagePriority Priority,
                                     ERshipMessageType Type, const FString& CoalesceKey)
 {
@@ -829,7 +901,7 @@ void URshipSubsystem::QueueMessage(TSharedPtr<FJsonObject> Payload, ERshipMessag
     }
     else
     {
-        UE_LOG(LogRshipExec, Log, TEXT("Enqueued message (Key=%s, QueueLen=%d)"), *CoalesceKey, RateLimiter->GetQueueLength());
+        UE_LOG(LogRshipExec, VeryVerbose, TEXT("Enqueued message (Key=%s, QueueLen=%d)"), *CoalesceKey, RateLimiter->GetQueueLength());
     }
 
     // If the queue processing ticker isn't running, immediately process the queue
@@ -880,7 +952,7 @@ void URshipSubsystem::ProcessMessage(const FString &message)
     TSharedRef<FJsonObject> objRef = obj.ToSharedRef();
 
     FString type = objRef->GetStringField(TEXT("event"));
-    UE_LOG(LogRshipExec, Log, TEXT("Received message: event=%s"), *type);
+    UE_LOG(LogRshipExec, VeryVerbose, TEXT("Received message: event=%s"), *type);
 
     // Handle ping response - diagnostic for verifying WebSocket send/receive path
     if (type == "ws:m:ping")
@@ -906,7 +978,7 @@ void URshipSubsystem::ProcessMessage(const FString &message)
 
         FString txId = command->GetStringField(TEXT("tx"));
 
-        if (commandId == "SetClientId")
+                if (commandId == "SetClientId")
         {
             ClientId = command->GetStringField(TEXT("clientId"));
             UE_LOG(LogRshipExec, Warning, TEXT("Received ClientId %s"), *ClientId);
@@ -922,39 +994,9 @@ void URshipSubsystem::ProcessMessage(const FString &message)
             FString actionId = execAction->GetStringField(TEXT("id"));
             FString targetId = execAction->GetStringField(TEXT("targetId"));
 
-            const bool result = ExecuteTargetAction(targetId, actionId, execData);
-
-            if (result)
-            {
-                // Send success response - ws:m:command-response expects { response, tx }
-                TSharedPtr<FJsonObject> responseData = MakeShareable(new FJsonObject);
-                responseData->SetStringField(TEXT("tx"), txId);
-                TSharedPtr<FJsonObject> commandResponse = MakeShareable(new FJsonObject);
-                commandResponse->SetBoolField(TEXT("ok"), true);
-                responseData->SetObjectField(TEXT("response"), commandResponse);
-
-                TSharedPtr<FJsonObject> response = MakeShareable(new FJsonObject);
-                response->SetStringField(TEXT("event"), TEXT("ws:m:command-response"));
-                response->SetObjectField(TEXT("data"), responseData);
-
-                QueueMessage(response, ERshipMessagePriority::Critical, ERshipMessageType::CommandResponse);
-            }
-            else
-            {
-                // Send failure response - ws:m:command-error expects { tx, commandId, message }
-                UE_LOG(LogRshipExec, Warning, TEXT("Action not taken: %s on Target %s"), *actionId, *targetId);
-                TSharedPtr<FJsonObject> responseData = MakeShareable(new FJsonObject);
-                responseData->SetStringField(TEXT("tx"), txId);
-                responseData->SetStringField(TEXT("commandId"), commandId);
-                responseData->SetStringField(TEXT("message"), TEXT("Action was not handled by any target"));
-
-                TSharedPtr<FJsonObject> response = MakeShareable(new FJsonObject);
-                response->SetStringField(TEXT("event"), TEXT("ws:m:command-error"));
-                response->SetObjectField(TEXT("data"), responseData);
-
-                QueueMessage(response, ERshipMessagePriority::Critical, ERshipMessageType::CommandResponse);
-            }
+            EnqueueExecTargetAction(targetId, actionId, execData, txId);
         }
+
         obj.Reset();
     }
     auto ProcessEntityEvent = [this](const TSharedPtr<FJsonObject>& data) -> void
@@ -1138,85 +1180,51 @@ bool URshipSubsystem::ExecuteTargetAction(const FString& TargetId, const FString
         return false;
     }
 
-    bool bResult = false;
-
-    // Standard target component routing - execute against all matching components.
-    TArray<URshipTargetComponent*> Comps = FindAllTargetComponents(TargetId);
-    if (Comps.Num() == 0)
+    if (!TargetComponents)
     {
-        UE_LOG(LogRshipExec, Warning, TEXT("Target not found: %s"), *TargetId);
         return false;
     }
 
-    for (URshipTargetComponent* Comp : Comps)
+    bool bFoundAny = false;
+    bool bResult = false;
+
+    // Iterate key matches directly (no temporary array allocation).
+    for (auto It = TargetComponents->CreateKeyIterator(TargetId); It; ++It)
     {
-        if (!Comp)
+        URshipTargetComponent* Comp = It.Value();
+        if (!Comp || !Comp->TargetData)
         {
             continue;
         }
 
-        Target* TargetData = Comp->TargetData;
         AActor* Owner = Comp->GetOwner();
-
-        FString WorldTypeStr = TEXT("Unknown");
-        if (Owner)
+        if (!Owner)
         {
-            if (UWorld* World = Owner->GetWorld())
-            {
-                switch (World->WorldType)
-                {
-                    case EWorldType::Editor: WorldTypeStr = TEXT("Editor"); break;
-                    case EWorldType::PIE:
-#if WITH_EDITOR
-                        WorldTypeStr = (GEditor && GEditor->bIsSimulatingInEditor) ? TEXT("Simulate") : TEXT("PIE");
-#else
-                        WorldTypeStr = TEXT("PIE");
-#endif
-                        break;
-                    case EWorldType::Game: WorldTypeStr = TEXT("Game"); break;
-                    case EWorldType::EditorPreview: WorldTypeStr = TEXT("EditorPreview"); break;
-                    default: WorldTypeStr = TEXT("Other"); break;
-                }
-            }
-        }
-
-        if (!TargetData)
-        {
-            UE_LOG(LogRshipExec, Warning, TEXT("Target data null for: %s (%s)"), *TargetId, *WorldTypeStr);
             continue;
         }
 
-        bool bTakeResult = false;
-#if WITH_EDITOR
-        bool bIsEditorWorld = false;
-        if (Owner)
-        {
-            if (UWorld* World = Owner->GetWorld())
-            {
-                bIsEditorWorld = (World->WorldType == EWorldType::Editor);
-            }
-        }
+        bFoundAny = true;
 
-        if (bIsEditorWorld && GEditor && GEditor->PlayWorld == nullptr)
+#if WITH_EDITOR
+        UWorld* World = Owner->GetWorld();
+        if (World && World->WorldType == EWorldType::Editor)
         {
             FEditorScriptExecutionGuard ScriptGuard;
-            bTakeResult = TargetData->TakeAction(Owner, ActionId, Data);
+            bResult |= Comp->TargetData->TakeAction(Owner, ActionId, Data);
+            continue;
         }
-        else
 #endif
-        {
-            bTakeResult = TargetData->TakeAction(Owner, ActionId, Data);
-        }
 
-        bResult |= bTakeResult;
+        bResult |= Comp->TargetData->TakeAction(Owner, ActionId, Data);
     }
 
-    // Ensure OnRshipData dispatch is not delayed/lost in editor.
-    FlushPendingOnDataReceived();
+    if (!bFoundAny)
+    {
+        UE_LOG(LogRshipExec, Warning, TEXT("Target not found: %s"), *TargetId);
+    }
 
     return bResult;
 }
-
 void URshipSubsystem::Deinitialize()
 {
     UE_LOG(LogRshipExec, Log, TEXT("RshipSubsystem::Deinitialize"));
@@ -2630,6 +2638,15 @@ void URshipSubsystem::RegisterTargetComponent(URshipTargetComponent* Component)
     }
 
     const FString& TargetId = Component->TargetData->GetId();
+
+    for (auto It = TargetComponents->CreateKeyIterator(TargetId); It; ++It)
+    {
+        if (It.Value() == Component)
+        {
+            return;
+        }
+    }
+
     TargetComponents->Add(TargetId, Component);
 
     UE_LOG(LogRshipExec, Log, TEXT("Registered target component: %s (total: %d)"),
@@ -2683,3 +2700,21 @@ TArray<URshipTargetComponent*> URshipSubsystem::FindAllTargetComponents(const FS
     }
     return Result;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -5,28 +5,30 @@
 #include "CoreMinimal.h"
 #include "Action.h"
 #include "EmitterContainer.h"
-/**
- *
- */
+
+class URshipTargetComponent;
+
 class RSHIPEXEC_API Target
 {
-
 private:
 	FString id;
-	TMap<FString, Action *> actions;
-	TMap<FString, EmitterContainer *> emitters;
+	TMap<FString, Action*> actions;
+	TMap<FString, EmitterContainer*> emitters;
+	TWeakObjectPtr<URshipTargetComponent> BoundTargetComponent;
 
 public:
 	Target(FString id);
 	~Target();
 
-	void AddAction(Action *action);
-	void AddEmitter(EmitterContainer *emitter);
+	void AddAction(Action* action);
+	void AddEmitter(EmitterContainer* emitter);
 
-	FString GetId();
+	FString GetId() const;
+	const TMap<FString, Action*>& GetActions() const;
+	const TMap<FString, EmitterContainer*>& GetEmitters() const;
 
-	TMap<FString, Action *> GetActions();
-	TMap<FString, EmitterContainer *> GetEmitters();
+	void SetBoundTargetComponent(URshipTargetComponent* InTargetComponent);
+	URshipTargetComponent* GetBoundTargetComponent() const;
 
-	bool TakeAction(AActor *actor, FString actionId, const TSharedRef<FJsonObject> data);
+	bool TakeAction(AActor* actor, FString actionId, const TSharedRef<FJsonObject> data);
 };

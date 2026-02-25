@@ -10,20 +10,17 @@
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnRshipData);
 
-
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
 class RSHIPEXEC_API URshipTargetComponent : public UActorComponent
 {
 	GENERATED_BODY()
 public:
-	// Called every frame
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction *ThisTickFunction) override;
-
 	virtual void OnRegister() override;
-
 	virtual void OnComponentDestroyed(bool bDestoryHierarchy) override;
 
 	void OnDataReceived();
+	void HandleAfterTake(const FString& ActionName, UObject* ActionOwner);
 
 	UPROPERTY(BlueprintAssignable)
 	FOnRshipData OnRshipData;
@@ -34,63 +31,57 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "RshipTarget")
 	void Register();
 
-	/** Unregister this target from rship (cleans up emitters and removes from server) */
 	UFUNCTION(BlueprintCallable, Category = "RshipTarget")
 	void Unregister();
 
-	/** Re-scan sibling components for RS_ members and update registration.
-	 *  Call this when a new component with RS_ members is added at runtime. */
 	UFUNCTION(BlueprintCallable, Category = "RshipTarget")
 	void RescanSiblingComponents();
 
-	/** Set the Target ID dynamically and re-register with the new ID.
-	 *  Useful for PCG-spawned actors or runtime-generated targets.
-	 *  @param NewTargetId The new unique identifier for this target */
 	UFUNCTION(BlueprintCallable, Category = "RshipTarget")
 	void SetTargetId(const FString& NewTargetId);
 
-	/** Get the current Target ID */
+	bool RegisterWhitelistedFunction(UObject* Owner, const FName& FunctionName, const FString& ExposedActionName = TEXT(""));
+	bool RegisterWhitelistedProperty(UObject* Owner, const FName& PropertyName, const FString& ExposedActionName = TEXT(""));
+	bool RegisterWhitelistedEmitter(UObject* Owner, const FName& DelegateName, const FString& ExposedEmitterName = TEXT(""));
+
 	UFUNCTION(BlueprintPure, Category = "RshipTarget")
 	FString GetTargetId() const { return targetName; }
 
-	/** Check if this target is currently registered with rship */
 	UFUNCTION(BlueprintPure, Category = "RshipTarget")
 	bool IsRegistered() const { return TargetData != nullptr; }
 
 	UPROPERTY(EditAnywhere, Category = "RshipTarget", meta = (DisplayName = "Target Id"))
 	FString targetName;
 
-	/** Category for organizing targets (e.g., "light", "camera", "actor") */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RshipTarget", meta = (DisplayName = "Category"))
 	FString Category;
 
-	// ========================================================================
-	// ORGANIZATION - Tags and Groups
-	// ========================================================================
-
-	/** User-defined tags for organizing and filtering targets */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RshipTarget|Organization")
 	TArray<FString> Tags;
 
-	/** Groups this target belongs to (managed by URshipTargetGroupManager) */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "RshipTarget|Organization")
 	TArray<FString> GroupIds;
 
-	/** Check if this target has a specific tag */
 	UFUNCTION(BlueprintCallable, Category = "RshipTarget|Organization")
 	bool HasTag(const FString& Tag) const;
 
-	/** Get all tags on this target */
 	UFUNCTION(BlueprintCallable, Category = "RshipTarget|Organization")
 	TArray<FString> GetTags() const { return Tags; }
 
 	TMap<FString, AEmitterHandler*> EmitterHandlers;
+	Target* TargetData = nullptr;
 
-	Target* TargetData;
+private:
+	bool TryRegisterFunctionAction(UObject* Owner, UFunction* Function, const FString& FullTargetId, const FString& ExposedActionName = TEXT(""), bool bRequireRSPrefix = false);
+	bool TryRegisterPropertyAction(UObject* Owner, FProperty* Property, const FString& FullTargetId, const FString& ExposedActionName = TEXT(""), bool bRequireRSPrefix = false);
+	bool TryRegisterEmitter(UObject* Owner, FMulticastInlineDelegateProperty* EmitterProperty, const FString& FullTargetId, const FString& ExposedEmitterName = TEXT(""), bool bRequireRSPrefix = false);
+	uint32 ComputeSiblingComponentSignature() const;
+	void RebuildActionProviderCache();
+	void GatherSiblingComponents(TArray<UActorComponent*>& OutSiblingComponents) const;
+	void RegisterScannableMembers(UObject* OwnerObject, const FString& FullTargetId, const FString& MutableTargetId, bool bRequireRSPrefix);
+	void RegisterProviderWhitelistActions(AActor* OwnerActor, const TArray<UActorComponent*>& SiblingComponents);
 
-
-private: 
-
-	void RegisterFunction(UObject* owner, UFunction* func, FString *targetId);
-	void RegisterProperty(UObject* owner, FProperty* prop, FString* targetId);
+	uint32 CachedSiblingComponentSignature = 0;
+	bool bHasCachedSiblingComponentSignature = false;
+	TArray<TWeakObjectPtr<UObject>> CachedActionProviderObjects;
 };

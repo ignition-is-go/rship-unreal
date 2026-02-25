@@ -1,10 +1,9 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
 #include "Target.h"
 #include "Logs.h"
 #include "Engine/Engine.h"
 #include "RshipSubsystem.h"
 #include "RshipTargetComponent.h"
+#include "Async/Async.h"
 
 Target::Target(FString id)
 {
@@ -15,58 +14,89 @@ Target::~Target()
 {
 }
 
-void Target::AddAction(Action *action)
+void Target::AddAction(Action* action)
 {
-
-	this->actions.Add(action->GetId(), action);
+	actions.Add(action->GetId(), action);
 }
 
-void Target::AddEmitter(EmitterContainer *emitter)
+void Target::AddEmitter(EmitterContainer* emitter)
 {
-	this->emitters.Add(emitter->GetId(), emitter);
+	emitters.Add(emitter->GetId(), emitter);
 }
 
-TMap<FString, Action *> Target::GetActions()
+FString Target::GetId() const
 {
-	return this->actions;
+	return id;
 }
 
-TMap<FString, EmitterContainer *> Target::GetEmitters()
+const TMap<FString, Action*>& Target::GetActions() const
 {
-	return this->emitters;
+	return actions;
 }
 
-FString Target::GetId()
+const TMap<FString, EmitterContainer*>& Target::GetEmitters() const
 {
-	return this->id;
+	return emitters;
 }
 
-bool Target::TakeAction(AActor *actor, FString actionId, const TSharedRef<FJsonObject> data)
+void Target::SetBoundTargetComponent(URshipTargetComponent* InTargetComponent)
 {
-	if (!this->actions.Contains(actionId))
+	BoundTargetComponent = InTargetComponent;
+}
+
+URshipTargetComponent* Target::GetBoundTargetComponent() const
+{
+	return BoundTargetComponent.Get();
+}
+
+bool Target::TakeAction(AActor* actor, FString actionId, const TSharedRef<FJsonObject> data)
+{
+	Action** ActionPtr = actions.Find(actionId);
+	if (!ActionPtr || !(*ActionPtr))
 	{
-		UE_LOG(LogRshipExec, Error, TEXT("Action not found: [%s] on target [%s]"), *actionId, *this->id);
+		UE_LOG(LogRshipExec, Error, TEXT("Action not found: [%s] on target [%s]"), *actionId, *id);
 		return false;
 	}
 
-	const bool bTaken = this->actions[actionId]->Take(actor, data);
+	Action* TakenAction = *ActionPtr;
+	const bool bTaken = TakenAction->Take(actor, data);
 
-	// Defer OnRshipData dispatch to end-of-frame for any TakeAction call on a valid target/action.
-	// Some property imports can mutate values but still return false; event emission must not depend on that return.
-	if (actor && GEngine)
+	if (GEngine)
 	{
-		if (URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>())
+		TWeakObjectPtr<URshipTargetComponent> WeakTargetComponent(BoundTargetComponent);
+		const FString ActionName = TakenAction->GetName();
+		TWeakObjectPtr<UObject> WeakActionOwner(TakenAction->GetOwnerObject());
+
+		auto DispatchAfterTake = [WeakTargetComponent, WeakActionOwner, ActionName]()
 		{
-			TArray<URshipTargetComponent*> TargetComponentsOnActor;
-			actor->GetComponents<URshipTargetComponent>(TargetComponentsOnActor);
-			for (URshipTargetComponent* Comp : TargetComponentsOnActor)
+			if (!GEngine)
 			{
-				if (Comp && Comp->TargetData == this)
-				{
-					Subsystem->QueueOnDataReceived(Comp);
-					break;
-				}
+				return;
 			}
+
+			URshipTargetComponent* TargetComponent = WeakTargetComponent.Get();
+			if (!IsValid(TargetComponent))
+			{
+				return;
+			}
+
+			URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+			if (!Subsystem)
+			{
+				return;
+			}
+
+			TargetComponent->HandleAfterTake(ActionName, WeakActionOwner.Get());
+			Subsystem->QueueOnDataReceived(TargetComponent);
+		};
+
+		if (IsInGameThread())
+		{
+			DispatchAfterTake();
+		}
+		else
+		{
+			AsyncTask(ENamedThreads::GameThread, MoveTemp(DispatchAfterTake));
 		}
 	}
 

@@ -63,6 +63,23 @@ FString GetJsonString(TSharedPtr<FJsonObject> JsonObject)
     return OutputString;
 }
 
+static FString NormalizeUnrealPropertyType(FString InType)
+{
+    InType.TrimStartAndEndInline();
+
+    int32 LastColon = INDEX_NONE;
+    if (InType.FindLastChar(TEXT(':') , LastColon) && LastColon + 1 < InType.Len())
+    {
+        InType = InType.Mid(LastColon + 1);
+    }
+
+    if (InType.StartsWith(TEXT("F")) && InType.Len() > 1 && FChar::IsUpper(InType[1]))
+    {
+        InType = InType.Mid(1);
+    }
+
+    return InType;
+}
 FString UnrealToJsonSchemaTypeLookup(FString unrealType)
 {
 
@@ -81,7 +98,26 @@ FString UnrealToJsonSchemaTypeLookup(FString unrealType)
    [2024-03-20T18:20:37.719Z]LogTemp: Warning: Property: Transform, Type: StructProperty
 
    */
+    unrealType = NormalizeUnrealPropertyType(unrealType);
     UE_LOG(LogRshipExec, Verbose, TEXT("Schema Type Type: %s"), *unrealType);
+
+    // Handle UE type naming variants (e.g. FloatProperty, FFloatProperty)
+    if (unrealType.EndsWith(TEXT("FloatProperty")) || unrealType.EndsWith(TEXT("DoubleProperty")) || unrealType.EndsWith(TEXT("IntProperty")) || unrealType.EndsWith(TEXT("Int64Property")) || unrealType.EndsWith(TEXT("UInt16Property")) || unrealType.EndsWith(TEXT("UInt32Property")) || unrealType.EndsWith(TEXT("UInt64Property")) || unrealType.EndsWith(TEXT("ByteProperty")) || unrealType.EndsWith(TEXT("EnumProperty")))
+    {
+        return "number";
+    }
+    if (unrealType.EndsWith(TEXT("BoolProperty")))
+    {
+        return "boolean";
+    }
+    if (unrealType.EndsWith(TEXT("NameProperty")) || unrealType.EndsWith(TEXT("StrProperty")) || unrealType.EndsWith(TEXT("TextProperty")))
+    {
+        return "string";
+    }
+    if (unrealType.EndsWith(TEXT("StructProperty")))
+    {
+        return "object";
+    }
     if (unrealType == "BoolProperty")
     {
         return "boolean";
@@ -98,7 +134,27 @@ FString UnrealToJsonSchemaTypeLookup(FString unrealType)
     {
         return "number";
     }
+    else if (unrealType == "FloatProperty")
+    {
+        return "number";
+    }
     else if (unrealType == "DoubleProperty")
+    {
+        return "number";
+    }
+    else if (unrealType == "UInt16Property")
+    {
+        return "number";
+    }
+    else if (unrealType == "UInt32Property")
+    {
+        return "number";
+    }
+    else if (unrealType == "UInt64Property")
+    {
+        return "number";
+    }
+    else if (unrealType == "EnumProperty")
     {
         return "number";
     }
@@ -131,7 +187,7 @@ static TSharedPtr<FJsonObject> RshipPropToSchemaObject(const SchemaNode &prop)
 
     // Primitive Unreal property classes map directly.
     const FString jsonType = UnrealToJsonSchemaTypeLookup(prop.Type);
-    if (prop.Type == "StructProperty")
+    if (NormalizeUnrealPropertyType(prop.Type).EndsWith(TEXT("StructProperty")))
     {
         // Build nested schema from children
         propObj->SetStringField("type", "object");
@@ -174,3 +230,5 @@ TSharedPtr<FJsonObject> PropsToSchema(TDoubleLinkedList<SchemaNode> *props)
 
     return schema;
 }
+
+
