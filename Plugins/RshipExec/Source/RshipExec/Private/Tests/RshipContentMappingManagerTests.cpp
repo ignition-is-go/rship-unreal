@@ -127,7 +127,7 @@ bool FRshipContentMappingProjectionTypeRoutingTest::RunTest(const FString& Param
     {
         {TEXT("perspective"), TEXT("perspective"), 0.0f},
         {TEXT("cylindrical"), TEXT("cylindrical"), 1.0f},
-        {TEXT("surface-projection"), TEXT("planar"), 2.0f},
+        {TEXT("surface-projection"), TEXT("planar"), 4.0f},
         {TEXT("spherical"), TEXT("spherical"), 3.0f},
         {TEXT("parallel"), TEXT("parallel"), 4.0f},
         {TEXT("radial"), TEXT("radial"), 5.0f},

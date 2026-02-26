@@ -11,6 +11,7 @@
 class URshipSubsystem;
 class URshipAssetStoreClient;
 class ARshipCameraActor;
+class AActor;
 class ACameraActor;
 class UMeshComponent;
 class UMaterialInterface;
@@ -129,6 +130,12 @@ struct RSHIPEXEC_API FRshipMappingSurfaceState
 
     UPROPERTY(Transient)
     TMap<int32, UMaterialInstanceDynamic*> MaterialInstances;
+
+    UPROPERTY(Transient)
+    TMap<int32, uint32> MaterialBindingHashes;
+
+    UPROPERTY(Transient)
+    double NextResolveRetryTimeSeconds = 0.0;
 };
 
 USTRUCT(BlueprintType)
@@ -226,6 +233,59 @@ public:
 #endif
 
 private:
+    struct FFeedSingleRtBinding
+    {
+        bool bValid = false;
+        UTexture* Texture = nullptr;
+        UTexture* DepthTexture = nullptr;
+        bool bHasSourceRect = false;
+        float SourceU = 0.0f;
+        float SourceV = 0.0f;
+        float SourceW = 1.0f;
+        float SourceH = 1.0f;
+        bool bHasDestinationRect = false;
+        float DestinationU = 0.0f;
+        float DestinationV = 0.0f;
+        float DestinationW = 1.0f;
+        float DestinationH = 1.0f;
+        FString Error;
+    };
+
+    struct FFeedSingleRtPreparedRoute
+    {
+        bool bPrepared = false;
+        bool bHasRoute = false;
+        FString Error;
+        TArray<FString> ContextCandidates;
+        int32 SourceWidth = 0;
+        int32 SourceHeight = 0;
+        int32 DestinationWidth = 0;
+        int32 DestinationHeight = 0;
+        int32 SourceX = 0;
+        int32 SourceY = 0;
+        int32 SourceW = 0;
+        int32 SourceH = 0;
+        int32 DestinationX = 0;
+        int32 DestinationY = 0;
+        int32 DestinationW = 0;
+        int32 DestinationH = 0;
+    };
+
+    struct FRenderContextRuntimeState
+    {
+        uint32 SetupHash = 0;
+        bool bHasAppliedTransform = false;
+        FTransform LastAppliedTransform = FTransform::Identity;
+        float LastAppliedFov = -1.0f;
+    };
+
+    struct FMappingRequiredContexts
+    {
+        TArray<FString> ContextIds;
+        bool bKeepAllContextsAlive = false;
+        bool bHasInvalidContextReference = false;
+    };
+
     UPROPERTY()
     URshipSubsystem* Subsystem = nullptr;
 
@@ -240,6 +300,12 @@ private:
     TMap<FString, FRshipContentMappingState> Mappings;
     UPROPERTY(Transient)
     TMap<FString, TObjectPtr<UTextureRenderTarget2D>> FeedCompositeTargets;
+    UPROPERTY(Transient)
+    TMap<FString, uint32> FeedCompositeStaticSignatures;
+    TMap<FString, FFeedSingleRtPreparedRoute> FeedSingleRtBindingCache;
+    TMap<FString, TArray<FString>> EffectiveSurfaceIdsCache;
+    TMap<FString, FRenderContextRuntimeState> RenderContextRuntimeStates;
+    TMap<FString, FMappingRequiredContexts> RequiredContextIdsCache;
     TMap<FString, FRshipContentMappingState> PendingMappingUpserts;
     TMap<FString, double> PendingMappingUpsertExpiry;
     TMap<FString, double> PendingMappingDeletes;
@@ -260,10 +326,27 @@ private:
     FString MaterialContractError;
     float DebugOverlayAccumulated = 0.0f;
     mutable TWeakObjectPtr<UWorld> LastValidWorld;
+    uint64 RuntimeStateRevision = 1;
+    double LastPerfLogTimeSeconds = 0.0;
+    float LastTickMsTotal = 0.0f;
+    float LastTickMsRebuild = 0.0f;
+    float LastTickMsRefresh = 0.0f;
+    float LastTickMsCacheSave = 0.0f;
+    int32 LastTickEnabledMappings = 0;
+    int32 LastTickActiveContexts = 0;
+    int32 LastTickAppliedSurfaces = 0;
+    bool bRuntimePreparePending = true;
+    FString CachedEnabledTextureContextId;
+    FString CachedAnyTextureContextId;
+    FString CachedEnabledContextId;
+    FString CachedAnyContextId;
 
     void MarkMappingsDirty();
     void ArmMappings();
     void MarkCacheDirty();
+    bool HasAnyEnabledMappings() const;
+    const TArray<FString>& GetEffectiveSurfaceIds(FRshipContentMappingState& MappingState);
+    void RefreshResolvedContextFallbackIds();
     void RefreshLiveMappings();
     UWorld* GetBestWorld() const;
 
@@ -282,7 +365,8 @@ private:
         const FRshipContentMappingState& MappingState,
         const FRshipMappingSurfaceState& SurfaceState,
         const FRshipRenderContextState* ContextState,
-        bool bUseFeedV2 = false);
+        bool bUseFeedV2 = false,
+        const FFeedSingleRtBinding* FeedBinding = nullptr);
 
     bool IsFeedV2Mapping(const FRshipContentMappingState& MappingState) const;
     bool IsKnownRenderContextId(const FString& ContextId) const;
@@ -292,12 +376,16 @@ private:
         TSet<FString>& OutRequiredContextIds,
         bool& OutHasEnabledMappings,
         bool& OutKeepAllContextsAlive,
-        bool& OutHasInvalidContextReference) const;
+        bool& OutHasInvalidContextReference);
     const FRshipRenderContextState* ResolveEffectiveContextState(
         const FRshipContentMappingState& MappingState,
         bool bRequireTexture) const;
     bool EnsureMappingRuntimeReady(FRshipContentMappingState& MappingState);
     bool EnsureFeedMappingRuntimeReady(FRshipContentMappingState& MappingState);
+    bool TryResolveFeedSingleRtBinding(
+        const FRshipContentMappingState& MappingState,
+        const FRshipMappingSurfaceState& SurfaceState,
+        FFeedSingleRtBinding& OutBinding);
     UTexture* BuildFeedCompositeTextureForSurface(
         const FRshipContentMappingState& MappingState,
         const FRshipMappingSurfaceState& SurfaceState,

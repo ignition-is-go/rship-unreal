@@ -343,6 +343,26 @@ namespace
 		Mapping.Config->RemoveField(TEXT("uvMode"));
 		EnsureProjectionDefaults();
 
+		if (!Mapping.Config->HasTypedField<EJson::Object>(TEXT("eyepoint")))
+		{
+			double EyeX = 0.0;
+			double EyeY = 0.0;
+			double EyeZ = 0.0;
+			if (Mapping.Config->HasTypedField<EJson::Object>(TEXT("projectorPosition")))
+			{
+				const TSharedPtr<FJsonObject> Pos = Mapping.Config->GetObjectField(TEXT("projectorPosition"));
+				EyeX = Pos->HasTypedField<EJson::Number>(TEXT("x")) ? Pos->GetNumberField(TEXT("x")) : 0.0;
+				EyeY = Pos->HasTypedField<EJson::Number>(TEXT("y")) ? Pos->GetNumberField(TEXT("y")) : 0.0;
+				EyeZ = Pos->HasTypedField<EJson::Number>(TEXT("z")) ? Pos->GetNumberField(TEXT("z")) : 0.0;
+			}
+
+			TSharedPtr<FJsonObject> EpObj = MakeShared<FJsonObject>();
+			EpObj->SetNumberField(TEXT("x"), EyeX);
+			EpObj->SetNumberField(TEXT("y"), EyeY);
+			EpObj->SetNumberField(TEXT("z"), EyeZ);
+			Mapping.Config->SetObjectField(TEXT("eyepoint"), EpObj);
+		}
+
 		if ((Mode == MapModeCylindrical || Mode == MapModeRadial) && !Mapping.Config->HasTypedField<EJson::Object>(TEXT("cylindrical")))
 		{
 			TSharedPtr<FJsonObject> Cyl = MakeShared<FJsonObject>();
@@ -380,15 +400,6 @@ namespace
 			{
 				Mapping.Config->SetNumberField(TEXT("sizeH"), 1000.0);
 			}
-		}
-
-		if (Mode == MapModeMesh && !Mapping.Config->HasTypedField<EJson::Object>(TEXT("eyepoint")))
-		{
-			TSharedPtr<FJsonObject> EpObj = MakeShared<FJsonObject>();
-			EpObj->SetNumberField(TEXT("x"), 0.0);
-			EpObj->SetNumberField(TEXT("y"), 0.0);
-			EpObj->SetNumberField(TEXT("z"), 0.0);
-			Mapping.Config->SetObjectField(TEXT("eyepoint"), EpObj);
 		}
 
 		if (Mode == MapModeFisheye)
@@ -1565,7 +1576,9 @@ void SRshipContentMappingPanel::StartProjectionEdit(const FRshipContentMappingSt
 
 	TArray<FRshipRenderContextState> Contexts = Manager->GetRenderContexts();
 	FRshipRenderContextState* ContextState = FindContextById(Mapping.ContextId, Contexts);
-	const bool bHasProjectorConfig = Mapping.Config.IsValid() && Mapping.Config->HasTypedField<EJson::Object>(TEXT("projectorPosition"));
+	const bool bHasProjectorConfig = Mapping.Config.IsValid()
+		&& (Mapping.Config->HasTypedField<EJson::Object>(TEXT("eyepoint"))
+			|| Mapping.Config->HasTypedField<EJson::Object>(TEXT("projectorPosition")));
 	const bool bHasCameraContext = ContextState && ContextState->CameraActor.IsValid();
 	if (!bHasProjectorConfig && !bHasCameraContext)
 	{
@@ -1805,7 +1818,14 @@ void SRshipContentMappingPanel::SyncProjectionActorFromMapping(const FRshipConte
 
 	if (Mapping.Config.IsValid())
 	{
-		if (Mapping.Config->HasTypedField<EJson::Object>(TEXT("projectorPosition")))
+		if (Mapping.Config->HasTypedField<EJson::Object>(TEXT("eyepoint")))
+		{
+			const TSharedPtr<FJsonObject> EyeObj = Mapping.Config->GetObjectField(TEXT("eyepoint"));
+			Position.X = EyeObj->GetNumberField(TEXT("x"));
+			Position.Y = EyeObj->GetNumberField(TEXT("y"));
+			Position.Z = EyeObj->GetNumberField(TEXT("z"));
+		}
+		else if (Mapping.Config->HasTypedField<EJson::Object>(TEXT("projectorPosition")))
 		{
 			const TSharedPtr<FJsonObject> PosObj = Mapping.Config->GetObjectField(TEXT("projectorPosition"));
 			Position.X = PosObj->GetNumberField(TEXT("x"));
@@ -1912,11 +1932,24 @@ void SRshipContentMappingPanel::UpdateProjectionFromActor(float DeltaTime)
 	const FVector Pos = CurrentTransform.GetLocation();
 	const FRotator Rot = CurrentTransform.Rotator();
 
+	if (MapProjPosXInput.IsValid()) MapProjPosXInput->SetValue(Pos.X);
+	if (MapProjPosYInput.IsValid()) MapProjPosYInput->SetValue(Pos.Y);
+	if (MapProjPosZInput.IsValid()) MapProjPosZInput->SetValue(Pos.Z);
+	if (MapMeshEyeXInput.IsValid()) MapMeshEyeXInput->SetValue(Pos.X);
+	if (MapMeshEyeYInput.IsValid()) MapMeshEyeYInput->SetValue(Pos.Y);
+	if (MapMeshEyeZInput.IsValid()) MapMeshEyeZInput->SetValue(Pos.Z);
+
 	TSharedPtr<FJsonObject> PosObj = MakeShared<FJsonObject>();
 	PosObj->SetNumberField(TEXT("x"), Pos.X);
 	PosObj->SetNumberField(TEXT("y"), Pos.Y);
 	PosObj->SetNumberField(TEXT("z"), Pos.Z);
 	Config->SetObjectField(TEXT("projectorPosition"), PosObj);
+
+	TSharedPtr<FJsonObject> EyeObj = MakeShared<FJsonObject>();
+	EyeObj->SetNumberField(TEXT("x"), Pos.X);
+	EyeObj->SetNumberField(TEXT("y"), Pos.Y);
+	EyeObj->SetNumberField(TEXT("z"), Pos.Z);
+	Config->SetObjectField(TEXT("eyepoint"), EyeObj);
 
 	const FVector Euler = Rot.Euler();
 	TSharedPtr<FJsonObject> RotObj = MakeShared<FJsonObject>();
@@ -1998,7 +2031,15 @@ void SRshipContentMappingPanel::UpdatePreviewImage(UTexture* Texture, const FRsh
 				{
 					return (Obj.IsValid() && Obj->HasTypedField<EJson::Number>(Field)) ? static_cast<float>(Obj->GetNumberField(Field)) : DefaultVal;
 				};
-				if (Mapping.Config->HasTypedField<EJson::Object>(TEXT("projectorPosition")))
+				if (Mapping.Config->HasTypedField<EJson::Object>(TEXT("eyepoint")))
+				{
+					TSharedPtr<FJsonObject> Eye = Mapping.Config->GetObjectField(TEXT("eyepoint"));
+					Gizmo->ProjectorPosition = FVector(
+						GetNum(Eye, TEXT("x"), 0.f),
+						GetNum(Eye, TEXT("y"), 0.f),
+						GetNum(Eye, TEXT("z"), 0.f));
+				}
+				else if (Mapping.Config->HasTypedField<EJson::Object>(TEXT("projectorPosition")))
 				{
 					TSharedPtr<FJsonObject> Pos = Mapping.Config->GetObjectField(TEXT("projectorPosition"));
 					Gizmo->ProjectorPosition = FVector(
@@ -3255,14 +3296,11 @@ bool SRshipContentMappingPanel::ExecuteQuickCreateMapping()
 				NewMapping.Config->SetNumberField(TEXT("sizeW"), 1000.0);
 				NewMapping.Config->SetNumberField(TEXT("sizeH"), 1000.0);
 			}
-			if (DesiredProjectionType.Equals(TEXT("mesh"), ESearchCase::IgnoreCase))
-			{
-				TSharedPtr<FJsonObject> EpObj = MakeShared<FJsonObject>();
-				EpObj->SetNumberField(TEXT("x"), 0.0);
-				EpObj->SetNumberField(TEXT("y"), 0.0);
-				EpObj->SetNumberField(TEXT("z"), 0.0);
-				NewMapping.Config->SetObjectField(TEXT("eyepoint"), EpObj);
-			}
+			TSharedPtr<FJsonObject> EpObj = MakeShared<FJsonObject>();
+			EpObj->SetNumberField(TEXT("x"), 0.0);
+			EpObj->SetNumberField(TEXT("y"), 0.0);
+			EpObj->SetNumberField(TEXT("z"), 0.0);
+			NewMapping.Config->SetObjectField(TEXT("eyepoint"), EpObj);
 			if (DesiredProjectionType.Equals(TEXT("fisheye"), ESearchCase::IgnoreCase))
 			{
 				NewMapping.Config->SetNumberField(TEXT("fisheyeFov"), 180.0);
@@ -4999,7 +5037,7 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildContextForm()
 					+ SHorizontalBox::Slot().FillWidth(1.0f)
 					[
 						SNew(STextBlock)
-						.Text(LOCTEXT("MapProjectionManipulatorNotice", "Projection transforms are edited in the viewport manipulator. Open Precision Controls for numeric edits."))
+						.Text(LOCTEXT("MapProjectionManipulatorNotice", "Projection eyepoint and rotation are edited in the viewport manipulator. Open Precision Controls for numeric edits."))
 					]
 				]
 				+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
@@ -5011,7 +5049,7 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildContextForm()
 						})
 					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,6,0)
 					[
-						SNew(STextBlock).Text(LOCTEXT("MapProjPos", "Position X/Y/Z"))
+					SNew(STextBlock).Text(LOCTEXT("MapProjPos", "Eyepoint X/Y/Z"))
 					]
 					+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
 					[
@@ -5279,15 +5317,15 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildContextForm()
 				]
 			]
 
-			// Mesh-specific: Eyepoint
+			// Projection eyepoint (all projection modes)
 					+ SVerticalBox::Slot().AutoHeight().Padding(0,4,0,2)
 					[
 						SNew(SVerticalBox)
-							.Visibility_Lambda([this]() { return GetProjectionPrecisionControlsVisibility() == EVisibility::Visible && MapMode == TEXT("mesh")
+							.Visibility_Lambda([this]() { return GetProjectionPrecisionControlsVisibility() == EVisibility::Visible && IsProjectionMode(MapMode)
 								? EVisibility::Visible : EVisibility::Collapsed; })
 				+ SVerticalBox::Slot().AutoHeight()
 				[
-					SNew(STextBlock).Text(LOCTEXT("MapMeshHeader", "Mesh Mapping"))
+					SNew(STextBlock).Text(LOCTEXT("MapEyepointHeader", "Eyepoint"))
 				]
 				+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
 				[
@@ -6226,7 +6264,14 @@ void SRshipContentMappingPanel::PopulateMappingForm(const FRshipContentMappingSt
 		}
 		else if (State.Type == TEXT("surface-projection"))
 		{
-			if (State.Config->HasTypedField<EJson::Object>(TEXT("projectorPosition")))
+			if (State.Config->HasTypedField<EJson::Object>(TEXT("eyepoint")))
+			{
+				TSharedPtr<FJsonObject> Eye = State.Config->GetObjectField(TEXT("eyepoint"));
+				if (MapProjPosXInput.IsValid()) MapProjPosXInput->SetValue(GetNum(Eye, TEXT("x"), 0.0));
+				if (MapProjPosYInput.IsValid()) MapProjPosYInput->SetValue(GetNum(Eye, TEXT("y"), 0.0));
+				if (MapProjPosZInput.IsValid()) MapProjPosZInput->SetValue(GetNum(Eye, TEXT("z"), 0.0));
+			}
+			else if (State.Config->HasTypedField<EJson::Object>(TEXT("projectorPosition")))
 			{
 				TSharedPtr<FJsonObject> Pos = State.Config->GetObjectField(TEXT("projectorPosition"));
 				if (MapProjPosXInput.IsValid()) MapProjPosXInput->SetValue(GetNum(Pos, TEXT("x"), 0.0));
@@ -6264,14 +6309,27 @@ void SRshipContentMappingPanel::PopulateMappingForm(const FRshipContentMappingSt
 			if (MapSphHArcInput.IsValid()) MapSphHArcInput->SetValue(GetNum(State.Config, TEXT("horizontalArc"), 360.0));
 			if (MapSphVArcInput.IsValid()) MapSphVArcInput->SetValue(GetNum(State.Config, TEXT("verticalArc"), 180.0));
 
-			// Mesh
+			// Eyepoint (all projection modes)
+			double EyeX = 0.0;
+			double EyeY = 0.0;
+			double EyeZ = 0.0;
 			if (State.Config->HasTypedField<EJson::Object>(TEXT("eyepoint")))
 			{
 				TSharedPtr<FJsonObject> Ep = State.Config->GetObjectField(TEXT("eyepoint"));
-				if (MapMeshEyeXInput.IsValid()) MapMeshEyeXInput->SetValue(GetNum(Ep, TEXT("x"), 0.0));
-				if (MapMeshEyeYInput.IsValid()) MapMeshEyeYInput->SetValue(GetNum(Ep, TEXT("y"), 0.0));
-				if (MapMeshEyeZInput.IsValid()) MapMeshEyeZInput->SetValue(GetNum(Ep, TEXT("z"), 0.0));
+				EyeX = GetNum(Ep, TEXT("x"), 0.0);
+				EyeY = GetNum(Ep, TEXT("y"), 0.0);
+				EyeZ = GetNum(Ep, TEXT("z"), 0.0);
 			}
+			else if (State.Config->HasTypedField<EJson::Object>(TEXT("projectorPosition")))
+			{
+				TSharedPtr<FJsonObject> Pos = State.Config->GetObjectField(TEXT("projectorPosition"));
+				EyeX = GetNum(Pos, TEXT("x"), 0.0);
+				EyeY = GetNum(Pos, TEXT("y"), 0.0);
+				EyeZ = GetNum(Pos, TEXT("z"), 0.0);
+			}
+			if (MapMeshEyeXInput.IsValid()) MapMeshEyeXInput->SetValue(EyeX);
+			if (MapMeshEyeYInput.IsValid()) MapMeshEyeYInput->SetValue(EyeY);
+			if (MapMeshEyeZInput.IsValid()) MapMeshEyeZInput->SetValue(EyeZ);
 
 			// Fisheye
 			if (MapFisheyeFovInput.IsValid()) MapFisheyeFovInput->SetValue(GetNum(State.Config, TEXT("fisheyeFov"), 180.0));
@@ -8075,14 +8133,11 @@ bool SRshipContentMappingPanel::ApplyCurrentFormToSelectedMapping(bool bCreateIf
 			Config->SetNumberField(TEXT("verticalArc"), MapSphVArcInput.IsValid() ? MapSphVArcInput->GetValue() : 180.0);
 		}
 
-		if (NormalizedMode == MapModeMesh)
-		{
-			TSharedPtr<FJsonObject> EpObj = MakeShared<FJsonObject>();
-			EpObj->SetNumberField(TEXT("x"), MapMeshEyeXInput.IsValid() ? MapMeshEyeXInput->GetValue() : 0.0);
-			EpObj->SetNumberField(TEXT("y"), MapMeshEyeYInput.IsValid() ? MapMeshEyeYInput->GetValue() : 0.0);
-			EpObj->SetNumberField(TEXT("z"), MapMeshEyeZInput.IsValid() ? MapMeshEyeZInput->GetValue() : 0.0);
-			Config->SetObjectField(TEXT("eyepoint"), EpObj);
-		}
+		TSharedPtr<FJsonObject> EpObj = MakeShared<FJsonObject>();
+		EpObj->SetNumberField(TEXT("x"), MapProjPosXInput.IsValid() ? MapProjPosXInput->GetValue() : (MapMeshEyeXInput.IsValid() ? MapMeshEyeXInput->GetValue() : 0.0));
+		EpObj->SetNumberField(TEXT("y"), MapProjPosYInput.IsValid() ? MapProjPosYInput->GetValue() : (MapMeshEyeYInput.IsValid() ? MapMeshEyeYInput->GetValue() : 0.0));
+		EpObj->SetNumberField(TEXT("z"), MapProjPosZInput.IsValid() ? MapProjPosZInput->GetValue() : (MapMeshEyeZInput.IsValid() ? MapMeshEyeZInput->GetValue() : 0.0));
+		Config->SetObjectField(TEXT("eyepoint"), EpObj);
 
 		if (NormalizedMode == MapModeFisheye)
 		{

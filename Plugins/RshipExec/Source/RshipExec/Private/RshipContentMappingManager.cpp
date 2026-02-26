@@ -31,6 +31,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "HAL/FileManager.h"
+#include "HAL/IConsoleManager.h"
 #include "HAL/PlatformTime.h"
 #include "Modules/ModuleManager.h"
 #include "IImageWrapperModule.h"
@@ -87,6 +88,41 @@ static const FName ParamSpatialParams0(TEXT("RshipSpatialParams0"));
 static const FName ParamSpatialParams1(TEXT("RshipSpatialParams1"));
 static const FName ParamDepthMapParams(TEXT("RshipDepthMapParams"));
 
+static TAutoConsoleVariable<int32> CVarRshipContentMappingPerfStats(
+    TEXT("rship.cm.perf_stats"),
+    0,
+    TEXT("Enable content mapping perf stats logging once per second."));
+
+static TAutoConsoleVariable<int32> CVarRshipContentMappingCaptureUseMainView(
+    TEXT("rship.cm.capture_use_main_view"),
+    1,
+    TEXT("Use main-view scene capture integration for mapping camera contexts."));
+
+static TAutoConsoleVariable<int32> CVarRshipContentMappingCaptureUseMainViewCamera(
+    TEXT("rship.cm.capture_use_main_view_camera"),
+    0,
+    TEXT("Force mapping captures to use main view camera transform (usually should stay 0)."));
+
+static TAutoConsoleVariable<int32> CVarRshipContentMappingCaptureMainViewDivisor(
+    TEXT("rship.cm.capture_main_view_divisor"),
+    1,
+    TEXT("Main-view resolution divisor for mapping captures (1=full res, 2=half)."));
+
+static TAutoConsoleVariable<float> CVarRshipContentMappingCaptureLodFactor(
+    TEXT("rship.cm.capture_lod_factor"),
+    1.0f,
+    TEXT("LOD distance factor for mapping scene captures (>=1.0)."));
+
+static TAutoConsoleVariable<int32> CVarRshipContentMappingCaptureQualityProfile(
+    TEXT("rship.cm.capture_quality_profile"),
+    0,
+    TEXT("Capture quality profile for mapping contexts. 0=performance, 1=balanced, 2=fidelity."));
+
+static TAutoConsoleVariable<float> CVarRshipContentMappingCaptureMaxViewDistance(
+    TEXT("rship.cm.capture_max_view_distance"),
+    0.0f,
+    TEXT("Optional max view distance override for mapping scene captures (0 disables)."));
+
 static FString GetActionName(const FString& ActionId)
 {
     int32 Index = INDEX_NONE;
@@ -99,6 +135,157 @@ static FString GetActionName(const FString& ActionId)
 
 namespace
 {
+    enum class ERshipCaptureQualityProfile : uint8
+    {
+        Performance = 0,
+        Balanced = 1,
+        Fidelity = 2
+    };
+
+    ERshipCaptureQualityProfile GetCaptureQualityProfile()
+    {
+        const int32 RawValue = CVarRshipContentMappingCaptureQualityProfile.GetValueOnGameThread();
+        if (RawValue <= 0)
+        {
+            return ERshipCaptureQualityProfile::Performance;
+        }
+        if (RawValue >= 2)
+        {
+            return ERshipCaptureQualityProfile::Fidelity;
+        }
+        return ERshipCaptureQualityProfile::Balanced;
+    }
+
+    int32 GetEffectiveCaptureDivisor(ERshipCaptureQualityProfile Profile, int32 RequestedDivisor)
+    {
+        const int32 ClampedRequested = FMath::Max(1, RequestedDivisor);
+        switch (Profile)
+        {
+            case ERshipCaptureQualityProfile::Performance:
+                return FMath::Max(2, ClampedRequested);
+            case ERshipCaptureQualityProfile::Balanced:
+                return ClampedRequested;
+            case ERshipCaptureQualityProfile::Fidelity:
+            default:
+                return ClampedRequested;
+        }
+    }
+
+    float GetEffectiveCaptureLodFactor(ERshipCaptureQualityProfile Profile, float RequestedFactor)
+    {
+        const float ClampedRequested = FMath::Max(1.0f, RequestedFactor);
+        switch (Profile)
+        {
+            case ERshipCaptureQualityProfile::Performance:
+                return FMath::Max(2.0f, ClampedRequested);
+            case ERshipCaptureQualityProfile::Balanced:
+                return FMath::Max(1.35f, ClampedRequested);
+            case ERshipCaptureQualityProfile::Fidelity:
+            default:
+                return ClampedRequested;
+        }
+    }
+
+    void ApplyCaptureQualityProfile(
+        USceneCaptureComponent2D* Capture,
+        ERshipCaptureQualityProfile Profile,
+        bool bDepthCapture)
+    {
+        if (!Capture)
+        {
+            return;
+        }
+
+        Capture->ShowFlags = FEngineShowFlags(ESFIM_Game);
+        Capture->ShowFlags.SetMotionBlur(false);
+
+        if (bDepthCapture)
+        {
+            Capture->ShowFlags.DisableAdvancedFeatures();
+            Capture->ShowFlags.SetPostProcessing(false);
+            Capture->ShowFlags.SetBloom(false);
+            Capture->ShowFlags.SetTonemapper(false);
+            Capture->ShowFlags.SetFog(false);
+            Capture->ShowFlags.SetAtmosphere(false);
+            Capture->ShowFlags.SetSkyLighting(false);
+            Capture->ShowFlags.SetVolumetricFog(false);
+            Capture->ShowFlags.SetAmbientOcclusion(false);
+            Capture->ShowFlags.SetDistanceFieldAO(false);
+            Capture->ShowFlags.SetScreenSpaceReflections(false);
+            Capture->ShowFlags.SetLumenGlobalIllumination(false);
+            Capture->ShowFlags.SetLumenReflections(false);
+            Capture->ShowFlags.SetReflectionEnvironment(false);
+            Capture->bUseRayTracingIfEnabled = false;
+            Capture->bExcludeFromSceneTextureExtents = true;
+            return;
+        }
+
+        switch (Profile)
+        {
+            case ERshipCaptureQualityProfile::Performance:
+                Capture->ShowFlags.DisableAdvancedFeatures();
+                Capture->ShowFlags.SetPostProcessing(false);
+                Capture->ShowFlags.SetBloom(false);
+                Capture->ShowFlags.SetTonemapper(false);
+                Capture->ShowFlags.SetAntiAliasing(false);
+                Capture->ShowFlags.SetTemporalAA(false);
+                Capture->ShowFlags.SetFog(false);
+                Capture->ShowFlags.SetAtmosphere(false);
+                Capture->ShowFlags.SetSkyLighting(false);
+                Capture->ShowFlags.SetVolumetricFog(false);
+                Capture->ShowFlags.SetAmbientOcclusion(false);
+                Capture->ShowFlags.SetDistanceFieldAO(false);
+                Capture->ShowFlags.SetScreenSpaceReflections(false);
+                Capture->ShowFlags.SetLumenGlobalIllumination(false);
+                Capture->ShowFlags.SetLumenReflections(false);
+                Capture->ShowFlags.SetReflectionEnvironment(false);
+                Capture->bUseRayTracingIfEnabled = false;
+                Capture->bExcludeFromSceneTextureExtents = true;
+                break;
+
+            case ERshipCaptureQualityProfile::Balanced:
+                Capture->ShowFlags.SetPostProcessing(true);
+                Capture->ShowFlags.SetBloom(true);
+                Capture->ShowFlags.SetTonemapper(true);
+                Capture->ShowFlags.SetAntiAliasing(true);
+                Capture->ShowFlags.SetTemporalAA(true);
+                Capture->ShowFlags.SetAmbientOcclusion(false);
+                Capture->ShowFlags.SetDistanceFieldAO(false);
+                Capture->ShowFlags.SetScreenSpaceReflections(false);
+                Capture->ShowFlags.SetLumenGlobalIllumination(false);
+                Capture->ShowFlags.SetLumenReflections(false);
+                Capture->ShowFlags.SetVolumetricFog(false);
+                Capture->ShowFlags.SetReflectionEnvironment(true);
+                Capture->ShowFlags.SetSkyLighting(true);
+                Capture->ShowFlags.SetFog(true);
+                Capture->ShowFlags.SetAtmosphere(true);
+                Capture->bUseRayTracingIfEnabled = false;
+                Capture->bExcludeFromSceneTextureExtents = true;
+                break;
+
+            case ERshipCaptureQualityProfile::Fidelity:
+            default:
+                Capture->ShowFlags.SetPostProcessing(true);
+                Capture->ShowFlags.SetBloom(true);
+                Capture->ShowFlags.SetTonemapper(true);
+                Capture->ShowFlags.SetAntiAliasing(true);
+                Capture->ShowFlags.SetTemporalAA(true);
+                Capture->ShowFlags.SetAmbientOcclusion(true);
+                Capture->ShowFlags.SetDistanceFieldAO(true);
+                Capture->ShowFlags.SetScreenSpaceReflections(true);
+                Capture->ShowFlags.SetLumenGlobalIllumination(true);
+                Capture->ShowFlags.SetLumenReflections(true);
+                Capture->ShowFlags.SetVolumetricFog(true);
+                Capture->ShowFlags.SetReflectionEnvironment(true);
+                Capture->ShowFlags.SetSkyLighting(true);
+                Capture->ShowFlags.SetFog(true);
+                Capture->ShowFlags.SetAtmosphere(true);
+                Capture->bUseRayTracingIfEnabled = true;
+                Capture->bExcludeFromSceneTextureExtents = false;
+                break;
+        }
+    }
+
     struct FFeedRectPx
     {
         int32 X = 0;
@@ -363,6 +550,14 @@ namespace
         }
 
         return EffectiveSurfaceIds;
+    }
+
+    uint32 HashFeedRouteRectPx(const FFeedRectPx& Rect)
+    {
+        uint32 Hash = HashCombineFast(GetTypeHash(Rect.X), GetTypeHash(Rect.Y));
+        Hash = HashCombineFast(Hash, GetTypeHash(Rect.W));
+        Hash = HashCombineFast(Hash, GetTypeHash(Rect.H));
+        return Hash;
     }
 
     ACameraActor* FindSourceCameraActorByEntityId(URshipSubsystem* Subsystem, const FString& CameraId)
@@ -824,6 +1019,10 @@ namespace
         {
             return TEXT("mesh");
         }
+        if (Value == TEXT("mesh"))
+        {
+            return TEXT("mesh");
+        }
         if (Value == TEXT("projection") || Value == TEXT("projector"))
         {
             return TEXT("perspective");
@@ -1131,6 +1330,17 @@ namespace
 
         EnsureVector3Object(State.Config, TEXT("projectorPosition"), 0.0f, 0.0f, 0.0f);
         EnsureVector3Object(State.Config, TEXT("projectorRotation"), 0.0f, 0.0f, 0.0f);
+        double DefaultEyeX = 0.0;
+        double DefaultEyeY = 0.0;
+        double DefaultEyeZ = 0.0;
+        if (State.Config->HasTypedField<EJson::Object>(TEXT("projectorPosition")))
+        {
+            const TSharedPtr<FJsonObject> ProjectorPos = State.Config->GetObjectField(TEXT("projectorPosition"));
+            DefaultEyeX = ReadNumber(ProjectorPos, TEXT("x"), 0.0);
+            DefaultEyeY = ReadNumber(ProjectorPos, TEXT("y"), 0.0);
+            DefaultEyeZ = ReadNumber(ProjectorPos, TEXT("z"), 0.0);
+        }
+        EnsureVector3Object(State.Config, TEXT("eyepoint"), DefaultEyeX, DefaultEyeY, DefaultEyeZ);
         State.Config->SetNumberField(TEXT("fov"), ReadNumber(State.Config, TEXT("fov"), 60.0f));
         State.Config->SetNumberField(TEXT("aspectRatio"), ReadNumber(State.Config, TEXT("aspectRatio"), 1.7778f));
         State.Config->SetNumberField(TEXT("near"), ReadNumber(State.Config, TEXT("near"), 10.0f));
@@ -1171,11 +1381,6 @@ namespace
         {
             State.Config->SetNumberField(TEXT("sizeW"), ReadNumber(State.Config, TEXT("sizeW"), 1000.0f));
             State.Config->SetNumberField(TEXT("sizeH"), ReadNumber(State.Config, TEXT("sizeH"), 1000.0f));
-        }
-
-        if (ProjectionMode == TEXT("mesh"))
-        {
-            EnsureVector3Object(State.Config, TEXT("eyepoint"), 0.0f, 0.0f, 0.0f);
         }
 
         if (ProjectionMode == TEXT("fisheye"))
@@ -1334,6 +1539,7 @@ void URshipContentMappingManager::Shutdown()
         }
         SurfaceState.MaterialInstances.Empty();
         SurfaceState.OriginalMaterials.Empty();
+        SurfaceState.MaterialBindingHashes.Empty();
         SurfaceState.MeshComponent.Reset();
     }
 
@@ -1355,9 +1561,19 @@ void URshipContentMappingManager::Shutdown()
     MappingSurfaces.Empty();
     Mappings.Empty();
     FeedCompositeTargets.Empty();
+    FeedCompositeStaticSignatures.Empty();
+    FeedSingleRtBindingCache.Empty();
+    EffectiveSurfaceIdsCache.Empty();
+    RequiredContextIdsCache.Empty();
+    RenderContextRuntimeStates.Empty();
+    CachedEnabledTextureContextId.Reset();
+    CachedAnyTextureContextId.Reset();
+    CachedEnabledContextId.Reset();
+    CachedAnyContextId.Reset();
     AssetTextureCache.Empty();
     PendingAssetDownloads.Empty();
     bMappingsArmed = false;
+    bRuntimePreparePending = true;
 }
 
 void URshipContentMappingManager::Tick(float DeltaTime)
@@ -1374,20 +1590,63 @@ void URshipContentMappingManager::Tick(float DeltaTime)
     }
     bWasConnected = bConnected;
 
+    const double TickStartSeconds = FPlatformTime::Seconds();
+    bool bDidRebuild = false;
+    LastTickMsRebuild = 0.0f;
+    LastTickMsRefresh = 0.0f;
+    LastTickMsCacheSave = 0.0f;
+
     if (bMappingsDirty)
     {
+        const double RebuildStartSeconds = FPlatformTime::Seconds();
         bNeedsWorldResolutionRetry = false;
         RebuildMappings();
         bMappingsDirty = bNeedsWorldResolutionRetry;
+        LastTickMsRebuild = static_cast<float>((FPlatformTime::Seconds() - RebuildStartSeconds) * 1000.0);
+        bDidRebuild = true;
     }
 
     if (bCacheDirty)
     {
+        const double SaveStartSeconds = FPlatformTime::Seconds();
         SaveCache();
         bCacheDirty = false;
+        LastTickMsCacheSave = static_cast<float>((FPlatformTime::Seconds() - SaveStartSeconds) * 1000.0);
     }
 
-    RefreshLiveMappings();
+    const bool bHasEnabledMappings = HasAnyEnabledMappings();
+    if (bDidRebuild || bHasEnabledMappings)
+    {
+        const double RefreshStartSeconds = FPlatformTime::Seconds();
+        RefreshLiveMappings();
+        LastTickMsRefresh = static_cast<float>((FPlatformTime::Seconds() - RefreshStartSeconds) * 1000.0);
+    }
+    else
+    {
+        LastTickEnabledMappings = 0;
+        LastTickAppliedSurfaces = 0;
+        LastTickActiveContexts = 0;
+    }
+
+    LastTickMsTotal = static_cast<float>((FPlatformTime::Seconds() - TickStartSeconds) * 1000.0);
+
+    if (CVarRshipContentMappingPerfStats.GetValueOnGameThread() > 0)
+    {
+        const double NowSeconds = FPlatformTime::Seconds();
+        if (LastPerfLogTimeSeconds <= 0.0 || (NowSeconds - LastPerfLogTimeSeconds) >= 1.0)
+        {
+            LastPerfLogTimeSeconds = NowSeconds;
+            UE_LOG(LogRshipExec, Log,
+                TEXT("CMPerf total=%.3fms rebuild=%.3fms refresh=%.3fms cache=%.3fms enabled=%d contexts=%d appliedSurfaces=%d"),
+                LastTickMsTotal,
+                LastTickMsRebuild,
+                LastTickMsRefresh,
+                LastTickMsCacheSave,
+                LastTickEnabledMappings,
+                LastTickActiveContexts,
+                LastTickAppliedSurfaces);
+        }
+    }
 
     if (bDebugOverlayEnabled && GEngine)
     {
@@ -1464,10 +1723,20 @@ void URshipContentMappingManager::RefreshLiveMappings()
     if (!bMappingsArmed)
     {
         UE_LOG(LogRshipExec, Warning, TEXT("RefreshLiveMappings skipped: mappings are not armed"));
+        LastTickEnabledMappings = 0;
+        LastTickAppliedSurfaces = 0;
+        LastTickActiveContexts = 0;
         return;
     }
 
-    PrepareMappingsForRuntime(true);
+    LastTickEnabledMappings = 0;
+    LastTickAppliedSurfaces = 0;
+    LastTickActiveContexts = 0;
+
+    if (bRuntimePreparePending)
+    {
+        PrepareMappingsForRuntime(true);
+    }
 
     TSet<FString> RequiredContextIds;
     bool bHasEnabledMappings = false;
@@ -1508,6 +1777,55 @@ void URshipContentMappingManager::RefreshLiveMappings()
         }
     }
 
+    auto DisableContextCapture = [](FRshipRenderContextState& ContextState)
+    {
+        if (ARshipCameraActor* CameraActor = ContextState.CameraActor.Get())
+        {
+            CameraActor->bEnableSceneCapture = false;
+            if (CameraActor->SceneCapture)
+            {
+                CameraActor->SceneCapture->bCaptureEveryFrame = false;
+                CameraActor->SceneCapture->bCaptureOnMovement = false;
+            }
+        }
+        if (USceneCaptureComponent2D* DepthCapture = ContextState.DepthCaptureComponent.Get())
+        {
+            DepthCapture->bCaptureEveryFrame = false;
+            DepthCapture->bCaptureOnMovement = false;
+        }
+    };
+
+    auto BuildRuntimeContextSignature = [](const FRshipRenderContextState& ContextState) -> FString
+    {
+        if (!ContextState.SourceType.Equals(TEXT("camera"), ESearchCase::IgnoreCase))
+        {
+            return FString();
+        }
+
+        FString CameraToken = ContextState.CameraId.TrimStartAndEnd().ToLower();
+        if (CameraToken.IsEmpty())
+        {
+            return FString();
+        }
+
+        const int32 Width = FMath::Max(1, ContextState.Width);
+        const int32 Height = FMath::Max(1, ContextState.Height);
+        const FString CaptureMode = ContextState.CaptureMode.TrimStartAndEnd().ToLower();
+        const FString DepthMode = ContextState.DepthCaptureMode.TrimStartAndEnd().ToLower();
+
+        return FString::Printf(
+            TEXT("camera|%s|%d|%d|%s|depth:%d|%s"),
+            *CameraToken,
+            Width,
+            Height,
+            *CaptureMode,
+            ContextState.bDepthCaptureEnabled ? 1 : 0,
+            *DepthMode);
+    };
+
+    TMap<FString, FString> SignatureToResolvedContextId;
+    int32 ActiveResolvedContexts = 0;
+
     for (auto& Pair : RenderContexts)
     {
         FRshipRenderContextState& ContextState = Pair.Value;
@@ -1518,30 +1836,48 @@ void URshipContentMappingManager::RefreshLiveMappings()
             ContextState.ResolvedTexture = nullptr;
             ContextState.ResolvedDepthTexture = nullptr;
             ContextState.LastError.Empty();
-
-            if (ARshipCameraActor* CameraActor = ContextState.CameraActor.Get())
-            {
-                CameraActor->bEnableSceneCapture = false;
-                if (CameraActor->SceneCapture)
-                {
-                    CameraActor->SceneCapture->bCaptureEveryFrame = false;
-                    CameraActor->SceneCapture->bCaptureOnMovement = false;
-                }
-            }
-            if (USceneCaptureComponent2D* DepthCapture = ContextState.DepthCaptureComponent.Get())
-            {
-                DepthCapture->bCaptureEveryFrame = false;
-                DepthCapture->bCaptureOnMovement = false;
-            }
+            DisableContextCapture(ContextState);
             continue;
         }
 
+        const FString Signature = BuildRuntimeContextSignature(ContextState);
+        if (!Signature.IsEmpty())
+        {
+            if (const FString* ExistingResolvedContextId = SignatureToResolvedContextId.Find(Signature))
+            {
+                if (const FRshipRenderContextState* ExistingResolvedContext = RenderContexts.Find(*ExistingResolvedContextId))
+                {
+                    if (ExistingResolvedContext->ResolvedTexture && ExistingResolvedContext->LastError.IsEmpty())
+                    {
+                        ContextState.ResolvedTexture = ExistingResolvedContext->ResolvedTexture;
+                        ContextState.ResolvedDepthTexture = ExistingResolvedContext->ResolvedDepthTexture;
+                        ContextState.LastError.Empty();
+                        DisableContextCapture(ContextState);
+                        continue;
+                    }
+                }
+            }
+        }
+
         ResolveRenderContext(ContextState);
+        if (ContextState.ResolvedTexture)
+        {
+            ++ActiveResolvedContexts;
+            if (!Signature.IsEmpty())
+            {
+                SignatureToResolvedContextId.Add(Signature, ContextState.Id);
+            }
+        }
     }
+
+    RefreshResolvedContextFallbackIds();
+    LastTickActiveContexts = ActiveResolvedContexts;
 
     int32 EnabledMappingCount = 0;
     int32 AppliedSurfaceCount = 0;
     FString FirstMappingError;
+    UWorld* PreferredWorld = GetBestWorld();
+    const double NowSeconds = FPlatformTime::Seconds();
 
     for (auto& MappingPair : Mappings)
     {
@@ -1565,8 +1901,7 @@ void URshipContentMappingManager::RefreshLiveMappings()
             continue;
         }
 
-        UWorld* PreferredWorld = GetBestWorld();
-        const TArray<FString> EffectiveSurfaceIds = GatherEffectiveSurfaceIdsForMapping(MappingState);
+        const TArray<FString>& EffectiveSurfaceIds = GetEffectiveSurfaceIds(MappingState);
         for (const FString& SurfaceId : EffectiveSurfaceIds)
         {
             FRshipMappingSurfaceState* SurfaceState = MappingSurfaces.Find(SurfaceId);
@@ -1577,7 +1912,13 @@ void URshipContentMappingManager::RefreshLiveMappings()
 
             if (!IsMeshReadyForMaterialMutation(SurfaceState->MeshComponent.Get()))
             {
-                ResolveMappingSurface(*SurfaceState);
+                if (NowSeconds >= SurfaceState->NextResolveRetryTimeSeconds)
+                {
+                    ResolveMappingSurface(*SurfaceState);
+                    SurfaceState->NextResolveRetryTimeSeconds = IsMeshReadyForMaterialMutation(SurfaceState->MeshComponent.Get())
+                        ? 0.0
+                        : (NowSeconds + 0.25);
+                }
             }
             else if (PreferredWorld)
             {
@@ -1585,7 +1926,13 @@ void URshipContentMappingManager::RefreshLiveMappings()
                 {
                     if (SurfaceMesh->GetWorld() != PreferredWorld)
                     {
-                        ResolveMappingSurface(*SurfaceState);
+                        if (NowSeconds >= SurfaceState->NextResolveRetryTimeSeconds)
+                        {
+                            ResolveMappingSurface(*SurfaceState);
+                            SurfaceState->NextResolveRetryTimeSeconds = IsMeshReadyForMaterialMutation(SurfaceState->MeshComponent.Get())
+                                ? (NowSeconds + 1.0)
+                                : (NowSeconds + 0.25);
+                        }
                     }
                 }
             }
@@ -1633,6 +1980,9 @@ void URshipContentMappingManager::RefreshLiveMappings()
                 *FirstMappingError);
         }
     }
+
+    LastTickEnabledMappings = EnabledMappingCount;
+    LastTickAppliedSurfaces = AppliedSurfaceCount;
 }
 
 TArray<FRshipRenderContextState> URshipContentMappingManager::GetRenderContexts() const
@@ -1689,6 +2039,7 @@ FString URshipContentMappingManager::CreateRenderContext(const FRshipRenderConte
     }
     NormalizeRenderContextState(NewState);
     RenderContexts.Add(NewState.Id, NewState);
+    RenderContextRuntimeStates.Remove(NewState.Id);
     ResolveRenderContext(RenderContexts[NewState.Id]);
     RegisterContextTarget(RenderContexts[NewState.Id]);
     EmitContextState(RenderContexts[NewState.Id]);
@@ -1720,6 +2071,7 @@ bool URshipContentMappingManager::UpdateRenderContext(const FRshipRenderContextS
     }
 
     FRshipRenderContextState& Stored = RenderContexts[InState.Id];
+    RenderContextRuntimeStates.Remove(InState.Id);
 
 
     TWeakObjectPtr<ARshipCameraActor> PreviousCamera = Stored.CameraActor;
@@ -1770,6 +2122,7 @@ bool URshipContentMappingManager::DeleteRenderContext(const FString& Id)
     {
         return false;
     }
+    RenderContextRuntimeStates.Remove(Id);
     ArmMappings();
 
     if (Removed.CameraActor.IsValid())
@@ -1985,6 +2338,7 @@ void URshipContentMappingManager::ProcessRenderContextEvent(const TSharedPtr<FJs
         FRshipRenderContextState Removed;
         if (RenderContexts.RemoveAndCopyValue(Id, Removed))
         {
+            RenderContextRuntimeStates.Remove(Id);
             if (Removed.CameraActor.IsValid())
             {
                 Removed.CameraActor->Destroy();
@@ -2021,6 +2375,7 @@ void URshipContentMappingManager::ProcessRenderContextEvent(const TSharedPtr<FJs
     }
 
     FRshipRenderContextState& Stored = RenderContexts.FindOrAdd(Id);
+    RenderContextRuntimeStates.Remove(Id);
     TWeakObjectPtr<ARshipCameraActor> PreviousCamera = Stored.CameraActor;
     TWeakObjectPtr<ACameraActor> PreviousSourceCamera = Stored.SourceCameraActor;
     TWeakObjectPtr<USceneCaptureComponent2D> PreviousDepthCapture = Stored.DepthCaptureComponent;
@@ -2401,6 +2756,19 @@ bool URshipContentMappingManager::RouteAction(const FString& TargetId, const FSt
 void URshipContentMappingManager::MarkMappingsDirty()
 {
     bMappingsDirty = true;
+    bRuntimePreparePending = true;
+    FeedSingleRtBindingCache.Empty();
+    EffectiveSurfaceIdsCache.Empty();
+    RequiredContextIdsCache.Empty();
+    CachedEnabledTextureContextId.Reset();
+    CachedAnyTextureContextId.Reset();
+    CachedEnabledContextId.Reset();
+    CachedAnyContextId.Reset();
+    RuntimeStateRevision++;
+    if (RuntimeStateRevision == 0)
+    {
+        RuntimeStateRevision = 1;
+    }
 }
 
 void URshipContentMappingManager::ArmMappings()
@@ -2409,12 +2777,75 @@ void URshipContentMappingManager::ArmMappings()
     {
         bMappingsArmed = true;
         bMappingsDirty = true;
+        bRuntimePreparePending = true;
     }
 }
 
 void URshipContentMappingManager::MarkCacheDirty()
 {
     bCacheDirty = true;
+}
+
+bool URshipContentMappingManager::HasAnyEnabledMappings() const
+{
+    for (const TPair<FString, FRshipContentMappingState>& Pair : Mappings)
+    {
+        if (Pair.Value.bEnabled)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void URshipContentMappingManager::RefreshResolvedContextFallbackIds()
+{
+    CachedEnabledTextureContextId.Reset();
+    CachedAnyTextureContextId.Reset();
+    CachedEnabledContextId.Reset();
+    CachedAnyContextId.Reset();
+
+    for (const TPair<FString, FRshipRenderContextState>& Pair : RenderContexts)
+    {
+        if (CachedAnyContextId.IsEmpty())
+        {
+            CachedAnyContextId = Pair.Key;
+        }
+        if (Pair.Value.bEnabled && CachedEnabledContextId.IsEmpty())
+        {
+            CachedEnabledContextId = Pair.Key;
+        }
+        if (Pair.Value.ResolvedTexture)
+        {
+            if (CachedAnyTextureContextId.IsEmpty())
+            {
+                CachedAnyTextureContextId = Pair.Key;
+            }
+            if (Pair.Value.bEnabled && CachedEnabledTextureContextId.IsEmpty())
+            {
+                CachedEnabledTextureContextId = Pair.Key;
+            }
+        }
+
+        if (!CachedEnabledTextureContextId.IsEmpty()
+            && !CachedAnyTextureContextId.IsEmpty()
+            && !CachedEnabledContextId.IsEmpty()
+            && !CachedAnyContextId.IsEmpty())
+        {
+            break;
+        }
+    }
+}
+
+const TArray<FString>& URshipContentMappingManager::GetEffectiveSurfaceIds(FRshipContentMappingState& MappingState)
+{
+    if (TArray<FString>* Cached = EffectiveSurfaceIdsCache.Find(MappingState.Id))
+    {
+        return *Cached;
+    }
+
+    TArray<FString> Computed = GatherEffectiveSurfaceIdsForMapping(MappingState);
+    return EffectiveSurfaceIdsCache.Add(MappingState.Id, MoveTemp(Computed));
 }
 
 UWorld* URshipContentMappingManager::GetBestWorld() const
@@ -2591,6 +3022,7 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
         {
             CameraActor->Destroy();
             ContextState.CameraActor.Reset();
+            RenderContextRuntimeStates.Remove(ContextState.Id);
             CameraActor = nullptr;
         }
         if (!CameraActor)
@@ -2626,25 +3058,73 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
         CameraActor->CameraId = ContextState.CameraId;
         CameraActor->bEnableSceneCapture = true;
         CameraActor->bShowFrustumVisualization = false;
+        CameraActor->SetActorTickEnabled(false);
+        CameraActor->SetActorHiddenInGame(true);
+        if (CameraActor->CameraMesh)
+        {
+            CameraActor->CameraMesh->SetVisibility(false, true);
+            CameraActor->CameraMesh->SetHiddenInGame(true);
+        }
+
+        const ERshipCaptureQualityProfile CaptureQualityProfile = GetCaptureQualityProfile();
+        const bool bUseMainViewCapture = CVarRshipContentMappingCaptureUseMainView.GetValueOnGameThread() > 0;
+        const bool bUseMainViewCamera = bUseMainViewCapture && (CVarRshipContentMappingCaptureUseMainViewCamera.GetValueOnGameThread() > 0);
+        const int32 RequestedMainViewDivisor = CVarRshipContentMappingCaptureMainViewDivisor.GetValueOnGameThread();
+        const int32 MainViewDivisor = GetEffectiveCaptureDivisor(CaptureQualityProfile, RequestedMainViewDivisor);
+        const float RequestedCaptureLodFactor = CVarRshipContentMappingCaptureLodFactor.GetValueOnGameThread();
+        const float CaptureLodFactor = GetEffectiveCaptureLodFactor(CaptureQualityProfile, RequestedCaptureLodFactor);
+        const float CaptureMaxViewDistance = FMath::Max(0.0f, CVarRshipContentMappingCaptureMaxViewDistance.GetValueOnGameThread());
+        const ESceneCaptureSource CaptureSource = (ContextState.CaptureMode == TEXT("SceneColorHDR")
+            || ContextState.CaptureMode == TEXT("RawSceneColor"))
+            ? ESceneCaptureSource::SCS_SceneColorHDR
+            : ESceneCaptureSource::SCS_FinalColorLDR;
+        uint32 ContextSetupHash = 0;
+        ContextSetupHash = HashCombineFast(ContextSetupHash, GetTypeHash(ContextState.CaptureMode));
+        ContextSetupHash = HashCombineFast(ContextSetupHash, GetTypeHash(ContextState.DepthCaptureMode));
+        ContextSetupHash = HashCombineFast(ContextSetupHash, GetTypeHash(ContextState.bDepthCaptureEnabled));
+        ContextSetupHash = HashCombineFast(ContextSetupHash, GetTypeHash(ContextState.Width));
+        ContextSetupHash = HashCombineFast(ContextSetupHash, GetTypeHash(ContextState.Height));
+        ContextSetupHash = HashCombineFast(ContextSetupHash, GetTypeHash(bUseMainViewCapture));
+        ContextSetupHash = HashCombineFast(ContextSetupHash, GetTypeHash(bUseMainViewCamera));
+        ContextSetupHash = HashCombineFast(ContextSetupHash, GetTypeHash(MainViewDivisor));
+        ContextSetupHash = HashCombineFast(ContextSetupHash, GetTypeHash(CaptureLodFactor));
+        ContextSetupHash = HashCombineFast(ContextSetupHash, GetTypeHash(CaptureMaxViewDistance));
+        ContextSetupHash = HashCombineFast(ContextSetupHash, GetTypeHash(static_cast<uint8>(CaptureQualityProfile)));
+        ContextSetupHash = HashCombineFast(ContextSetupHash, GetTypeHash(static_cast<int32>(CaptureSource)));
+        FRenderContextRuntimeState& RuntimeState = RenderContextRuntimeStates.FindOrAdd(ContextState.Id);
+        const bool bNeedsCaptureSetup = (RuntimeState.SetupHash != ContextSetupHash);
 
         if (CameraActor->SceneCapture)
         {
-            CameraActor->SceneCapture->bCaptureEveryFrame = true;
-            CameraActor->SceneCapture->bCaptureOnMovement = true;
-            CameraActor->SceneCapture->SetRelativeLocation(FVector::ZeroVector);
-            CameraActor->SceneCapture->SetRelativeRotation(FRotator::ZeroRotator);
+            if (!CameraActor->SceneCapture->bCaptureEveryFrame)
+            {
+                CameraActor->SceneCapture->bCaptureEveryFrame = true;
+            }
+            if (CameraActor->SceneCapture->bCaptureOnMovement)
+            {
+                CameraActor->SceneCapture->bCaptureOnMovement = false;
+            }
+            if (!CameraActor->SceneCapture->bAlwaysPersistRenderingState)
+            {
+                CameraActor->SceneCapture->bAlwaysPersistRenderingState = true;
+            }
 
-            if (ContextState.CaptureMode == TEXT("SceneColorHDR"))
+            if (bNeedsCaptureSetup)
             {
-                CameraActor->SceneCapture->CaptureSource = SCS_SceneColorHDR;
-            }
-            else if (ContextState.CaptureMode == TEXT("RawSceneColor"))
-            {
-                CameraActor->SceneCapture->CaptureSource = SCS_SceneColorHDR;
-            }
-            else
-            {
-                CameraActor->SceneCapture->CaptureSource = SCS_FinalColorLDR;
+                CameraActor->SceneCapture->SetRelativeLocation(FVector::ZeroVector);
+                CameraActor->SceneCapture->SetRelativeRotation(FRotator::ZeroRotator);
+                CameraActor->SceneCapture->bMainViewFamily = bUseMainViewCapture;
+                CameraActor->SceneCapture->bMainViewResolution = bUseMainViewCapture;
+                CameraActor->SceneCapture->bMainViewCamera = bUseMainViewCamera;
+                CameraActor->SceneCapture->bInheritMainViewCameraPostProcessSettings = bUseMainViewCamera;
+                CameraActor->SceneCapture->bIgnoreScreenPercentage = false;
+                CameraActor->SceneCapture->MainViewResolutionDivisor = FIntPoint(MainViewDivisor, MainViewDivisor);
+                CameraActor->SceneCapture->bRenderInMainRenderer = bUseMainViewCapture;
+                CameraActor->SceneCapture->LODDistanceFactor = CaptureLodFactor;
+                CameraActor->SceneCapture->MaxViewDistanceOverride = CaptureMaxViewDistance;
+                CameraActor->SceneCapture->CaptureSource = CaptureSource;
+                ApplyCaptureQualityProfile(CameraActor->SceneCapture, CaptureQualityProfile, false);
+                RuntimeState.SetupHash = ContextSetupHash;
             }
         }
         else
@@ -2670,6 +3150,7 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
             {
                 CameraActor->CaptureRenderTarget->InitAutoFormat(Width, Height);
                 CameraActor->CaptureRenderTarget->UpdateResourceImmediate();
+                RuntimeState.SetupHash = 0;
             }
 
             if (ContextState.Width <= 0 || ContextState.Height <= 0)
@@ -2677,6 +3158,7 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
                 ContextState.Width = Width;
                 ContextState.Height = Height;
                 MarkCacheDirty();
+                bRuntimePreparePending = true;
             }
         }
         else if (CameraActor->SceneCapture)
@@ -2687,44 +3169,43 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
             CameraActor->CaptureRenderTarget->InitAutoFormat(Width, Height);
             CameraActor->CaptureRenderTarget->UpdateResourceImmediate();
             CameraActor->SceneCapture->TextureTarget = CameraActor->CaptureRenderTarget;
+            RuntimeState.SetupHash = 0;
             if (ContextState.Width <= 0 || ContextState.Height <= 0)
             {
                 ContextState.Width = Width;
                 ContextState.Height = Height;
                 MarkCacheDirty();
+                bRuntimePreparePending = true;
             }
         }
 
         // Ensure scene capture always writes into the current render target.
         if (CameraActor->SceneCapture && CameraActor->CaptureRenderTarget)
         {
-            if (!SourceCamera || !IsValid(SourceCamera))
-            {
-                SourceCamera = FindSourceCameraActorByEntityId(Subsystem, ContextState.CameraId);
-                ContextState.SourceCameraActor = SourceCamera;
-            }
-            SourceAnchorActor = SourceCamera;
-            if ((!SourceAnchorActor || !IsValid(SourceAnchorActor)) && !ContextState.CameraId.IsEmpty())
-            {
-                SourceAnchorActor = FindSourceAnchorActorByEntityId(Subsystem, ContextState.CameraId);
-            }
+            FTransform DesiredTransform = CameraActor->GetActorTransform();
+            float DesiredFov = CameraActor->SceneCapture->FOVAngle;
+            bool bHasDesiredTransform = false;
+            bool bHasDesiredFov = false;
 
             if (SourceCamera)
             {
                 if (UCameraComponent* SourceCameraComponent = SourceCamera->GetCameraComponent())
                 {
-                    CameraActor->SetActorLocation(SourceCameraComponent->GetComponentLocation());
-                    CameraActor->SetActorRotation(SourceCameraComponent->GetComponentRotation());
-                    CameraActor->SceneCapture->FOVAngle = SourceCameraComponent->FieldOfView;
+                    DesiredTransform = FTransform(SourceCameraComponent->GetComponentRotation(), SourceCameraComponent->GetComponentLocation());
+                    DesiredFov = SourceCameraComponent->FieldOfView;
+                    bHasDesiredTransform = true;
+                    bHasDesiredFov = true;
                 }
                 else
                 {
-                    CameraActor->SetActorTransform(SourceCamera->GetActorTransform());
+                    DesiredTransform = SourceCamera->GetActorTransform();
+                    bHasDesiredTransform = true;
                 }
             }
             else if (SourceAnchorActor)
             {
-                CameraActor->SetActorTransform(SourceAnchorActor->GetActorTransform());
+                DesiredTransform = SourceAnchorActor->GetActorTransform();
+                bHasDesiredTransform = true;
             }
             else
             {
@@ -2742,12 +3223,13 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
                         FVector ViewLocation = FVector::ZeroVector;
                         FRotator ViewRotation = FRotator::ZeroRotator;
                         PC->GetPlayerViewPoint(ViewLocation, ViewRotation);
-                        CameraActor->SetActorLocation(ViewLocation);
-                        CameraActor->SetActorRotation(ViewRotation);
+                        DesiredTransform = FTransform(ViewRotation, ViewLocation);
+                        bHasDesiredTransform = true;
 
                         if (PC->PlayerCameraManager)
                         {
-                            CameraActor->SceneCapture->FOVAngle = PC->PlayerCameraManager->GetFOVAngle();
+                            DesiredFov = PC->PlayerCameraManager->GetFOVAngle();
+                            bHasDesiredFov = true;
                         }
 
                         bAppliedPlayerViewFallback = true;
@@ -2766,6 +3248,24 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
                         *ContextState.Id, *ContextState.CameraId);
                 }
             }
+
+            if (bHasDesiredTransform)
+            {
+                if (!RuntimeState.bHasAppliedTransform
+                    || !RuntimeState.LastAppliedTransform.Equals(DesiredTransform, 0.01f))
+                {
+                    CameraActor->SetActorTransform(DesiredTransform);
+                    RuntimeState.LastAppliedTransform = DesiredTransform;
+                    RuntimeState.bHasAppliedTransform = true;
+                }
+            }
+
+            if (bHasDesiredFov && !FMath::IsNearlyEqual(RuntimeState.LastAppliedFov, DesiredFov, 0.01f))
+            {
+                CameraActor->SceneCapture->FOVAngle = DesiredFov;
+                RuntimeState.LastAppliedFov = DesiredFov;
+            }
+
             if (CameraActor->SceneCapture->TextureTarget != CameraActor->CaptureRenderTarget)
             {
                 CameraActor->SceneCapture->TextureTarget = CameraActor->CaptureRenderTarget;
@@ -2811,14 +3311,39 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
 
             if (DepthCapture)
             {
-                DepthCapture->CaptureSource = ContextState.DepthCaptureMode.Equals(TEXT("DeviceDepth"), ESearchCase::IgnoreCase)
-                    ? ESceneCaptureSource::SCS_DeviceDepth
-                    : ESceneCaptureSource::SCS_SceneDepth;
+                if (!DepthCapture->bCaptureEveryFrame)
+                {
+                    DepthCapture->bCaptureEveryFrame = true;
+                }
+                if (DepthCapture->bCaptureOnMovement)
+                {
+                    DepthCapture->bCaptureOnMovement = false;
+                }
+                if (!DepthCapture->bAlwaysPersistRenderingState)
+                {
+                    DepthCapture->bAlwaysPersistRenderingState = true;
+                }
+
+                if (bNeedsCaptureSetup)
+                {
+                    DepthCapture->CaptureSource = ContextState.DepthCaptureMode.Equals(TEXT("DeviceDepth"), ESearchCase::IgnoreCase)
+                        ? ESceneCaptureSource::SCS_DeviceDepth
+                        : ESceneCaptureSource::SCS_SceneDepth;
+                    DepthCapture->SetRelativeLocation(FVector::ZeroVector);
+                    DepthCapture->SetRelativeRotation(FRotator::ZeroRotator);
+                    DepthCapture->bMainViewFamily = bUseMainViewCapture;
+                    DepthCapture->bMainViewResolution = bUseMainViewCapture;
+                    DepthCapture->bMainViewCamera = false;
+                    DepthCapture->bInheritMainViewCameraPostProcessSettings = false;
+                    DepthCapture->bIgnoreScreenPercentage = false;
+                    DepthCapture->MainViewResolutionDivisor = FIntPoint(MainViewDivisor, MainViewDivisor);
+                    DepthCapture->bRenderInMainRenderer = bUseMainViewCapture;
+                    DepthCapture->LODDistanceFactor = CaptureLodFactor;
+                    DepthCapture->MaxViewDistanceOverride = CaptureMaxViewDistance;
+                    ApplyCaptureQualityProfile(DepthCapture, CaptureQualityProfile, true);
+                }
+
                 DepthCapture->TextureTarget = ContextState.DepthRenderTarget.Get();
-                DepthCapture->bCaptureEveryFrame = true;
-                DepthCapture->bCaptureOnMovement = true;
-                DepthCapture->SetRelativeLocation(FVector::ZeroVector);
-                DepthCapture->SetRelativeRotation(FRotator::ZeroRotator);
                 if (CameraActor->SceneCapture)
                 {
                     DepthCapture->FOVAngle = CameraActor->SceneCapture->FOVAngle;
@@ -3193,6 +3718,7 @@ void URshipContentMappingManager::ResolveMappingSurface(FRshipMappingSurfaceStat
     SurfaceState.MeshComponentName = BestMesh->GetName();
     SurfaceState.ActorPath = BestOwner->GetPathName();
     SurfaceState.TargetId.Reset();
+    SurfaceState.NextResolveRetryTimeSeconds = 0.0;
 
     const int32 SlotCount = BestMesh->GetNumMaterials();
     TArray<int32> SanitizedSlots;
@@ -3286,6 +3812,7 @@ FString URshipContentMappingManager::GetPreferredRuntimeContextId() const
 
 void URshipContentMappingManager::PrepareMappingsForRuntime(bool bEmitChanges)
 {
+    bRuntimePreparePending = false;
     bool bAnyChanged = false;
 
     for (auto& MappingPair : Mappings)
@@ -3311,7 +3838,11 @@ void URshipContentMappingManager::PrepareMappingsForRuntime(bool bEmitChanges)
 
     if (bAnyChanged)
     {
+        FeedSingleRtBindingCache.Empty();
+        EffectiveSurfaceIdsCache.Empty();
+        RequiredContextIdsCache.Empty();
         MarkCacheDirty();
+        bRuntimePreparePending = true;
     }
 }
 
@@ -3319,33 +3850,41 @@ void URshipContentMappingManager::CollectRequiredContextIdsForMappings(
     TSet<FString>& OutRequiredContextIds,
     bool& OutHasEnabledMappings,
     bool& OutKeepAllContextsAlive,
-    bool& OutHasInvalidContextReference) const
+    bool& OutHasInvalidContextReference)
 {
     OutRequiredContextIds.Reset();
     OutHasEnabledMappings = false;
     OutKeepAllContextsAlive = false;
     OutHasInvalidContextReference = false;
 
-    for (const TPair<FString, FRshipContentMappingState>& MappingPair : Mappings)
+    auto GetOrBuildRequiredContexts = [this](const FRshipContentMappingState& MappingState) -> const FMappingRequiredContexts&
     {
-        const FRshipContentMappingState& MappingState = MappingPair.Value;
-        if (!MappingState.bEnabled)
+        if (FMappingRequiredContexts* Cached = RequiredContextIdsCache.Find(MappingState.Id))
         {
-            continue;
+            return *Cached;
         }
 
-        OutHasEnabledMappings = true;
+        FMappingRequiredContexts Built;
+
+        auto AddContextId = [&Built](const FString& InContextId)
+        {
+            const FString Trimmed = InContextId.TrimStartAndEnd();
+            if (!Trimmed.IsEmpty())
+            {
+                Built.ContextIds.AddUnique(Trimmed);
+            }
+        };
 
         const FString MappingContextId = MappingState.ContextId.TrimStartAndEnd();
         if (!MappingContextId.IsEmpty())
         {
             if (RenderContexts.Contains(MappingContextId))
             {
-                OutRequiredContextIds.Add(MappingContextId);
+                AddContextId(MappingContextId);
             }
             else
             {
-                OutHasInvalidContextReference = true;
+                Built.bHasInvalidContextReference = true;
             }
         }
 
@@ -3353,7 +3892,7 @@ void URshipContentMappingManager::CollectRequiredContextIdsForMappings(
             || !MappingState.Config.IsValid()
             || !MappingState.Config->HasTypedField<EJson::Object>(TEXT("feedV2")))
         {
-            continue;
+            return RequiredContextIdsCache.Add(MappingState.Id, MoveTemp(Built));
         }
 
         const TSharedPtr<FJsonObject> FeedV2 = MappingState.Config->GetObjectField(TEXT("feedV2"));
@@ -3388,13 +3927,13 @@ void URshipContentMappingManager::CollectRequiredContextIdsForMappings(
                 {
                     if (RenderContexts.Contains(SourceContextId))
                     {
-                        OutRequiredContextIds.Add(SourceContextId);
+                        AddContextId(SourceContextId);
                         bFoundValidSourceContext = true;
                     }
                     else
                     {
                         bFeedHasUnboundSources = true;
-                        OutHasInvalidContextReference = true;
+                        Built.bHasInvalidContextReference = true;
                     }
                 }
                 else
@@ -3427,12 +3966,12 @@ void URshipContentMappingManager::CollectRequiredContextIdsForMappings(
                 {
                     if (RenderContexts.Contains(RouteSourceId))
                     {
-                        OutRequiredContextIds.Add(RouteSourceId);
+                        AddContextId(RouteSourceId);
                     }
                     else
                     {
                         bFeedHasUnboundSources = true;
-                        OutHasInvalidContextReference = true;
+                        Built.bHasInvalidContextReference = true;
                     }
                 }
             }
@@ -3445,8 +3984,28 @@ void URshipContentMappingManager::CollectRequiredContextIdsForMappings(
 
         if (bFeedHasUnboundSources)
         {
-            OutKeepAllContextsAlive = true;
+            Built.bKeepAllContextsAlive = true;
         }
+
+        return RequiredContextIdsCache.Add(MappingState.Id, MoveTemp(Built));
+    };
+
+    for (const TPair<FString, FRshipContentMappingState>& MappingPair : Mappings)
+    {
+        const FRshipContentMappingState& MappingState = MappingPair.Value;
+        if (!MappingState.bEnabled)
+        {
+            continue;
+        }
+
+        OutHasEnabledMappings = true;
+        const FMappingRequiredContexts& Required = GetOrBuildRequiredContexts(MappingState);
+        for (const FString& ContextId : Required.ContextIds)
+        {
+            OutRequiredContextIds.Add(ContextId);
+        }
+        OutKeepAllContextsAlive = OutKeepAllContextsAlive || Required.bKeepAllContextsAlive;
+        OutHasInvalidContextReference = OutHasInvalidContextReference || Required.bHasInvalidContextReference;
     }
 }
 
@@ -3454,30 +4013,67 @@ const FRshipRenderContextState* URshipContentMappingManager::ResolveEffectiveCon
     const FRshipContentMappingState& MappingState,
     bool bRequireTexture) const
 {
-    TArray<const FRshipRenderContextState*> CandidateContexts;
-    CandidateContexts.Reserve(RenderContexts.Num() + 1);
+    auto FindContextById = [this](const FString& ContextId) -> const FRshipRenderContextState*
+    {
+        return ContextId.IsEmpty() ? nullptr : RenderContexts.Find(ContextId);
+    };
 
     const FString MappingContextId = MappingState.ContextId.TrimStartAndEnd();
     if (!MappingContextId.IsEmpty())
     {
-        if (const FRshipRenderContextState* Preferred = RenderContexts.Find(MappingContextId))
+        if (const FRshipRenderContextState* Preferred = FindContextById(MappingContextId))
         {
-            CandidateContexts.Add(Preferred);
+            if (!bRequireTexture || Preferred->ResolvedTexture)
+            {
+                return Preferred;
+            }
         }
     }
 
+    if (bRequireTexture)
+    {
+        if (const FRshipRenderContextState* Preferred = FindContextById(CachedEnabledTextureContextId))
+        {
+            return Preferred;
+        }
+        if (const FRshipRenderContextState* Preferred = FindContextById(CachedAnyTextureContextId))
+        {
+            return Preferred;
+        }
+    }
+    else
+    {
+        if (const FRshipRenderContextState* Preferred = FindContextById(CachedEnabledTextureContextId))
+        {
+            return Preferred;
+        }
+        if (const FRshipRenderContextState* Preferred = FindContextById(CachedAnyTextureContextId))
+        {
+            return Preferred;
+        }
+        if (const FRshipRenderContextState* Preferred = FindContextById(CachedEnabledContextId))
+        {
+            return Preferred;
+        }
+        if (const FRshipRenderContextState* Preferred = FindContextById(CachedAnyContextId))
+        {
+            return Preferred;
+        }
+    }
+
+    // Safety fallback when called before refresh pass has built fallback ids.
     for (const TPair<FString, FRshipRenderContextState>& Pair : RenderContexts)
     {
         if (Pair.Value.bEnabled && Pair.Value.ResolvedTexture)
         {
-            CandidateContexts.Add(&Pair.Value);
+            return &Pair.Value;
         }
     }
     for (const TPair<FString, FRshipRenderContextState>& Pair : RenderContexts)
     {
         if (Pair.Value.ResolvedTexture)
         {
-            CandidateContexts.Add(&Pair.Value);
+            return &Pair.Value;
         }
     }
     if (!bRequireTexture)
@@ -3486,34 +4082,13 @@ const FRshipRenderContextState* URshipContentMappingManager::ResolveEffectiveCon
         {
             if (Pair.Value.bEnabled)
             {
-                CandidateContexts.Add(&Pair.Value);
+                return &Pair.Value;
             }
         }
         for (const TPair<FString, FRshipRenderContextState>& Pair : RenderContexts)
         {
-            CandidateContexts.Add(&Pair.Value);
+            return &Pair.Value;
         }
-    }
-
-    TSet<const FRshipRenderContextState*> Seen;
-    for (const FRshipRenderContextState* Candidate : CandidateContexts)
-    {
-        if (!Candidate || Seen.Contains(Candidate))
-        {
-            continue;
-        }
-        Seen.Add(Candidate);
-
-        if (bRequireTexture)
-        {
-            if (Candidate->ResolvedTexture)
-            {
-                return Candidate;
-            }
-            continue;
-        }
-
-        return Candidate;
     }
 
     return nullptr;
@@ -4065,6 +4640,7 @@ void URshipContentMappingManager::RemoveFeedCompositeTexturesForMapping(const FS
         if (Key.StartsWith(Prefix))
         {
             FeedCompositeTargets.Remove(Key);
+            FeedCompositeStaticSignatures.Remove(Key);
         }
     }
 }
@@ -4085,8 +4661,423 @@ void URshipContentMappingManager::RemoveFeedCompositeTexturesForSurface(const FS
         if (Key.Split(TEXT(":"), &Left, &Right, ESearchCase::CaseSensitive, ESearchDir::FromEnd) && Right == SurfaceId)
         {
             FeedCompositeTargets.Remove(Key);
+            FeedCompositeStaticSignatures.Remove(Key);
         }
     }
+}
+
+bool URshipContentMappingManager::TryResolveFeedSingleRtBinding(
+    const FRshipContentMappingState& MappingState,
+    const FRshipMappingSurfaceState& SurfaceState,
+    FFeedSingleRtBinding& OutBinding)
+{
+    OutBinding = FFeedSingleRtBinding();
+
+    if (!IsFeedV2Mapping(MappingState)
+        || !MappingState.Config.IsValid()
+        || !MappingState.Config->HasTypedField<EJson::Object>(TEXT("feedV2")))
+    {
+        return false;
+    }
+
+    const TSharedPtr<FJsonObject> FeedV2 = MappingState.Config->GetObjectField(TEXT("feedV2"));
+    if (!FeedV2.IsValid())
+    {
+        return false;
+    }
+
+    const FString CacheKey = MakeFeedCompositeKey(MappingState.Id, SurfaceState.Id);
+    FFeedSingleRtPreparedRoute* PreparedRoute = FeedSingleRtBindingCache.Find(CacheKey);
+    if (!PreparedRoute)
+    {
+        FFeedSingleRtPreparedRoute NewPreparedRoute;
+        NewPreparedRoute.bPrepared = true;
+
+        const FString CoordinateSpace = GetStringField(FeedV2, TEXT("coordinateSpace"), TEXT("pixel")).TrimStartAndEnd().ToLower();
+        if (!CoordinateSpace.IsEmpty() && CoordinateSpace != TEXT("pixel"))
+        {
+            NewPreparedRoute.Error = FString::Printf(
+                TEXT("feedV2 coordinateSpace '%s' is not supported (expected 'pixel')"),
+                *CoordinateSpace);
+            PreparedRoute = &FeedSingleRtBindingCache.Add(CacheKey, MoveTemp(NewPreparedRoute));
+        }
+        else
+        {
+            TMap<FString, FString> SourceContextById;
+            TMap<FString, FIntPoint> SourceDimensionsById;
+            FString FirstSourceId;
+
+            if (FeedV2->HasTypedField<EJson::Array>(TEXT("sources")))
+            {
+                const TArray<TSharedPtr<FJsonValue>> SourceArray = FeedV2->GetArrayField(TEXT("sources"));
+                for (const TSharedPtr<FJsonValue>& Value : SourceArray)
+                {
+                    if (!Value.IsValid() || Value->Type != EJson::Object)
+                    {
+                        continue;
+                    }
+                    const TSharedPtr<FJsonObject> SourceObj = Value->AsObject();
+                    if (!SourceObj.IsValid())
+                    {
+                        continue;
+                    }
+
+                    const FString SourceId = GetStringField(SourceObj, TEXT("id")).TrimStartAndEnd();
+                    if (SourceId.IsEmpty())
+                    {
+                        continue;
+                    }
+                    if (FirstSourceId.IsEmpty())
+                    {
+                        FirstSourceId = SourceId;
+                    }
+
+                    SourceContextById.Add(SourceId, GetStringField(SourceObj, TEXT("contextId")).TrimStartAndEnd());
+                    const int32 Width = FMath::Max(0, GetIntField(SourceObj, TEXT("width"), 0));
+                    const int32 Height = FMath::Max(0, GetIntField(SourceObj, TEXT("height"), 0));
+                    SourceDimensionsById.Add(SourceId, FIntPoint(Width, Height));
+                }
+            }
+
+            struct FDestinationSpec
+            {
+                FString Id;
+                FString SurfaceId;
+                int32 Width = 0;
+                int32 Height = 0;
+            };
+
+            TArray<FDestinationSpec> DestinationSpecs;
+            if (FeedV2->HasTypedField<EJson::Array>(TEXT("destinations")))
+            {
+                const TArray<TSharedPtr<FJsonValue>> DestinationArray = FeedV2->GetArrayField(TEXT("destinations"));
+                for (const TSharedPtr<FJsonValue>& Value : DestinationArray)
+                {
+                    if (!Value.IsValid() || Value->Type != EJson::Object)
+                    {
+                        continue;
+                    }
+                    const TSharedPtr<FJsonObject> DestinationObj = Value->AsObject();
+                    if (!DestinationObj.IsValid())
+                    {
+                        continue;
+                    }
+
+                    FDestinationSpec Destination;
+                    Destination.Id = GetStringField(DestinationObj, TEXT("id")).TrimStartAndEnd();
+                    Destination.SurfaceId = GetStringField(DestinationObj, TEXT("surfaceId")).TrimStartAndEnd();
+                    Destination.Width = FMath::Max(0, GetIntField(DestinationObj, TEXT("width"), 0));
+                    Destination.Height = FMath::Max(0, GetIntField(DestinationObj, TEXT("height"), 0));
+
+                    if (Destination.Id.IsEmpty() && !Destination.SurfaceId.IsEmpty())
+                    {
+                        Destination.Id = Destination.SurfaceId;
+                    }
+                    if (Destination.SurfaceId.IsEmpty() && !Destination.Id.IsEmpty())
+                    {
+                        Destination.SurfaceId = Destination.Id;
+                    }
+                    if (!Destination.Id.IsEmpty())
+                    {
+                        DestinationSpecs.Add(Destination);
+                    }
+                }
+            }
+
+            if (DestinationSpecs.Num() == 0)
+            {
+                FDestinationSpec Synthetic;
+                Synthetic.Id = SurfaceState.Id;
+                Synthetic.SurfaceId = SurfaceState.Id;
+                DestinationSpecs.Add(Synthetic);
+            }
+
+            TArray<FDestinationSpec> MatchingDestinations;
+            for (const FDestinationSpec& Destination : DestinationSpecs)
+            {
+                if (Destination.SurfaceId == SurfaceState.Id || Destination.Id == SurfaceState.Id)
+                {
+                    MatchingDestinations.Add(Destination);
+                }
+            }
+            if (MatchingDestinations.Num() == 0 && DestinationSpecs.Num() == 1)
+            {
+                MatchingDestinations.Add(DestinationSpecs[0]);
+            }
+            if (MatchingDestinations.Num() == 0)
+            {
+                FDestinationSpec Synthetic;
+                Synthetic.Id = SurfaceState.Id;
+                Synthetic.SurfaceId = SurfaceState.Id;
+                MatchingDestinations.Add(Synthetic);
+            }
+
+            TSharedPtr<FJsonObject> SelectedRoute;
+            FString SelectedSourceId;
+            FDestinationSpec SelectedDestination = MatchingDestinations[0];
+
+            if (FeedV2->HasTypedField<EJson::Array>(TEXT("routes")))
+            {
+                const TArray<TSharedPtr<FJsonValue>> RouteArray = FeedV2->GetArrayField(TEXT("routes"));
+                for (const TSharedPtr<FJsonValue>& Value : RouteArray)
+                {
+                    if (!Value.IsValid() || Value->Type != EJson::Object)
+                    {
+                        continue;
+                    }
+                    const TSharedPtr<FJsonObject> RouteObj = Value->AsObject();
+                    if (!RouteObj.IsValid() || !GetBoolField(RouteObj, TEXT("enabled"), true))
+                    {
+                        continue;
+                    }
+
+                    FString RouteDestinationId = GetStringField(RouteObj, TEXT("destinationId")).TrimStartAndEnd();
+                    if (RouteDestinationId.IsEmpty())
+                    {
+                        RouteDestinationId = GetStringField(RouteObj, TEXT("surfaceId")).TrimStartAndEnd();
+                    }
+                    if (RouteDestinationId.IsEmpty() && MatchingDestinations.Num() == 1)
+                    {
+                        RouteDestinationId = MatchingDestinations[0].Id;
+                    }
+
+                    const FDestinationSpec* MatchedDestination = nullptr;
+                    for (const FDestinationSpec& CandidateDestination : MatchingDestinations)
+                    {
+                        if (RouteDestinationId == CandidateDestination.Id || RouteDestinationId == CandidateDestination.SurfaceId)
+                        {
+                            MatchedDestination = &CandidateDestination;
+                            break;
+                        }
+                    }
+                    if (!MatchedDestination)
+                    {
+                        continue;
+                    }
+
+                    SelectedRoute = RouteObj;
+                    SelectedSourceId = GetStringField(RouteObj, TEXT("sourceId")).TrimStartAndEnd();
+                    SelectedDestination = *MatchedDestination;
+                    break;
+                }
+            }
+
+            if (SelectedSourceId.IsEmpty())
+            {
+                SelectedSourceId = FirstSourceId;
+            }
+
+            auto AddCandidate = [&NewPreparedRoute](const FString& Candidate)
+            {
+                const FString Trimmed = Candidate.TrimStartAndEnd();
+                if (!Trimmed.IsEmpty())
+                {
+                    NewPreparedRoute.ContextCandidates.AddUnique(Trimmed);
+                }
+            };
+
+            if (!SelectedSourceId.IsEmpty())
+            {
+                AddCandidate(SelectedSourceId);
+                if (const FString* ContextId = SourceContextById.Find(SelectedSourceId))
+                {
+                    AddCandidate(*ContextId);
+                }
+                if (const FIntPoint* SourceDim = SourceDimensionsById.Find(SelectedSourceId))
+                {
+                    NewPreparedRoute.SourceWidth = FMath::Max(0, SourceDim->X);
+                    NewPreparedRoute.SourceHeight = FMath::Max(0, SourceDim->Y);
+                }
+            }
+            AddCandidate(MappingState.ContextId);
+
+            NewPreparedRoute.DestinationWidth = FMath::Max(0, SelectedDestination.Width);
+            NewPreparedRoute.DestinationHeight = FMath::Max(0, SelectedDestination.Height);
+
+            const int32 DefaultSourceWidth = FMath::Max(1, NewPreparedRoute.SourceWidth > 0 ? NewPreparedRoute.SourceWidth : 1920);
+            const int32 DefaultSourceHeight = FMath::Max(1, NewPreparedRoute.SourceHeight > 0 ? NewPreparedRoute.SourceHeight : 1080);
+            const int32 DefaultDestinationWidth = FMath::Max(1, NewPreparedRoute.DestinationWidth > 0 ? NewPreparedRoute.DestinationWidth : DefaultSourceWidth);
+            const int32 DefaultDestinationHeight = FMath::Max(1, NewPreparedRoute.DestinationHeight > 0 ? NewPreparedRoute.DestinationHeight : DefaultSourceHeight);
+
+            NewPreparedRoute.SourceX = 0;
+            NewPreparedRoute.SourceY = 0;
+            NewPreparedRoute.SourceW = DefaultSourceWidth;
+            NewPreparedRoute.SourceH = DefaultSourceHeight;
+            NewPreparedRoute.DestinationX = 0;
+            NewPreparedRoute.DestinationY = 0;
+            NewPreparedRoute.DestinationW = DefaultDestinationWidth;
+            NewPreparedRoute.DestinationH = DefaultDestinationHeight;
+            NewPreparedRoute.bHasRoute = SelectedRoute.IsValid();
+
+            auto ParseRectPx = [this](const TSharedPtr<FJsonObject>& RectObj, int32& OutX, int32& OutY, int32& OutW, int32& OutH) -> bool
+            {
+                if (!RectObj.IsValid())
+                {
+                    return false;
+                }
+                OutX = GetIntField(RectObj, TEXT("x"), GetIntField(RectObj, TEXT("u"), OutX));
+                OutY = GetIntField(RectObj, TEXT("y"), GetIntField(RectObj, TEXT("v"), OutY));
+                OutW = GetIntField(RectObj, TEXT("w"), GetIntField(RectObj, TEXT("width"), OutW));
+                OutH = GetIntField(RectObj, TEXT("h"), GetIntField(RectObj, TEXT("height"), OutH));
+                return true;
+            };
+
+            if (SelectedRoute.IsValid())
+            {
+                TSharedPtr<FJsonObject> SourceRectObj;
+                if (SelectedRoute->HasTypedField<EJson::Object>(TEXT("sourceRect")))
+                {
+                    SourceRectObj = SelectedRoute->GetObjectField(TEXT("sourceRect"));
+                }
+                else if (SelectedRoute->HasTypedField<EJson::Object>(TEXT("srcRect")))
+                {
+                    SourceRectObj = SelectedRoute->GetObjectField(TEXT("srcRect"));
+                }
+                if (!ParseRectPx(SourceRectObj, NewPreparedRoute.SourceX, NewPreparedRoute.SourceY, NewPreparedRoute.SourceW, NewPreparedRoute.SourceH))
+                {
+                    NewPreparedRoute.SourceX = GetIntField(SelectedRoute, TEXT("sourceX"), GetIntField(SelectedRoute, TEXT("srcX"), NewPreparedRoute.SourceX));
+                    NewPreparedRoute.SourceY = GetIntField(SelectedRoute, TEXT("sourceY"), GetIntField(SelectedRoute, TEXT("srcY"), NewPreparedRoute.SourceY));
+                    NewPreparedRoute.SourceW = GetIntField(SelectedRoute, TEXT("sourceW"), GetIntField(SelectedRoute, TEXT("srcW"), NewPreparedRoute.SourceW));
+                    NewPreparedRoute.SourceH = GetIntField(SelectedRoute, TEXT("sourceH"), GetIntField(SelectedRoute, TEXT("srcH"), NewPreparedRoute.SourceH));
+                }
+
+                TSharedPtr<FJsonObject> DestinationRectObj;
+                if (SelectedRoute->HasTypedField<EJson::Object>(TEXT("destinationRect")))
+                {
+                    DestinationRectObj = SelectedRoute->GetObjectField(TEXT("destinationRect"));
+                }
+                else if (SelectedRoute->HasTypedField<EJson::Object>(TEXT("dstRect")))
+                {
+                    DestinationRectObj = SelectedRoute->GetObjectField(TEXT("dstRect"));
+                }
+                if (!ParseRectPx(DestinationRectObj, NewPreparedRoute.DestinationX, NewPreparedRoute.DestinationY, NewPreparedRoute.DestinationW, NewPreparedRoute.DestinationH))
+                {
+                    NewPreparedRoute.DestinationX = GetIntField(SelectedRoute, TEXT("destinationX"), GetIntField(SelectedRoute, TEXT("dstX"), NewPreparedRoute.DestinationX));
+                    NewPreparedRoute.DestinationY = GetIntField(SelectedRoute, TEXT("destinationY"), GetIntField(SelectedRoute, TEXT("dstY"), NewPreparedRoute.DestinationY));
+                    NewPreparedRoute.DestinationW = GetIntField(SelectedRoute, TEXT("destinationW"), GetIntField(SelectedRoute, TEXT("dstW"), NewPreparedRoute.DestinationW));
+                    NewPreparedRoute.DestinationH = GetIntField(SelectedRoute, TEXT("destinationH"), GetIntField(SelectedRoute, TEXT("dstH"), NewPreparedRoute.DestinationH));
+                }
+            }
+
+            PreparedRoute = &FeedSingleRtBindingCache.Add(CacheKey, MoveTemp(NewPreparedRoute));
+        }
+    }
+
+    if (!PreparedRoute)
+    {
+        return false;
+    }
+
+    if (!PreparedRoute->Error.IsEmpty())
+    {
+        OutBinding.Error = PreparedRoute->Error;
+        return false;
+    }
+
+    auto ResolveContextByCandidates = [this, PreparedRoute]() -> const FRshipRenderContextState*
+    {
+        auto FindContextById = [this](const FString& ContextId) -> const FRshipRenderContextState*
+        {
+            return ContextId.IsEmpty() ? nullptr : RenderContexts.Find(ContextId);
+        };
+
+        for (const FString& CandidateId : PreparedRoute->ContextCandidates)
+        {
+            if (const FRshipRenderContextState* CandidateContext = FindContextById(CandidateId))
+            {
+                if (CandidateContext->ResolvedTexture)
+                {
+                    return CandidateContext;
+                }
+            }
+        }
+        for (const FString& CandidateId : PreparedRoute->ContextCandidates)
+        {
+            if (const FRshipRenderContextState* CandidateContext = FindContextById(CandidateId))
+            {
+                return CandidateContext;
+            }
+        }
+        if (const FRshipRenderContextState* CandidateContext = FindContextById(CachedEnabledTextureContextId))
+        {
+            return CandidateContext;
+        }
+        if (const FRshipRenderContextState* CandidateContext = FindContextById(CachedAnyTextureContextId))
+        {
+            return CandidateContext;
+        }
+        if (const FRshipRenderContextState* CandidateContext = FindContextById(CachedEnabledContextId))
+        {
+            return CandidateContext;
+        }
+        if (const FRshipRenderContextState* CandidateContext = FindContextById(CachedAnyContextId))
+        {
+            return CandidateContext;
+        }
+        return nullptr;
+    };
+
+    const FRshipRenderContextState* SourceContext = ResolveContextByCandidates();
+    if (!SourceContext || !SourceContext->ResolvedTexture)
+    {
+        OutBinding.Error = TEXT("No source texture available for feed route");
+        return false;
+    }
+
+    const int32 TextureWidth = FMath::Max(1, SourceContext->ResolvedTexture->GetSurfaceWidth());
+    const int32 TextureHeight = FMath::Max(1, SourceContext->ResolvedTexture->GetSurfaceHeight());
+
+    const int32 SourceWidth = FMath::Max(
+        1,
+        PreparedRoute->SourceWidth > 0
+            ? PreparedRoute->SourceWidth
+            : (SourceContext->Width > 0 ? SourceContext->Width : TextureWidth));
+    const int32 SourceHeight = FMath::Max(
+        1,
+        PreparedRoute->SourceHeight > 0
+            ? PreparedRoute->SourceHeight
+            : (SourceContext->Height > 0 ? SourceContext->Height : TextureHeight));
+
+    const int32 DestinationWidth = FMath::Max(
+        1,
+        PreparedRoute->DestinationWidth > 0 ? PreparedRoute->DestinationWidth : SourceWidth);
+    const int32 DestinationHeight = FMath::Max(
+        1,
+        PreparedRoute->DestinationHeight > 0 ? PreparedRoute->DestinationHeight : SourceHeight);
+
+    int32 SourceX = PreparedRoute->bHasRoute ? PreparedRoute->SourceX : 0;
+    int32 SourceY = PreparedRoute->bHasRoute ? PreparedRoute->SourceY : 0;
+    int32 SourceW = PreparedRoute->bHasRoute ? PreparedRoute->SourceW : SourceWidth;
+    int32 SourceH = PreparedRoute->bHasRoute ? PreparedRoute->SourceH : SourceHeight;
+    int32 DestinationX = PreparedRoute->bHasRoute ? PreparedRoute->DestinationX : 0;
+    int32 DestinationY = PreparedRoute->bHasRoute ? PreparedRoute->DestinationY : 0;
+    int32 DestinationW = PreparedRoute->bHasRoute ? PreparedRoute->DestinationW : DestinationWidth;
+    int32 DestinationH = PreparedRoute->bHasRoute ? PreparedRoute->DestinationH : DestinationHeight;
+
+    SourceX = FMath::Clamp(SourceX, 0, SourceWidth - 1);
+    SourceY = FMath::Clamp(SourceY, 0, SourceHeight - 1);
+    SourceW = FMath::Clamp(SourceW, 1, SourceWidth - SourceX);
+    SourceH = FMath::Clamp(SourceH, 1, SourceHeight - SourceY);
+
+    DestinationX = FMath::Clamp(DestinationX, 0, DestinationWidth - 1);
+    DestinationY = FMath::Clamp(DestinationY, 0, DestinationHeight - 1);
+    DestinationW = FMath::Clamp(DestinationW, 1, DestinationWidth - DestinationX);
+    DestinationH = FMath::Clamp(DestinationH, 1, DestinationHeight - DestinationY);
+
+    OutBinding.bValid = true;
+    OutBinding.Texture = SourceContext->ResolvedTexture;
+    OutBinding.DepthTexture = SourceContext->ResolvedDepthTexture;
+    OutBinding.bHasSourceRect = true;
+    OutBinding.SourceU = static_cast<float>(SourceX) / static_cast<float>(SourceWidth);
+    OutBinding.SourceV = static_cast<float>(SourceY) / static_cast<float>(SourceHeight);
+    OutBinding.SourceW = static_cast<float>(SourceW) / static_cast<float>(SourceWidth);
+    OutBinding.SourceH = static_cast<float>(SourceH) / static_cast<float>(SourceHeight);
+    OutBinding.bHasDestinationRect = true;
+    OutBinding.DestinationU = static_cast<float>(DestinationX) / static_cast<float>(DestinationWidth);
+    OutBinding.DestinationV = static_cast<float>(DestinationY) / static_cast<float>(DestinationHeight);
+    OutBinding.DestinationW = static_cast<float>(DestinationW) / static_cast<float>(DestinationWidth);
+    OutBinding.DestinationH = static_cast<float>(DestinationH) / static_cast<float>(DestinationHeight);
+    return true;
 }
 
 UTexture* URshipContentMappingManager::BuildFeedCompositeTextureForSurface(
@@ -4569,8 +5560,6 @@ UTexture* URshipContentMappingManager::BuildFeedCompositeTextureForSurface(
         return CompositeRT;
     }
 
-    UKismetRenderingLibrary::ClearRenderTarget2D(World, CompositeRT, FLinearColor::Black);
-
     auto ResolveContextForRoute = [this, &MappingState](const FFeedSourceSpec* SourceSpec, const FString& RouteSourceId) -> const FRshipRenderContextState*
     {
         TArray<FString> Candidates;
@@ -4626,6 +5615,111 @@ UTexture* URshipContentMappingManager::BuildFeedCompositeTextureForSurface(
         }
         return nullptr;
     };
+
+    auto IsDynamicRouteSource = [](const FRshipRenderContextState* SourceContext, const UTexture* SourceTexture) -> bool
+    {
+        if (!SourceContext || !SourceTexture)
+        {
+            return false;
+        }
+        if (SourceTexture->IsA<UTextureRenderTarget2D>())
+        {
+            return true;
+        }
+        return !SourceContext->SourceType.Equals(TEXT("asset"), ESearchCase::IgnoreCase);
+    };
+
+    uint32 CompositeSignature = HashCombineFast(GetTypeHash(DestinationWidth), GetTypeHash(DestinationHeight));
+    CompositeSignature = HashCombineFast(CompositeSignature, GetTypeHash(MappingState.Id));
+    CompositeSignature = HashCombineFast(CompositeSignature, GetTypeHash(SurfaceState.Id));
+    CompositeSignature = HashCombineFast(CompositeSignature, GetTypeHash(static_cast<uint32>(RuntimeStateRevision)));
+    CompositeSignature = HashCombineFast(CompositeSignature, GetTypeHash(static_cast<uint32>(RuntimeStateRevision >> 32)));
+    bool bHasDynamicRouteSource = false;
+    int32 SignatureRouteCount = 0;
+
+    for (const FFeedRouteSpec& Route : Spec.Routes)
+    {
+        if (!Route.bEnabled)
+        {
+            continue;
+        }
+
+        FString RouteDestinationId = Route.DestinationId;
+        if (RouteDestinationId.IsEmpty() && bSingleDestination)
+        {
+            RouteDestinationId = DestinationSpec.Id;
+        }
+        if (RouteDestinationId != DestinationSpec.Id && RouteDestinationId != DestinationSpec.SurfaceId)
+        {
+            continue;
+        }
+
+        ++SignatureRouteCount;
+        uint32 RouteHash = HashCombineFast(GetTypeHash(Route.Id), GetTypeHash(Route.SourceId));
+        RouteHash = HashCombineFast(RouteHash, GetTypeHash(RouteDestinationId));
+        RouteHash = HashCombineFast(RouteHash, GetTypeHash(Route.Opacity));
+        RouteHash = HashCombineFast(RouteHash, HashFeedRouteRectPx(Route.SourceRect));
+        RouteHash = HashCombineFast(RouteHash, HashFeedRouteRectPx(Route.DestinationRect));
+
+        FString RouteSourceId = Route.SourceId;
+        if (RouteSourceId.IsEmpty() && Spec.Sources.Num() == 1)
+        {
+            for (const TPair<FString, FFeedSourceSpec>& Pair : Spec.Sources)
+            {
+                RouteSourceId = Pair.Key;
+                break;
+            }
+        }
+
+        const FFeedSourceSpec* SourceSpec = Spec.Sources.Find(RouteSourceId);
+        const FRshipRenderContextState* SourceContext = ResolveContextForRoute(SourceSpec, RouteSourceId);
+        if (SourceContext && SourceContext->ResolvedTexture)
+        {
+            RouteHash = HashCombineFast(RouteHash, PointerHash(SourceContext->ResolvedTexture));
+            if (IsDynamicRouteSource(SourceContext, SourceContext->ResolvedTexture))
+            {
+                bHasDynamicRouteSource = true;
+            }
+        }
+        else
+        {
+            RouteHash = HashCombineFast(RouteHash, 0xE3AF5A9Du);
+        }
+
+        CompositeSignature = HashCombineFast(CompositeSignature, RouteHash);
+    }
+
+    if (SignatureRouteCount == 0)
+    {
+        const FRshipRenderContextState* FallbackContextForSignature = nullptr;
+        if (!MappingState.ContextId.IsEmpty())
+        {
+            FallbackContextForSignature = RenderContexts.Find(MappingState.ContextId);
+        }
+        if ((!FallbackContextForSignature || !FallbackContextForSignature->ResolvedTexture))
+        {
+            for (const TPair<FString, FRshipRenderContextState>& Pair : RenderContexts)
+            {
+                if (Pair.Value.bEnabled && Pair.Value.ResolvedTexture)
+                {
+                    FallbackContextForSignature = &Pair.Value;
+                    break;
+                }
+            }
+        }
+        if (FallbackContextForSignature && FallbackContextForSignature->ResolvedTexture)
+        {
+            CompositeSignature = HashCombineFast(CompositeSignature, PointerHash(FallbackContextForSignature->ResolvedTexture));
+            if (IsDynamicRouteSource(FallbackContextForSignature, FallbackContextForSignature->ResolvedTexture))
+            {
+                bHasDynamicRouteSource = true;
+            }
+        }
+        else
+        {
+            CompositeSignature = HashCombineFast(CompositeSignature, 0x8AC69E17u);
+        }
+    }
 
     // Fast path: one full-frame opaque route can use the source texture directly.
     int32 MatchingEnabledRouteCount = 0;
@@ -4692,10 +5786,24 @@ UTexture* URshipContentMappingManager::BuildFeedCompositeTextureForSurface(
             const bool bDestinationFullFrame = (DstX == 0 && DstY == 0 && DstW == DestinationWidth && DstH == DestinationHeight);
             if (bSourceFullFrame && bDestinationFullFrame)
             {
+                FeedCompositeStaticSignatures.Remove(CompositeKey);
                 return SourceTexture;
             }
         }
     }
+
+    if (!bHasDynamicRouteSource)
+    {
+        if (const uint32* CachedSignature = FeedCompositeStaticSignatures.Find(CompositeKey))
+        {
+            if (*CachedSignature == CompositeSignature && !bNeedsNewRT)
+            {
+                return CompositeRT;
+            }
+        }
+    }
+
+    UKismetRenderingLibrary::ClearRenderTarget2D(World, CompositeRT, FLinearColor::Black);
 
     UCanvas* Canvas = nullptr;
     FVector2D CanvasSize(0.0f, 0.0f);
@@ -4725,9 +5833,18 @@ UTexture* URshipContentMappingManager::BuildFeedCompositeTextureForSurface(
         {
             UE_LOG(LogRshipExec, Warning, TEXT("Feed composite canvas unavailable map=%s surf=%s; bypassing to source texture"),
                 *MappingState.Id, *SurfaceState.Id);
+            FeedCompositeStaticSignatures.Remove(CompositeKey);
             return BypassContext->ResolvedTexture;
         }
         OutError = TEXT("Feed composite canvas unavailable");
+        if (!bHasDynamicRouteSource)
+        {
+            FeedCompositeStaticSignatures.Add(CompositeKey, CompositeSignature);
+        }
+        else
+        {
+            FeedCompositeStaticSignatures.Remove(CompositeKey);
+        }
         return CompositeRT;
     }
 
@@ -4880,6 +5997,15 @@ UTexture* URshipContentMappingManager::BuildFeedCompositeTextureForSurface(
         }
     }
 
+    if (!bHasDynamicRouteSource)
+    {
+        FeedCompositeStaticSignatures.Add(CompositeKey, CompositeSignature);
+    }
+    else
+    {
+        FeedCompositeStaticSignatures.Remove(CompositeKey);
+    }
+
     return CompositeRT;
 }
 
@@ -4970,7 +6096,7 @@ void URshipContentMappingManager::RebuildMappings()
                 : ContextState->LastError;
         }
 
-        const TArray<FString> EffectiveSurfaceIds = GatherEffectiveSurfaceIdsForMapping(MappingState);
+        const TArray<FString>& EffectiveSurfaceIds = GetEffectiveSurfaceIds(MappingState);
         if (EffectiveSurfaceIds.Num() == 0 && MappingState.LastError.IsEmpty())
         {
             MappingState.LastError = TEXT("No mapping surfaces assigned");
@@ -5027,6 +6153,7 @@ void URshipContentMappingManager::RestoreSurfaceMaterials(FRshipMappingSurfaceSt
     {
         SurfaceState.MaterialInstances.Empty();
         SurfaceState.OriginalMaterials.Empty();
+        SurfaceState.MaterialBindingHashes.Empty();
         SurfaceState.MeshComponent.Reset();
         return;
     }
@@ -5060,6 +6187,7 @@ void URshipContentMappingManager::RestoreSurfaceMaterials(FRshipMappingSurfaceSt
 
     SurfaceState.MaterialInstances.Empty();
     SurfaceState.OriginalMaterials.Empty();
+    SurfaceState.MaterialBindingHashes.Empty();
 }
 
 void URshipContentMappingManager::ApplyMappingToSurface(
@@ -5116,6 +6244,7 @@ void URshipContentMappingManager::ApplyMappingToSurface(
     if (bUseFeedV2)
     {
         FeedCompositeTexture = BuildFeedCompositeTextureForSurface(MappingState, SurfaceState, FeedCompositeError);
+
         if (!FeedCompositeError.IsEmpty())
         {
             SurfaceState.LastError = FeedCompositeError;
@@ -5136,6 +6265,33 @@ void URshipContentMappingManager::ApplyMappingToSurface(
         SlotCount,
         ContextState ? 1 : 0,
         bHasTexture ? 1 : 0);
+
+    uint32 BaseBindingHash = HashCombineFast(GetTypeHash(MappingState.Id), GetTypeHash(MappingState.Type));
+    BaseBindingHash = HashCombineFast(BaseBindingHash, GetTypeHash(MappingState.ContextId));
+    BaseBindingHash = HashCombineFast(BaseBindingHash, GetTypeHash(MappingState.Opacity));
+    BaseBindingHash = HashCombineFast(BaseBindingHash, GetTypeHash(MappingState.bEnabled));
+    BaseBindingHash = HashCombineFast(BaseBindingHash, GetTypeHash(SurfaceState.Id));
+    BaseBindingHash = HashCombineFast(BaseBindingHash, GetTypeHash(SurfaceState.UVChannel));
+    BaseBindingHash = HashCombineFast(BaseBindingHash, GetTypeHash(bUseFeedV2));
+    BaseBindingHash = HashCombineFast(BaseBindingHash, GetTypeHash(bCoveragePreviewEnabled));
+    BaseBindingHash = HashCombineFast(BaseBindingHash, GetTypeHash(static_cast<uint32>(RuntimeStateRevision)));
+    BaseBindingHash = HashCombineFast(BaseBindingHash, GetTypeHash(static_cast<uint32>(RuntimeStateRevision >> 32)));
+    if (MappingState.Config.IsValid())
+    {
+        BaseBindingHash = HashCombineFast(BaseBindingHash, PointerHash(MappingState.Config.Get()));
+    }
+    if (FeedCompositeTexture)
+    {
+        BaseBindingHash = HashCombineFast(BaseBindingHash, PointerHash(FeedCompositeTexture));
+    }
+    if (ContextState && ContextState->ResolvedTexture)
+    {
+        BaseBindingHash = HashCombineFast(BaseBindingHash, PointerHash(ContextState->ResolvedTexture));
+    }
+    if (ContextState && ContextState->ResolvedDepthTexture)
+    {
+        BaseBindingHash = HashCombineFast(BaseBindingHash, PointerHash(ContextState->ResolvedDepthTexture));
+    }
 
     for (int32 SlotIndex : SurfaceState.MaterialSlots)
     {
@@ -5163,11 +6319,21 @@ void URshipContentMappingManager::ApplyMappingToSurface(
             Mesh->SetMaterial(SlotIndex, MID);
         }
 
-        ApplyMaterialParameters(MID, MappingState, SurfaceState, ContextState, bUseFeedV2);
+        const uint32 SlotBindingHash = HashCombineFast(BaseBindingHash, GetTypeHash(SlotIndex));
+        if (const uint32* ExistingHash = SurfaceState.MaterialBindingHashes.Find(SlotIndex))
+        {
+            if (*ExistingHash == SlotBindingHash)
+            {
+                continue;
+            }
+        }
+
+        ApplyMaterialParameters(MID, MappingState, SurfaceState, ContextState, bUseFeedV2, nullptr);
         if (FeedCompositeTexture)
         {
             MID->SetTextureParameterValue(ParamContextTexture, FeedCompositeTexture);
         }
+        SurfaceState.MaterialBindingHashes.Add(SlotIndex, SlotBindingHash);
     }
 }
 
@@ -5176,7 +6342,8 @@ void URshipContentMappingManager::ApplyMaterialParameters(
     const FRshipContentMappingState& MappingState,
     const FRshipMappingSurfaceState& SurfaceState,
     const FRshipRenderContextState* ContextState,
-    bool bUseFeedV2)
+    bool bUseFeedV2,
+    const FFeedSingleRtBinding* FeedBinding)
 {
     if (!MID)
     {
@@ -5201,18 +6368,38 @@ void URshipContentMappingManager::ApplyMaterialParameters(
         MID->SetScalarParameterValue(ParamDebugCoverage, 0.0f);
     }
 
-    if (ContextState && ContextState->ResolvedTexture)
+    UTexture* ResolvedContextTexture = nullptr;
+    if (FeedBinding && FeedBinding->bValid && FeedBinding->Texture)
     {
-        MID->SetTextureParameterValue(ParamContextTexture, ContextState->ResolvedTexture);
+        ResolvedContextTexture = FeedBinding->Texture;
+    }
+    else if (ContextState && ContextState->ResolvedTexture)
+    {
+        ResolvedContextTexture = ContextState->ResolvedTexture;
+    }
+
+    if (ResolvedContextTexture)
+    {
+        MID->SetTextureParameterValue(ParamContextTexture, ResolvedContextTexture);
     }
     else
     {
         MID->SetTextureParameterValue(ParamContextTexture, GetDefaultPreviewTexture());
     }
 
-    if (ContextState && ContextState->ResolvedDepthTexture)
+    UTexture* ResolvedDepthTexture = nullptr;
+    if (FeedBinding && FeedBinding->bValid && FeedBinding->DepthTexture)
     {
-        MID->SetTextureParameterValue(ParamContextDepthTexture, ContextState->ResolvedDepthTexture);
+        ResolvedDepthTexture = FeedBinding->DepthTexture;
+    }
+    else if (ContextState && ContextState->ResolvedDepthTexture)
+    {
+        ResolvedDepthTexture = ContextState->ResolvedDepthTexture;
+    }
+
+    if (ResolvedDepthTexture)
+    {
+        MID->SetTextureParameterValue(ParamContextDepthTexture, ResolvedDepthTexture);
     }
     else
     {
@@ -5362,6 +6549,33 @@ void URshipContentMappingManager::ApplyMaterialParameters(
             }
         }
 
+        if (FeedBinding && FeedBinding->bValid && FeedBinding->bHasSourceRect)
+        {
+            FeedU = FeedBinding->SourceU;
+            FeedV = FeedBinding->SourceV;
+            FeedW = FeedBinding->SourceW;
+            FeedH = FeedBinding->SourceH;
+            bFoundFeedRect = true;
+
+            if (FeedBinding->bHasDestinationRect)
+            {
+                const float SafeDestW = FMath::Max(0.0001f, FeedBinding->DestinationW);
+                const float SafeDestH = FMath::Max(0.0001f, FeedBinding->DestinationH);
+                ScaleU = FeedW / SafeDestW;
+                ScaleV = FeedH / SafeDestH;
+                OffsetU = FeedU - (FeedBinding->DestinationU * ScaleU);
+                OffsetV = FeedV - (FeedBinding->DestinationV * ScaleV);
+                Rotation = 0.0f;
+                PivotU = 0.5f;
+                PivotV = 0.5f;
+                bFeedMode = false;
+            }
+            else
+            {
+                bFeedMode = true;
+            }
+        }
+
         if (bFeedMode)
         {
             const float SafeW = FMath::Max(0.0001f, FeedW);
@@ -5440,6 +6654,22 @@ void URshipContentMappingManager::ApplyMaterialParameters(
             }
             Near = GetNumberField(MappingState.Config, TEXT("near"), Near);
             Far = GetNumberField(MappingState.Config, TEXT("far"), Far);
+        }
+        ProjectionType = NormalizeProjectionModeToken(ProjectionType, TEXT("perspective"));
+
+        FVector ProjectionEyepoint = Position;
+        bool bHasProjectionEyepoint = false;
+        if (MappingState.Config.IsValid()
+            && MappingState.Config->HasTypedField<EJson::Object>(TEXT("eyepoint")))
+        {
+            const TSharedPtr<FJsonObject> EpObj = MappingState.Config->GetObjectField(TEXT("eyepoint"));
+            ProjectionEyepoint.X = GetNumberField(EpObj, TEXT("x"), Position.X);
+            ProjectionEyepoint.Y = GetNumberField(EpObj, TEXT("y"), Position.Y);
+            ProjectionEyepoint.Z = GetNumberField(EpObj, TEXT("z"), Position.Z);
+            bHasProjectionEyepoint = true;
+
+            // All projection modes may define a dedicated eyepoint origin.
+            Position = ProjectionEyepoint;
         }
 
         bool bHasCustomProjectionMatrix = false;
@@ -5747,15 +6977,8 @@ void URshipContentMappingManager::ApplyMaterialParameters(
         // Mesh-specific params
         if (ProjectionTypeIndex == 6.0f)
         {
-            FVector Eyepoint = Position;
-            if (MappingState.Config.IsValid() && MappingState.Config->HasTypedField<EJson::Object>(TEXT("eyepoint")))
-            {
-                TSharedPtr<FJsonObject> EpObj = MappingState.Config->GetObjectField(TEXT("eyepoint"));
-                Eyepoint.X = GetNumberField(EpObj, TEXT("x"), Position.X);
-                Eyepoint.Y = GetNumberField(EpObj, TEXT("y"), Position.Y);
-                Eyepoint.Z = GetNumberField(EpObj, TEXT("z"), Position.Z);
-            }
-            MID->SetVectorParameterValue(ParamMeshEyepoint, FLinearColor(Eyepoint.X, Eyepoint.Y, Eyepoint.Z, 0.0f));
+            const FVector EffectiveEyepoint = bHasProjectionEyepoint ? ProjectionEyepoint : Position;
+            MID->SetVectorParameterValue(ParamMeshEyepoint, FLinearColor(EffectiveEyepoint.X, EffectiveEyepoint.Y, EffectiveEyepoint.Z, 0.0f));
         }
 
         // Fisheye-specific params
@@ -7220,7 +8443,13 @@ if (MappingMode > 0.5f)
     const float invW = (abs(clip.w) > 0.0001f) ? (1.0f / clip.w) : 0.0f;
     uv = (clip.xy * invW * 0.5f) + 0.5f;
 
-    if (ProjectionType > 0.5f && ProjectionType < 1.5f)
+    // Perspective mode in this pipeline is equirectangular from projector position.
+    if (ProjectionType < 0.5f)
+    {
+        const float3 dir = normalize(WorldPos.xyz - SpatialParams1.xyz);
+        uv = float2((atan2(dir.y, dir.x) / (2.0f * PI)) + 0.5f, acos(clamp(dir.z, -1.0f, 1.0f)) / PI);
+    }
+    else if (ProjectionType > 0.5f && ProjectionType < 1.5f)
     {
         float3 axis = CylinderParams.xyz;
         axis = (dot(axis, axis) > 0.0001f) ? normalize(axis) : float3(0.0f, 0.0f, 1.0f);
@@ -7252,8 +8481,12 @@ if (MappingMode > 0.5f)
     }
     else if (ProjectionType > 5.5f && ProjectionType < 6.5f)
     {
-        const float3 eyeDir = normalize(WorldPos.xyz - MeshEyepoint.xyz);
-        uv = (eyeDir.xy * 0.5f) + 0.5f;
+        // Mesh mode uses eyepoint-driven clip projection (rays from eyepoint through mesh surface).
+        // Keep mesh UVs as a deterministic fallback for degenerate clip space.
+        if (abs(clip.w) <= 0.0001f)
+        {
+            uv = TexCoord0;
+        }
     }
     else if (ProjectionType > 6.5f && ProjectionType < 7.5f)
     {
