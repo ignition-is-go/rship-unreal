@@ -4,14 +4,14 @@ Unreal Engine integration for [Rocketship](https://rocketship.io) - a reactive c
 
 ## Plugins
 
-| Plugin | Description | Status |
-|--------|-------------|--------|
-| [RshipExec](Plugins/RshipExec/README.md) | Core executor - WebSocket, targets, emitters, actions, fixtures, bindings | Stable |
-| [RshipNDI](Plugins/RshipNDI/README.md) | NDI video streaming for CineCamera output | Stable |
-| [Rship2110](Plugins/Rship2110/README.md) | SMPTE ST 2110 / PTP professional broadcast streaming | Beta |
-| [RshipColorManagement](Plugins/RshipColorManagement/README.md) | Broadcast-grade color pipeline management | Beta |
-| [RshipSpatialAudio](Plugins/RshipSpatialAudio/README.md) | Multi-channel spatial audio with VBAP/DBAP/HOA | Beta |
-| [UltimateControl](Plugins/UltimateControl/README.md) | AI control - 350+ tools for Claude/LLM integration | Stable |
+| Plugin                                                         | Description                                                               | Status |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------- | ------ |
+| [RshipExec](Plugins/RshipExec/README.md)                       | Core executor - WebSocket, targets, emitters, actions, fixtures, bindings | Stable |
+| [RshipNDI](Plugins/RshipNDI/README.md)                         | NDI video streaming for CineCamera output                                 | Stable |
+| [Rship2110](Plugins/Rship2110/README.md)                       | SMPTE ST 2110 / PTP professional broadcast streaming                      | Beta   |
+| [RshipColorManagement](Plugins/RshipColorManagement/README.md) | Broadcast-grade color pipeline management                                 | Beta   |
+| [RshipSpatialAudio](Plugins/RshipSpatialAudio/README.md)       | Multi-channel spatial audio with VBAP/DBAP/HOA                            | Beta   |
+| [UltimateControl](Plugins/UltimateControl/README.md)           | AI control - 350+ tools for Claude/LLM integration                        | Stable |
 
 ## Quick Start
 
@@ -24,9 +24,7 @@ Copy the `Plugins/` folder to your UE project, or copy individual plugins you ne
 ```json
 // YourProject.uproject
 {
-  "Plugins": [
-    { "Name": "RshipExec", "Enabled": true }
-  ]
+	"Plugins": [{ "Name": "RshipExec", "Enabled": true }]
 }
 ```
 
@@ -42,9 +40,9 @@ Enter your rship server address and port, then click **Reconnect**. The status i
 
 ![Rocketship connection panel](docs/screenshots/connection-panel.png)
 
-### 5. Add the Target Component
+### 5. Add the Actor Registration Component
 
-Create or open a Blueprint Actor. In the Components panel, click **Add** and search for "rship" to find all available components. Add an **RshipTarget** component - this turns your Blueprint into an rship target that can be controlled remotely.
+Create or open a Blueprint Actor. In the Components panel, click **Add** and search for "rship" to find all available components. Add an **Rship Actor Registration** component - this turns your Blueprint into an rship target that can be controlled remotely.
 
 ![Adding Rship components](docs/screenshots/add-rship-components.png)
 
@@ -70,7 +68,7 @@ Implement your action logic in the Blueprint graph.
 
 If you need custom logic when an `RS_` variable is set from rship, use the **On Rship Data** event. This is only necessary if the variable isn't already driving behavior elsewhere in your Blueprint.
 
-Select the RshipTarget component in the Blueprint editor outliner to find these events in the Details panel:
+Select the Rship Actor Registration component in the Blueprint editor outliner to find these events in the Details panel:
 
 ![RshipTarget component events](docs/screenshots/rship-target-events.png)
 
@@ -84,17 +82,18 @@ See the [Getting Started Guide](docs/GETTING_STARTED.md) for detailed setup.
 
 ## Documentation
 
-| Document | Description |
-|----------|-------------|
-| [Getting Started](docs/GETTING_STARTED.md) | New user onboarding guide |
-| [Upgrade Guide](docs/UPGRADE_GUIDE.md) | Full feature reference |
-| [Rate Limiting](docs/README_RATE_LIMITING.md) | Message throttling configuration |
-| [Spatial Audio Architecture](docs/SPATIAL_AUDIO_ARCHITECTURE.md) | Spatial audio system design |
-| [Windows Build Environment](docs/WINDOWS_BUILD_ENVIRONMENT.md) | Windows build setup |
+| Document                                                         | Description                      |
+| ---------------------------------------------------------------- | -------------------------------- |
+| [Getting Started](docs/GETTING_STARTED.md)                       | New user onboarding guide        |
+| [Upgrade Guide](docs/UPGRADE_GUIDE.md)                           | Full feature reference           |
+| [Rate Limiting](docs/README_RATE_LIMITING.md)                    | Message throttling configuration |
+| [Spatial Audio Architecture](docs/SPATIAL_AUDIO_ARCHITECTURE.md) | Spatial audio system design      |
+| [Windows Build Environment](docs/WINDOWS_BUILD_ENVIRONMENT.md)   | Windows build setup              |
 
 ## Features
 
 ### RshipExec (Core)
+
 - **Target System** - Expose actors with `RS_` prefix convention
 - **Fixture Control** - DMX output, GDTF/MVR import, IES profiles, beam visualization
 - **Material Bindings** - Material parameters, Substrate materials, Niagara systems
@@ -107,14 +106,17 @@ See the [Getting Started Guide](docs/GETTING_STARTED.md) for detailed setup.
 - **Recording** - Record and playback sessions
 
 ### Video Streaming
+
 - **NDI** - Stream CineCamera views to NDI receivers
 - **ST 2110** - Professional uncompressed video over IP (requires Rivermax)
 
 ### Audio
+
 - **Spatial Audio** - 256+ speaker support, VBAP/DBAP/HOA rendering
 - **External Processors** - d&b DS100 integration via OSC
 
 ### AI Control
+
 - **UltimateControl** - 350+ methods for Claude/LLM control of the editor
 
 ## Requirements
