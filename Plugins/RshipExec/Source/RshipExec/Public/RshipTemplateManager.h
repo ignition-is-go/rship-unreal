@@ -8,7 +8,7 @@
 
 // Forward declarations
 class URshipSubsystem;
-class URshipTargetComponent;
+class URshipActorRegistrationComponent;
 
 /**
  * A template for target configuration that can be applied to new or existing targets
@@ -78,7 +78,7 @@ struct RSHIPEXEC_API FRshipTargetTemplate
 /**
  * Delegate for template events
  */
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnRshipTemplateApplied, const FString&, TemplateId, URshipTargetComponent*, Target);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnRshipTemplateApplied, const FString&, TemplateId, URshipActorRegistrationComponent*, Target);
 
 /**
  * Manages target configuration templates.
@@ -108,11 +108,11 @@ public:
 
 	/** Create a template from an existing target's configuration */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Templates")
-	FRshipTargetTemplate CreateTemplateFromTarget(const FString& Name, URshipTargetComponent* SourceTarget);
+	FRshipTargetTemplate CreateTemplateFromTarget(const FString& Name, URshipActorRegistrationComponent* SourceTarget);
 
 	/** Create a template from multiple targets (merges common tags/groups) */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Templates")
-	FRshipTargetTemplate CreateTemplateFromTargets(const FString& Name, const TArray<URshipTargetComponent*>& SourceTargets);
+	FRshipTargetTemplate CreateTemplateFromTargets(const FString& Name, const TArray<URshipActorRegistrationComponent*>& SourceTargets);
 
 	// ========================================================================
 	// TEMPLATE APPLICATION
@@ -120,15 +120,15 @@ public:
 
 	/** Apply a template to a single target */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Templates")
-	void ApplyTemplate(const FRshipTargetTemplate& Template, URshipTargetComponent* Target, bool bMergeTags = true);
+	void ApplyTemplate(const FRshipTargetTemplate& Template, URshipActorRegistrationComponent* Target, bool bMergeTags = true);
 
 	/** Apply a template to multiple targets */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Templates")
-	int32 ApplyTemplateToTargets(const FRshipTargetTemplate& Template, const TArray<URshipTargetComponent*>& Targets, bool bMergeTags = true);
+	int32 ApplyTemplateToTargets(const FRshipTargetTemplate& Template, const TArray<URshipActorRegistrationComponent*>& Targets, bool bMergeTags = true);
 
 	/** Apply a template by ID to a target */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Templates")
-	void ApplyTemplateById(const FString& TemplateId, URshipTargetComponent* Target, bool bMergeTags = true);
+	void ApplyTemplateById(const FString& TemplateId, URshipActorRegistrationComponent* Target, bool bMergeTags = true);
 
 	/** Apply a template to all targets with a specific tag */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Templates")
@@ -224,3 +224,4 @@ private:
 	/** Counter for generating unique IDs */
 	int32 TemplateIdCounter = 0;
 };
+

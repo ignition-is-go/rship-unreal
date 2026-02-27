@@ -24,13 +24,11 @@ Core Rocketship executor for Unreal Engine - connect your UE project to the rshi
 ```json
 // In your .uproject file
 {
-  "Plugins": [
-    { "Name": "RshipExec", "Enabled": true }
-  ]
+	"Plugins": [{ "Name": "RshipExec", "Enabled": true }]
 }
 ```
 
-1. Add `URshipTargetComponent` to any actor
+1. Add `URshipActorRegistrationComponent` to any actor
 2. Set the **Target Id** (unique name in rship)
 3. Add `RS_` prefixed properties to expose them:
 
@@ -54,27 +52,27 @@ See [Getting Started Guide](../../docs/GETTING_STARTED.md) for detailed setup.
 
 **Project Settings > Game > Rocketship Settings:**
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| Host | `localhost` | Rship server address |
-| Port | `5155` | WebSocket port |
-| Auto Connect | `true` | Connect on play |
-| TCP No Delay | `true` | Disable Nagle's algorithm |
-| Auto Reconnect | `true` | Reconnect on disconnect |
+| Setting        | Default     | Description               |
+| -------------- | ----------- | ------------------------- |
+| Host           | `localhost` | Rship server address      |
+| Port           | `5155`      | WebSocket port            |
+| Auto Connect   | `true`      | Connect on play           |
+| TCP No Delay   | `true`      | Disable Nagle's algorithm |
+| Auto Reconnect | `true`      | Reconnect on disconnect   |
 
 ## Editor Panels
 
 Access via **Window > Rship**:
 
-| Panel | Purpose |
-|-------|---------|
-| Status | Connection, target list, diagnostics |
-| Timecode | SMPTE timecode configuration |
-| LiveLink | LiveLink subject mapping |
-| Materials | Material parameter bindings |
-| Fixtures | Lighting fixture management |
-| NDI | Camera NDI streaming (requires RshipNDI) |
-| Test | Offline testing and validation |
+| Panel     | Purpose                                  |
+| --------- | ---------------------------------------- |
+| Status    | Connection, target list, diagnostics     |
+| Timecode  | SMPTE timecode configuration             |
+| LiveLink  | LiveLink subject mapping                 |
+| Materials | Material parameter bindings              |
+| Fixtures  | Lighting fixture management              |
+| NDI       | Camera NDI streaming (requires RshipNDI) |
+| Test      | Offline testing and validation           |
 
 ## Console Commands
 
@@ -88,10 +86,10 @@ rship.timecode        # Timecode status
 
 ## Modules
 
-| Module | Type | Description |
-|--------|------|-------------|
-| RshipExec | Runtime | Core executor, WebSocket, targets, bindings |
-| RshipExecEditor | Editor | UI panels, editor integration |
+| Module          | Type    | Description                                 |
+| --------------- | ------- | ------------------------------------------- |
+| RshipExec       | Runtime | Core executor, WebSocket, targets, bindings |
+| RshipExecEditor | Editor  | UI panels, editor integration               |
 
 ## Documentation
 

@@ -2,18 +2,18 @@
 
 #include "RshipBulkOperations.h"
 #include "RshipSubsystem.h"
-#include "RshipTargetComponent.h"
+#include "RshipActorRegistrationComponent.h"
 #include "RshipTargetGroup.h"
 #include "Engine/Engine.h"
 
 // Static selection storage
-static TSet<TWeakObjectPtr<URshipTargetComponent>> GRshipSelectedTargets;
+static TSet<TWeakObjectPtr<URshipActorRegistrationComponent>> GRshipSelectedTargets;
 
 // ============================================================================
 // INTERNAL HELPERS
 // ============================================================================
 
-TSet<TWeakObjectPtr<URshipTargetComponent>>& URshipBulkOperations::GetSelectionSet()
+TSet<TWeakObjectPtr<URshipActorRegistrationComponent>>& URshipBulkOperations::GetSelectionSet()
 {
 	// Clean up any invalid weak pointers
 	for (auto It = GRshipSelectedTargets.CreateIterator(); It; ++It)
@@ -45,10 +45,10 @@ void URshipBulkOperations::NotifySelectionChanged()
 // SELECTION MANAGEMENT
 // ============================================================================
 
-void URshipBulkOperations::SelectTargets(const TArray<URshipTargetComponent*>& Targets)
+void URshipBulkOperations::SelectTargets(const TArray<URshipActorRegistrationComponent*>& Targets)
 {
 	GetSelectionSet().Empty();
-	for (URshipTargetComponent* Target : Targets)
+	for (URshipActorRegistrationComponent* Target : Targets)
 	{
 		if (Target)
 		{
@@ -72,7 +72,7 @@ void URshipBulkOperations::SelectTargetsByTag(const FString& Tag)
 		return;
 	}
 
-	TArray<URshipTargetComponent*> Targets = GroupManager->GetTargetsByTag(Tag);
+	TArray<URshipActorRegistrationComponent*> Targets = GroupManager->GetTargetsByTag(Tag);
 	SelectTargets(Targets);
 }
 
@@ -90,7 +90,7 @@ void URshipBulkOperations::SelectTargetsByGroup(const FString& GroupId)
 		return;
 	}
 
-	TArray<URshipTargetComponent*> Targets = GroupManager->GetTargetsByGroup(GroupId);
+	TArray<URshipActorRegistrationComponent*> Targets = GroupManager->GetTargetsByGroup(GroupId);
 	SelectTargets(Targets);
 }
 
@@ -108,13 +108,13 @@ void URshipBulkOperations::SelectTargetsByPattern(const FString& WildcardPattern
 		return;
 	}
 
-	TArray<URshipTargetComponent*> Targets = GroupManager->GetTargetsByPattern(WildcardPattern);
+	TArray<URshipActorRegistrationComponent*> Targets = GroupManager->GetTargetsByPattern(WildcardPattern);
 	SelectTargets(Targets);
 }
 
-void URshipBulkOperations::AddToSelection(const TArray<URshipTargetComponent*>& Targets)
+void URshipBulkOperations::AddToSelection(const TArray<URshipActorRegistrationComponent*>& Targets)
 {
-	for (URshipTargetComponent* Target : Targets)
+	for (URshipActorRegistrationComponent* Target : Targets)
 	{
 		if (Target)
 		{
@@ -124,9 +124,9 @@ void URshipBulkOperations::AddToSelection(const TArray<URshipTargetComponent*>& 
 	NotifySelectionChanged();
 }
 
-void URshipBulkOperations::RemoveFromSelection(const TArray<URshipTargetComponent*>& Targets)
+void URshipBulkOperations::RemoveFromSelection(const TArray<URshipActorRegistrationComponent*>& Targets)
 {
-	for (URshipTargetComponent* Target : Targets)
+	for (URshipActorRegistrationComponent* Target : Targets)
 	{
 		if (Target)
 		{
@@ -136,10 +136,10 @@ void URshipBulkOperations::RemoveFromSelection(const TArray<URshipTargetComponen
 	NotifySelectionChanged();
 }
 
-TArray<URshipTargetComponent*> URshipBulkOperations::GetSelectedTargets()
+TArray<URshipActorRegistrationComponent*> URshipBulkOperations::GetSelectedTargets()
 {
-	TArray<URshipTargetComponent*> Result;
-	for (const TWeakObjectPtr<URshipTargetComponent>& WeakTarget : GetSelectionSet())
+	TArray<URshipActorRegistrationComponent*> Result;
+	for (const TWeakObjectPtr<URshipActorRegistrationComponent>& WeakTarget : GetSelectionSet())
 	{
 		if (WeakTarget.IsValid())
 		{
@@ -192,7 +192,7 @@ void URshipBulkOperations::InvertSelection()
 		return;
 	}
 
-	TSet<TWeakObjectPtr<URshipTargetComponent>> NewSelection;
+	TSet<TWeakObjectPtr<URshipActorRegistrationComponent>> NewSelection;
 	for (auto& Pair : *Subsystem->TargetComponents)
 	{
 		if (Pair.Value && !GetSelectionSet().Contains(Pair.Value))
@@ -213,7 +213,7 @@ int32 URshipBulkOperations::BulkAddTag(const FString& Tag)
 	return BulkAddTagToTargets(GetSelectedTargets(), Tag);
 }
 
-int32 URshipBulkOperations::BulkAddTagToTargets(const TArray<URshipTargetComponent*>& Targets, const FString& Tag)
+int32 URshipBulkOperations::BulkAddTagToTargets(const TArray<URshipActorRegistrationComponent*>& Targets, const FString& Tag)
 {
 	if (Tag.IsEmpty())
 	{
@@ -224,7 +224,7 @@ int32 URshipBulkOperations::BulkAddTagToTargets(const TArray<URshipTargetCompone
 	URshipTargetGroupManager* GroupManager = Subsystem ? Subsystem->GetGroupManager() : nullptr;
 
 	int32 ModifiedCount = 0;
-	for (URshipTargetComponent* Target : Targets)
+	for (URshipActorRegistrationComponent* Target : Targets)
 	{
 		if (Target && !Target->HasTag(Tag))
 		{
@@ -249,7 +249,7 @@ int32 URshipBulkOperations::BulkRemoveTag(const FString& Tag)
 	return BulkRemoveTagFromTargets(GetSelectedTargets(), Tag);
 }
 
-int32 URshipBulkOperations::BulkRemoveTagFromTargets(const TArray<URshipTargetComponent*>& Targets, const FString& Tag)
+int32 URshipBulkOperations::BulkRemoveTagFromTargets(const TArray<URshipActorRegistrationComponent*>& Targets, const FString& Tag)
 {
 	if (Tag.IsEmpty())
 	{
@@ -260,7 +260,7 @@ int32 URshipBulkOperations::BulkRemoveTagFromTargets(const TArray<URshipTargetCo
 	URshipTargetGroupManager* GroupManager = Subsystem ? Subsystem->GetGroupManager() : nullptr;
 
 	int32 ModifiedCount = 0;
-	for (URshipTargetComponent* Target : Targets)
+	for (URshipActorRegistrationComponent* Target : Targets)
 	{
 		if (Target && Target->HasTag(Tag))
 		{
@@ -291,9 +291,9 @@ int32 URshipBulkOperations::BulkReplaceTag(const FString& OldTag, const FString&
 	URshipTargetGroupManager* GroupManager = Subsystem ? Subsystem->GetGroupManager() : nullptr;
 
 	int32 ModifiedCount = 0;
-	TArray<URshipTargetComponent*> SelectedTargets = GetSelectedTargets();
+	TArray<URshipActorRegistrationComponent*> SelectedTargets = GetSelectedTargets();
 
-	for (URshipTargetComponent* Target : SelectedTargets)
+	for (URshipActorRegistrationComponent* Target : SelectedTargets)
 	{
 		if (Target && Target->HasTag(OldTag))
 		{
@@ -321,9 +321,9 @@ int32 URshipBulkOperations::BulkClearTags()
 	URshipTargetGroupManager* GroupManager = Subsystem ? Subsystem->GetGroupManager() : nullptr;
 
 	int32 ModifiedCount = 0;
-	TArray<URshipTargetComponent*> SelectedTargets = GetSelectedTargets();
+	TArray<URshipActorRegistrationComponent*> SelectedTargets = GetSelectedTargets();
 
-	for (URshipTargetComponent* Target : SelectedTargets)
+	for (URshipActorRegistrationComponent* Target : SelectedTargets)
 	{
 		if (Target && Target->Tags.Num() > 0)
 		{
@@ -367,9 +367,9 @@ int32 URshipBulkOperations::BulkAddToGroup(const FString& GroupId)
 	}
 
 	int32 ModifiedCount = 0;
-	TArray<URshipTargetComponent*> SelectedTargets = GetSelectedTargets();
+	TArray<URshipActorRegistrationComponent*> SelectedTargets = GetSelectedTargets();
 
-	for (URshipTargetComponent* Target : SelectedTargets)
+	for (URshipActorRegistrationComponent* Target : SelectedTargets)
 	{
 		if (Target)
 		{
@@ -399,9 +399,9 @@ int32 URshipBulkOperations::BulkRemoveFromGroup(const FString& GroupId)
 	}
 
 	int32 ModifiedCount = 0;
-	TArray<URshipTargetComponent*> SelectedTargets = GetSelectedTargets();
+	TArray<URshipActorRegistrationComponent*> SelectedTargets = GetSelectedTargets();
 
-	for (URshipTargetComponent* Target : SelectedTargets)
+	for (URshipActorRegistrationComponent* Target : SelectedTargets)
 	{
 		if (Target)
 		{
@@ -423,9 +423,9 @@ int32 URshipBulkOperations::BulkRemoveFromGroup(const FString& GroupId)
 int32 URshipBulkOperations::BulkSetEnabled(bool bEnabled)
 {
 	int32 ModifiedCount = 0;
-	TArray<URshipTargetComponent*> SelectedTargets = GetSelectedTargets();
+	TArray<URshipActorRegistrationComponent*> SelectedTargets = GetSelectedTargets();
 
-	for (URshipTargetComponent* Target : SelectedTargets)
+	for (URshipActorRegistrationComponent* Target : SelectedTargets)
 	{
 		if (Target && Target->IsActive() != bEnabled)
 		{
@@ -441,9 +441,9 @@ int32 URshipBulkOperations::BulkSetEnabled(bool bEnabled)
 int32 URshipBulkOperations::BulkReregister()
 {
 	int32 ModifiedCount = 0;
-	TArray<URshipTargetComponent*> SelectedTargets = GetSelectedTargets();
+	TArray<URshipActorRegistrationComponent*> SelectedTargets = GetSelectedTargets();
 
-	for (URshipTargetComponent* Target : SelectedTargets)
+	for (URshipActorRegistrationComponent* Target : SelectedTargets)
 	{
 		if (Target)
 		{
@@ -460,7 +460,7 @@ int32 URshipBulkOperations::BulkReregister()
 // COPY/PASTE CONFIGURATION
 // ============================================================================
 
-FRshipTargetConfig URshipBulkOperations::CopyTargetConfig(URshipTargetComponent* Source)
+FRshipTargetConfig URshipBulkOperations::CopyTargetConfig(URshipActorRegistrationComponent* Source)
 {
 	FRshipTargetConfig Config;
 
@@ -486,7 +486,7 @@ int32 URshipBulkOperations::PasteTargetConfig(const FRshipTargetConfig& Config, 
 	return PasteTargetConfigToTargets(GetSelectedTargets(), Config, bPasteTags, bPasteGroups);
 }
 
-int32 URshipBulkOperations::PasteTargetConfigToTargets(const TArray<URshipTargetComponent*>& Targets, const FRshipTargetConfig& Config, bool bPasteTags, bool bPasteGroups)
+int32 URshipBulkOperations::PasteTargetConfigToTargets(const TArray<URshipActorRegistrationComponent*>& Targets, const FRshipTargetConfig& Config, bool bPasteTags, bool bPasteGroups)
 {
 	if (!Config.IsValid())
 	{
@@ -499,7 +499,7 @@ int32 URshipBulkOperations::PasteTargetConfigToTargets(const TArray<URshipTarget
 
 	int32 ModifiedCount = 0;
 
-	for (URshipTargetComponent* Target : Targets)
+	for (URshipActorRegistrationComponent* Target : Targets)
 	{
 		if (!Target)
 		{
@@ -583,7 +583,7 @@ int32 URshipBulkOperations::FindAndReplaceInTargetNames(const FString& Find, con
 
 	for (auto& Pair : *Subsystem->TargetComponents)
 	{
-		URshipTargetComponent* Target = Pair.Value;
+		URshipActorRegistrationComponent* Target = Pair.Value;
 		if (!Target)
 		{
 			continue;
@@ -626,7 +626,7 @@ int32 URshipBulkOperations::FindAndReplaceInTags(const FString& Find, const FStr
 
 	for (auto& Pair : *Subsystem->TargetComponents)
 	{
-		URshipTargetComponent* Target = Pair.Value;
+		URshipActorRegistrationComponent* Target = Pair.Value;
 		if (!Target)
 		{
 			continue;
@@ -671,9 +671,9 @@ int32 URshipBulkOperations::FindAndReplaceInTags(const FString& Find, const FStr
 // UTILITY
 // ============================================================================
 
-TArray<URshipTargetComponent*> URshipBulkOperations::FilterTargets(TFunction<bool(URshipTargetComponent*)> Predicate)
+TArray<URshipActorRegistrationComponent*> URshipBulkOperations::FilterTargets(TFunction<bool(URshipActorRegistrationComponent*)> Predicate)
 {
-	TArray<URshipTargetComponent*> Result;
+	TArray<URshipActorRegistrationComponent*> Result;
 
 	URshipSubsystem* Subsystem = GetSubsystem();
 	if (!Subsystem || !Subsystem->TargetComponents)
@@ -691,3 +691,4 @@ TArray<URshipTargetComponent*> URshipBulkOperations::FilterTargets(TFunction<boo
 
 	return Result;
 }
+

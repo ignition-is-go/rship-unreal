@@ -70,7 +70,7 @@ Open **Project Settings → Game → Rocketship Settings**:
 
 ### Step 3: Add a Target Component
 
-Add `URshipTargetComponent` to any actor you want to expose to rship:
+Add `URshipActorRegistrationComponent` to any actor you want to expose to rship:
 
 **In Blueprint:**
 1. Select your actor
@@ -80,10 +80,10 @@ Add `URshipTargetComponent` to any actor you want to expose to rship:
 **In C++:**
 ```cpp
 UPROPERTY(VisibleAnywhere)
-URshipTargetComponent* RshipTarget;
+URshipActorRegistrationComponent* RshipTarget;
 
 // In constructor
-RshipTarget = CreateDefaultSubobject<URshipTargetComponent>(TEXT("RshipTarget"));
+RshipTarget = CreateDefaultSubobject<URshipActorRegistrationComponent>(TEXT("RshipTarget"));
 ```
 
 ### Step 4: Expose Properties with RS_ Prefix
@@ -206,7 +206,7 @@ Event BeginPlay → Do Once → Set Target Id (NewTargetId)
 **C++:**
 ```cpp
 // Get the target component
-URshipTargetComponent* Target = Actor->FindComponentByClass<URshipTargetComponent>();
+URshipActorRegistrationComponent* Target = Actor->FindComponentByClass<URshipActorRegistrationComponent>();
 
 // Set the ID - this unregisters the old ID and registers the new one
 Target->SetTargetId(TEXT("MyDynamicTarget_001"));
@@ -382,7 +382,7 @@ UCLASS()
 class AMyLight : public AActor
 {
     UPROPERTY(VisibleAnywhere)
-    URshipTargetComponent* RshipTarget;
+    URshipActorRegistrationComponent* RshipTarget;
 
     UPROPERTY(VisibleAnywhere)
     USpotLightComponent* SpotLight;
@@ -417,7 +417,7 @@ UCLASS()
 class AProximitySensor : public AActor
 {
     UPROPERTY(VisibleAnywhere)
-    URshipTargetComponent* RshipTarget;
+    URshipActorRegistrationComponent* RshipTarget;
 
     // Read-only sensor value (Emitter only)
     UPROPERTY(BlueprintReadOnly, meta=(RShipParam, RShipWritable="false"))
@@ -462,3 +462,4 @@ Or use the metadata approach with `RShipWritable="true"` and handle changes in T
 
 - GitHub Issues: [github.com/ignition-is-go/rship-unreal](https://github.com/ignition-is-go/rship-unreal)
 - Rocketship Docs: [docs.rocketship.io](https://docs.rocketship.io)
+

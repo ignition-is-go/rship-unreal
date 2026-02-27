@@ -15,7 +15,7 @@
 #include "RshipBlueprintLibrary.generated.h"
 
 class URshipSubsystem;
-class URshipTargetComponent;
+class URshipActorRegistrationComponent;
 class ULevelSequence;
 
 /**
@@ -54,11 +54,11 @@ public:
 
     /** Get all registered target components in the world */
     UFUNCTION(BlueprintCallable, Category = "Rship|Targets")
-    static TArray<URshipTargetComponent*> GetAllTargetComponents();
+    static TArray<URshipActorRegistrationComponent*> GetAllTargetComponents();
 
     /** Find a target component by its target ID */
     UFUNCTION(BlueprintCallable, Category = "Rship|Targets")
-    static URshipTargetComponent* FindTargetById(const FString& TargetId);
+    static URshipActorRegistrationComponent* FindTargetById(const FString& TargetId);
 
     /** Pulse an emitter with JSON data (use MakeRshipData helpers) */
     UFUNCTION(BlueprintCallable, Category = "Rship|Targets")
@@ -399,3 +399,4 @@ public:
 private:
     static URshipSubsystem* GetSubsystem();
 };
+

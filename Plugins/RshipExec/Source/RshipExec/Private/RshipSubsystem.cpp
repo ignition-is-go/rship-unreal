@@ -3,7 +3,7 @@
 #include "RshipSettings.h"
 #include "WebSocketsModule.h"
 #include "EngineUtils.h"
-#include "RshipTargetComponent.h"
+#include "RshipActorRegistrationComponent.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "Json.h"
@@ -18,10 +18,13 @@
 #include "UObject/UnrealTypePrivate.h"
 #include "TimerManager.h"
 #include "Engine/World.h"
-#include "Action.h"
-#include "Target.h"
+#include "Core/Target.h"
+#include "Core/RshipEntityRecords.h"
+#include "Core/RshipEntitySerializer.h"
+#include "Transport/RshipMykoTransport.h"
 
-#include "Myko.h"
+
+
 #include "EmitterHandler.h"
 #include "Logs.h"
 
@@ -30,6 +33,24 @@
 #endif
 
 using namespace std;
+
+namespace
+{
+FString GetActorDisplayName(const AActor* Actor)
+{
+	if (!Actor)
+	{
+		return FString();
+	}
+
+#if WITH_EDITOR
+	return Actor->GetActorLabel();
+#else
+	return Actor->GetName();
+#endif
+}
+
+}
 
 void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
 {
@@ -73,8 +94,15 @@ void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
     // Initialize rate limiter
     InitializeRateLimiter();
 
-    // Connect to server
-    Reconnect();
+    // Connect to server (if globally enabled)
+    if (bRemoteCommunicationEnabled)
+    {
+        Reconnect();
+    }
+    else
+    {
+        UE_LOG(LogRshipExec, Warning, TEXT("Remote communication is disabled; skipping initial connect"));
+    }
 
     auto world = GetWorld();
 
@@ -83,7 +111,7 @@ void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
         this->EmitterHandler = GetWorld()->SpawnActor<AEmitterHandler>();
     }
 
-    this->TargetComponents = new TMultiMap<FString, URshipTargetComponent*>;
+    this->TargetComponents = new TMultiMap<FString, URshipActorRegistrationComponent*>;
 
     // Start queue processing ticker (works in editor without a world)
     const URshipSettings *Settings = GetDefault<URshipSettings>();
@@ -174,6 +202,12 @@ void URshipSubsystem::InitializeRateLimiter()
 
 void URshipSubsystem::Reconnect()
 {
+    if (!bRemoteCommunicationEnabled)
+    {
+        UE_LOG(LogRshipExec, Log, TEXT("Reconnect skipped: remote communication is disabled"));
+        ConnectionState = ERshipConnectionState::Disconnected;
+        return;
+    }
     // Set flag to prevent OnWebSocketClosed from scheduling auto-reconnect
     bIsManuallyReconnecting = true;
 
@@ -213,7 +247,7 @@ void URshipSubsystem::Reconnect()
     }
 
     // Send Exec
-    MachineId = GetUniqueMachineId();
+    MachineId = FRshipMykoTransport::GetUniqueMachineId();
     ServiceId = FApp::GetProjectName();
 
     ClusterId = MachineId + ":" + ServiceId;
@@ -246,6 +280,11 @@ void URshipSubsystem::Reconnect()
         FTSTicker::GetCoreTicker().RemoveTicker(ConnectionTimeoutTickerHandle);
         ConnectionTimeoutTickerHandle.Reset();
     }
+    if (DeferredOnDataReceivedTickerHandle.IsValid())
+    {
+        FTSTicker::GetCoreTicker().RemoveTicker(DeferredOnDataReceivedTickerHandle);
+        DeferredOnDataReceivedTickerHandle.Reset();
+    }
     ConnectionTimeoutTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
         FTickerDelegate::CreateUObject(this, &URshipSubsystem::OnConnectionTimeoutTick),
         10.0f  // 10 second timeout (one-shot, callback returns false)
@@ -276,6 +315,47 @@ void URshipSubsystem::Reconnect()
     bIsManuallyReconnecting = false;
 }
 
+void URshipSubsystem::SetRemoteCommunicationEnabled(bool bEnabled)
+{
+    if (bRemoteCommunicationEnabled == bEnabled)
+    {
+        return;
+    }
+    bRemoteCommunicationEnabled = bEnabled;
+    if (!bRemoteCommunicationEnabled)
+    {
+        UE_LOG(LogRshipExec, Warning, TEXT("Remote communication disabled - disconnecting and stopping all remote traffic"));
+        if (ReconnectTickerHandle.IsValid())
+        {
+            FTSTicker::GetCoreTicker().RemoveTicker(ReconnectTickerHandle);
+            ReconnectTickerHandle.Reset();
+        }
+        if (ConnectionTimeoutTickerHandle.IsValid())
+        {
+            FTSTicker::GetCoreTicker().RemoveTicker(ConnectionTimeoutTickerHandle);
+            ConnectionTimeoutTickerHandle.Reset();
+        }
+        if (WebSocket)
+        {
+            WebSocket->Close();
+            WebSocket.Reset();
+        }
+        ConnectionState = ERshipConnectionState::Disconnected;
+        ReconnectAttempts = 0;
+        if (RateLimiter)
+        {
+            RateLimiter->ClearQueue();
+        }
+    }
+    else
+    {
+        UE_LOG(LogRshipExec, Log, TEXT("Remote communication enabled - reconnecting"));
+        ReconnectAttempts = 0;
+        Reconnect();
+    }
+
+}
+
 void URshipSubsystem::ConnectTo(const FString& Host, int32 Port)
 {
     // Update settings with new values
@@ -285,15 +365,23 @@ void URshipSubsystem::ConnectTo(const FString& Host, int32 Port)
         Settings->rshipHostAddress = Host;
         Settings->rshipServerPort = Port;
         Settings->SaveConfig();
-        Settings->UpdateDefaultConfigFile();  // Also update DefaultGame.ini
+        Settings->TryUpdateDefaultConfigFile();  // Also update DefaultGame.ini
 
         UE_LOG(LogRshipExec, Log, TEXT("Saved server settings to config: %s:%d"), *Host, Port);
     }
 
-    // Force reconnect with new settings
+    // Force reconnect with new settings when remote communication is enabled
     ReconnectAttempts = 0;
     ConnectionState = ERshipConnectionState::Disconnected;
-    Reconnect();
+
+    if (bRemoteCommunicationEnabled)
+    {
+        Reconnect();
+    }
+    else
+    {
+        UE_LOG(LogRshipExec, Log, TEXT("Saved server settings while remote communication is disabled"));
+    }
 }
 
 FString URshipSubsystem::GetServerAddress() const
@@ -340,6 +428,7 @@ void URshipSubsystem::OnWebSocketConnected()
         int64 Timestamp = FDateTime::UtcNow().ToUnixTimestamp() * 1000 + FDateTime::UtcNow().GetMillisecond();
 
         TSharedPtr<FJsonObject> PingData = MakeShareable(new FJsonObject);
+        PingData->SetStringField(TEXT("id"), FRshipMykoTransport::GenerateTransactionId());
         PingData->SetNumberField(TEXT("timestamp"), (double)Timestamp);
 
         TSharedPtr<FJsonObject> PingPayload = MakeShareable(new FJsonObject);
@@ -400,7 +489,7 @@ void URshipSubsystem::OnWebSocketConnectionError(const FString &Error)
 
     // Schedule reconnection if enabled
     const URshipSettings *Settings = GetDefault<URshipSettings>();
-    if (Settings->bAutoReconnect)
+    if (Settings->bAutoReconnect && bRemoteCommunicationEnabled)
     {
         ScheduleReconnect();
     }
@@ -426,7 +515,7 @@ void URshipSubsystem::OnWebSocketClosed(int32 StatusCode, const FString &Reason,
     // Schedule reconnection if enabled and this wasn't a clean close
     // Skip if we're in the middle of a manual reconnect (user called Reconnect())
     const URshipSettings *Settings = GetDefault<URshipSettings>();
-    if (Settings->bAutoReconnect && !bWasClean && !bIsManuallyReconnecting)
+    if (Settings->bAutoReconnect && bRemoteCommunicationEnabled && !bWasClean && !bIsManuallyReconnecting)
     {
         ScheduleReconnect();
     }
@@ -439,6 +528,11 @@ void URshipSubsystem::OnWebSocketMessage(const FString &Message)
 
 void URshipSubsystem::ScheduleReconnect()
 {
+    if (!bRemoteCommunicationEnabled)
+    {
+        ConnectionState = ERshipConnectionState::Disconnected;
+        return;
+    }
     const URshipSettings *Settings = GetDefault<URshipSettings>();
 
     // Check max reconnect attempts
@@ -500,7 +594,7 @@ void URshipSubsystem::OnConnectionTimeout()
 
     // Schedule reconnection if enabled
     const URshipSettings* Settings = GetDefault<URshipSettings>();
-    if (Settings->bAutoReconnect)
+    if (Settings->bAutoReconnect && bRemoteCommunicationEnabled)
     {
         ScheduleReconnect();
     }
@@ -585,14 +679,14 @@ void URshipSubsystem::ProcessMessageQueue()
     int32 QueueSize = RateLimiter->GetQueueLength();
     if (QueueSize > 0)
     {
-        UE_LOG(LogRshipExec, Log, TEXT("ProcessMessageQueue: Queue has %d messages, processing..."), QueueSize);
+        UE_LOG(LogRshipExec, VeryVerbose, TEXT("ProcessMessageQueue: Queue has %d messages, processing..."), QueueSize);
     }
 
     int32 Sent = RateLimiter->ProcessQueue();
 
     if (Sent > 0 || QueueSize > 0)
     {
-        UE_LOG(LogRshipExec, Log, TEXT("ProcessMessageQueue: Sent %d messages, %d remaining"), Sent, RateLimiter->GetQueueLength());
+        UE_LOG(LogRshipExec, VeryVerbose, TEXT("ProcessMessageQueue: Sent %d messages, %d remaining"), Sent, RateLimiter->GetQueueLength());
     }
 }
 
@@ -602,6 +696,9 @@ void URshipSubsystem::TickSubsystems()
     double CurrentTime = FPlatformTime::Seconds();
     float DeltaTime = (LastTickTime > 0.0) ? (float)(CurrentTime - LastTickTime) : 0.0f;
     LastTickTime = CurrentTime;
+
+    // Apply coalesced target actions once per frame.
+    ProcessPendingExecTargetActions();
 
     // Tick timecode sync for playback and cue points
     if (TimecodeSync)
@@ -675,13 +772,135 @@ void URshipSubsystem::TickSubsystems()
         PCGManager->Tick(DeltaTime);
     }
 
+    // Fire OnRshipData once per target/component at end-of-frame for all successful Take() calls.
+    FlushPendingOnDataReceived();
+
     // Process message queue every tick to ensure messages are sent
     ProcessMessageQueue();
 }
 
+bool URshipSubsystem::OnDeferredOnDataReceivedTick(float DeltaTime)
+{
+    if (!IsValid(this))
+    {
+        return false;
+    }
+
+    FlushPendingOnDataReceived();
+    DeferredOnDataReceivedTickerHandle.Reset();
+    return false; // one-shot
+}
+
+void URshipSubsystem::QueueOnDataReceived(URshipActorRegistrationComponent* Component)
+{
+    if (Component)
+    {
+        PendingOnDataReceivedComponents.Add(Component);
+
+        // Ensure this also fires in editor paths even if subsystem tick is temporarily idle.
+        if (!DeferredOnDataReceivedTickerHandle.IsValid())
+        {
+            DeferredOnDataReceivedTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
+                FTickerDelegate::CreateUObject(this, &URshipSubsystem::OnDeferredOnDataReceivedTick),
+                0.0f
+            );
+        }
+    }
+}
+
+void URshipSubsystem::FlushPendingOnDataReceived()
+{
+    if (PendingOnDataReceivedComponents.Num() == 0)
+    {
+        return;
+    }
+
+    for (const TWeakObjectPtr<URshipActorRegistrationComponent>& WeakComp : PendingOnDataReceivedComponents)
+    {
+        if (URshipActorRegistrationComponent* Comp = WeakComp.Get())
+        {
+            Comp->OnDataReceived();
+        }
+    }
+    PendingOnDataReceivedComponents.Reset();
+}
+
+void URshipSubsystem::EnqueueExecTargetAction(const FString& TargetId, const FString& ActionId, const TSharedRef<FJsonObject>& Data, const FString& TxId)
+{
+    const FString Key = TargetId + TEXT("|") + ActionId;
+    FRshipPendingExecTargetAction& Pending = PendingExecTargetActions.FindOrAdd(Key);
+    Pending.TargetId = TargetId;
+    Pending.ActionId = ActionId;
+    Pending.Data = Data;
+    Pending.TxIds.Add(TxId);
+}
+
+void URshipSubsystem::QueueCommandResponse(const FString& TxId, bool bOk, const FString& CommandId, const FString& ErrorMessage)
+{
+    if (bOk)
+    {
+        TSharedPtr<FJsonObject> ResponseData = MakeShareable(new FJsonObject);
+        ResponseData->SetStringField(TEXT("tx"), TxId);
+        TSharedPtr<FJsonObject> CommandResponse = MakeShareable(new FJsonObject);
+        CommandResponse->SetBoolField(TEXT("ok"), true);
+        ResponseData->SetObjectField(TEXT("response"), CommandResponse);
+
+        TSharedPtr<FJsonObject> Response = MakeShareable(new FJsonObject);
+        Response->SetStringField(TEXT("event"), TEXT("ws:m:command-response"));
+        Response->SetObjectField(TEXT("data"), ResponseData);
+
+        QueueMessage(Response, ERshipMessagePriority::Critical, ERshipMessageType::CommandResponse);
+        return;
+    }
+
+    TSharedPtr<FJsonObject> ResponseData = MakeShareable(new FJsonObject);
+    ResponseData->SetStringField(TEXT("tx"), TxId);
+    ResponseData->SetStringField(TEXT("commandId"), CommandId);
+    ResponseData->SetStringField(TEXT("message"), ErrorMessage.IsEmpty() ? TEXT("Action was not handled by any target") : ErrorMessage);
+
+    TSharedPtr<FJsonObject> Response = MakeShareable(new FJsonObject);
+    Response->SetStringField(TEXT("event"), TEXT("ws:m:command-error"));
+    Response->SetObjectField(TEXT("data"), ResponseData);
+
+    QueueMessage(Response, ERshipMessagePriority::Critical, ERshipMessageType::CommandResponse);
+}
+
+void URshipSubsystem::ProcessPendingExecTargetActions()
+{
+    if (PendingExecTargetActions.Num() == 0)
+    {
+        return;
+    }
+
+    TMap<FString, FRshipPendingExecTargetAction> PendingBatch = MoveTemp(PendingExecTargetActions);
+    PendingExecTargetActions.Reset();
+
+    for (TPair<FString, FRshipPendingExecTargetAction>& Pair : PendingBatch)
+    {
+        FRshipPendingExecTargetAction& Pending = Pair.Value;
+        if (!Pending.Data.IsValid())
+        {
+            for (const FString& TxId : Pending.TxIds)
+            {
+                QueueCommandResponse(TxId, false, TEXT("ExecTargetAction"), TEXT("Action payload missing"));
+            }
+            continue;
+        }
+
+        const bool bResult = ExecuteTargetAction(Pending.TargetId, Pending.ActionId, Pending.Data.ToSharedRef());
+        for (const FString& TxId : Pending.TxIds)
+        {
+            QueueCommandResponse(TxId, bResult, TEXT("ExecTargetAction"), TEXT("Action was not handled by any target"));
+        }
+    }
+}
 void URshipSubsystem::QueueMessage(TSharedPtr<FJsonObject> Payload, ERshipMessagePriority Priority,
                                     ERshipMessageType Type, const FString& CoalesceKey)
 {
+    if (!bRemoteCommunicationEnabled)
+    {
+        return;
+    }
     const URshipSettings *Settings = GetDefault<URshipSettings>();
 
     // If rate limiting is disabled, send directly
@@ -703,7 +922,7 @@ void URshipSubsystem::QueueMessage(TSharedPtr<FJsonObject> Payload, ERshipMessag
     }
     else
     {
-        UE_LOG(LogRshipExec, Log, TEXT("Enqueued message (Key=%s, QueueLen=%d)"), *CoalesceKey, RateLimiter->GetQueueLength());
+        UE_LOG(LogRshipExec, VeryVerbose, TEXT("Enqueued message (Key=%s, QueueLen=%d)"), *CoalesceKey, RateLimiter->GetQueueLength());
     }
 
     // If the queue processing ticker isn't running, immediately process the queue
@@ -716,6 +935,10 @@ void URshipSubsystem::QueueMessage(TSharedPtr<FJsonObject> Payload, ERshipMessag
 
 void URshipSubsystem::SendJsonDirect(const FString& JsonString)
 {
+    if (!bRemoteCommunicationEnabled)
+    {
+        return;
+    }
     bool bConnected = WebSocket.IsValid() && WebSocket->IsConnected();
 
     if (!bConnected)
@@ -724,7 +947,7 @@ void URshipSubsystem::SendJsonDirect(const FString& JsonString)
         if (ConnectionState == ERshipConnectionState::Disconnected)
         {
             const URshipSettings *Settings = GetDefault<URshipSettings>();
-            if (Settings->bAutoReconnect && !ReconnectTickerHandle.IsValid())
+            if (Settings->bAutoReconnect && bRemoteCommunicationEnabled && !ReconnectTickerHandle.IsValid())
             {
                 ScheduleReconnect();
             }
@@ -750,7 +973,7 @@ void URshipSubsystem::ProcessMessage(const FString &message)
     TSharedRef<FJsonObject> objRef = obj.ToSharedRef();
 
     FString type = objRef->GetStringField(TEXT("event"));
-    UE_LOG(LogRshipExec, Log, TEXT("Received message: event=%s"), *type);
+    UE_LOG(LogRshipExec, VeryVerbose, TEXT("Received message: event=%s"), *type);
 
     // Handle ping response - diagnostic for verifying WebSocket send/receive path
     if (type == "ws:m:ping")
@@ -776,7 +999,7 @@ void URshipSubsystem::ProcessMessage(const FString &message)
 
         FString txId = command->GetStringField(TEXT("tx"));
 
-        if (commandId == "SetClientId")
+                if (commandId == "SetClientId")
         {
             ClientId = command->GetStringField(TEXT("clientId"));
             UE_LOG(LogRshipExec, Warning, TEXT("Received ClientId %s"), *ClientId);
@@ -792,136 +1015,34 @@ void URshipSubsystem::ProcessMessage(const FString &message)
             FString actionId = execAction->GetStringField(TEXT("id"));
             FString targetId = execAction->GetStringField(TEXT("targetId"));
 
-            bool result = false;
-
-            // Check if this is a PCG target (paths start with "/pcg/")
-            if (targetId.StartsWith(TEXT("/pcg/")))
-            {
-                if (PCGManager)
-                {
-                    result = PCGManager->RouteAction(targetId, actionId, execData);
-                }
-                else
-                {
-                    UE_LOG(LogRshipExec, Warning, TEXT("PCG target action received but PCGManager not initialized: %s"), *targetId);
-                }
-            }
-            else
-            {
-                // Standard target component routing - get ALL components with this target ID
-                TArray<URshipTargetComponent*> comps = FindAllTargetComponents(targetId);
-                if (comps.Num() > 0)
-                {
-                    for (URshipTargetComponent* comp : comps)
-                    {
-                        if (!comp) continue;
-
-                        Target* target = comp->TargetData;
-                        AActor* owner = comp->GetOwner();
-
-                        // Determine world type for logging
-                        FString WorldTypeStr = TEXT("Unknown");
-                        if (owner)
-                        {
-                            if (UWorld* World = owner->GetWorld())
-                            {
-                                switch (World->WorldType)
-                                {
-                                    case EWorldType::Editor: WorldTypeStr = TEXT("Editor"); break;
-                                    case EWorldType::PIE:
-#if WITH_EDITOR
-                                        WorldTypeStr = (GEditor && GEditor->bIsSimulatingInEditor) ? TEXT("Simulate") : TEXT("PIE");
-#else
-                                        WorldTypeStr = TEXT("PIE");
-#endif
-                                        break;
-                                    case EWorldType::Game: WorldTypeStr = TEXT("Game"); break;
-                                    case EWorldType::EditorPreview: WorldTypeStr = TEXT("EditorPreview"); break;
-                                    default: WorldTypeStr = TEXT("Other"); break;
-                                }
-                            }
-                        }
-
-                        if (target != nullptr)
-                        {
-                            // Skip action execution in Editor world - only run in PIE/Simulate/Game
-                            if (owner)
-                            {
-                                if (UWorld* World = owner->GetWorld())
-                                {
-                                    if (World->WorldType == EWorldType::Editor)
-                                    {
-                                        UE_LOG(LogRshipExec, Verbose, TEXT("Skipping action [%s] on target [%s] (Editor)"), *actionId, *targetId);
-                                        continue;
-                                    }
-                                }
-                            }
-
-                            UE_LOG(LogRshipExec, Log, TEXT("Executing action [%s] on target [%s] (%s)"), *actionId, *targetId, *WorldTypeStr);
-                            bool takeResult = target->TakeAction(owner, actionId, execData);
-                            result |= takeResult;
-                            comp->OnDataReceived();
-                        }
-                        else
-                        {
-                            UE_LOG(LogRshipExec, Warning, TEXT("Target data null for: %s (%s)"), *targetId, *WorldTypeStr);
-                        }
-                    }
-                }
-                else
-                {
-                    UE_LOG(LogRshipExec, Warning, TEXT("Target not found: %s"), *targetId);
-                }
-            }
-
-            TSharedPtr<FJsonObject> responseData = MakeShareable(new FJsonObject);
-            responseData->SetStringField(TEXT("commandId"), commandId);
-            responseData->SetStringField(TEXT("tx"), txId);
-
-            if (result)
-            {
-                // Send success response - CRITICAL priority
-                TSharedPtr<FJsonObject> response = MakeShareable(new FJsonObject);
-                response->SetStringField(TEXT("event"), TEXT("ws:m:command-response"));
-                response->SetObjectField(TEXT("data"), responseData);
-
-                QueueMessage(response, ERshipMessagePriority::Critical, ERshipMessageType::CommandResponse);
-            }
-            else
-            {
-                // Send failure response - CRITICAL priority
-                UE_LOG(LogRshipExec, Warning, TEXT("Action not taken: %s on Target %s"), *actionId, *targetId);
-                TSharedPtr<FJsonObject> response = MakeShareable(new FJsonObject);
-                response->SetStringField(TEXT("event"), TEXT("ws:m:command-error"));
-                response->SetObjectField(TEXT("data"), responseData);
-
-                QueueMessage(response, ERshipMessagePriority::Critical, ERshipMessageType::CommandResponse);
-            }
+            EnqueueExecTargetAction(targetId, actionId, execData, txId);
         }
+
         obj.Reset();
     }
-    else if (type == "ws:m:event")
+    auto ProcessEntityEvent = [this](const TSharedPtr<FJsonObject>& data) -> void
     {
-        // Entity event - route to appropriate manager
-        // Myko protocol: { event: "ws:m:event", data: { changeType: "SET"|"DEL", itemType, item, tx, createdAt } }
-        TSharedPtr<FJsonObject> data = obj->GetObjectField(TEXT("data"));
-
         if (!data.IsValid())
         {
             return;
         }
 
-        FString changeType = data->GetStringField(TEXT("changeType"));
-        bool bIsDelete = (changeType == TEXT("DEL"));
+        FString changeType;
+        FString itemType;
+        const TSharedPtr<FJsonObject>* itemPtr = nullptr;
 
-        FString itemType = data->GetStringField(TEXT("itemType"));
-        TSharedPtr<FJsonObject> item = data->GetObjectField(TEXT("item"));
-
-        if (!item.IsValid())
+        if (!data->TryGetStringField(TEXT("changeType"), changeType) ||
+            !data->TryGetStringField(TEXT("itemType"), itemType) ||
+            !data->TryGetObjectField(TEXT("item"), itemPtr) ||
+            itemPtr == nullptr ||
+            !itemPtr->IsValid())
         {
+            UE_LOG(LogRshipExec, Verbose, TEXT("Ignoring malformed ws:m:event payload"));
             return;
         }
 
+        TSharedPtr<FJsonObject> item = *itemPtr;
+        bool bIsDelete = (changeType == TEXT("DEL"));
         UE_LOG(LogRshipExec, Log, TEXT("Entity event: %s %s"), *changeType, *itemType);
 
         // Route to fixture manager
@@ -975,12 +1096,17 @@ void URshipSubsystem::ProcessMessage(const FString &message)
             if (PulseReceiver)
             {
                 // Extract emitterId and data from the pulse
-                FString EmitterId = item->GetStringField(TEXT("emitterId"));
-                TSharedPtr<FJsonObject> PulseData = item->GetObjectField(TEXT("data"));
+                FString EmitterId;
+                const TSharedPtr<FJsonObject>* PulseDataPtr = nullptr;
 
-                if (!EmitterId.IsEmpty() && PulseData.IsValid())
+                if (item->TryGetStringField(TEXT("emitterId"), EmitterId) &&
+                    item->TryGetObjectField(TEXT("data"), PulseDataPtr) &&
+                    PulseDataPtr != nullptr &&
+                    PulseDataPtr->IsValid() &&
+                    !EmitterId.IsEmpty() &&
+                    (*PulseDataPtr).IsValid())
                 {
-                    PulseReceiver->ProcessPulseEvent(EmitterId, PulseData);
+                    PulseReceiver->ProcessPulseEvent(EmitterId, *PulseDataPtr);
                 }
             }
         }
@@ -1028,9 +1154,100 @@ void URshipSubsystem::ProcessMessage(const FString &message)
                 MultiCameraManager->AddView(View);
             }
         }
+    };
+
+    if (type == "ws:m:event")
+    {
+        // Myko protocol: { event: "ws:m:event", data: MEvent }
+        const TSharedPtr<FJsonObject>* dataPtr = nullptr;
+        if (obj->TryGetObjectField(TEXT("data"), dataPtr) &&
+            dataPtr != nullptr &&
+            dataPtr->IsValid())
+        {
+            ProcessEntityEvent(*dataPtr);
+        }
+    }
+    else if (type == RshipMykoEventNames::EventBatch)
+    {
+        // Myko protocol: { event: "ws:m:event-batch", data: MEvent[] }
+        const TArray<TSharedPtr<FJsonValue>>* events = nullptr;
+        if (obj->TryGetArrayField(TEXT("data"), events) && events != nullptr)
+        {
+            for (const TSharedPtr<FJsonValue>& eventValue : *events)
+            {
+                if (!eventValue.IsValid() || eventValue->Type != EJson::Object)
+                {
+                    continue;
+                }
+
+                TSharedPtr<FJsonObject> eventObj = eventValue->AsObject();
+                ProcessEntityEvent(eventObj);
+            }
+        }
     }
 }
 
+bool URshipSubsystem::ExecuteTargetAction(const FString& TargetId, const FString& ActionId, const TSharedRef<FJsonObject>& Data)
+{
+    // Check if this is a PCG target (paths start with "/pcg/")
+    if (TargetId.StartsWith(TEXT("/pcg/")))
+    {
+        if (PCGManager)
+        {
+            return PCGManager->RouteAction(TargetId, ActionId, Data);
+        }
+
+        UE_LOG(LogRshipExec, Warning, TEXT("PCG target action received but PCGManager not initialized: %s"), *TargetId);
+        return false;
+    }
+
+    if (RegisteredTargetsById.Num() == 0)
+    {
+        return false;
+    }
+
+    PruneInvalidManagedTargetRefs(TargetId);
+
+    bool bFoundAny = false;
+    bool bResult = false;
+
+    // Iterate key matches directly from subsystem-owned target registry.
+    for (auto It = RegisteredTargetsById.CreateKeyIterator(TargetId); It; ++It)
+    {
+        Target* RegisteredTarget = It.Value();
+        if (!RegisteredTarget)
+        {
+            continue;
+        }
+
+        AActor* Owner = nullptr;
+        if (URshipActorRegistrationComponent* BoundComp = RegisteredTarget->GetBoundTargetComponent())
+        {
+            Owner = BoundComp->GetOwner();
+        }
+
+        bFoundAny = true;
+
+#if WITH_EDITOR
+        UWorld* World = Owner ? Owner->GetWorld() : nullptr;
+        if (World && World->WorldType == EWorldType::Editor)
+        {
+            FEditorScriptExecutionGuard ScriptGuard;
+            bResult |= RegisteredTarget->TakeAction(Owner, ActionId, Data);
+            continue;
+        }
+#endif
+
+        bResult |= RegisteredTarget->TakeAction(Owner, ActionId, Data);
+    }
+
+    if (!bFoundAny)
+    {
+        UE_LOG(LogRshipExec, Warning, TEXT("Target not found: %s"), *TargetId);
+    }
+
+    return bResult;
+}
 void URshipSubsystem::Deinitialize()
 {
     UE_LOG(LogRshipExec, Log, TEXT("RshipSubsystem::Deinitialize"));
@@ -1055,6 +1272,11 @@ void URshipSubsystem::Deinitialize()
     {
         FTSTicker::GetCoreTicker().RemoveTicker(ConnectionTimeoutTickerHandle);
         ConnectionTimeoutTickerHandle.Reset();
+    }
+    if (DeferredOnDataReceivedTickerHandle.IsValid())
+    {
+        FTSTicker::GetCoreTicker().RemoveTicker(DeferredOnDataReceivedTickerHandle);
+        DeferredOnDataReceivedTickerHandle.Reset();
     }
 
     // Shutdown health monitor
@@ -1274,6 +1496,9 @@ void URshipSubsystem::Deinitialize()
         WebSocket.Reset();
     }
 
+    ManagedTargetSnapshots.Reset();
+    RegisteredTargetsById.Reset();
+
     Super::Deinitialize();
 }
 
@@ -1304,6 +1529,11 @@ void URshipSubsystem::BeginDestroy()
     {
         FTSTicker::GetCoreTicker().RemoveTicker(ConnectionTimeoutTickerHandle);
         ConnectionTimeoutTickerHandle.Reset();
+    }
+    if (DeferredOnDataReceivedTickerHandle.IsValid())
+    {
+        FTSTicker::GetCoreTicker().RemoveTicker(DeferredOnDataReceivedTickerHandle);
+        DeferredOnDataReceivedTickerHandle.Reset();
     }
 
     // Clean up WebSocket connection without callbacks (object is being destroyed)
@@ -1343,6 +1573,11 @@ void URshipSubsystem::PrepareForHotReload()
     {
         FTSTicker::GetCoreTicker().RemoveTicker(ConnectionTimeoutTickerHandle);
         ConnectionTimeoutTickerHandle.Reset();
+    }
+    if (DeferredOnDataReceivedTickerHandle.IsValid())
+    {
+        FTSTicker::GetCoreTicker().RemoveTicker(DeferredOnDataReceivedTickerHandle);
+        DeferredOnDataReceivedTickerHandle.Reset();
     }
 
     // Close WebSocket - its callbacks also hold function pointers
@@ -1408,20 +1643,20 @@ void URshipSubsystem::SendTarget(Target *target)
         target->GetActions().Num(),
         target->GetEmitters().Num());
 
-    TArray<TSharedPtr<FJsonValue>> EmitterIdsJson;
-    TArray<TSharedPtr<FJsonValue>> ActionIdsJson;
+    TArray<FString> EmitterIds;
+    TArray<FString> ActionIds;
 
     for (auto &Elem : target->GetActions())
     {
         UE_LOG(LogRshipExec, Log, TEXT("  Action: %s"), *Elem.Key);
-        ActionIdsJson.Push(MakeShareable(new FJsonValueString(Elem.Key)));
+        ActionIds.Add(Elem.Key);
         SendAction(Elem.Value, target->GetId());
     }
 
     for (auto &Elem : target->GetEmitters())
     {
         UE_LOG(LogRshipExec, Log, TEXT("  Emitter: %s"), *Elem.Key);
-        EmitterIdsJson.Push(MakeShareable(new FJsonValueString(Elem.Key)));
+        EmitterIds.Add(Elem.Key);
         SendEmitter(Elem.Value, target->GetId());
     }
 
@@ -1429,66 +1664,39 @@ void URshipSubsystem::SendTarget(Target *target)
 
     FColor SRGBColor = Settings->ServiceColor.ToFColor(true);
     FString ColorHex = FString::Printf(TEXT("#%02X%02X%02X"), SRGBColor.R, SRGBColor.G, SRGBColor.B);
-    TSharedPtr<FJsonObject> Target = MakeShareable(new FJsonObject);
-    Target->SetStringField(TEXT("id"), target->GetId());
+    FRshipTargetRecord TargetRecord;
+    TargetRecord.Id = target->GetId();
+    TargetRecord.Name = target->GetName();
+    TargetRecord.ServiceId = ServiceId;
+    TargetRecord.Category = TEXT("default");
+    TargetRecord.ForegroundColor = ColorHex;
+    TargetRecord.BackgroundColor = ColorHex;
+    TargetRecord.ActionIds = MoveTemp(ActionIds);
+    TargetRecord.EmitterIds = MoveTemp(EmitterIds);
+    TargetRecord.ParentTargetIds = target->GetParentTargetIds();
+    TargetRecord.bRootLevel = TargetRecord.ParentTargetIds.Num() == 0;
+    TargetRecord.Hash = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower);
 
-    Target->SetArrayField(TEXT("actionIds"), ActionIdsJson);
-    Target->SetArrayField(TEXT("emitterIds"), EmitterIdsJson);
-    Target->SetStringField(TEXT("fgColor"), ColorHex);
-    Target->SetStringField(TEXT("bgColor"), ColorHex);
-    Target->SetStringField(TEXT("name"), target->GetId());
-    Target->SetStringField(TEXT("serviceId"), ServiceId);
-
-    // Add tags and groups from the target component - O(1) lookup
-    URshipTargetComponent* TargetComp = FindTargetComponent(target->GetId());
-
-    if (TargetComp)
+    // Add tags and groups from bound registration component (if present).
+    if (URshipActorRegistrationComponent* TargetComp = target->GetBoundTargetComponent())
     {
-        // Add category (myko protocol field for target organization) - REQUIRED
-        Target->SetStringField(TEXT("category"), TargetComp->Category.IsEmpty() ? TEXT("default") : *TargetComp->Category);
-
-        // Add tags array
-        TArray<TSharedPtr<FJsonValue>> TagsJson;
-        for (const FString& Tag : TargetComp->Tags)
-        {
-            TagsJson.Add(MakeShareable(new FJsonValueString(Tag)));
-        }
-        Target->SetArrayField(TEXT("tags"), TagsJson);
-
-        // Add group IDs array
-        TArray<TSharedPtr<FJsonValue>> GroupIdsJson;
-        for (const FString& GroupId : TargetComp->GroupIds)
-        {
-            GroupIdsJson.Add(MakeShareable(new FJsonValueString(GroupId)));
-        }
-        Target->SetArrayField(TEXT("groupIds"), GroupIdsJson);
-    }
-    else
-    {
-        // No component, set default category - REQUIRED field
-        Target->SetStringField(TEXT("category"), TEXT("default"));
+        TargetRecord.Category = TargetComp->Category.IsEmpty() ? TEXT("default") : TargetComp->Category;
+        TargetRecord.Tags = TargetComp->Tags;
+        TargetRecord.GroupIds = TargetComp->GroupIds;
     }
 
-    // rootLevel is REQUIRED - all Unreal targets are root level (sub-targets not yet supported)
-    Target->SetBoolField(TEXT("rootLevel"), true);
-
-    // Hash for optimistic concurrency control (myko protocol requirement)
-    Target->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
+    TSharedPtr<FJsonObject> TargetJson = FRshipEntitySerializer::ToJson(TargetRecord);
 
     // Target registration - HIGH priority, coalesce by target ID
-    SetItem("Target", Target, ERshipMessagePriority::High, target->GetId());
+    SetItem("Target", TargetJson, ERshipMessagePriority::High, target->GetId());
 
-    TSharedPtr<FJsonObject> TargetStatus = MakeShareable(new FJsonObject);
-
-    TargetStatus->SetStringField(TEXT("targetId"), target->GetId());
-    TargetStatus->SetStringField(TEXT("instanceId"), InstanceId);
-    TargetStatus->SetStringField(TEXT("status"), TEXT("online"));
-    // TargetStatus ID should match Target ID (per TS SDK: serviceId:short_id)
-    TargetStatus->SetStringField(TEXT("id"), target->GetId());
-    // Hash for optimistic concurrency control (myko protocol requirement)
-    TargetStatus->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
-
-    SetItem("TargetStatus", TargetStatus, ERshipMessagePriority::High, target->GetId() + ":status");
+    FRshipTargetStatusRecord TargetStatusRecord;
+    TargetStatusRecord.TargetId = target->GetId();
+    TargetStatusRecord.InstanceId = InstanceId;
+    TargetStatusRecord.Status = TEXT("online");
+    TargetStatusRecord.Id = target->GetId();
+    TargetStatusRecord.Hash = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower);
+    SetItem("TargetStatus", FRshipEntitySerializer::ToJson(TargetStatusRecord), ERshipMessagePriority::High, target->GetId() + ":status");
 }
 
 void URshipSubsystem::DeleteTarget(Target* target)
@@ -1503,74 +1711,537 @@ void URshipSubsystem::DeleteTarget(Target* target)
 
     // Only send TargetStatus offline - server manages target lifecycle
     // We do NOT send DEL events for actions, emitters, or target
-    TSharedPtr<FJsonObject> TargetStatus = MakeShareable(new FJsonObject);
-    TargetStatus->SetStringField(TEXT("targetId"), target->GetId());
-    TargetStatus->SetStringField(TEXT("instanceId"), InstanceId);
-    TargetStatus->SetStringField(TEXT("status"), TEXT("offline"));
-    TargetStatus->SetStringField(TEXT("id"), target->GetId());
-    TargetStatus->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
-    SetItem("TargetStatus", TargetStatus, ERshipMessagePriority::High, target->GetId() + ":status");
+    FRshipTargetStatusRecord Record;
+    Record.TargetId = target->GetId();
+    Record.InstanceId = InstanceId;
+    Record.Status = TEXT("offline");
+    Record.Id = target->GetId();
+    Record.Hash = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower);
+    SetItem("TargetStatus", FRshipEntitySerializer::ToJson(Record), ERshipMessagePriority::High, target->GetId() + ":status");
 
     UE_LOG(LogRshipExec, Log, TEXT("DeleteTarget: %s - offline status sent"), *target->GetId());
 }
 
-void URshipSubsystem::SendAction(Action *action, FString targetId)
+void URshipSubsystem::SendAction(const FRshipActionBinding& action, FString targetId)
 {
-    TSharedPtr<FJsonObject> Action = MakeShareable(new FJsonObject);
+    UE_LOG(LogRshipExec, Log, TEXT("SendAction: id=%s target=%s"), *action.Id, *targetId);
 
-    Action->SetStringField(TEXT("id"), action->GetId());
-    Action->SetStringField(TEXT("name"), action->GetName());
-    Action->SetStringField(TEXT("targetId"), targetId);
-    Action->SetStringField(TEXT("serviceId"), ServiceId);
-    TSharedPtr<FJsonObject> schema = action->GetSchema();
-    if (schema)
-    {
-        Action->SetObjectField(TEXT("schema"), schema);
-    }
-    // Hash for optimistic concurrency control (myko protocol requirement)
-    Action->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
+    FRshipActionRecord Record;
+    Record.Id = action.Id;
+    Record.Name = action.Name;
+    Record.TargetId = targetId;
+    Record.ServiceId = ServiceId;
+    Record.Schema = action.GetSchema();
+    Record.Hash = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower);
 
     // Action registration - HIGH priority, coalesce by action ID
-    SetItem("Action", Action, ERshipMessagePriority::High, action->GetId());
+    SetItem("Action", FRshipEntitySerializer::ToJson(Record), ERshipMessagePriority::High, action.Id);
 }
 
-void URshipSubsystem::SendEmitter(EmitterContainer *emitter, FString targetId)
+void URshipSubsystem::SendEmitter(const FRshipEmitterBinding& emitter, FString targetId)
 {
-    TSharedPtr<FJsonObject> Emitter = MakeShareable(new FJsonObject);
+    UE_LOG(LogRshipExec, Log, TEXT("SendEmitter: id=%s target=%s"), *emitter.Id, *targetId);
 
-    Emitter->SetStringField(TEXT("id"), emitter->GetId());
-    Emitter->SetStringField(TEXT("name"), emitter->GetName());
-    Emitter->SetStringField(TEXT("targetId"), targetId);
-    Emitter->SetStringField(TEXT("serviceId"), ServiceId);
-    TSharedPtr<FJsonObject> schema = emitter->GetSchema();
-    if (schema)
-    {
-        Emitter->SetObjectField(TEXT("schema"), schema);
-    }
-    // Hash for optimistic concurrency control (myko protocol requirement)
-    Emitter->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
+    FRshipEmitterRecord Record;
+    Record.Id = emitter.Id;
+    Record.Name = emitter.Name;
+    Record.TargetId = targetId;
+    Record.ServiceId = ServiceId;
+    Record.Schema = emitter.GetSchema();
+    Record.Hash = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower);
 
     // Emitter registration - HIGH priority, coalesce by emitter ID
-    SetItem("Emitter", Emitter, ERshipMessagePriority::High, emitter->GetId());
+    SetItem("Emitter", FRshipEntitySerializer::ToJson(Record), ERshipMessagePriority::High, emitter.Id);
 }
 
 void URshipSubsystem::SendTargetStatus(Target *target, bool online)
 {
     if (!target) return;
 
-    TSharedPtr<FJsonObject> TargetStatus = MakeShareable(new FJsonObject);
+    FRshipTargetStatusRecord Record;
+    Record.TargetId = target->GetId();
+    Record.InstanceId = InstanceId;
+    Record.Status = online ? TEXT("online") : TEXT("offline");
+    Record.Id = target->GetId();
+    Record.Hash = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower);
 
-    TargetStatus->SetStringField(TEXT("targetId"), target->GetId());
-    TargetStatus->SetStringField(TEXT("instanceId"), InstanceId);
-    TargetStatus->SetStringField(TEXT("status"), online ? TEXT("online") : TEXT("offline"));
-    // TargetStatus ID should match Target ID (per TS SDK: serviceId:short_id)
-    TargetStatus->SetStringField(TEXT("id"), target->GetId());
-    // Hash for optimistic concurrency control (myko protocol requirement)
-    TargetStatus->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
-
-    SetItem("TargetStatus", TargetStatus, ERshipMessagePriority::High, target->GetId() + TEXT(":status"));
+    SetItem("TargetStatus", FRshipEntitySerializer::ToJson(Record), ERshipMessagePriority::High, target->GetId() + TEXT(":status"));
 
     UE_LOG(LogRshipExec, Log, TEXT("Sent target status: %s = %s"), *target->GetId(), online ? TEXT("online") : TEXT("offline"));
+}
+
+URshipSubsystem::FManagedTargetSnapshot URshipSubsystem::BuildManagedTargetSnapshot(Target* ManagedTarget) const
+{
+    FManagedTargetSnapshot Snapshot;
+    if (!ManagedTarget)
+    {
+        return Snapshot;
+    }
+
+    Snapshot.Id = ManagedTarget->GetId();
+    Snapshot.Name = ManagedTarget->GetName();
+    Snapshot.ParentTargetIds = ManagedTarget->GetParentTargetIds();
+
+    for (const auto& ActionPair : ManagedTarget->GetActions())
+    {
+        Snapshot.ActionIds.Add(ActionPair.Key);
+    }
+
+    for (const auto& EmitterPair : ManagedTarget->GetEmitters())
+    {
+        Snapshot.EmitterIds.Add(EmitterPair.Key);
+    }
+
+    URshipActorRegistrationComponent* BoundComponent = ManagedTarget->GetBoundTargetComponent();
+    Snapshot.BoundTargetComponent = BoundComponent;
+    Snapshot.bBoundToComponent = BoundComponent != nullptr;
+
+    return Snapshot;
+}
+
+int32 URshipSubsystem::PruneInvalidManagedTargetRefs(const FString& TargetId)
+{
+    if (TargetId.IsEmpty())
+    {
+        return 0;
+    }
+
+    int32 RemovedCount = 0;
+    for (auto It = RegisteredTargetsById.CreateKeyIterator(TargetId); It; ++It)
+    {
+        Target* Candidate = It.Value();
+        const FManagedTargetSnapshot* Snapshot = Candidate ? ManagedTargetSnapshots.Find(Candidate) : nullptr;
+
+        bool bRemove = (Candidate == nullptr || Snapshot == nullptr);
+        if (!bRemove && Snapshot->bBoundToComponent)
+        {
+            URshipActorRegistrationComponent* BoundComponent = Snapshot->BoundTargetComponent.Get();
+            AActor* Owner = BoundComponent ? BoundComponent->GetOwner() : nullptr;
+            bRemove = !IsValid(BoundComponent) || !IsValid(Owner) || Owner->IsActorBeingDestroyed();
+        }
+
+        if (bRemove)
+        {
+            if (Candidate)
+            {
+                ManagedTargetSnapshots.Remove(Candidate);
+            }
+
+            It.RemoveCurrent();
+            ++RemovedCount;
+        }
+    }
+
+    if (RemovedCount > 0)
+    {
+        UE_LOG(LogRshipExec, Log, TEXT("Pruned stale target refs: id=%s removed=%d"), *TargetId, RemovedCount);
+    }
+
+    return RemovedCount;
+}
+
+FRshipRegisteredTarget URshipSubsystem::EnsureTargetIdentity(const FString& FullTargetId, const FString& DisplayName, const TArray<FString>& ParentTargetIds)
+{
+	if (FullTargetId.IsEmpty())
+	{
+		return FRshipRegisteredTarget();
+	}
+
+	Target* TargetRef = EnsureAutomationTarget(
+		FullTargetId,
+		DisplayName.IsEmpty() ? FullTargetId : DisplayName,
+		ParentTargetIds);
+
+	return TargetRef ? FRshipRegisteredTarget(this, FullTargetId) : FRshipRegisteredTarget();
+}
+
+FRshipRegisteredTarget URshipSubsystem::EnsureActorIdentity(AActor* Actor)
+{
+	if (!Actor)
+	{
+		return FRshipRegisteredTarget();
+	}
+
+	URshipActorRegistrationComponent* Registration = Actor->FindComponentByClass<URshipActorRegistrationComponent>();
+	if (Registration)
+	{
+		// When a registration component exists, it is the canonical source of identity.
+		// Do not fall back to ad-hoc identity generation from actor labels/names.
+		if (!Registration->TargetData)
+		{
+			Registration->Register();
+		}
+
+		if (Registration->TargetData)
+		{
+			return FRshipRegisteredTarget(this, Registration->TargetData->GetId());
+		}
+
+		UE_LOG(LogRshipExec, Verbose,
+			TEXT("EnsureActorIdentity deferred: registration component exists but target not ready for actor '%s'"),
+			*GetNameSafe(Actor));
+		return FRshipRegisteredTarget();
+	}
+
+	const FString DisplayName = GetActorDisplayName(Actor);
+	const FString FullTargetId = GetServiceId() + TEXT(":") + DisplayName;
+	TArray<FString> ParentTargetIds;
+	return EnsureTargetIdentity(FullTargetId, DisplayName, ParentTargetIds);
+}
+
+FRshipTargetRegistrar URshipSubsystem::GetTargetRegistrarForActor(AActor* Actor)
+{
+	FRshipRegisteredTarget RootTarget = EnsureActorIdentity(Actor);
+	if (!RootTarget.IsValid())
+	{
+		return FRshipTargetRegistrar();
+	}
+
+	return FRshipTargetRegistrar(this, RootTarget.GetId());
+}
+
+void URshipSubsystem::RegisterManagedTarget(Target* ManagedTarget)
+{
+    if (!ManagedTarget)
+    {
+        return;
+    }
+
+    if (ManagedTargetSnapshots.Contains(ManagedTarget))
+    {
+        OnManagedTargetChanged(ManagedTarget);
+        return;
+    }
+
+    const FString TargetId = ManagedTarget->GetId();
+    PruneInvalidManagedTargetRefs(TargetId);
+
+    TArray<Target*> ExistingRefs;
+    RegisteredTargetsById.MultiFind(TargetId, ExistingRefs);
+    const int32 ExistingRefCount = ExistingRefs.Num();
+
+    RegisteredTargetsById.Add(TargetId, ManagedTarget);
+    if (ExistingRefCount == 0)
+    {
+        SendTarget(ManagedTarget);
+    }
+    else
+    {
+        UE_LOG(LogRshipExec, Verbose, TEXT("RegisterManagedTarget: '%s' ref++ (count=%d), skipping duplicate online publish"),
+            *TargetId, ExistingRefCount + 1);
+    }
+    ManagedTargetSnapshots.Add(ManagedTarget, BuildManagedTargetSnapshot(ManagedTarget));
+    ProcessMessageQueue();
+}
+
+void URshipSubsystem::UnregisterManagedTarget(Target* ManagedTarget)
+{
+    if (!ManagedTarget)
+    {
+        return;
+    }
+
+    FString TargetId = ManagedTarget->GetId();
+    if (const FManagedTargetSnapshot* ExistingSnapshot = ManagedTargetSnapshots.Find(ManagedTarget))
+    {
+        if (!ExistingSnapshot->Id.IsEmpty())
+        {
+            TargetId = ExistingSnapshot->Id;
+        }
+    }
+
+    int32 RemovedTargetRefs = 0;
+    for (auto It = RegisteredTargetsById.CreateIterator(); It; ++It)
+    {
+        if (It.Value() == ManagedTarget)
+        {
+            It.RemoveCurrent();
+            ++RemovedTargetRefs;
+        }
+    }
+
+    if (ManagedTargetSnapshots.Remove(ManagedTarget) > 0 || RemovedTargetRefs > 0)
+    {
+        PruneInvalidManagedTargetRefs(TargetId);
+
+        TArray<Target*> RemainingRefs;
+        RegisteredTargetsById.MultiFind(TargetId, RemainingRefs);
+        const int32 RemainingRefCount = RemainingRefs.Num();
+
+        if (RemainingRefCount == 0)
+        {
+            DeleteTarget(ManagedTarget);
+            ProcessMessageQueue();
+        }
+        else
+        {
+            UE_LOG(LogRshipExec, Verbose, TEXT("UnregisterManagedTarget: '%s' ref-- (remaining=%d), skipping offline publish"),
+                *TargetId, RemainingRefCount);
+        }
+    }
+}
+
+void URshipSubsystem::OnManagedTargetChanged(Target* ManagedTarget)
+{
+    if (!ManagedTarget)
+    {
+        return;
+    }
+
+    FManagedTargetSnapshot* ExistingSnapshot = ManagedTargetSnapshots.Find(ManagedTarget);
+    if (!ExistingSnapshot)
+    {
+        RegisterManagedTarget(ManagedTarget);
+        return;
+    }
+
+    const TMap<FString, FRshipActionBinding>& CurrentActions = ManagedTarget->GetActions();
+    const TMap<FString, FRshipEmitterBinding>& CurrentEmitters = ManagedTarget->GetEmitters();
+
+    bool bBindingsChanged = false;
+
+    for (const auto& ActionPair : CurrentActions)
+    {
+        if (!ExistingSnapshot->ActionIds.Contains(ActionPair.Key))
+        {
+            bBindingsChanged = true;
+        }
+    }
+
+    for (const auto& EmitterPair : CurrentEmitters)
+    {
+        if (!ExistingSnapshot->EmitterIds.Contains(EmitterPair.Key))
+        {
+            bBindingsChanged = true;
+        }
+    }
+
+    const bool bIdentityChanged =
+        ExistingSnapshot->Id != ManagedTarget->GetId() ||
+        ExistingSnapshot->Name != ManagedTarget->GetName() ||
+        ExistingSnapshot->ParentTargetIds != ManagedTarget->GetParentTargetIds();
+
+    if (bBindingsChanged || bIdentityChanged)
+    {
+        // Republish full target + bindings so target metadata (ActionIds/EmitterIds) stays consistent server-side.
+        SendTarget(ManagedTarget);
+    }
+
+    *ExistingSnapshot = BuildManagedTargetSnapshot(ManagedTarget);
+
+    if (bBindingsChanged || bIdentityChanged)
+    {
+        ProcessMessageQueue();
+    }
+}
+
+Target* URshipSubsystem::EnsureAutomationTarget(const FString& FullTargetId, const FString& Name, const TArray<FString>& ParentTargetIds)
+{
+    if (FullTargetId.IsEmpty())
+    {
+        return nullptr;
+    }
+
+    if (Target* const* Existing = RegisteredTargetsById.Find(FullTargetId))
+    {
+        Target* ExistingTarget = *Existing;
+        if (ExistingTarget)
+        {
+            ExistingTarget->SetName(Name.IsEmpty() ? FullTargetId : Name);
+            ExistingTarget->SetParentTargetIds(ParentTargetIds);
+            return ExistingTarget;
+        }
+    }
+
+    // Identity move: if the same logical automation target is found under an old id,
+    // migrate it to the new id so all existing actions/emitters can be resent with the new targetId.
+    FString PreviousAutomationId;
+    for (const auto& Pair : AutomationOwnedTargets)
+    {
+        Target* Candidate = Pair.Value.Get();
+        if (!Candidate)
+        {
+            continue;
+        }
+
+        if (Candidate->GetName() == (Name.IsEmpty() ? FullTargetId : Name) &&
+            Candidate->GetParentTargetIds() == ParentTargetIds)
+        {
+            PreviousAutomationId = Pair.Key;
+            break;
+        }
+    }
+
+    if (!PreviousAutomationId.IsEmpty() && PreviousAutomationId != FullTargetId)
+    {
+        TUniquePtr<Target> MovedTarget = MoveTemp(AutomationOwnedTargets.FindChecked(PreviousAutomationId));
+        AutomationOwnedTargets.Remove(PreviousAutomationId);
+
+        if (MovedTarget.IsValid())
+        {
+            Target* RawTarget = MovedTarget.Get();
+
+            for (auto It = RegisteredTargetsById.CreateIterator(); It; ++It)
+            {
+                if (It.Value() == RawTarget)
+                {
+                    It.RemoveCurrent();
+                }
+            }
+
+            RegisteredTargetsById.Add(FullTargetId, RawTarget);
+
+            MovedTarget->SetId(FullTargetId);
+            MovedTarget->SetName(Name.IsEmpty() ? FullTargetId : Name);
+            MovedTarget->SetParentTargetIds(ParentTargetIds);
+
+            AutomationOwnedTargets.Add(FullTargetId, MoveTemp(MovedTarget));
+            return RawTarget;
+        }
+    }
+
+    TUniquePtr<Target>& OwnedTarget = AutomationOwnedTargets.FindOrAdd(FullTargetId);
+    if (!OwnedTarget.IsValid())
+    {
+        OwnedTarget = MakeUnique<Target>(FullTargetId, this);
+    }
+
+    OwnedTarget->SetName(Name.IsEmpty() ? FullTargetId : Name);
+    OwnedTarget->SetParentTargetIds(ParentTargetIds);
+    return OwnedTarget.Get();
+}
+
+bool URshipSubsystem::RemoveAutomationTarget(const FString& FullTargetId)
+{
+    if (FullTargetId.IsEmpty())
+    {
+        return false;
+    }
+    return AutomationOwnedTargets.Remove(FullTargetId) > 0;
+}
+
+bool URshipSubsystem::RegisterFunctionActionForTarget(const FString& FullTargetId, UObject* Owner, const FName& FunctionName, const FString& ExposedActionName)
+{
+    if (!Owner)
+    {
+        UE_LOG(LogRshipExec, Warning, TEXT("RegisterFunctionActionForTarget failed: owner is null (target=%s, function=%s)"),
+            *FullTargetId, *FunctionName.ToString());
+        return false;
+    }
+
+    Target* const* TargetPtr = RegisteredTargetsById.Find(FullTargetId);
+    if (!TargetPtr || !*TargetPtr)
+    {
+        UE_LOG(LogRshipExec, Warning, TEXT("RegisterFunctionActionForTarget failed: target not found (%s)"), *FullTargetId);
+        return false;
+    }
+
+    UFunction* Func = Owner->FindFunction(FunctionName);
+    if (!Func)
+    {
+        UE_LOG(LogRshipExec, Warning, TEXT("RegisterFunctionActionForTarget failed: function '%s' not found on '%s'"),
+            *FunctionName.ToString(), *GetNameSafe(Owner));
+        return false;
+    }
+
+    const FString RawName = Func->GetName();
+    if (RawName.Contains(TEXT("__DelegateSignature")))
+    {
+        UE_LOG(LogRshipExec, Verbose, TEXT("RegisterFunctionActionForTarget skipped delegate signature function '%s'"), *RawName);
+        return false;
+    }
+
+    const FString FinalName = ExposedActionName.IsEmpty() ? RawName : ExposedActionName;
+    const FString FullActionId = FullTargetId + TEXT(":") + FinalName;
+
+    Target* TargetRef = *TargetPtr;
+    if (TargetRef->GetActions().Contains(FullActionId))
+    {
+        UE_LOG(LogRshipExec, Verbose, TEXT("RegisterFunctionActionForTarget skipped duplicate action '%s'"), *FullActionId);
+        return false;
+    }
+
+    TargetRef->AddAction(FRshipActionBinding::FromFunction(FullActionId, FinalName, Func, Owner));
+    return true;
+}
+
+bool URshipSubsystem::RegisterPropertyActionForTarget(const FString& FullTargetId, UObject* Owner, const FName& PropertyName, const FString& ExposedActionName)
+{
+    if (!Owner)
+    {
+        UE_LOG(LogRshipExec, Warning, TEXT("RegisterPropertyActionForTarget failed: owner is null (target=%s, property=%s)"),
+            *FullTargetId, *PropertyName.ToString());
+        return false;
+    }
+
+    Target* const* TargetPtr = RegisteredTargetsById.Find(FullTargetId);
+    if (!TargetPtr || !*TargetPtr)
+    {
+        UE_LOG(LogRshipExec, Warning, TEXT("RegisterPropertyActionForTarget failed: target not found (%s)"), *FullTargetId);
+        return false;
+    }
+
+    FProperty* Prop = Owner->GetClass()->FindPropertyByName(PropertyName);
+    if (!Prop || Prop->IsA<FMulticastDelegateProperty>())
+    {
+        UE_LOG(LogRshipExec, Warning, TEXT("RegisterPropertyActionForTarget failed: property '%s' not found/unsupported on '%s'"),
+            *PropertyName.ToString(), *GetNameSafe(Owner));
+        return false;
+    }
+
+    const FString RawName = Prop->GetName();
+    const FString FinalName = ExposedActionName.IsEmpty() ? RawName : ExposedActionName;
+    const FString FullActionId = FullTargetId + TEXT(":") + FinalName;
+
+    Target* TargetRef = *TargetPtr;
+    if (TargetRef->GetActions().Contains(FullActionId))
+    {
+        UE_LOG(LogRshipExec, Verbose, TEXT("RegisterPropertyActionForTarget skipped duplicate action '%s'"), *FullActionId);
+        return false;
+    }
+
+    TargetRef->AddAction(FRshipActionBinding::FromProperty(FullActionId, FinalName, Prop, Owner));
+    return true;
+}
+
+bool URshipSubsystem::RegisterEmitterForTarget(const FString& FullTargetId, UObject* Owner, const FName& DelegateName, const FString& ExposedEmitterName)
+{
+    if (!Owner)
+    {
+        UE_LOG(LogRshipExec, Warning, TEXT("RegisterEmitterForTarget failed: owner is null (target=%s, delegate=%s)"),
+            *FullTargetId, *DelegateName.ToString());
+        return false;
+    }
+
+    Target* const* TargetPtr = RegisteredTargetsById.Find(FullTargetId);
+    if (!TargetPtr || !*TargetPtr)
+    {
+        UE_LOG(LogRshipExec, Warning, TEXT("RegisterEmitterForTarget failed: target not found (%s)"), *FullTargetId);
+        return false;
+    }
+
+    FProperty* Prop = Owner->GetClass()->FindPropertyByName(DelegateName);
+    FMulticastInlineDelegateProperty* EmitterProp = CastField<FMulticastInlineDelegateProperty>(Prop);
+    if (!EmitterProp)
+    {
+        UE_LOG(LogRshipExec, Warning, TEXT("RegisterEmitterForTarget failed: delegate '%s' not found/unsupported on '%s'"),
+            *DelegateName.ToString(), *GetNameSafe(Owner));
+        return false;
+    }
+
+    const FString RawName = EmitterProp->GetName();
+    const FString FinalName = ExposedEmitterName.IsEmpty() ? RawName : ExposedEmitterName;
+    const FString FullEmitterId = FullTargetId + TEXT(":") + FinalName;
+
+    Target* TargetRef = *TargetPtr;
+    if (TargetRef->GetEmitters().Contains(FullEmitterId))
+    {
+        UE_LOG(LogRshipExec, Verbose, TEXT("RegisterEmitterForTarget skipped duplicate emitter '%s'"), *FullEmitterId);
+        return false;
+    }
+
+    TargetRef->AddEmitter(FRshipEmitterBinding::FromDelegateProperty(FullEmitterId, FinalName, EmitterProp));
+    return true;
 }
 
 void URshipSubsystem::SendInstanceInfo()
@@ -1579,56 +2250,47 @@ void URshipSubsystem::SendInstanceInfo()
         *MachineId, *ServiceId, *InstanceId, *ClusterId, *ClientId);
 
     // Send Machine - HIGH priority, coalesce
-    TSharedPtr<FJsonObject> Machine = MakeShareable(new FJsonObject);
-    Machine->SetStringField(TEXT("id"), MachineId);
-    Machine->SetStringField(TEXT("name"), MachineId);
-    Machine->SetStringField(TEXT("execName"), MachineId);
-    // clientId is required but filled by server - send empty string
-    Machine->SetStringField(TEXT("clientId"), TEXT(""));
-    // addresses is required - send empty array (server may populate from connection)
-    TArray<TSharedPtr<FJsonValue>> AddressesJson;
-    Machine->SetArrayField(TEXT("addresses"), AddressesJson);
-    // Hash for optimistic concurrency control (myko protocol requirement)
-    Machine->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
-
-    SetItem("Machine", Machine, ERshipMessagePriority::High, "machine:" + MachineId);
+    FRshipMachineRecord MachineRecord;
+    MachineRecord.Id = MachineId;
+    MachineRecord.Name = MachineId;
+    MachineRecord.ExecName = MachineId;
+    MachineRecord.ClientId = TEXT("");
+    MachineRecord.Hash = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower);
+    SetItem("Machine", FRshipEntitySerializer::ToJson(MachineRecord), ERshipMessagePriority::High, "machine:" + MachineId);
 
     const URshipSettings *Settings = GetDefault<URshipSettings>();
 
     FColor SRGBColor = Settings->ServiceColor.ToFColor(true);
     FString ColorHex = FString::Printf(TEXT("#%02X%02X%02X"), SRGBColor.R, SRGBColor.G, SRGBColor.B);
 
-    // Send Instance - HIGH priority, coalesce
-    TSharedPtr<FJsonObject> Instance = MakeShareable(new FJsonObject);
+    FRshipInstanceRecord InstanceRecord;
+    InstanceRecord.ClientId = ClientId;
+    InstanceRecord.Name = ServiceId;
+    InstanceRecord.Id = InstanceId;
+    InstanceRecord.ClusterId = ClusterId;
+    InstanceRecord.ServiceTypeCode = TEXT("unreal");
+    InstanceRecord.ServiceId = ServiceId;
+    InstanceRecord.MachineId = MachineId;
+    InstanceRecord.Status = TEXT("Available");
+    InstanceRecord.Color = ColorHex;
+    InstanceRecord.Hash = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower);
 
-    Instance->SetStringField(TEXT("clientId"), ClientId);
-    Instance->SetStringField(TEXT("name"), ServiceId);
-    Instance->SetStringField(TEXT("id"), InstanceId);
-    Instance->SetStringField(TEXT("clusterId"), ClusterId);
-    Instance->SetStringField(TEXT("serviceTypeCode"), TEXT("unreal"));
-    Instance->SetStringField(TEXT("serviceId"), ServiceId);
-    Instance->SetStringField(TEXT("machineId"), MachineId);
-    Instance->SetStringField(TEXT("status"), "Available");
-    Instance->SetStringField(TEXT("color"), ColorHex);
-    // Hash for optimistic concurrency control (myko protocol requirement)
-    Instance->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
-
-    SetItem("Instance", Instance, ERshipMessagePriority::High, "instance:" + InstanceId);
+    SetItem("Instance", FRshipEntitySerializer::ToJson(InstanceRecord), ERshipMessagePriority::High, "instance:" + InstanceId);
 }
 
 void URshipSubsystem::SendAll()
 {
-    UE_LOG(LogRshipExec, Log, TEXT("SendAll: %d TargetComponents registered"), TargetComponents ? TargetComponents->Num() : 0);
+    UE_LOG(LogRshipExec, Log, TEXT("SendAll: %d managed targets registered"), ManagedTargetSnapshots.Num());
 
     // Send Machine and Instance info first
     SendInstanceInfo();
 
-    // Send all targets
-    for (auto& Pair : *this->TargetComponents)
+    // Send all managed targets
+    for (const auto& Pair : ManagedTargetSnapshots)
     {
-        if (Pair.Value && Pair.Value->TargetData)
+        if (Pair.Key)
         {
-            SendTarget(Pair.Value->TargetData);
+            SendTarget(Pair.Key);
         }
     }
 
@@ -1646,16 +2308,18 @@ void URshipSubsystem::SendJson(TSharedPtr<FJsonObject> Payload)
 
 void URshipSubsystem::SetItem(FString itemType, TSharedPtr<FJsonObject> data, ERshipMessagePriority Priority, const FString& CoalesceKey)
 {
-    // MakeSet produces the complete WSMEvent format: { event: "ws:m:event", data: { itemType, changeType, item, tx, createdAt } }
-    TSharedPtr<FJsonObject> payload = MakeSet(itemType, data);
+    TSharedPtr<FJsonObject> payload = FRshipMykoTransport::MakeSet(itemType, data, MachineId);
 
-    // Debug: Log registration events to help diagnose protocol issues
-    if (itemType == TEXT("Machine") || itemType == TEXT("Instance") || itemType == TEXT("Target") || itemType == TEXT("TargetStatus"))
+    // Compact logging: type + id only (skip high-frequency pulse traffic).
+    if (itemType != TEXT("Pulse"))
     {
-        FString JsonString;
-        TSharedRef<TJsonWriter<>> JsonWriter = TJsonWriterFactory<>::Create(&JsonString);
-        FJsonSerializer::Serialize(payload.ToSharedRef(), JsonWriter);
-        UE_LOG(LogRshipExec, Log, TEXT("SetItem [%s]: %s"), *itemType, *JsonString);
+        FString ItemId = TEXT("<none>");
+        if (data.IsValid())
+        {
+            data->TryGetStringField(TEXT("id"), ItemId);
+        }
+
+        UE_LOG(LogRshipExec, Log, TEXT("SetItem type=%s id=%s"), *itemType, *ItemId);
     }
 
     // Determine message type for coalescing
@@ -1674,25 +2338,21 @@ void URshipSubsystem::SetItem(FString itemType, TSharedPtr<FJsonObject> data, ER
 
 void URshipSubsystem::PulseEmitter(FString targetId, FString emitterId, TSharedPtr<FJsonObject> data)
 {
-    TSharedPtr<FJsonObject> pulse = MakeShareable(new FJsonObject);
-
     FString fullEmitterId = targetId + ":" + emitterId;
-
-    pulse->SetStringField("emitterId", fullEmitterId);
-    pulse->SetStringField("id", fullEmitterId);
-    pulse->SetObjectField("data", data);
-    // timestamp is REQUIRED - Unix timestamp in milliseconds
     const FDateTime Now = FDateTime::UtcNow();
     const int64 TimestampMs = Now.ToUnixTimestamp() * 1000LL + Now.GetMillisecond();
-    pulse->SetNumberField("timestamp", static_cast<double>(TimestampMs));
-    // clientId is REQUIRED but server fills it - send empty string
-    pulse->SetStringField("clientId", TEXT(""));
-    // hash for optimistic concurrency control (myko protocol requirement)
-    pulse->SetStringField("hash", FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
+
+    FRshipPulseRecord PulseRecord;
+    PulseRecord.EmitterId = fullEmitterId;
+    PulseRecord.Id = fullEmitterId;
+    PulseRecord.Data = data;
+    PulseRecord.TimestampMs = static_cast<double>(TimestampMs);
+    PulseRecord.ClientId = TEXT("");
+    PulseRecord.Hash = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower);
 
     // Emitter pulses coalesce by emitter ID to ensure latest value is always sent
     // This prevents stale data from queueing - only the most recent pulse per emitter is kept
-    SetItem("Pulse", pulse, ERshipMessagePriority::Normal, fullEmitterId);
+    SetItem("Pulse", FRshipEntitySerializer::ToJson(PulseRecord), ERshipMessagePriority::Normal, fullEmitterId);
 
     // Record pulse in health monitor for activity tracking
     if (HealthMonitor)
@@ -1707,26 +2367,22 @@ void URshipSubsystem::PulseEmitter(FString targetId, FString emitterId, TSharedP
     }
 }
 
-EmitterContainer *URshipSubsystem::GetEmitterInfo(FString fullTargetId, FString emitterId)
+const FRshipEmitterBinding* URshipSubsystem::GetEmitterInfo(FString fullTargetId, FString emitterId)
 {
-    // O(1) lookup by target ID
-    URshipTargetComponent* comp = FindTargetComponent(fullTargetId);
-    if (!comp || !comp->TargetData)
+    Target* FoundTarget = nullptr;
+    if (Target* const* FoundPtr = RegisteredTargetsById.Find(fullTargetId))
+    {
+        FoundTarget = *FoundPtr;
+    }
+
+    if (!FoundTarget)
     {
         return nullptr;
     }
 
-    Target* target = comp->TargetData;
     FString fullEmitterId = fullTargetId + ":" + emitterId;
 
-    auto emitters = target->GetEmitters();
-
-    if (!emitters.Contains(fullEmitterId))
-    {
-        return nullptr;
-    }
-
-    return emitters[fullEmitterId];
+    return FoundTarget->GetEmitters().Find(fullEmitterId);
 }
 
 FString URshipSubsystem::GetServiceId()
@@ -1746,7 +2402,7 @@ FString URshipSubsystem::GetInstanceId()
 
 bool URshipSubsystem::IsConnected() const
 {
-    return WebSocket.IsValid() && WebSocket->IsConnected();
+    return bRemoteCommunicationEnabled && WebSocket.IsValid() && WebSocket->IsConnected();
 }
 
 int32 URshipSubsystem::GetQueueLength() const
@@ -2414,7 +3070,7 @@ URshipSpatialAudioManager* URshipSubsystem::GetSpatialAudioManager()
 // TARGET COMPONENT REGISTRY (O(1) LOOKUPS)
 // ============================================================================
 
-void URshipSubsystem::RegisterTargetComponent(URshipTargetComponent* Component)
+void URshipSubsystem::RegisterTargetComponent(URshipActorRegistrationComponent* Component)
 {
     if (!Component || !Component->TargetData)
     {
@@ -2429,54 +3085,62 @@ void URshipSubsystem::RegisterTargetComponent(URshipTargetComponent* Component)
     }
 
     const FString& TargetId = Component->TargetData->GetId();
+
+    for (auto It = TargetComponents->CreateKeyIterator(TargetId); It; ++It)
+    {
+        if (It.Value() == Component)
+        {
+            return;
+        }
+    }
+
     TargetComponents->Add(TargetId, Component);
 
     UE_LOG(LogRshipExec, Log, TEXT("Registered target component: %s (total: %d)"),
         *TargetId, TargetComponents->Num());
 }
 
-void URshipSubsystem::UnregisterTargetComponent(URshipTargetComponent* Component)
+void URshipSubsystem::UnregisterTargetComponent(URshipActorRegistrationComponent* Component)
 {
     if (!Component || !TargetComponents)
     {
         return;
     }
 
-    // Find and remove by value since we might not have TargetData anymore during destruction
-    FString KeyToRemove;
-    for (auto& Pair : *TargetComponents)
+    // Remove all entries that reference this exact component pointer.
+    // A component can be duplicated in the map due to re-registration flows;
+    // only removing one entry leaves stale references behind.
+    int32 RemovedCount = 0;
+    for (auto It = TargetComponents->CreateIterator(); It; ++It)
     {
-        if (Pair.Value == Component)
+        if (It.Value() == Component)
         {
-            KeyToRemove = Pair.Key;
-            break;
+            It.RemoveCurrent();
+            RemovedCount++;
         }
     }
 
-    if (!KeyToRemove.IsEmpty())
+    if (RemovedCount > 0)
     {
-        // RemoveSingle removes exactly one entry matching both key AND value
-        // This is important for TMultiMap where multiple components can share a target ID
-        TargetComponents->RemoveSingle(KeyToRemove, Component);
-        UE_LOG(LogRshipExec, Log, TEXT("Unregistered target component: %s (remaining: %d)"),
-            *KeyToRemove, TargetComponents->Num());
+        UE_LOG(LogRshipExec, Log, TEXT("Unregistered target component refs: %d (remaining: %d)"),
+            RemovedCount, TargetComponents->Num());
     }
 }
 
-URshipTargetComponent* URshipSubsystem::FindTargetComponent(const FString& FullTargetId) const
+URshipActorRegistrationComponent* URshipSubsystem::FindTargetComponent(const FString& FullTargetId) const
 {
     if (!TargetComponents)
     {
         return nullptr;
     }
 
-    URshipTargetComponent* const* Found = TargetComponents->Find(FullTargetId);
+    URshipActorRegistrationComponent* const* Found = TargetComponents->Find(FullTargetId);
     return Found ? *Found : nullptr;
 }
 
-TArray<URshipTargetComponent*> URshipSubsystem::FindAllTargetComponents(const FString& FullTargetId) const
+TArray<URshipActorRegistrationComponent*> URshipSubsystem::FindAllTargetComponents(const FString& FullTargetId) const
 {
-    TArray<URshipTargetComponent*> Result;
+    TArray<URshipActorRegistrationComponent*> Result;
     if (TargetComponents)
     {
         TargetComponents->MultiFind(FullTargetId, Result);

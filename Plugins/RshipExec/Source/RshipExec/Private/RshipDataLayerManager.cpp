@@ -2,7 +2,7 @@
 
 #include "RshipDataLayerManager.h"
 #include "RshipSubsystem.h"
-#include "RshipTargetComponent.h"
+#include "RshipActorRegistrationComponent.h"
 #include "RshipTargetGroup.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
@@ -64,7 +64,7 @@ TArray<FRshipDataLayerInfo> URshipDataLayerManager::GetAllDataLayers()
 	{
 		for (auto& Pair : *Subsystem->TargetComponents)
 		{
-			URshipTargetComponent* Comp = Pair.Value;
+			URshipActorRegistrationComponent* Comp = Pair.Value;
 			if (!Comp || !Comp->GetOwner()) continue;
 
 			TArray<const UDataLayerInstance*> ActorDataLayers = Comp->GetOwner()->GetDataLayerInstances();
@@ -114,7 +114,7 @@ TArray<FRshipDataLayerInfo> URshipDataLayerManager::GetAllDataLayers()
 			Info.DataLayerAssetName = Asset->GetName();
 		}
 
-		TArray<URshipTargetComponent*> Targets = GetTargetsForDataLayerInstance(DataLayer);
+		TArray<URshipActorRegistrationComponent*> Targets = GetTargetsForDataLayerInstance(DataLayer);
 		Info.TargetCount = Targets.Num();
 
 		Result.Add(Info);
@@ -145,26 +145,26 @@ FRshipDataLayerInfo URshipDataLayerManager::GetDataLayerInfo(const FString& Data
 		Info.DataLayerAssetName = Asset->GetName();
 	}
 
-	TArray<URshipTargetComponent*> Targets = GetTargetsForDataLayerInstance(DataLayer);
+	TArray<URshipActorRegistrationComponent*> Targets = GetTargetsForDataLayerInstance(DataLayer);
 	Info.TargetCount = Targets.Num();
 
 	return Info;
 }
 
-TArray<URshipTargetComponent*> URshipDataLayerManager::GetTargetsInDataLayer(const FString& DataLayerName)
+TArray<URshipActorRegistrationComponent*> URshipDataLayerManager::GetTargetsInDataLayer(const FString& DataLayerName)
 {
 	const UDataLayerInstance* DataLayer = FindDataLayerByName(DataLayerName);
 	if (!DataLayer)
 	{
-		return TArray<URshipTargetComponent*>();
+		return TArray<URshipActorRegistrationComponent*>();
 	}
 
 	return GetTargetsForDataLayerInstance(DataLayer);
 }
 
-TArray<URshipTargetComponent*> URshipDataLayerManager::GetTargetsByDataLayerPattern(const FString& WildcardPattern)
+TArray<URshipActorRegistrationComponent*> URshipDataLayerManager::GetTargetsByDataLayerPattern(const FString& WildcardPattern)
 {
-	TArray<URshipTargetComponent*> Result;
+	TArray<URshipActorRegistrationComponent*> Result;
 
 	if (!Subsystem || !Subsystem->TargetComponents) return Result;
 
@@ -174,7 +174,7 @@ TArray<URshipTargetComponent*> URshipDataLayerManager::GetTargetsByDataLayerPatt
 
 	for (auto& Pair : *Subsystem->TargetComponents)
 	{
-		URshipTargetComponent* Comp = Pair.Value;
+		URshipActorRegistrationComponent* Comp = Pair.Value;
 		if (!Comp || !Comp->GetOwner()) continue;
 
 		TArray<const UDataLayerInstance*> ActorDataLayers = Comp->GetOwner()->GetDataLayerInstances();
@@ -218,7 +218,7 @@ TArray<URshipTargetComponent*> URshipDataLayerManager::GetTargetsByDataLayerPatt
 	return Result;
 }
 
-TArray<FString> URshipDataLayerManager::GetTargetDataLayers(URshipTargetComponent* Target)
+TArray<FString> URshipDataLayerManager::GetTargetDataLayers(URshipActorRegistrationComponent* Target)
 {
 	TArray<FString> Result;
 
@@ -275,9 +275,9 @@ EDataLayerRuntimeState URshipDataLayerManager::GetDataLayerState(const FString& 
 
 int32 URshipDataLayerManager::ReregisterTargetsInDataLayer(const FString& DataLayerName)
 {
-	TArray<URshipTargetComponent*> Targets = GetTargetsInDataLayer(DataLayerName);
+	TArray<URshipActorRegistrationComponent*> Targets = GetTargetsInDataLayer(DataLayerName);
 
-	for (URshipTargetComponent* Target : Targets)
+	for (URshipActorRegistrationComponent* Target : Targets)
 	{
 		if (Target)
 		{
@@ -293,10 +293,10 @@ int32 URshipDataLayerManager::ReregisterTargetsInDataLayer(const FString& DataLa
 
 int32 URshipDataLayerManager::AddTagToDataLayerTargets(const FString& DataLayerName, const FString& Tag)
 {
-	TArray<URshipTargetComponent*> Targets = GetTargetsInDataLayer(DataLayerName);
+	TArray<URshipActorRegistrationComponent*> Targets = GetTargetsInDataLayer(DataLayerName);
 	int32 Count = 0;
 
-	for (URshipTargetComponent* Target : Targets)
+	for (URshipActorRegistrationComponent* Target : Targets)
 	{
 		if (Target && !Target->HasTag(Tag))
 		{
@@ -313,12 +313,12 @@ int32 URshipDataLayerManager::AddTagToDataLayerTargets(const FString& DataLayerN
 
 int32 URshipDataLayerManager::RemoveTagFromDataLayerTargets(const FString& DataLayerName, const FString& Tag)
 {
-	TArray<URshipTargetComponent*> Targets = GetTargetsInDataLayer(DataLayerName);
+	TArray<URshipActorRegistrationComponent*> Targets = GetTargetsInDataLayer(DataLayerName);
 	int32 Count = 0;
 
 	FString NormalizedTag = Tag.ToLower().TrimStartAndEnd();
 
-	for (URshipTargetComponent* Target : Targets)
+	for (URshipActorRegistrationComponent* Target : Targets)
 	{
 		if (!Target) continue;
 
@@ -342,13 +342,13 @@ int32 URshipDataLayerManager::AddDataLayerTargetsToGroup(const FString& DataLaye
 {
 	if (!Subsystem) return 0;
 
-	TArray<URshipTargetComponent*> Targets = GetTargetsInDataLayer(DataLayerName);
+	TArray<URshipActorRegistrationComponent*> Targets = GetTargetsInDataLayer(DataLayerName);
 
 	URshipTargetGroupManager* GroupManager = Subsystem->GetGroupManager();
 	if (!GroupManager) return 0;
 
 	int32 Count = 0;
-	for (URshipTargetComponent* Target : Targets)
+	for (URshipActorRegistrationComponent* Target : Targets)
 	{
 		if (Target)
 		{
@@ -380,7 +380,7 @@ void URshipDataLayerManager::SetAutoDataLayerTagging(bool bEnabled)
 		// Apply Data Layer tags to all existing targets
 		for (auto& Pair : *Subsystem->TargetComponents)
 		{
-			URshipTargetComponent* Comp = Pair.Value;
+			URshipActorRegistrationComponent* Comp = Pair.Value;
 			if (Comp)
 			{
 				TArray<FString> DataLayers = GetTargetDataLayers(Comp);
@@ -427,7 +427,7 @@ void URshipDataLayerManager::SetAutoDataLayerTagPrefix(const FString& Prefix)
 
 		for (auto& Pair : *Subsystem->TargetComponents)
 		{
-			URshipTargetComponent* Comp = Pair.Value;
+			URshipActorRegistrationComponent* Comp = Pair.Value;
 			if (Comp)
 			{
 				TArray<FString> DataLayers = GetTargetDataLayers(Comp);
@@ -492,8 +492,8 @@ int32 URshipDataLayerManager::CreateGroupsForAllDataLayers()
 		}
 
 		// Add all targets from this data layer to the group
-		TArray<URshipTargetComponent*> Targets = GetTargetsInDataLayer(Info.DataLayerName);
-		for (URshipTargetComponent* Target : Targets)
+		TArray<URshipActorRegistrationComponent*> Targets = GetTargetsInDataLayer(Info.DataLayerName);
+		for (URshipActorRegistrationComponent* Target : Targets)
 		{
 			if (Target)
 			{
@@ -549,9 +549,9 @@ void URshipDataLayerManager::RegisterDataLayerTargets(const UDataLayerInstance* 
 	if (!DataLayer || !Subsystem) return;
 
 	FString DataLayerName = DataLayer->GetDataLayerShortName();
-	TArray<URshipTargetComponent*> Targets = GetTargetsForDataLayerInstance(DataLayer);
+	TArray<URshipActorRegistrationComponent*> Targets = GetTargetsForDataLayerInstance(DataLayer);
 
-	for (URshipTargetComponent* Target : Targets)
+	for (URshipActorRegistrationComponent* Target : Targets)
 	{
 		if (Target)
 		{
@@ -588,9 +588,9 @@ void URshipDataLayerManager::UnregisterDataLayerTargets(const UDataLayerInstance
 	if (!DataLayer || !Subsystem) return;
 
 	FString DataLayerName = DataLayer->GetDataLayerShortName();
-	TArray<URshipTargetComponent*> Targets = GetTargetsForDataLayerInstance(DataLayer);
+	TArray<URshipActorRegistrationComponent*> Targets = GetTargetsForDataLayerInstance(DataLayer);
 
-	for (URshipTargetComponent* Target : Targets)
+	for (URshipActorRegistrationComponent* Target : Targets)
 	{
 		if (Target)
 		{
@@ -600,7 +600,7 @@ void URshipDataLayerManager::UnregisterDataLayerTargets(const UDataLayerInstance
 				RemoveAutoDataLayerTags(Target);
 			}
 
-			// Note: URshipTargetComponent unregisters automatically via OnComponentDestroyed
+			// Note: URshipActorRegistrationComponent unregisters automatically via OnComponentDestroyed
 		}
 	}
 
@@ -612,7 +612,7 @@ void URshipDataLayerManager::UnregisterDataLayerTargets(const UDataLayerInstance
 // INTERNAL HELPERS
 // ============================================================================
 
-void URshipDataLayerManager::ApplyAutoDataLayerTag(URshipTargetComponent* Target, const FString& DataLayerName)
+void URshipDataLayerManager::ApplyAutoDataLayerTag(URshipActorRegistrationComponent* Target, const FString& DataLayerName)
 {
 	if (!Target) return;
 
@@ -624,7 +624,7 @@ void URshipDataLayerManager::ApplyAutoDataLayerTag(URshipTargetComponent* Target
 	}
 }
 
-void URshipDataLayerManager::RemoveAutoDataLayerTags(URshipTargetComponent* Target)
+void URshipDataLayerManager::RemoveAutoDataLayerTags(URshipActorRegistrationComponent* Target)
 {
 	if (!Target) return;
 
@@ -638,9 +638,9 @@ void URshipDataLayerManager::RemoveAutoDataLayerTags(URshipTargetComponent* Targ
 	}
 }
 
-TArray<URshipTargetComponent*> URshipDataLayerManager::GetTargetsForDataLayerInstance(const UDataLayerInstance* DataLayer)
+TArray<URshipActorRegistrationComponent*> URshipDataLayerManager::GetTargetsForDataLayerInstance(const UDataLayerInstance* DataLayer)
 {
-	TArray<URshipTargetComponent*> Result;
+	TArray<URshipActorRegistrationComponent*> Result;
 
 	if (!DataLayer || !Subsystem || !Subsystem->TargetComponents)
 	{
@@ -649,7 +649,7 @@ TArray<URshipTargetComponent*> URshipDataLayerManager::GetTargetsForDataLayerIns
 
 	for (auto& Pair : *Subsystem->TargetComponents)
 	{
-		URshipTargetComponent* Comp = Pair.Value;
+		URshipActorRegistrationComponent* Comp = Pair.Value;
 		if (!Comp || !Comp->GetOwner()) continue;
 
 		// Check if this actor belongs to the Data Layer
@@ -704,3 +704,4 @@ UDataLayerSubsystem* URshipDataLayerManager::GetDataLayerSubsystem() const
 
 	return World->GetSubsystem<UDataLayerSubsystem>();
 }
+

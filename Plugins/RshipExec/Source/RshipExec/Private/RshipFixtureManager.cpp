@@ -2,6 +2,7 @@
 
 #include "RshipFixtureManager.h"
 #include "RshipSubsystem.h"
+#include "Transport/RshipMykoTransport.h"
 #include "Logs.h"
 
 void URshipFixtureManager::Initialize(URshipSubsystem* InSubsystem)
@@ -356,20 +357,10 @@ bool URshipFixtureManager::UnregisterFixture(const FString& FixtureId)
         return false;
     }
 
-    // Send DELETE command
+    // Send DELETE command using ws:m:event + changeType=DEL
     TSharedPtr<FJsonObject> DeleteJson = MakeShareable(new FJsonObject);
     DeleteJson->SetStringField(TEXT("id"), FixtureId);
-
-    // Build delete event
-    TSharedPtr<FJsonObject> EventData = MakeShareable(new FJsonObject);
-    EventData->SetStringField(TEXT("itemType"), TEXT("Fixture"));
-    EventData->SetObjectField(TEXT("item"), DeleteJson);
-
-    TSharedPtr<FJsonObject> Event = MakeShareable(new FJsonObject);
-    Event->SetStringField(TEXT("event"), TEXT("ws:m:del"));
-    Event->SetObjectField(TEXT("data"), EventData);
-
-    Subsystem->SendJson(Event);
+    Subsystem->SendJson(FRshipMykoTransport::MakeDel(TEXT("Fixture"), DeleteJson));
 
     // Remove from local cache
     if (Fixtures.Remove(FixtureId) > 0)

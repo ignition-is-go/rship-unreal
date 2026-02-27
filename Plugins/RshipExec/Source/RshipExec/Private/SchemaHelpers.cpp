@@ -84,7 +84,7 @@ static FString FormatStructForUnrealArg(const SchemaNode &SchemaProp, const TSha
 
 static FString FormatValueForUnrealArg(const SchemaNode &SchemaProp, const TSharedPtr<FJsonValue> &JsonVal, bool bQuoteStrings)
 {
-    if (SchemaProp.Type == TEXT("StructProperty"))
+    if (SchemaProp.Type.EndsWith(TEXT("StructProperty")))
     {
         const TSharedPtr<FJsonObject> AsObj = (JsonVal.IsValid() && JsonVal->Type == EJson::Object) ? JsonVal->AsObject() : MakeShareable(new FJsonObject());
         return FormatStructForUnrealArg(SchemaProp, AsObj, bQuoteStrings);

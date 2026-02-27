@@ -9,7 +9,7 @@
 
 // Forward declarations
 class URshipSubsystem;
-class URshipTargetComponent;
+class URshipActorRegistrationComponent;
 
 /**
  * Selection sync mode
@@ -84,11 +84,11 @@ public:
 
 	/** Select actors in Editor viewport by their Rship target components */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Editor|Selection")
-	int32 SelectActorsInEditor(const TArray<URshipTargetComponent*>& Targets);
+	int32 SelectActorsInEditor(const TArray<URshipActorRegistrationComponent*>& Targets);
 
 	/** Get Rship target components from currently selected Editor actors */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Editor|Selection")
-	TArray<URshipTargetComponent*> GetTargetsFromEditorSelection();
+	TArray<URshipActorRegistrationComponent*> GetTargetsFromEditorSelection();
 
 	// ========================================================================
 	// VIEWPORT FOCUS
@@ -100,7 +100,7 @@ public:
 
 	/** Focus the Editor viewport on specific targets */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Editor|Selection")
-	void FocusOnTargets(const TArray<URshipTargetComponent*>& Targets);
+	void FocusOnTargets(const TArray<URshipActorRegistrationComponent*>& Targets);
 
 	// ========================================================================
 	// EVENTS
@@ -138,3 +138,4 @@ private:
 	/** Current sync mode */
 	ERshipSelectionSyncMode SyncMode = ERshipSelectionSyncMode::Disabled;
 };
+

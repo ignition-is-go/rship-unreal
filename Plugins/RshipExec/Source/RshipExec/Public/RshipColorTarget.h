@@ -13,7 +13,7 @@
 
 #include "RshipColorTarget.generated.h"
 
-class URshipTargetComponent;
+class URshipActorRegistrationComponent;
 class URshipColorManagementSubsystem;
 
 /**
@@ -60,7 +60,7 @@ public:
 
 	/** Rship target component for auto-registration */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Rship|Components")
-	URshipTargetComponent* TargetComponent;
+	URshipActorRegistrationComponent* TargetComponent;
 
 	// ========================================================================
 	// CONFIGURATION
@@ -214,3 +214,4 @@ private:
 	/** Unbind from color management subsystem */
 	void UnbindFromColorSubsystem();
 };
+

@@ -9,7 +9,7 @@
 
 // Forward declarations
 class URshipSubsystem;
-class URshipTargetComponent;
+class URshipActorRegistrationComponent;
 
 /**
  * Snapshot of a single emitter's values at a point in time
@@ -122,7 +122,7 @@ public:
 
 	/** Capture a preset from specific targets */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Presets")
-	FRshipPreset CapturePreset(const FString& Name, const TArray<URshipTargetComponent*>& Targets);
+	FRshipPreset CapturePreset(const FString& Name, const TArray<URshipActorRegistrationComponent*>& Targets);
 
 	/** Capture a preset from targets with a specific tag */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Presets")
@@ -273,3 +273,4 @@ private:
 	FRshipPreset InterpolationToPreset;
 	FTimerHandle InterpolationTimerHandle;
 };
+

@@ -2,7 +2,7 @@
 
 #include "SRshipTestPanel.h"
 #include "RshipSubsystem.h"
-#include "RshipTargetComponent.h"
+#include "RshipActorRegistrationComponent.h"
 #include "RshipTestUtilities.h"
 
 #include "Widgets/Layout/SBox.h"
@@ -1177,3 +1177,4 @@ URshipTestUtilities* SRshipTestPanel::GetTestUtilities()
 }
 
 #undef LOCTEXT_NAMESPACE
+

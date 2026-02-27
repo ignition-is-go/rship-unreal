@@ -9,7 +9,7 @@
 
 // Forward declarations
 class URshipSubsystem;
-class URshipTargetComponent;
+class URshipActorRegistrationComponent;
 class ULevel;
 class UWorld;
 
@@ -89,19 +89,19 @@ public:
 
 	/** Get all targets in a specific level */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Levels")
-	TArray<URshipTargetComponent*> GetTargetsInLevel(const FString& LevelName);
+	TArray<URshipActorRegistrationComponent*> GetTargetsInLevel(const FString& LevelName);
 
 	/** Get all targets in the persistent level */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Levels")
-	TArray<URshipTargetComponent*> GetTargetsInPersistentLevel();
+	TArray<URshipActorRegistrationComponent*> GetTargetsInPersistentLevel();
 
 	/** Get all targets in currently loaded streaming levels */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Levels")
-	TArray<URshipTargetComponent*> GetTargetsInStreamingLevels();
+	TArray<URshipActorRegistrationComponent*> GetTargetsInStreamingLevels();
 
 	/** Get the level a target belongs to */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Levels")
-	FString GetTargetLevel(URshipTargetComponent* Target);
+	FString GetTargetLevel(URshipActorRegistrationComponent* Target);
 
 	/** Check if a level is currently loaded */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Levels")
@@ -187,10 +187,10 @@ private:
 	FString GetLevelShortName(const FString& LevelPath) const;
 
 	/** Apply auto level tag to a target */
-	void ApplyAutoLevelTag(URshipTargetComponent* Target, const FString& LevelName);
+	void ApplyAutoLevelTag(URshipActorRegistrationComponent* Target, const FString& LevelName);
 
 	/** Remove auto level tag from a target */
-	void RemoveAutoLevelTag(URshipTargetComponent* Target);
+	void RemoveAutoLevelTag(URshipActorRegistrationComponent* Target);
 
 	/** Reference to subsystem */
 	UPROPERTY()
@@ -209,3 +209,4 @@ private:
 	FDelegateHandle LevelAddedHandle;
 	FDelegateHandle LevelRemovedHandle;
 };
+

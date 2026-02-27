@@ -10,7 +10,7 @@
 
 // Forward declarations
 class URshipSubsystem;
-class URshipTargetComponent;
+class URshipActorRegistrationComponent;
 class UDataLayerInstance;
 class UDataLayerAsset;
 class UDataLayerSubsystem;
@@ -91,15 +91,15 @@ public:
 
 	/** Get all targets in a specific Data Layer */
 	UFUNCTION(BlueprintCallable, Category = "Rship|DataLayers")
-	TArray<URshipTargetComponent*> GetTargetsInDataLayer(const FString& DataLayerName);
+	TArray<URshipActorRegistrationComponent*> GetTargetsInDataLayer(const FString& DataLayerName);
 
 	/** Get all targets in Data Layers matching a pattern */
 	UFUNCTION(BlueprintCallable, Category = "Rship|DataLayers")
-	TArray<URshipTargetComponent*> GetTargetsByDataLayerPattern(const FString& WildcardPattern);
+	TArray<URshipActorRegistrationComponent*> GetTargetsByDataLayerPattern(const FString& WildcardPattern);
 
 	/** Get the Data Layers a target belongs to */
 	UFUNCTION(BlueprintCallable, Category = "Rship|DataLayers")
-	TArray<FString> GetTargetDataLayers(URshipTargetComponent* Target);
+	TArray<FString> GetTargetDataLayers(URshipActorRegistrationComponent* Target);
 
 	/** Check if a Data Layer is currently loaded */
 	UFUNCTION(BlueprintCallable, Category = "Rship|DataLayers")
@@ -192,13 +192,13 @@ private:
 	void UnregisterDataLayerTargets(const UDataLayerInstance* DataLayer);
 
 	/** Apply auto Data Layer tag to a target */
-	void ApplyAutoDataLayerTag(URshipTargetComponent* Target, const FString& DataLayerName);
+	void ApplyAutoDataLayerTag(URshipActorRegistrationComponent* Target, const FString& DataLayerName);
 
 	/** Remove auto Data Layer tags from a target */
-	void RemoveAutoDataLayerTags(URshipTargetComponent* Target);
+	void RemoveAutoDataLayerTags(URshipActorRegistrationComponent* Target);
 
 	/** Get all targets that belong to a specific Data Layer instance */
-	TArray<URshipTargetComponent*> GetTargetsForDataLayerInstance(const UDataLayerInstance* DataLayer);
+	TArray<URshipActorRegistrationComponent*> GetTargetsForDataLayerInstance(const UDataLayerInstance* DataLayer);
 
 	/** Find Data Layer instance by name */
 	const UDataLayerInstance* FindDataLayerByName(const FString& DataLayerName) const;
@@ -225,3 +225,4 @@ private:
 	/** Delegate handle for state changes */
 	FDelegateHandle DataLayerStateChangedHandle;
 };
+

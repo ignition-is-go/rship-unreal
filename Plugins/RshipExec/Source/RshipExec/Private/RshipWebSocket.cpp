@@ -114,12 +114,12 @@ bool FRshipWebSocket::Send(const FString& Message)
     if (IXSocket)
     {
         std::string StdMsg = TCHAR_TO_UTF8(*Message);
-        UE_LOG(LogRshipExec, Log, TEXT("RshipWebSocket::Send IXWebSocket sending %d bytes, readyState=%d"),
+        UE_LOG(LogRshipExec, VeryVerbose, TEXT("RshipWebSocket::Send IXWebSocket sending %d bytes, readyState=%d"),
             StdMsg.length(), (int)IXSocket->getReadyState());
 
         ix::WebSocketSendInfo info = IXSocket->send(StdMsg);
 
-        UE_LOG(LogRshipExec, Log, TEXT("RshipWebSocket::Send result: success=%d, payloadSize=%d, wireSize=%d, compressionError=%d"),
+        UE_LOG(LogRshipExec, VeryVerbose, TEXT("RshipWebSocket::Send result: success=%d, payloadSize=%d, wireSize=%d, compressionError=%d"),
             info.success, (int)info.payloadSize, (int)info.wireSize, info.compressionError);
 
         if (info.success && OnMessageSent.IsBound())
@@ -136,13 +136,13 @@ bool FRshipWebSocket::Send(const FString& Message)
     // Queue for background thread to send
     if (SocketThread)
     {
-        UE_LOG(LogRshipExec, Log, TEXT("RshipWebSocket::Send UE queuing %d bytes to background thread"), Message.Len());
+        UE_LOG(LogRshipExec, VeryVerbose, TEXT("RshipWebSocket::Send UE queuing %d bytes to background thread"), Message.Len());
         SocketThread->QueueSend(Message);
         return true;
     }
     else if (UEWebSocket && UEWebSocket->IsConnected())
     {
-        UE_LOG(LogRshipExec, Log, TEXT("RshipWebSocket::Send UE direct sending %d bytes"), Message.Len());
+        UE_LOG(LogRshipExec, VeryVerbose, TEXT("RshipWebSocket::Send UE direct sending %d bytes"), Message.Len());
         UEWebSocket->Send(Message);
         if (OnMessageSent.IsBound())
         {
@@ -295,7 +295,7 @@ void FRshipWebSocket::SetupIXWebSocket(const FRshipWebSocketConfig& Config)
         case ix::WebSocketMessageType::Message:
             {
                 FString Message = UTF8_TO_TCHAR(msg->str.c_str());
-                UE_LOG(LogRshipExec, Log, TEXT("RshipWebSocket: Received message (%d bytes)"), Message.Len());
+                UE_LOG(LogRshipExec, VeryVerbose, TEXT("RshipWebSocket: Received message (%d bytes)"), Message.Len());
 
                 AsyncTask(ENamedThreads::GameThread, [this, Message]()
                 {
@@ -489,3 +489,4 @@ int32 FRshipWebSocketServiceThread::GetPendingCount() const
 }
 
 #endif // !RSHIP_USE_IXWEBSOCKET
+

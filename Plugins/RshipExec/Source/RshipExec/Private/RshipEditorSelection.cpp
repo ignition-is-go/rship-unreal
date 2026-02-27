@@ -2,7 +2,7 @@
 
 #include "RshipEditorSelection.h"
 #include "RshipSubsystem.h"
-#include "RshipTargetComponent.h"
+#include "RshipActorRegistrationComponent.h"
 #include "RshipBulkOperations.h"
 
 #if WITH_EDITOR
@@ -80,7 +80,7 @@ int32 URshipEditorSelection::SyncEditorToRship()
 
 	bIsSyncing = true;
 
-	TArray<URshipTargetComponent*> Targets = GetTargetsFromEditorSelection();
+	TArray<URshipActorRegistrationComponent*> Targets = GetTargetsFromEditorSelection();
 
 	// Clear and set Rship selection
 	URshipBulkOperations::ClearSelection();
@@ -106,7 +106,7 @@ int32 URshipEditorSelection::SyncRshipToEditor()
 
 	bIsSyncing = true;
 
-	TArray<URshipTargetComponent*> Targets = URshipBulkOperations::GetSelectedTargets();
+	TArray<URshipActorRegistrationComponent*> Targets = URshipBulkOperations::GetSelectedTargets();
 	int32 Count = SelectActorsInEditor(Targets);
 
 	bIsSyncing = false;
@@ -122,7 +122,7 @@ int32 URshipEditorSelection::SyncRshipToEditor()
 #endif
 }
 
-int32 URshipEditorSelection::SelectActorsInEditor(const TArray<URshipTargetComponent*>& Targets)
+int32 URshipEditorSelection::SelectActorsInEditor(const TArray<URshipActorRegistrationComponent*>& Targets)
 {
 #if WITH_EDITOR
 	if (!GEditor) return 0;
@@ -134,7 +134,7 @@ int32 URshipEditorSelection::SelectActorsInEditor(const TArray<URshipTargetCompo
 	GEditor->SelectNone(false, true, false);
 
 	int32 Count = 0;
-	for (URshipTargetComponent* Target : Targets)
+	for (URshipActorRegistrationComponent* Target : Targets)
 	{
 		if (Target && Target->GetOwner())
 		{
@@ -152,9 +152,9 @@ int32 URshipEditorSelection::SelectActorsInEditor(const TArray<URshipTargetCompo
 #endif
 }
 
-TArray<URshipTargetComponent*> URshipEditorSelection::GetTargetsFromEditorSelection()
+TArray<URshipActorRegistrationComponent*> URshipEditorSelection::GetTargetsFromEditorSelection()
 {
-	TArray<URshipTargetComponent*> Result;
+	TArray<URshipActorRegistrationComponent*> Result;
 
 #if WITH_EDITOR
 	if (!GEditor) return Result;
@@ -167,7 +167,7 @@ TArray<URshipTargetComponent*> URshipEditorSelection::GetTargetsFromEditorSelect
 		AActor* Actor = Cast<AActor>(*It);
 		if (Actor)
 		{
-			URshipTargetComponent* Target = Actor->FindComponentByClass<URshipTargetComponent>();
+			URshipActorRegistrationComponent* Target = Actor->FindComponentByClass<URshipActorRegistrationComponent>();
 			if (Target)
 			{
 				Result.Add(Target);
@@ -185,11 +185,11 @@ TArray<URshipTargetComponent*> URshipEditorSelection::GetTargetsFromEditorSelect
 
 void URshipEditorSelection::FocusOnSelectedTargets()
 {
-	TArray<URshipTargetComponent*> Targets = URshipBulkOperations::GetSelectedTargets();
+	TArray<URshipActorRegistrationComponent*> Targets = URshipBulkOperations::GetSelectedTargets();
 	FocusOnTargets(Targets);
 }
 
-void URshipEditorSelection::FocusOnTargets(const TArray<URshipTargetComponent*>& Targets)
+void URshipEditorSelection::FocusOnTargets(const TArray<URshipActorRegistrationComponent*>& Targets)
 {
 #if WITH_EDITOR
 	if (!GEditor || Targets.Num() == 0) return;
@@ -198,7 +198,7 @@ void URshipEditorSelection::FocusOnTargets(const TArray<URshipTargetComponent*>&
 	FBox BoundingBox(ForceInit);
 	bool bHasValidBounds = false;
 
-	for (URshipTargetComponent* Target : Targets)
+	for (URshipActorRegistrationComponent* Target : Targets)
 	{
 		if (Target && Target->GetOwner())
 		{
@@ -310,3 +310,4 @@ void URshipEditorSelection::UnbindEditorEvents()
 }
 
 #endif // WITH_EDITOR
+

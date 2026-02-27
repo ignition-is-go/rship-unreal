@@ -8,7 +8,7 @@
 #include "RshipBulkOperations.generated.h"
 
 // Forward declarations
-class URshipTargetComponent;
+class URshipActorRegistrationComponent;
 class URshipSubsystem;
 
 /**
@@ -66,7 +66,7 @@ public:
 
 	/** Select multiple targets at once */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Bulk|Selection")
-	static void SelectTargets(const TArray<URshipTargetComponent*>& Targets);
+	static void SelectTargets(const TArray<URshipActorRegistrationComponent*>& Targets);
 
 	/** Select all targets with a specific tag */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Bulk|Selection")
@@ -82,15 +82,15 @@ public:
 
 	/** Add targets to the current selection */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Bulk|Selection")
-	static void AddToSelection(const TArray<URshipTargetComponent*>& Targets);
+	static void AddToSelection(const TArray<URshipActorRegistrationComponent*>& Targets);
 
 	/** Remove targets from the current selection */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Bulk|Selection")
-	static void RemoveFromSelection(const TArray<URshipTargetComponent*>& Targets);
+	static void RemoveFromSelection(const TArray<URshipActorRegistrationComponent*>& Targets);
 
 	/** Get all currently selected targets */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Bulk|Selection")
-	static TArray<URshipTargetComponent*> GetSelectedTargets();
+	static TArray<URshipActorRegistrationComponent*> GetSelectedTargets();
 
 	/** Get the number of selected targets */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Bulk|Selection")
@@ -122,7 +122,7 @@ public:
 
 	/** Add a tag to specific targets */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Bulk|Tags")
-	static int32 BulkAddTagToTargets(const TArray<URshipTargetComponent*>& Targets, const FString& Tag);
+	static int32 BulkAddTagToTargets(const TArray<URshipActorRegistrationComponent*>& Targets, const FString& Tag);
 
 	/** Remove a tag from all selected targets */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Bulk|Tags")
@@ -130,7 +130,7 @@ public:
 
 	/** Remove a tag from specific targets */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Bulk|Tags")
-	static int32 BulkRemoveTagFromTargets(const TArray<URshipTargetComponent*>& Targets, const FString& Tag);
+	static int32 BulkRemoveTagFromTargets(const TArray<URshipActorRegistrationComponent*>& Targets, const FString& Tag);
 
 	/** Replace one tag with another on all selected targets */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Bulk|Tags")
@@ -170,7 +170,7 @@ public:
 
 	/** Copy configuration from a target */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Bulk|CopyPaste")
-	static FRshipTargetConfig CopyTargetConfig(URshipTargetComponent* Source);
+	static FRshipTargetConfig CopyTargetConfig(URshipActorRegistrationComponent* Source);
 
 	/** Paste configuration to all selected targets */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Bulk|CopyPaste")
@@ -178,7 +178,7 @@ public:
 
 	/** Paste configuration to specific targets */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Bulk|CopyPaste")
-	static int32 PasteTargetConfigToTargets(const TArray<URshipTargetComponent*>& Targets, const FRshipTargetConfig& Config, bool bPasteTags = true, bool bPasteGroups = true);
+	static int32 PasteTargetConfigToTargets(const TArray<URshipActorRegistrationComponent*>& Targets, const FRshipTargetConfig& Config, bool bPasteTags = true, bool bPasteGroups = true);
 
 	// ========================================================================
 	// FIND AND REPLACE
@@ -197,15 +197,16 @@ public:
 	// ========================================================================
 
 	/** Get targets that match a filter predicate (for advanced filtering in C++) */
-	static TArray<URshipTargetComponent*> FilterTargets(TFunction<bool(URshipTargetComponent*)> Predicate);
+	static TArray<URshipActorRegistrationComponent*> FilterTargets(TFunction<bool(URshipActorRegistrationComponent*)> Predicate);
 
 	/** Get the rship subsystem (internal helper) */
 	static URshipSubsystem* GetSubsystem();
 
 private:
 	/** Internal selection state - stored on the subsystem to persist across calls */
-	static TSet<TWeakObjectPtr<URshipTargetComponent>>& GetSelectionSet();
+	static TSet<TWeakObjectPtr<URshipActorRegistrationComponent>>& GetSelectionSet();
 
 	/** Broadcast selection change event */
 	static void NotifySelectionChanged();
 };
+

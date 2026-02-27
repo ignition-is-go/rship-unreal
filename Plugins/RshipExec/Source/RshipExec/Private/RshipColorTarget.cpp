@@ -1,7 +1,7 @@
 // Copyright Lucid. All Rights Reserved.
 
 #include "RshipColorTarget.h"
-#include "RshipTargetComponent.h"
+#include "RshipActorRegistrationComponent.h"
 #include "Engine/World.h"
 #include "Logs.h"
 
@@ -18,7 +18,7 @@ ARshipColorTarget::ARshipColorTarget()
 	RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
 
 	// Create target component for rship registration (UActorComponent, no attachment needed)
-	TargetComponent = CreateDefaultSubobject<URshipTargetComponent>(TEXT("RshipTarget"));
+	TargetComponent = CreateDefaultSubobject<URshipActorRegistrationComponent>(TEXT("RshipTarget"));
 }
 
 void ARshipColorTarget::BeginPlay()
@@ -435,3 +435,4 @@ bool ARshipColorTarget::ParseCaptureMode(const FString& ModeStr, ERshipCaptureMo
 }
 
 #endif // RSHIP_HAS_COLOR_MANAGEMENT
+

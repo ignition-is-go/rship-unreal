@@ -13,7 +13,7 @@
 #include "Windows/AllowWindowsPlatformTypes.h"
 #include <winsock2.h>
 #include <ws2tcpip.h>
-#include <windows.h>
+#include "Windows/MinWindows.h"
 #include <mmsystem.h>
 #include "Windows/HideWindowsPlatformTypes.h"
 
@@ -31,8 +31,13 @@ namespace
             HMODULE hKernel32 = GetModuleHandleW(L"kernel32.dll");
             if (hKernel32)
             {
-                GetPreciseTimeFunc = (GetSystemTimePreciseAsFileTimeFunc)GetProcAddress(
-                    hKernel32, "GetSystemTimePreciseAsFileTime");
+                FARPROC ProcAddress = GetProcAddress(hKernel32, "GetSystemTimePreciseAsFileTime");
+                if (ProcAddress)
+                {
+                    static_assert(sizeof(GetPreciseTimeFunc) == sizeof(ProcAddress),
+                        "Function pointer size mismatch");
+                    FMemory::Memcpy(&GetPreciseTimeFunc, &ProcAddress, sizeof(ProcAddress));
+                }
             }
             bPreciseTimeFuncInitialized = true;
         }

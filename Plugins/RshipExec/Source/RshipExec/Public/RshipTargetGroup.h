@@ -7,7 +7,7 @@
 #include "RshipTargetGroup.generated.h"
 
 // Forward declarations
-class URshipTargetComponent;
+class URshipActorRegistrationComponent;
 
 /**
  * Represents a logical grouping of targets.
@@ -70,7 +70,7 @@ struct RSHIPEXEC_API FRshipTargetGroup
  * Delegate for group changes
  */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnRshipGroupChanged, const FString&, GroupId);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnRshipTargetTagsChanged, URshipTargetComponent*, Target, const TArray<FString>&, Tags);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnRshipTargetTagsChanged, URshipActorRegistrationComponent*, Target, const TArray<FString>&, Tags);
 
 /**
  * Manages target groups and tags for organizing large numbers of targets.
@@ -130,11 +130,11 @@ public:
 
 	/** Add a tag to a target component */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Tags")
-	void AddTagToTarget(URshipTargetComponent* Target, const FString& Tag);
+	void AddTagToTarget(URshipActorRegistrationComponent* Target, const FString& Tag);
 
 	/** Remove a tag from a target component */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Tags")
-	void RemoveTagFromTarget(URshipTargetComponent* Target, const FString& Tag);
+	void RemoveTagFromTarget(URshipActorRegistrationComponent* Target, const FString& Tag);
 
 	/** Get all unique tags in use */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Tags")
@@ -150,23 +150,23 @@ public:
 
 	/** Get all target components with a specific tag */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Query")
-	TArray<URshipTargetComponent*> GetTargetsByTag(const FString& Tag) const;
+	TArray<URshipActorRegistrationComponent*> GetTargetsByTag(const FString& Tag) const;
 
 	/** Get all target components in a group */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Query")
-	TArray<URshipTargetComponent*> GetTargetsByGroup(const FString& GroupId) const;
+	TArray<URshipActorRegistrationComponent*> GetTargetsByGroup(const FString& GroupId) const;
 
 	/** Get targets matching a wildcard pattern (e.g., "stage-*-lights") */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Query")
-	TArray<URshipTargetComponent*> GetTargetsByPattern(const FString& WildcardPattern) const;
+	TArray<URshipActorRegistrationComponent*> GetTargetsByPattern(const FString& WildcardPattern) const;
 
 	/** Get targets with multiple tags (AND logic) */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Query")
-	TArray<URshipTargetComponent*> GetTargetsByTags(const TArray<FString>& Tags) const;
+	TArray<URshipActorRegistrationComponent*> GetTargetsByTags(const TArray<FString>& Tags) const;
 
 	/** Get targets with any of the given tags (OR logic) */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Query")
-	TArray<URshipTargetComponent*> GetTargetsByAnyTag(const TArray<FString>& Tags) const;
+	TArray<URshipActorRegistrationComponent*> GetTargetsByAnyTag(const TArray<FString>& Tags) const;
 
 	// ========================================================================
 	// AUTO-GROUPING HELPERS
@@ -185,10 +185,10 @@ public:
 	// ========================================================================
 
 	/** Register a target component (called when target registers) */
-	void RegisterTarget(URshipTargetComponent* Target);
+	void RegisterTarget(URshipActorRegistrationComponent* Target);
 
 	/** Unregister a target component (called when target unregisters) */
-	void UnregisterTarget(URshipTargetComponent* Target);
+	void UnregisterTarget(URshipActorRegistrationComponent* Target);
 
 	/** Rebuild all indices (call after bulk changes) */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Groups")
@@ -254,8 +254,9 @@ private:
 	TMap<FString, TSet<FString>> TargetToGroups;
 
 	/** All registered target components (weak references to avoid preventing GC) */
-	TMap<FString, TWeakObjectPtr<URshipTargetComponent>> RegisteredTargets;
+	TMap<FString, TWeakObjectPtr<URshipActorRegistrationComponent>> RegisteredTargets;
 
 	/** Counter for generating unique group IDs */
 	int32 GroupIdCounter = 0;
 };
+

@@ -3,9 +3,8 @@
 #include "PCG/RshipPCGManager.h"
 #include "PCG/RshipPCGAutoBindComponent.h"
 #include "RshipSubsystem.h"
-#include "Target.h"
-#include "Action.h"
-#include "EmitterContainer.h"
+#include "Core/Target.h"
+#include "Transport/RshipMykoTransport.h"
 #include "Logs.h"
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonSerializer.h"
@@ -554,8 +553,8 @@ void URshipPCGManager::SendTargetRegistration(URshipPCGAutoBindComponent* Compon
 	// Build and add actions for writable properties
 	if (Bindings)
 	{
-		TArray<Action*> Actions = BuildActions(Component, *Bindings);
-		for (Action* ActionObj : Actions)
+		TArray<FRshipActionBinding> Actions = BuildActions(Component, *Bindings);
+		for (const FRshipActionBinding& ActionObj : Actions)
 		{
 			TargetObj->AddAction(ActionObj);
 		}
@@ -613,48 +612,25 @@ void URshipPCGManager::SendTargetRegistration(URshipPCGAutoBindComponent* Compon
 
 	TargetJson->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
 
-	// Build and send the event
-	TSharedPtr<FJsonObject> EventData = MakeShared<FJsonObject>();
-	EventData->SetStringField(TEXT("itemType"), TEXT("Target"));
-	EventData->SetStringField(TEXT("changeType"), TEXT("SET"));
-	EventData->SetObjectField(TEXT("item"), TargetJson);
-	EventData->SetStringField(TEXT("tx"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
-	EventData->SetStringField(TEXT("createdAt"), FDateTime::UtcNow().ToIso8601());
-
-	TSharedPtr<FJsonObject> WsEvent = MakeShared<FJsonObject>();
-	WsEvent->SetStringField(TEXT("event"), TEXT("ws:m:event"));
-	WsEvent->SetObjectField(TEXT("data"), EventData);
-
-	Subsystem->SendJson(WsEvent);
+	Subsystem->SendJson(FRshipMykoTransport::MakeSet(TEXT("Target"), TargetJson));
 
 	// Send actions
 	for (const auto& ActionPair : TargetObj->GetActions())
 	{
-		Action* ActionObj = ActionPair.Value;
+		const FRshipActionBinding& ActionObj = ActionPair.Value;
 
 		TSharedPtr<FJsonObject> ActionJson = MakeShared<FJsonObject>();
-		ActionJson->SetStringField(TEXT("id"), ActionObj->GetId());
-		ActionJson->SetStringField(TEXT("name"), ActionObj->GetName());
+		ActionJson->SetStringField(TEXT("id"), ActionObj.Id);
+		ActionJson->SetStringField(TEXT("name"), ActionObj.Name);
 		ActionJson->SetStringField(TEXT("targetId"), Id.TargetPath);
 		ActionJson->SetStringField(TEXT("serviceId"), ServiceId);
-		if (TSharedPtr<FJsonObject> Schema = ActionObj->GetSchema())
+		if (TSharedPtr<FJsonObject> Schema = ActionObj.GetSchema())
 		{
 			ActionJson->SetObjectField(TEXT("schema"), Schema);
 		}
 		ActionJson->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
 
-		TSharedPtr<FJsonObject> ActionEventData = MakeShared<FJsonObject>();
-		ActionEventData->SetStringField(TEXT("itemType"), TEXT("Action"));
-		ActionEventData->SetStringField(TEXT("changeType"), TEXT("SET"));
-		ActionEventData->SetObjectField(TEXT("item"), ActionJson);
-		ActionEventData->SetStringField(TEXT("tx"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
-		ActionEventData->SetStringField(TEXT("createdAt"), FDateTime::UtcNow().ToIso8601());
-
-		TSharedPtr<FJsonObject> ActionWsEvent = MakeShared<FJsonObject>();
-		ActionWsEvent->SetStringField(TEXT("event"), TEXT("ws:m:event"));
-		ActionWsEvent->SetObjectField(TEXT("data"), ActionEventData);
-
-		Subsystem->SendJson(ActionWsEvent);
+		Subsystem->SendJson(FRshipMykoTransport::MakeSet(TEXT("Action"), ActionJson));
 	}
 
 	// Send emitters for readable properties
@@ -689,18 +665,7 @@ void URshipPCGManager::SendTargetRegistration(URshipPCGAutoBindComponent* Compon
 
 				EmitterJson->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
 
-				TSharedPtr<FJsonObject> EmitterEventData = MakeShared<FJsonObject>();
-				EmitterEventData->SetStringField(TEXT("itemType"), TEXT("Emitter"));
-				EmitterEventData->SetStringField(TEXT("changeType"), TEXT("SET"));
-				EmitterEventData->SetObjectField(TEXT("item"), EmitterJson);
-				EmitterEventData->SetStringField(TEXT("tx"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
-				EmitterEventData->SetStringField(TEXT("createdAt"), FDateTime::UtcNow().ToIso8601());
-
-				TSharedPtr<FJsonObject> EmitterWsEvent = MakeShared<FJsonObject>();
-				EmitterWsEvent->SetStringField(TEXT("event"), TEXT("ws:m:event"));
-				EmitterWsEvent->SetObjectField(TEXT("data"), EmitterEventData);
-
-				Subsystem->SendJson(EmitterWsEvent);
+				Subsystem->SendJson(FRshipMykoTransport::MakeSet(TEXT("Emitter"), EmitterJson));
 			}
 		}
 	}
@@ -726,18 +691,7 @@ void URshipPCGManager::SendTargetDeregistration(URshipPCGAutoBindComponent* Comp
 	TargetStatus->SetStringField(TEXT("id"), Id.TargetPath);
 	TargetStatus->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
 
-	TSharedPtr<FJsonObject> EventData = MakeShared<FJsonObject>();
-	EventData->SetStringField(TEXT("itemType"), TEXT("TargetStatus"));
-	EventData->SetStringField(TEXT("changeType"), TEXT("SET"));
-	EventData->SetObjectField(TEXT("item"), TargetStatus);
-	EventData->SetStringField(TEXT("tx"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
-	EventData->SetStringField(TEXT("createdAt"), FDateTime::UtcNow().ToIso8601());
-
-	TSharedPtr<FJsonObject> WsEvent = MakeShared<FJsonObject>();
-	WsEvent->SetStringField(TEXT("event"), TEXT("ws:m:event"));
-	WsEvent->SetObjectField(TEXT("data"), EventData);
-
-	Subsystem->SendJson(WsEvent);
+	Subsystem->SendJson(FRshipMykoTransport::MakeSet(TEXT("TargetStatus"), TargetStatus));
 }
 
 Target* URshipPCGManager::BuildTarget(URshipPCGAutoBindComponent* Component)
@@ -751,9 +705,9 @@ Target* URshipPCGManager::BuildTarget(URshipPCGAutoBindComponent* Component)
 	return new Target(Id.TargetPath);
 }
 
-TArray<Action*> URshipPCGManager::BuildActions(URshipPCGAutoBindComponent* Component, const FRshipPCGClassBindings& Bindings)
+TArray<FRshipActionBinding> URshipPCGManager::BuildActions(URshipPCGAutoBindComponent* Component, const FRshipPCGClassBindings& Bindings)
 {
-	TArray<Action*> Actions;
+	TArray<FRshipActionBinding> Actions;
 
 	if (!Component)
 	{
@@ -777,19 +731,18 @@ TArray<Action*> URshipPCGManager::BuildActions(URshipPCGAutoBindComponent* Compo
 		}
 
 		FString ActionId = Id.TargetPath + TEXT(":") + Desc.PropertyName.ToString();
-		Action* ActionObj = new Action(ActionId, Desc.DisplayName, Desc.CachedProperty, Owner);
-		Actions.Add(ActionObj);
+		Actions.Add(FRshipActionBinding::FromProperty(ActionId, Desc.DisplayName, Desc.CachedProperty, Owner));
 	}
 
 	return Actions;
 }
 
-TArray<EmitterContainer*> URshipPCGManager::BuildEmitters(URshipPCGAutoBindComponent* Component, const FRshipPCGClassBindings& Bindings)
+TArray<FRshipEmitterBinding> URshipPCGManager::BuildEmitters(URshipPCGAutoBindComponent* Component, const FRshipPCGClassBindings& Bindings)
 {
 	// Note: EmitterContainer requires FMulticastInlineDelegateProperty
 	// For PCG property-based emitters, we use direct pulse emission instead
 	// This method is kept for potential future delegate-based emitter support
-	TArray<EmitterContainer*> Emitters;
+	TArray<FRshipEmitterBinding> Emitters;
 	return Emitters;
 }
 

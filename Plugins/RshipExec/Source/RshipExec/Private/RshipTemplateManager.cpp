@@ -2,7 +2,7 @@
 
 #include "RshipTemplateManager.h"
 #include "RshipSubsystem.h"
-#include "RshipTargetComponent.h"
+#include "RshipActorRegistrationComponent.h"
 #include "RshipTargetGroup.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
@@ -43,7 +43,7 @@ FRshipTargetTemplate URshipTemplateManager::CreateTemplate(const FString& Name, 
 	return Template;
 }
 
-FRshipTargetTemplate URshipTemplateManager::CreateTemplateFromTarget(const FString& Name, URshipTargetComponent* SourceTarget)
+FRshipTargetTemplate URshipTemplateManager::CreateTemplateFromTarget(const FString& Name, URshipActorRegistrationComponent* SourceTarget)
 {
 	FRshipTargetTemplate Template = CreateTemplate(Name);
 
@@ -75,7 +75,7 @@ FRshipTargetTemplate URshipTemplateManager::CreateTemplateFromTarget(const FStri
 	return Template;
 }
 
-FRshipTargetTemplate URshipTemplateManager::CreateTemplateFromTargets(const FString& Name, const TArray<URshipTargetComponent*>& SourceTargets)
+FRshipTargetTemplate URshipTemplateManager::CreateTemplateFromTargets(const FString& Name, const TArray<URshipActorRegistrationComponent*>& SourceTargets)
 {
 	FRshipTargetTemplate Template = CreateTemplate(Name);
 
@@ -88,7 +88,7 @@ FRshipTargetTemplate URshipTemplateManager::CreateTemplateFromTargets(const FStr
 	TSet<FString> CommonTags;
 	bool bFirstTarget = true;
 
-	for (URshipTargetComponent* Target : SourceTargets)
+	for (URshipActorRegistrationComponent* Target : SourceTargets)
 	{
 		if (!Target) continue;
 
@@ -118,7 +118,7 @@ FRshipTargetTemplate URshipTemplateManager::CreateTemplateFromTargets(const FStr
 	TSet<FString> CommonGroups;
 	bFirstTarget = true;
 
-	for (URshipTargetComponent* Target : SourceTargets)
+	for (URshipActorRegistrationComponent* Target : SourceTargets)
 	{
 		if (!Target) continue;
 
@@ -154,7 +154,7 @@ FRshipTargetTemplate URshipTemplateManager::CreateTemplateFromTargets(const FStr
 // TEMPLATE APPLICATION
 // ============================================================================
 
-void URshipTemplateManager::ApplyTemplate(const FRshipTargetTemplate& Template, URshipTargetComponent* Target, bool bMergeTags)
+void URshipTemplateManager::ApplyTemplate(const FRshipTargetTemplate& Template, URshipActorRegistrationComponent* Target, bool bMergeTags)
 {
 	if (!Target)
 	{
@@ -218,10 +218,10 @@ void URshipTemplateManager::ApplyTemplate(const FRshipTargetTemplate& Template, 
 		*Template.DisplayName, *Target->targetName);
 }
 
-int32 URshipTemplateManager::ApplyTemplateToTargets(const FRshipTargetTemplate& Template, const TArray<URshipTargetComponent*>& Targets, bool bMergeTags)
+int32 URshipTemplateManager::ApplyTemplateToTargets(const FRshipTargetTemplate& Template, const TArray<URshipActorRegistrationComponent*>& Targets, bool bMergeTags)
 {
 	int32 Count = 0;
-	for (URshipTargetComponent* Target : Targets)
+	for (URshipActorRegistrationComponent* Target : Targets)
 	{
 		if (Target)
 		{
@@ -236,7 +236,7 @@ int32 URshipTemplateManager::ApplyTemplateToTargets(const FRshipTargetTemplate& 
 	return Count;
 }
 
-void URshipTemplateManager::ApplyTemplateById(const FString& TemplateId, URshipTargetComponent* Target, bool bMergeTags)
+void URshipTemplateManager::ApplyTemplateById(const FString& TemplateId, URshipActorRegistrationComponent* Target, bool bMergeTags)
 {
 	FRshipTargetTemplate Template;
 	if (GetTemplate(TemplateId, Template))
@@ -263,7 +263,7 @@ int32 URshipTemplateManager::ApplyTemplateToTaggedTargets(const FString& Templat
 	URshipTargetGroupManager* GroupManager = Subsystem->GetGroupManager();
 	if (!GroupManager) return 0;
 
-	TArray<URshipTargetComponent*> Targets = GroupManager->GetTargetsByTag(Tag);
+	TArray<URshipActorRegistrationComponent*> Targets = GroupManager->GetTargetsByTag(Tag);
 	return ApplyTemplateToTargets(Template, Targets, bMergeTags);
 }
 
@@ -605,3 +605,4 @@ FString URshipTemplateManager::GenerateTemplateId() const
 	return FString::Printf(TEXT("template_%d_%s"), ++const_cast<URshipTemplateManager*>(this)->TemplateIdCounter,
 		*FGuid::NewGuid().ToString(EGuidFormats::Short));
 }
+

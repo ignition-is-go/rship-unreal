@@ -152,10 +152,10 @@ GroupManager->CreateGroup(Group);
 GroupManager->AddTargetToGroup("fixture-001", "stage-left-lights");
 
 // Query by group
-TArray<URshipTargetComponent*> Targets = GroupManager->GetTargetsByGroup("stage-left-lights");
+TArray<URshipActorRegistrationComponent*> Targets = GroupManager->GetTargetsByGroup("stage-left-lights");
 
 // Query by pattern
-TArray<URshipTargetComponent*> Moving = GroupManager->GetTargetsByPattern("moving-*");
+TArray<URshipActorRegistrationComponent*> Moving = GroupManager->GetTargetsByPattern("moving-*");
 ```
 
 ### 2.2 Tags
@@ -174,9 +174,9 @@ TargetComponent->Tags.Add("downstage");
 TargetComponent->Tags.Add("warm");
 
 // Query by tags
-TArray<URshipTargetComponent*> Warm = GroupManager->GetTargetsByTag("warm");
-TArray<URshipTargetComponent*> DownstageWarm = GroupManager->GetTargetsByTags({"downstage", "warm"}); // AND
-TArray<URshipTargetComponent*> Either = GroupManager->GetTargetsByAnyTag({"warm", "cool"}); // OR
+TArray<URshipActorRegistrationComponent*> Warm = GroupManager->GetTargetsByTag("warm");
+TArray<URshipActorRegistrationComponent*> DownstageWarm = GroupManager->GetTargetsByTags({"downstage", "warm"}); // AND
+TArray<URshipActorRegistrationComponent*> Either = GroupManager->GetTargetsByAnyTag({"warm", "cool"}); // OR
 ```
 
 ### 2.3 Bulk Operations
@@ -620,3 +620,4 @@ All major features are exposed through `URshipBlueprintLibrary` with 60+ static 
 ---
 
 *This guide covers the major new features. Each header file contains additional documentation for advanced usage.*
+
