@@ -250,8 +250,8 @@ void URshipSubsystem::Reconnect()
     MachineId = FRshipMykoTransport::GetUniqueMachineId();
     ServiceId = FApp::GetProjectName();
 
-    ClusterId = MachineId + ":" + ServiceId;
-    InstanceId = ClusterId;
+    InstanceId = MachineId + ":" + ServiceId;
+    ClusterId = ServiceId;
 
     const URshipSettings *Settings = GetDefault<URshipSettings>();
     FString rshipHostAddress = Settings->rshipHostAddress;
