@@ -3,6 +3,13 @@
 #include "Misc/DateTime.h"
 #include "Misc/Guid.h"
 #include "HAL/PlatformProcess.h"
+#include "HAL/PlatformMisc.h"
+
+#if PLATFORM_WINDOWS
+#include "Windows/AllowWindowsPlatformTypes.h"
+#include <windows.h>
+#include "Windows/HideWindowsPlatformTypes.h"
+#endif
 
 TSharedPtr<FJsonObject> FRshipMykoTransport::MakeEvent(const FString& ItemType, const FString& ChangeType, const TSharedPtr<FJsonObject>& Item, const FString& SourceId)
 {
@@ -32,7 +39,40 @@ FString FRshipMykoTransport::GetIso8601Timestamp()
 
 FString FRshipMykoTransport::GetUniqueMachineId()
 {
-	return FPlatformProcess::ComputerName();
+	FString Hostname;
+
+#if PLATFORM_WINDOWS
+	// Use DNS hostname on Windows to avoid 15-char NetBIOS truncation.
+	TCHAR DnsBuffer[256];
+	DWORD DnsSize = UE_ARRAY_COUNT(DnsBuffer);
+	if (GetComputerNameExW(ComputerNameDnsHostname, DnsBuffer, &DnsSize))
+	{
+		Hostname = DnsBuffer;
+	}
+#endif
+
+	if (Hostname.IsEmpty())
+	{
+		Hostname = FPlatformProcess::ComputerName();
+	}
+
+	if (Hostname.IsEmpty())
+	{
+		Hostname = FPlatformMisc::GetEnvironmentVariable(TEXT("COMPUTERNAME"));
+	}
+
+	if (Hostname.IsEmpty())
+	{
+		Hostname = FPlatformMisc::GetEnvironmentVariable(TEXT("HOSTNAME"));
+	}
+
+	if (Hostname.IsEmpty())
+	{
+		// Keep sourceId non-empty even in unusual runtime environments.
+		Hostname = TEXT("unknown-host");
+	}
+
+	return Hostname;
 }
 
 TSharedPtr<FJsonObject> FRshipMykoTransport::MakeSet(const FString& ItemType, const TSharedPtr<FJsonObject>& Item, const FString& SourceId)
