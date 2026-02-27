@@ -1,38 +1,169 @@
 #include "Controllers/RshipCameraController.h"
 
-#include "RshipTargetComponent.h"
+#include "RshipSubsystem.h"
 #include "Camera/CameraComponent.h"
 #include "CineCameraComponent.h"
+#include "CineCameraSettings.h"
+#include "GameFramework/Actor.h"
+#include "Dom/JsonObject.h"
 
-namespace
+void URshipCameraController::OnBeforeRegisterRshipBindings()
 {
-	void RequestCameraControllerRescan(AActor* Owner, const bool bOnlyIfRegistered)
-	{
-		if (!Owner)
-		{
-			return;
-		}
+	PrimaryComponentTick.bCanEverTick = true;
+	SetComponentTickEnabled(bPublishStateEmitters);
+}
 
-		if (URshipTargetComponent* TargetComponent = Owner->FindComponentByClass<URshipTargetComponent>())
+void URshipCameraController::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
+{
+	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+
+	if (!bPublishStateEmitters)
+	{
+		return;
+	}
+
+	const double NowSeconds = FPlatformTime::Seconds();
+	const double PublishInterval = 1.0 / static_cast<double>(FMath::Max(1, PublishRateHz));
+	if (NowSeconds - LastPublishTimeSeconds < PublishInterval)
+	{
+		return;
+	}
+
+	LastPublishTimeSeconds = NowSeconds;
+	PublishState();
+}
+
+FString URshipCameraController::GetTargetId() const
+{
+	const AActor* Owner = GetOwner();
+	if (!Owner || !GEngine)
+	{
+		return FString();
+	}
+
+	URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+	if (!Subsystem)
+	{
+		return FString();
+	}
+
+	FRshipTargetProxy RootTarget = Subsystem->EnsureActorIdentity(const_cast<AActor*>(Owner));
+	return RootTarget.IsValid() ? RootTarget.GetId() : FString();
+}
+
+void URshipCameraController::RegisterOrRefreshTarget()
+{
+	AActor* Owner = GetOwner();
+	if (!Owner || !GEngine)
+	{
+		return;
+	}
+
+	URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+	if (!Subsystem)
+	{
+		return;
+	}
+
+	FRshipTargetProxy Target = Subsystem->EnsureActorIdentity(Owner);
+	if (!Target.IsValid())
+	{
+		return;
+	}
+
+	FRshipTargetProxy SensorTarget = Target.AddTarget(TEXT("sensor"), TEXT("Sensor"));
+	FRshipTargetProxy LensTarget = Target.AddTarget(TEXT("lens"), TEXT("Lens"));
+	if (!SensorTarget.IsValid() || !LensTarget.IsValid())
+	{
+		return;
+	}
+
+	UCameraComponent* Camera = ResolveCameraComponent();
+	if (!Camera)
+	{
+		return;
+	}
+
+	if (bIncludeCommonCameraProperties)
+	{
+		SensorTarget
+			.AddAction(this, GET_FUNCTION_NAME_CHECKED(URshipCameraController, SetFieldOfViewAction), TEXT("FieldOfView"))
+			.AddPropertyAction(Camera, TEXT("AspectRatio"))
+			.AddPropertyAction(Camera, TEXT("bConstrainAspectRatio"))
+			.AddPropertyAction(Camera, TEXT("ProjectionMode"))
+			.AddPropertyAction(Camera, TEXT("OrthoWidth"))
+			.AddPropertyAction(Camera, TEXT("OrthoNearClipPlane"))
+			.AddPropertyAction(Camera, TEXT("OrthoFarClipPlane"));
+
+		Target.AddPropertyAction(Camera, TEXT("PostProcessBlendWeight"));
+	}
+
+	if (bIncludeCineCameraProperties)
+	{
+		if (UCineCameraComponent* Cine = ResolveCineCameraComponent())
 		{
-			if (!bOnlyIfRegistered || TargetComponent->IsRegistered())
-			{
-				TargetComponent->RescanSiblingComponents();
-			}
+			LensTarget
+				.AddAction(this, GET_FUNCTION_NAME_CHECKED(URshipCameraController, SetFocalLengthAction), TEXT("CurrentFocalLength"))
+				.AddAction(this, GET_FUNCTION_NAME_CHECKED(URshipCameraController, SetFocalLengthAction), TEXT("FocalLength"))
+				.AddAction(this, GET_FUNCTION_NAME_CHECKED(URshipCameraController, SetApertureAction), TEXT("CurrentAperture"))
+				.AddAction(this, GET_FUNCTION_NAME_CHECKED(URshipCameraController, SetApertureAction), TEXT("Aperture"))
+				.AddAction(this, GET_FUNCTION_NAME_CHECKED(URshipCameraController, SetFocusDistanceAction), TEXT("CurrentFocusDistance"))
+				.AddAction(this, GET_FUNCTION_NAME_CHECKED(URshipCameraController, SetFocusDistanceAction), TEXT("FocusDistance"))
+				.AddPropertyAction(Cine, TEXT("LensSettings"))
+				.AddPropertyAction(Cine, TEXT("FocusSettings"));
+
+			SensorTarget
+				.AddPropertyAction(Cine, TEXT("Filmback"))
+				.AddPropertyAction(Cine, TEXT("CropSettings"));
 		}
+	}
+
+	if (bPublishStateEmitters)
+	{
+		Target
+			.AddEmitter(this, GET_MEMBER_NAME_CHECKED(URshipCameraController, OnFocalLengthChanged), TEXT("focalLength"))
+			.AddEmitter(this, GET_MEMBER_NAME_CHECKED(URshipCameraController, OnApertureChanged), TEXT("aperture"))
+			.AddEmitter(this, GET_MEMBER_NAME_CHECKED(URshipCameraController, OnFocusDistanceChanged), TEXT("focusDistance"))
+			.AddEmitter(this, GET_MEMBER_NAME_CHECKED(URshipCameraController, OnHorizontalFovChanged), TEXT("horizontalFov"))
+			.AddEmitter(this, GET_MEMBER_NAME_CHECKED(URshipCameraController, OnVerticalFovChanged), TEXT("verticalFov"))
+			.AddEmitter(this, GET_MEMBER_NAME_CHECKED(URshipCameraController, OnLocationChanged), TEXT("location"))
+			.AddEmitter(this, GET_MEMBER_NAME_CHECKED(URshipCameraController, OnRotationChanged), TEXT("rotation"));
 	}
 }
 
-void URshipCameraController::OnRegister()
+void URshipCameraController::SetFieldOfViewAction(float Value)
 {
-	Super::OnRegister();
-	RequestCameraControllerRescan(GetOwner(), false);
+	if (UCameraComponent* Camera = ResolveCameraComponent())
+	{
+		Camera->SetFieldOfView(Value);
+	}
 }
 
-void URshipCameraController::BeginPlay()
+void URshipCameraController::SetFocalLengthAction(float Value)
 {
-	Super::BeginPlay();
-	RequestCameraControllerRescan(GetOwner(), false);
+	if (UCineCameraComponent* Cine = ResolveCineCameraComponent())
+	{
+		Cine->SetCurrentFocalLength(Value);
+	}
+}
+
+void URshipCameraController::SetApertureAction(float Value)
+{
+	if (UCineCameraComponent* Cine = ResolveCineCameraComponent())
+	{
+		Cine->SetCurrentAperture(Value);
+	}
+}
+
+void URshipCameraController::SetFocusDistanceAction(float Value)
+{
+	if (UCineCameraComponent* Cine = ResolveCineCameraComponent())
+	{
+		FCameraFocusSettings FocusSettings = Cine->FocusSettings;
+		FocusSettings.FocusMethod = ECameraFocusMethod::Manual;
+		FocusSettings.ManualFocusDistance = Value;
+		Cine->SetFocusSettings(FocusSettings);
+	}
 }
 
 UCameraComponent* URshipCameraController::ResolveCameraComponent() const
@@ -59,75 +190,68 @@ UCineCameraComponent* URshipCameraController::ResolveCineCameraComponent() const
 	return nullptr;
 }
 
-void URshipCameraController::NotifyCameraEdited(UCameraComponent* InCamera) const
+void URshipCameraController::PublishState()
 {
-	if (!InCamera)
-	{
-		return;
-	}
-
-	InCamera->MarkRenderStateDirty();
-
-#if WITH_EDITOR
-#endif
-}
-
-void URshipCameraController::RegisterRshipWhitelistedActions(URshipTargetComponent* TargetComponent)
-{
-	if (!TargetComponent)
-	{
-		return;
-	}
-
+	AActor* Owner = GetOwner();
 	UCameraComponent* Camera = ResolveCameraComponent();
-	if (!Camera)
+	if (!Owner || !Camera)
+	{
+		return;
+	}
+	if (!GEngine)
+	{
+		return;
+	}
+	URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+	const FString TargetId = GetTargetId();
+	if (!Subsystem || TargetId.IsEmpty())
 	{
 		return;
 	}
 
-	if (bIncludeCommonCameraProperties)
+	const FVector Location = Owner->GetActorLocation();
 	{
-		TargetComponent->RegisterWhitelistedProperty(Camera, TEXT("FieldOfView"));
-		TargetComponent->RegisterWhitelistedProperty(Camera, TEXT("AspectRatio"));
-		TargetComponent->RegisterWhitelistedProperty(Camera, TEXT("bConstrainAspectRatio"));
-		TargetComponent->RegisterWhitelistedProperty(Camera, TEXT("ProjectionMode"));
-		TargetComponent->RegisterWhitelistedProperty(Camera, TEXT("OrthoWidth"));
-		TargetComponent->RegisterWhitelistedProperty(Camera, TEXT("OrthoNearClipPlane"));
-		TargetComponent->RegisterWhitelistedProperty(Camera, TEXT("OrthoFarClipPlane"));
-		TargetComponent->RegisterWhitelistedProperty(Camera, TEXT("PostProcessBlendWeight"));
+		TSharedPtr<FJsonObject> Data = MakeShareable(new FJsonObject);
+		Data->SetNumberField(TEXT("x"), Location.X);
+		Data->SetNumberField(TEXT("y"), Location.Y);
+		Data->SetNumberField(TEXT("z"), Location.Z);
+		Subsystem->PulseEmitter(TargetId, TEXT("location"), Data);
 	}
 
-	if (!bIncludeCineCameraProperties)
+	const FRotator Rotation = Owner->GetActorRotation();
 	{
-		return;
+		TSharedPtr<FJsonObject> Data = MakeShareable(new FJsonObject);
+		Data->SetNumberField(TEXT("x"), Rotation.Pitch);
+		Data->SetNumberField(TEXT("y"), Rotation.Yaw);
+		Data->SetNumberField(TEXT("z"), Rotation.Roll);
+		Subsystem->PulseEmitter(TargetId, TEXT("rotation"), Data);
 	}
 
 	if (UCineCameraComponent* Cine = ResolveCineCameraComponent())
 	{
-		TargetComponent->RegisterWhitelistedProperty(Cine, TEXT("CurrentFocalLength"));
-		TargetComponent->RegisterWhitelistedProperty(Cine, TEXT("CurrentAperture"));
-		TargetComponent->RegisterWhitelistedProperty(Cine, TEXT("CurrentFocusDistance"));
-		TargetComponent->RegisterWhitelistedProperty(Cine, TEXT("Filmback"));
-		TargetComponent->RegisterWhitelistedProperty(Cine, TEXT("LensSettings"));
-		TargetComponent->RegisterWhitelistedProperty(Cine, TEXT("FocusSettings"));
-		TargetComponent->RegisterWhitelistedProperty(Cine, TEXT("CropSettings"));
+		TSharedPtr<FJsonObject> Data = MakeShareable(new FJsonObject);
+		Data->SetNumberField(TEXT("value"), Cine->CurrentFocalLength);
+		Subsystem->PulseEmitter(TargetId, TEXT("focalLength"), Data);
+		Data = MakeShareable(new FJsonObject);
+		Data->SetNumberField(TEXT("value"), Cine->CurrentAperture);
+		Subsystem->PulseEmitter(TargetId, TEXT("aperture"), Data);
+		Data = MakeShareable(new FJsonObject);
+		Data->SetNumberField(TEXT("value"), Cine->CurrentFocusDistance);
+		Subsystem->PulseEmitter(TargetId, TEXT("focusDistance"), Data);
+		Data = MakeShareable(new FJsonObject);
+		Data->SetNumberField(TEXT("value"), Cine->GetHorizontalFieldOfView());
+		Subsystem->PulseEmitter(TargetId, TEXT("horizontalFov"), Data);
+		Data = MakeShareable(new FJsonObject);
+		Data->SetNumberField(TEXT("value"), Cine->GetVerticalFieldOfView());
+		Subsystem->PulseEmitter(TargetId, TEXT("verticalFov"), Data);
+	}
+	else
+	{
+		TSharedPtr<FJsonObject> Data = MakeShareable(new FJsonObject);
+		Data->SetNumberField(TEXT("value"), Camera->FieldOfView);
+		Subsystem->PulseEmitter(TargetId, TEXT("horizontalFov"), Data);
+		Data = MakeShareable(new FJsonObject);
+		Data->SetNumberField(TEXT("value"), Camera->FieldOfView);
+		Subsystem->PulseEmitter(TargetId, TEXT("verticalFov"), Data);
 	}
 }
-
-void URshipCameraController::OnRshipAfterTake(URshipTargetComponent* TargetComponent, const FString& ActionName, UObject* ActionOwner)
-{
-	(void)TargetComponent;
-	(void)ActionName;
-
-	if (ActionOwner == ResolveCameraComponent())
-	{
-		NotifyCameraEdited(Cast<UCameraComponent>(ActionOwner));
-		return;
-	}
-
-	if (ActionOwner == ResolveCineCameraComponent())
-	{
-		NotifyCameraEdited(Cast<UCameraComponent>(ActionOwner));
-	}
-}
-

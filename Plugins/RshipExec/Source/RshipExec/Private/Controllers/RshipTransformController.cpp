@@ -1,36 +1,11 @@
 #include "Controllers/RshipTransformController.h"
 
-#include "RshipTargetComponent.h"
+#include "RshipSubsystem.h"
 #include "Components/SceneComponent.h"
 #include "GameFramework/Actor.h"
-#include "Engine/World.h"
-#if WITH_EDITOR
-#include "Editor.h"
-#endif
 
-namespace
+void URshipTransformController::OnBeforeRegisterRshipBindings()
 {
-	void RequestTransformControllerRescan(AActor* Owner, const bool bOnlyIfRegistered)
-	{
-		if (!Owner)
-		{
-			return;
-		}
-
-		if (URshipTargetComponent* TargetComponent = Owner->FindComponentByClass<URshipTargetComponent>())
-		{
-			if (!bOnlyIfRegistered || TargetComponent->IsRegistered())
-			{
-				TargetComponent->RescanSiblingComponents();
-			}
-		}
-	}
-}
-
-void URshipTransformController::OnRegister()
-{
-	Super::OnRegister();
-
 	if (AActor* Owner = GetOwner())
 	{
 		if (USceneComponent* Root = Owner->GetRootComponent())
@@ -41,25 +16,29 @@ void URshipTransformController::OnRegister()
 			}
 		}
 	}
-
-	RequestTransformControllerRescan(GetOwner(), false);
 }
 
-void URshipTransformController::BeginPlay()
+void URshipTransformController::RegisterOrRefreshTarget()
 {
-	Super::BeginPlay();
-	RequestTransformControllerRescan(GetOwner(), false);
-}
-
-void URshipTransformController::RegisterRshipWhitelistedActions(URshipTargetComponent* TargetComponent)
-{
-	if (!TargetComponent)
+	AActor* Owner = GetOwner();
+	if (!Owner || !GEngine)
 	{
 		return;
 	}
 
-	AActor* Owner = GetOwner();
-	USceneComponent* Root = Owner ? Owner->GetRootComponent() : nullptr;
+	URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+	if (!Subsystem)
+	{
+		return;
+	}
+
+	FRshipTargetProxy ParentIdentity = Subsystem->EnsureActorIdentity(Owner);
+	if (!ParentIdentity.IsValid())
+	{
+		return;
+	}
+
+	USceneComponent* Root = Owner->GetRootComponent();
 	if (!Root)
 	{
 		return;
@@ -67,127 +46,54 @@ void URshipTransformController::RegisterRshipWhitelistedActions(URshipTargetComp
 
 	if (bExposeLocation)
 	{
-		TargetComponent->RegisterWhitelistedProperty(Root, TEXT("RelativeLocation"));
-		TargetComponent->RegisterWhitelistedProperty(Root, TEXT("RelativeLocation"), TEXT("Location"));
+		ParentIdentity
+			.AddAction(this, GET_FUNCTION_NAME_CHECKED(URshipTransformController, SetRelativeLocationAction), TEXT("RelativeLocation"))
+			.AddAction(this, GET_FUNCTION_NAME_CHECKED(URshipTransformController, SetRelativeLocationAction), TEXT("Location"));
 	}
 	if (bExposeRotation)
 	{
-		TargetComponent->RegisterWhitelistedProperty(Root, TEXT("RelativeRotation"));
-		TargetComponent->RegisterWhitelistedProperty(Root, TEXT("RelativeRotation"), TEXT("Rotation"));
+		ParentIdentity
+			.AddAction(this, GET_FUNCTION_NAME_CHECKED(URshipTransformController, SetRelativeRotationAction), TEXT("RelativeRotation"))
+			.AddAction(this, GET_FUNCTION_NAME_CHECKED(URshipTransformController, SetRelativeRotationAction), TEXT("Rotation"));
 	}
 	if (bExposeScale)
 	{
-		TargetComponent->RegisterWhitelistedProperty(Root, TEXT("RelativeScale3D"));
-		TargetComponent->RegisterWhitelistedProperty(Root, TEXT("RelativeScale3D"), TEXT("Scale"));
+		ParentIdentity
+			.AddAction(this, GET_FUNCTION_NAME_CHECKED(URshipTransformController, SetRelativeScaleAction), TEXT("RelativeScale3D"))
+			.AddAction(this, GET_FUNCTION_NAME_CHECKED(URshipTransformController, SetRelativeScaleAction), TEXT("Scale"));
 	}
 }
 
-bool URshipTransformController::IsTransformAction(const FString& ActionName) const
+void URshipTransformController::SetRelativeLocationAction(float X, float Y, float Z)
 {
-	return ActionName == TEXT("RelativeLocation") || ActionName == TEXT("RelativeRotation") || ActionName == TEXT("RelativeScale3D") ||
-		ActionName == TEXT("Location") || ActionName == TEXT("Rotation") || ActionName == TEXT("Scale");
-}
-
-void URshipTransformController::OnRshipAfterTake(URshipTargetComponent* TargetComponent, const FString& ActionName, UObject* ActionOwner)
-{
-	(void)TargetComponent;
-	AActor* Owner = GetOwner();
-	if (!IsValid(Owner) || Owner->IsActorBeingDestroyed())
-	{
-		return;
-	}
-
-	USceneComponent* Root = Owner->GetRootComponent();
-	if (!IsValid(Root) || ActionOwner != Root || !IsTransformAction(ActionName))
-	{
-		return;
-	}
-
-	ApplyTransformRuntimeRefresh(Root, ActionName);
-	NotifyEditorTransformChanged();
-}
-
-void URshipTransformController::ApplyTransformRuntimeRefresh(USceneComponent* Root, const FString& ActionName) const
-{
-	if (!IsValid(Root))
-	{
-		return;
-	}
-
-	const UWorld* World = Root->GetWorld();
-	const bool bIsEditorWorld = (World && !World->IsGameWorld());
-
-	if (ActionName == TEXT("RelativeLocation") || ActionName == TEXT("Location"))
-	{
-		if (bIsEditorWorld)
-		{
-			Root->SetRelativeLocation(Root->GetRelativeLocation(), false, nullptr, ETeleportType::TeleportPhysics);
-		}
-		else
-		{
-			Root->SetRelativeLocation_Direct(Root->GetRelativeLocation());
-		}
-	}
-	else if (ActionName == TEXT("RelativeRotation") || ActionName == TEXT("Rotation"))
-	{
-		if (bIsEditorWorld)
-		{
-			Root->SetRelativeRotation(Root->GetRelativeRotation(), false, nullptr, ETeleportType::TeleportPhysics);
-		}
-		else
-		{
-			Root->SetRelativeRotation_Direct(Root->GetRelativeRotation());
-		}
-	}
-	else if (ActionName == TEXT("RelativeScale3D") || ActionName == TEXT("Scale"))
-	{
-		if (bIsEditorWorld)
-		{
-			Root->SetRelativeScale3D(Root->GetRelativeScale3D());
-		}
-		else
-		{
-			Root->SetRelativeScale3D_Direct(Root->GetRelativeScale3D());
-		}
-	}
-
-	Root->UpdateComponentToWorld(EUpdateTransformFlags::PropagateFromParent, ETeleportType::TeleportPhysics);
-	Root->MarkRenderTransformDirty();
-
 	if (AActor* Owner = GetOwner())
 	{
-		if (IsValid(Owner) && !Owner->IsActorBeingDestroyed())
+		if (USceneComponent* Root = Owner->GetRootComponent())
 		{
-			Owner->SetActorTransform(Root->GetComponentTransform(), false, nullptr, ETeleportType::TeleportPhysics);
-			Owner->MarkComponentsRenderStateDirty();
+			Root->SetRelativeLocation(FVector(X, Y, Z), false, nullptr, ETeleportType::TeleportPhysics);
 		}
 	}
 }
 
-void URshipTransformController::NotifyEditorTransformChanged() const
+void URshipTransformController::SetRelativeRotationAction(float X, float Y, float Z)
 {
-#if WITH_EDITOR
-	if (!IsInGameThread())
+	if (AActor* Owner = GetOwner())
 	{
-		return;
+		if (USceneComponent* Root = Owner->GetRootComponent())
+		{
+			Root->SetRelativeRotation(FRotator(X, Y, Z), false, nullptr, ETeleportType::TeleportPhysics);
+		}
 	}
-
-	AActor* Owner = GetOwner();
-	if (!IsValid(Owner) || Owner->IsActorBeingDestroyed())
-	{
-		return;
-	}
-
-	UWorld* World = Owner->GetWorld();
-	if (!World || World->IsGameWorld())
-	{
-		return;
-	}
-
-
-	// Keep editor viewport updated without PostEdit transaction/reconstruction paths.
-	Owner->MarkComponentsRenderStateDirty();
-#endif
 }
 
+void URshipTransformController::SetRelativeScaleAction(float X, float Y, float Z)
+{
+	if (AActor* Owner = GetOwner())
+	{
+		if (USceneComponent* Root = Owner->GetRootComponent())
+		{
+			Root->SetRelativeScale3D(FVector(X, Y, Z));
+		}
+	}
+}
 

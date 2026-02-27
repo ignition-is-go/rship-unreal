@@ -206,7 +206,7 @@ void AEmitterHandler::ProcessEmitter(
 
 	URshipSubsystem *subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
 
-	EmitterContainer *emitter = subsystem->GetEmitterInfo(this->targetId, this->emitterId);
+	const FRshipEmitterBinding* emitter = subsystem->GetEmitterInfo(this->targetId, this->emitterId);
 
 	if (this->targetId.IsEmpty() || this->emitterId.IsEmpty())
 	{
@@ -219,16 +219,16 @@ void AEmitterHandler::ProcessEmitter(
 		return;
 	}
 
-	auto props = emitter->GetProps();
+	const auto& props = emitter->GetProps();
 	int32 PropCount = 0;
-	for (const auto& _ : *props) { (void)_; ++PropCount; }
+	for (const auto& _ : props) { (void)_; ++PropCount; }
 	UE_LOG(LogTemp, Verbose, TEXT("Emitter props count: %d"), PropCount);
 
 	TSharedPtr<FJsonObject> json = MakeShareable(new FJsonObject);
 
 	int argIndex = 0;
 
-	for (const auto &prop : *props)
+	for (const auto &prop : props)
 	{
 		TSharedPtr<FJsonValue> val = ExtractValueFromArgs(prop, args, argIndex);
 		if (!val.IsValid())

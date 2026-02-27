@@ -6,13 +6,12 @@
 #include "CoreMinimal.h"
 #include "UObject/Object.h"
 #include "PCG/RshipPCGTypes.h"
+#include "Core/RshipBindings.h"
 #include "RshipPCGManager.generated.h"
 
 class URshipSubsystem;
 class URshipPCGAutoBindComponent;
 class Target;
-class Action;
-class EmitterContainer;
 
 // ============================================================================
 // DELEGATES
@@ -218,10 +217,10 @@ private:
 	Target* BuildTarget(URshipPCGAutoBindComponent* Component);
 
 	/** Build Actions from class bindings */
-	TArray<Action*> BuildActions(URshipPCGAutoBindComponent* Component, const FRshipPCGClassBindings& Bindings);
+	TArray<FRshipActionBinding> BuildActions(URshipPCGAutoBindComponent* Component, const FRshipPCGClassBindings& Bindings);
 
 	/** Build Emitters from class bindings */
-	TArray<EmitterContainer*> BuildEmitters(URshipPCGAutoBindComponent* Component, const FRshipPCGClassBindings& Bindings);
+	TArray<FRshipEmitterBinding> BuildEmitters(URshipPCGAutoBindComponent* Component, const FRshipPCGClassBindings& Bindings);
 
 	/** Process pending registrations */
 	void ProcessPendingRegistrations();

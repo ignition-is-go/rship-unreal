@@ -517,7 +517,7 @@ void URshipOSCBridge::ProcessIncomingMessage(const FRshipOSCMessage& Message)
                     ActionData->SetNumberField(Mapping.FieldName, Value);
 
                     // Find target and execute action - O(1) lookup
-                    URshipTargetComponent* Comp = Subsystem->FindTargetComponent(TargetId);
+                    URshipActorRegistrationComponent* Comp = Subsystem->FindTargetComponent(TargetId);
                     if (Comp && Comp->TargetData)
                     {
                         AActor* Owner = Comp->GetOwner();
@@ -937,3 +937,4 @@ void URshipOSCBridge::ResetStats()
     MessagesSent = 0;
     ErrorCount = 0;
 }
+

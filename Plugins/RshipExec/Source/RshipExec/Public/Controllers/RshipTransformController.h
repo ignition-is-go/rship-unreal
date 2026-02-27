@@ -1,24 +1,15 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Components/ActorComponent.h"
-#include "RshipActionProvider.h"
+#include "Controllers/RshipControllerComponent.h"
 #include "RshipTransformController.generated.h"
 
-class USceneComponent;
-class URshipTargetComponent;
-
 UCLASS(ClassGroup = (Rship), meta = (BlueprintSpawnableComponent, DisplayName = "Rship Transform Controller"))
-class RSHIPEXEC_API URshipTransformController : public UActorComponent, public IRshipActionProvider
+class RSHIPEXEC_API URshipTransformController : public URshipControllerComponent
 {
 	GENERATED_BODY()
 
 public:
-	virtual void OnRegister() override;
-	virtual void BeginPlay() override;
-	virtual void RegisterRshipWhitelistedActions(URshipTargetComponent* TargetComponent) override;
-	virtual void OnRshipAfterTake(URshipTargetComponent* TargetComponent, const FString& ActionName, UObject* ActionOwner) override;
-
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Transform")
 	bool bExposeLocation = true;
 
@@ -28,8 +19,16 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Transform")
 	bool bExposeScale = true;
 
+	UFUNCTION()
+	void SetRelativeLocationAction(float X, float Y, float Z);
+
+	UFUNCTION()
+	void SetRelativeRotationAction(float X, float Y, float Z);
+
+	UFUNCTION()
+	void SetRelativeScaleAction(float X, float Y, float Z);
+
 private:
-	void ApplyTransformRuntimeRefresh(USceneComponent* Root, const FString& ActionName) const;
-	void NotifyEditorTransformChanged() const;
-	bool IsTransformAction(const FString& ActionName) const;
+	virtual void OnBeforeRegisterRshipBindings() override;
+	virtual void RegisterOrRefreshTarget() override;
 };

@@ -2,7 +2,7 @@
 
 #include "RshipLevelManager.h"
 #include "RshipSubsystem.h"
-#include "RshipTargetComponent.h"
+#include "RshipActorRegistrationComponent.h"
 #include "Engine/World.h"
 #include "Engine/Level.h"
 #include "Engine/LevelStreaming.h"
@@ -83,7 +83,7 @@ TArray<FRshipLevelInfo> URshipLevelManager::GetAllLevels()
 		Info.bIsPersistent = true;
 
 		// Count targets
-		TArray<URshipTargetComponent*> Targets = GetTargetsInLevel(Info.LevelName);
+		TArray<URshipActorRegistrationComponent*> Targets = GetTargetsInLevel(Info.LevelName);
 		Info.TargetCount = Targets.Num();
 
 		Result.Add(Info);
@@ -103,7 +103,7 @@ TArray<FRshipLevelInfo> URshipLevelManager::GetAllLevels()
 
 		if (Info.bIsLoaded)
 		{
-			TArray<URshipTargetComponent*> Targets = GetTargetsInLevel(Info.LevelName);
+			TArray<URshipActorRegistrationComponent*> Targets = GetTargetsInLevel(Info.LevelName);
 			Info.TargetCount = Targets.Num();
 		}
 
@@ -132,7 +132,7 @@ FRshipLevelInfo URshipLevelManager::GetLevelInfo(const FString& LevelName)
 		Info.bIsLoaded = true;
 		Info.bIsVisible = true;
 
-		TArray<URshipTargetComponent*> Targets = GetTargetsInPersistentLevel();
+		TArray<URshipActorRegistrationComponent*> Targets = GetTargetsInPersistentLevel();
 		Info.TargetCount = Targets.Num();
 		return Info;
 	}
@@ -150,7 +150,7 @@ FRshipLevelInfo URshipLevelManager::GetLevelInfo(const FString& LevelName)
 
 			if (Info.bIsLoaded)
 			{
-				TArray<URshipTargetComponent*> Targets = GetTargetsInLevel(StreamingName);
+				TArray<URshipActorRegistrationComponent*> Targets = GetTargetsInLevel(StreamingName);
 				Info.TargetCount = Targets.Num();
 			}
 			break;
@@ -160,9 +160,9 @@ FRshipLevelInfo URshipLevelManager::GetLevelInfo(const FString& LevelName)
 	return Info;
 }
 
-TArray<URshipTargetComponent*> URshipLevelManager::GetTargetsInLevel(const FString& LevelName)
+TArray<URshipActorRegistrationComponent*> URshipLevelManager::GetTargetsInLevel(const FString& LevelName)
 {
-	TArray<URshipTargetComponent*> Result;
+	TArray<URshipActorRegistrationComponent*> Result;
 
 	if (!Subsystem || !Subsystem->TargetComponents) return Result;
 
@@ -170,7 +170,7 @@ TArray<URshipTargetComponent*> URshipLevelManager::GetTargetsInLevel(const FStri
 
 	for (auto& Pair : *Subsystem->TargetComponents)
 	{
-		URshipTargetComponent* Comp = Pair.Value;
+		URshipActorRegistrationComponent* Comp = Pair.Value;
 		if (!Comp || !Comp->GetOwner()) continue;
 
 		ULevel* OwnerLevel = Comp->GetOwner()->GetLevel();
@@ -188,9 +188,9 @@ TArray<URshipTargetComponent*> URshipLevelManager::GetTargetsInLevel(const FStri
 	return Result;
 }
 
-TArray<URshipTargetComponent*> URshipLevelManager::GetTargetsInPersistentLevel()
+TArray<URshipActorRegistrationComponent*> URshipLevelManager::GetTargetsInPersistentLevel()
 {
-	TArray<URshipTargetComponent*> Result;
+	TArray<URshipActorRegistrationComponent*> Result;
 
 	if (!Subsystem || !Subsystem->TargetComponents) return Result;
 
@@ -199,7 +199,7 @@ TArray<URshipTargetComponent*> URshipLevelManager::GetTargetsInPersistentLevel()
 
 	for (auto& Pair : *Subsystem->TargetComponents)
 	{
-		URshipTargetComponent* Comp = Pair.Value;
+		URshipActorRegistrationComponent* Comp = Pair.Value;
 		if (!Comp || !Comp->GetOwner()) continue;
 
 		if (Comp->GetOwner()->GetLevel() == World->PersistentLevel)
@@ -211,9 +211,9 @@ TArray<URshipTargetComponent*> URshipLevelManager::GetTargetsInPersistentLevel()
 	return Result;
 }
 
-TArray<URshipTargetComponent*> URshipLevelManager::GetTargetsInStreamingLevels()
+TArray<URshipActorRegistrationComponent*> URshipLevelManager::GetTargetsInStreamingLevels()
 {
-	TArray<URshipTargetComponent*> Result;
+	TArray<URshipActorRegistrationComponent*> Result;
 
 	if (!Subsystem || !Subsystem->TargetComponents) return Result;
 
@@ -222,7 +222,7 @@ TArray<URshipTargetComponent*> URshipLevelManager::GetTargetsInStreamingLevels()
 
 	for (auto& Pair : *Subsystem->TargetComponents)
 	{
-		URshipTargetComponent* Comp = Pair.Value;
+		URshipActorRegistrationComponent* Comp = Pair.Value;
 		if (!Comp || !Comp->GetOwner()) continue;
 
 		ULevel* OwnerLevel = Comp->GetOwner()->GetLevel();
@@ -235,7 +235,7 @@ TArray<URshipTargetComponent*> URshipLevelManager::GetTargetsInStreamingLevels()
 	return Result;
 }
 
-FString URshipLevelManager::GetTargetLevel(URshipTargetComponent* Target)
+FString URshipLevelManager::GetTargetLevel(URshipActorRegistrationComponent* Target)
 {
 	if (!Target || !Target->GetOwner()) return FString();
 
@@ -263,9 +263,9 @@ bool URshipLevelManager::IsLevelVisible(const FString& LevelName)
 
 int32 URshipLevelManager::ReregisterTargetsInLevel(const FString& LevelName)
 {
-	TArray<URshipTargetComponent*> Targets = GetTargetsInLevel(LevelName);
+	TArray<URshipActorRegistrationComponent*> Targets = GetTargetsInLevel(LevelName);
 
-	for (URshipTargetComponent* Target : Targets)
+	for (URshipActorRegistrationComponent* Target : Targets)
 	{
 		if (Target)
 		{
@@ -281,11 +281,11 @@ int32 URshipLevelManager::ReregisterTargetsInLevel(const FString& LevelName)
 
 int32 URshipLevelManager::SetLevelTargetsOffline(const FString& LevelName)
 {
-	TArray<URshipTargetComponent*> Targets = GetTargetsInLevel(LevelName);
+	TArray<URshipActorRegistrationComponent*> Targets = GetTargetsInLevel(LevelName);
 
 	if (Subsystem)
 	{
-		for (URshipTargetComponent* Target : Targets)
+		for (URshipActorRegistrationComponent* Target : Targets)
 		{
 			if (Target && Target->TargetData)
 			{
@@ -303,10 +303,10 @@ int32 URshipLevelManager::SetLevelTargetsOffline(const FString& LevelName)
 
 int32 URshipLevelManager::AddTagToLevelTargets(const FString& LevelName, const FString& Tag)
 {
-	TArray<URshipTargetComponent*> Targets = GetTargetsInLevel(LevelName);
+	TArray<URshipActorRegistrationComponent*> Targets = GetTargetsInLevel(LevelName);
 	int32 Count = 0;
 
-	for (URshipTargetComponent* Target : Targets)
+	for (URshipActorRegistrationComponent* Target : Targets)
 	{
 		if (Target && !Target->HasTag(Tag))
 		{
@@ -323,12 +323,12 @@ int32 URshipLevelManager::AddTagToLevelTargets(const FString& LevelName, const F
 
 int32 URshipLevelManager::RemoveTagFromLevelTargets(const FString& LevelName, const FString& Tag)
 {
-	TArray<URshipTargetComponent*> Targets = GetTargetsInLevel(LevelName);
+	TArray<URshipActorRegistrationComponent*> Targets = GetTargetsInLevel(LevelName);
 	int32 Count = 0;
 
 	FString NormalizedTag = Tag.ToLower().TrimStartAndEnd();
 
-	for (URshipTargetComponent* Target : Targets)
+	for (URshipActorRegistrationComponent* Target : Targets)
 	{
 		if (!Target) continue;
 
@@ -365,7 +365,7 @@ void URshipLevelManager::SetAutoLevelTagging(bool bEnabled)
 		// Apply level tags to all existing targets
 		for (auto& Pair : *Subsystem->TargetComponents)
 		{
-			URshipTargetComponent* Comp = Pair.Value;
+			URshipActorRegistrationComponent* Comp = Pair.Value;
 			if (Comp)
 			{
 				FString LevelName = GetTargetLevel(Comp);
@@ -412,7 +412,7 @@ void URshipLevelManager::SetAutoLevelTagPrefix(const FString& Prefix)
 
 		for (auto& Pair : *Subsystem->TargetComponents)
 		{
-			URshipTargetComponent* Comp = Pair.Value;
+			URshipActorRegistrationComponent* Comp = Pair.Value;
 			if (Comp)
 			{
 				FString LevelName = GetTargetLevel(Comp);
@@ -454,7 +454,7 @@ void URshipLevelManager::OnLevelAdded(ULevel* Level, UWorld* World)
 	RegisterLevelTargets(Level);
 
 	// Count targets
-	TArray<URshipTargetComponent*> Targets = GetTargetsInLevel(LevelName);
+	TArray<URshipActorRegistrationComponent*> Targets = GetTargetsInLevel(LevelName);
 	int32 Count = Targets.Num();
 
 	OnLevelLoaded.Broadcast(ShortName, Count);
@@ -471,7 +471,7 @@ void URshipLevelManager::OnLevelRemoved(ULevel* Level, UWorld* World)
 	FString ShortName = GetLevelShortName(LevelName);
 
 	// Count targets before removal
-	TArray<URshipTargetComponent*> Targets = GetTargetsInLevel(LevelName);
+	TArray<URshipActorRegistrationComponent*> Targets = GetTargetsInLevel(LevelName);
 	int32 Count = Targets.Num();
 
 	UE_LOG(LogTemp, Log, TEXT("RshipLevelManager: Level removed - %s (%d targets)"), *ShortName, Count);
@@ -513,7 +513,7 @@ void URshipLevelManager::RegisterLevelTargets(ULevel* Level)
 
 	for (auto& Pair : *Subsystem->TargetComponents)
 	{
-		URshipTargetComponent* Comp = Pair.Value;
+		URshipActorRegistrationComponent* Comp = Pair.Value;
 		if (!Comp || !Comp->GetOwner()) continue;
 
 		if (Comp->GetOwner()->GetLevel() == Level)
@@ -536,7 +536,7 @@ void URshipLevelManager::UnregisterLevelTargets(ULevel* Level)
 
 	for (auto& Pair : *Subsystem->TargetComponents)
 	{
-		URshipTargetComponent* Comp = Pair.Value;
+		URshipActorRegistrationComponent* Comp = Pair.Value;
 		if (!Comp || !Comp->GetOwner()) continue;
 
 		if (Comp->GetOwner()->GetLevel() == Level)
@@ -548,7 +548,7 @@ void URshipLevelManager::UnregisterLevelTargets(ULevel* Level)
 			}
 
 			// TODO: Implement unregister from server
-			// URshipTargetComponent doesn't have an Unregister method yet
+			// URshipActorRegistrationComponent doesn't have an Unregister method yet
 			// Comp->Unregister();
 		}
 	}
@@ -561,7 +561,7 @@ FString URshipLevelManager::GetLevelShortName(const FString& LevelPath) const
 	return FPackageName::GetShortName(LevelPath);
 }
 
-void URshipLevelManager::ApplyAutoLevelTag(URshipTargetComponent* Target, const FString& LevelName)
+void URshipLevelManager::ApplyAutoLevelTag(URshipActorRegistrationComponent* Target, const FString& LevelName)
 {
 	if (!Target) return;
 
@@ -573,7 +573,7 @@ void URshipLevelManager::ApplyAutoLevelTag(URshipTargetComponent* Target, const 
 	}
 }
 
-void URshipLevelManager::RemoveAutoLevelTag(URshipTargetComponent* Target)
+void URshipLevelManager::RemoveAutoLevelTag(URshipActorRegistrationComponent* Target)
 {
 	if (!Target) return;
 
@@ -586,3 +586,4 @@ void URshipLevelManager::RemoveAutoLevelTag(URshipTargetComponent* Target)
 		}
 	}
 }
+

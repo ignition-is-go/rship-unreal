@@ -1,7 +1,7 @@
 // Rocketship Target Group Management Implementation
 
 #include "RshipTargetGroup.h"
-#include "RshipTargetComponent.h"
+#include "RshipActorRegistrationComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
@@ -158,7 +158,7 @@ TArray<FString> URshipTargetGroupManager::GetGroupsForTarget(const FString& Targ
 // TAG OPERATIONS
 // ============================================================================
 
-void URshipTargetGroupManager::AddTagToTarget(URshipTargetComponent* Target, const FString& Tag)
+void URshipTargetGroupManager::AddTagToTarget(URshipActorRegistrationComponent* Target, const FString& Tag)
 {
 	if (!Target || Tag.IsEmpty())
 	{
@@ -186,7 +186,7 @@ void URshipTargetGroupManager::AddTagToTarget(URshipTargetComponent* Target, con
 	OnTargetTagsChanged.Broadcast(Target, Target->Tags);
 }
 
-void URshipTargetGroupManager::RemoveTagFromTarget(URshipTargetComponent* Target, const FString& Tag)
+void URshipTargetGroupManager::RemoveTagFromTarget(URshipActorRegistrationComponent* Target, const FString& Tag)
 {
 	if (!Target || Tag.IsEmpty())
 	{
@@ -229,9 +229,9 @@ bool URshipTargetGroupManager::TagExists(const FString& Tag) const
 // QUERY OPERATIONS
 // ============================================================================
 
-TArray<URshipTargetComponent*> URshipTargetGroupManager::GetTargetsByTag(const FString& Tag) const
+TArray<URshipActorRegistrationComponent*> URshipTargetGroupManager::GetTargetsByTag(const FString& Tag) const
 {
-	TArray<URshipTargetComponent*> Result;
+	TArray<URshipActorRegistrationComponent*> Result;
 	FString NormalizedTag = NormalizeTag(Tag);
 
 	const TSet<FString>* TargetIds = TagToTargets.Find(NormalizedTag);
@@ -242,7 +242,7 @@ TArray<URshipTargetComponent*> URshipTargetGroupManager::GetTargetsByTag(const F
 
 	for (const FString& TargetId : *TargetIds)
 	{
-		const TWeakObjectPtr<URshipTargetComponent>* WeakPtr = RegisteredTargets.Find(TargetId);
+		const TWeakObjectPtr<URshipActorRegistrationComponent>* WeakPtr = RegisteredTargets.Find(TargetId);
 		if (WeakPtr && WeakPtr->IsValid())
 		{
 			Result.Add(WeakPtr->Get());
@@ -252,9 +252,9 @@ TArray<URshipTargetComponent*> URshipTargetGroupManager::GetTargetsByTag(const F
 	return Result;
 }
 
-TArray<URshipTargetComponent*> URshipTargetGroupManager::GetTargetsByGroup(const FString& GroupId) const
+TArray<URshipActorRegistrationComponent*> URshipTargetGroupManager::GetTargetsByGroup(const FString& GroupId) const
 {
-	TArray<URshipTargetComponent*> Result;
+	TArray<URshipActorRegistrationComponent*> Result;
 
 	const FRshipTargetGroup* Group = Groups.Find(GroupId);
 	if (!Group)
@@ -264,7 +264,7 @@ TArray<URshipTargetComponent*> URshipTargetGroupManager::GetTargetsByGroup(const
 
 	for (const FString& TargetId : Group->TargetIds)
 	{
-		const TWeakObjectPtr<URshipTargetComponent>* WeakPtr = RegisteredTargets.Find(TargetId);
+		const TWeakObjectPtr<URshipActorRegistrationComponent>* WeakPtr = RegisteredTargets.Find(TargetId);
 		if (WeakPtr && WeakPtr->IsValid())
 		{
 			Result.Add(WeakPtr->Get());
@@ -274,9 +274,9 @@ TArray<URshipTargetComponent*> URshipTargetGroupManager::GetTargetsByGroup(const
 	return Result;
 }
 
-TArray<URshipTargetComponent*> URshipTargetGroupManager::GetTargetsByPattern(const FString& WildcardPattern) const
+TArray<URshipActorRegistrationComponent*> URshipTargetGroupManager::GetTargetsByPattern(const FString& WildcardPattern) const
 {
-	TArray<URshipTargetComponent*> Result;
+	TArray<URshipActorRegistrationComponent*> Result;
 
 	for (const auto& Pair : RegisteredTargets)
 	{
@@ -289,11 +289,11 @@ TArray<URshipTargetComponent*> URshipTargetGroupManager::GetTargetsByPattern(con
 	return Result;
 }
 
-TArray<URshipTargetComponent*> URshipTargetGroupManager::GetTargetsByTags(const TArray<FString>& Tags) const
+TArray<URshipActorRegistrationComponent*> URshipTargetGroupManager::GetTargetsByTags(const TArray<FString>& Tags) const
 {
 	if (Tags.Num() == 0)
 	{
-		return TArray<URshipTargetComponent*>();
+		return TArray<URshipActorRegistrationComponent*>();
 	}
 
 	// Start with targets matching the first tag
@@ -302,7 +302,7 @@ TArray<URshipTargetComponent*> URshipTargetGroupManager::GetTargetsByTags(const 
 	const TSet<FString>* FirstSet = TagToTargets.Find(FirstTag);
 	if (!FirstSet)
 	{
-		return TArray<URshipTargetComponent*>();
+		return TArray<URshipActorRegistrationComponent*>();
 	}
 	MatchingTargetIds = *FirstSet;
 
@@ -313,20 +313,20 @@ TArray<URshipTargetComponent*> URshipTargetGroupManager::GetTargetsByTags(const 
 		const TSet<FString>* TagSet = TagToTargets.Find(Tag);
 		if (!TagSet)
 		{
-			return TArray<URshipTargetComponent*>(); // No targets have all tags
+			return TArray<URshipActorRegistrationComponent*>(); // No targets have all tags
 		}
 		MatchingTargetIds = MatchingTargetIds.Intersect(*TagSet);
 		if (MatchingTargetIds.Num() == 0)
 		{
-			return TArray<URshipTargetComponent*>();
+			return TArray<URshipActorRegistrationComponent*>();
 		}
 	}
 
 	// Convert IDs to components
-	TArray<URshipTargetComponent*> Result;
+	TArray<URshipActorRegistrationComponent*> Result;
 	for (const FString& TargetId : MatchingTargetIds)
 	{
-		const TWeakObjectPtr<URshipTargetComponent>* WeakPtr = RegisteredTargets.Find(TargetId);
+		const TWeakObjectPtr<URshipActorRegistrationComponent>* WeakPtr = RegisteredTargets.Find(TargetId);
 		if (WeakPtr && WeakPtr->IsValid())
 		{
 			Result.Add(WeakPtr->Get());
@@ -336,7 +336,7 @@ TArray<URshipTargetComponent*> URshipTargetGroupManager::GetTargetsByTags(const 
 	return Result;
 }
 
-TArray<URshipTargetComponent*> URshipTargetGroupManager::GetTargetsByAnyTag(const TArray<FString>& Tags) const
+TArray<URshipActorRegistrationComponent*> URshipTargetGroupManager::GetTargetsByAnyTag(const TArray<FString>& Tags) const
 {
 	TSet<FString> MatchingTargetIds;
 
@@ -351,10 +351,10 @@ TArray<URshipTargetComponent*> URshipTargetGroupManager::GetTargetsByAnyTag(cons
 	}
 
 	// Convert IDs to components
-	TArray<URshipTargetComponent*> Result;
+	TArray<URshipActorRegistrationComponent*> Result;
 	for (const FString& TargetId : MatchingTargetIds)
 	{
-		const TWeakObjectPtr<URshipTargetComponent>* WeakPtr = RegisteredTargets.Find(TargetId);
+		const TWeakObjectPtr<URshipActorRegistrationComponent>* WeakPtr = RegisteredTargets.Find(TargetId);
 		if (WeakPtr && WeakPtr->IsValid())
 		{
 			Result.Add(WeakPtr->Get());
@@ -378,7 +378,7 @@ FRshipTargetGroup URshipTargetGroupManager::CreateGroupFromActorClass(TSubclassO
 	{
 		if (Pair.Value.IsValid())
 		{
-			URshipTargetComponent* Target = Pair.Value.Get();
+			URshipActorRegistrationComponent* Target = Pair.Value.Get();
 			if (Target->GetOwner() && Target->GetOwner()->IsA(ActorClass))
 			{
 				AddTargetToGroup(Pair.Key, NewGroup.GroupId);
@@ -403,7 +403,7 @@ FRshipTargetGroup URshipTargetGroupManager::CreateGroupFromProximity(FVector Cen
 	{
 		if (Pair.Value.IsValid())
 		{
-			URshipTargetComponent* Target = Pair.Value.Get();
+			URshipActorRegistrationComponent* Target = Pair.Value.Get();
 			if (Target->GetOwner())
 			{
 				float DistSq = FVector::DistSquared(Target->GetOwner()->GetActorLocation(), Center);
@@ -425,7 +425,7 @@ FRshipTargetGroup URshipTargetGroupManager::CreateGroupFromProximity(FVector Cen
 // INTERNAL INDEX MANAGEMENT
 // ============================================================================
 
-void URshipTargetGroupManager::RegisterTarget(URshipTargetComponent* Target)
+void URshipTargetGroupManager::RegisterTarget(URshipActorRegistrationComponent* Target)
 {
 	if (!Target || Target->targetName.IsEmpty())
 	{
@@ -461,7 +461,7 @@ void URshipTargetGroupManager::RegisterTarget(URshipTargetComponent* Target)
 	UE_LOG(LogTemp, Verbose, TEXT("RshipGroups: Registered target '%s'"), *Target->targetName);
 }
 
-void URshipTargetGroupManager::UnregisterTarget(URshipTargetComponent* Target)
+void URshipTargetGroupManager::UnregisterTarget(URshipActorRegistrationComponent* Target)
 {
 	if (!Target || Target->targetName.IsEmpty())
 	{
@@ -514,7 +514,7 @@ void URshipTargetGroupManager::RebuildIndices()
 	{
 		if (Pair.Value.IsValid())
 		{
-			URshipTargetComponent* Target = Pair.Value.Get();
+			URshipActorRegistrationComponent* Target = Pair.Value.Get();
 			for (const FString& Tag : Target->Tags)
 			{
 				FString NormalizedTag = NormalizeTag(Tag);
@@ -817,3 +817,4 @@ bool URshipTargetGroupManager::ImportGroupsFromJson(const FString& JsonString)
 
 	return true;
 }
+

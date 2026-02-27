@@ -4,7 +4,7 @@
 #include "RshipControlRigBinding.h"
 #include "RshipSubsystem.h"
 #include "RshipPulseReceiver.h"
-#include "RshipTargetComponent.h"
+#include "RshipActorRegistrationComponent.h"
 #include "RshipVersion.h"
 #include "ControlRig.h"
 #include "ControlRigComponent.h"
@@ -60,11 +60,7 @@ void URshipControlRigBinding::BeginPlay()
 
     UE_LOG(LogTemp, Log, TEXT("RshipControlRigBinding: Started with %d bindings"), BindingConfig.Bindings.Num());
 
-    // Trigger rescan on RshipTargetComponent so our RS_ members are registered
-    if (URshipTargetComponent* TargetComp = GetOwner()->FindComponentByClass<URshipTargetComponent>())
-    {
-        TargetComp->RescanSiblingComponents();
-    }
+    // Reflection-based registration for this component is owned by URshipBPController.
 }
 
 void URshipControlRigBinding::EndPlay(const EEndPlayReason::Type EndPlayReason)

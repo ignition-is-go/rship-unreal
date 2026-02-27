@@ -3,15 +3,15 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Core/RshipBindings.h"
 #include "Widgets/SCompoundWidget.h"
 #include "Widgets/DeclarativeSyntaxSupport.h"
 #include "Widgets/Views/SListView.h"
 #include "Widgets/Input/SCheckBox.h"
 
 class URshipSubsystem;
-class URshipTargetComponent;
+class URshipActorRegistrationComponent;
 class AActor;
-class Action;
 class SVerticalBox;
 class FJsonObject;
 struct FInstancedPropertyBag;
@@ -27,7 +27,7 @@ struct FRshipTargetListItem
     bool bIsOnline;
     int32 EmitterCount;
     int32 ActionCount;
-    TWeakObjectPtr<URshipTargetComponent> Component;
+    TWeakObjectPtr<URshipActorRegistrationComponent> Component;
 
     FRshipTargetListItem()
         : bIsOnline(false)
@@ -53,7 +53,7 @@ struct FRshipActionEntryState
 {
     FString ActionId;
     FString ActionName;
-    Action* ActionPtr = nullptr;
+    FRshipActionBinding ActionBinding;
     TArray<FRshipActionFieldBinding> FieldBindings;
     TSharedPtr<FInstancedPropertyBag> ParameterBag;
     TSharedPtr<FInstancePropertyBagStructureDataProvider> BagDataProvider;
@@ -132,7 +132,7 @@ private:
     // Data
     TArray<TSharedPtr<FRshipTargetListItem>> TargetItems;
     TSharedPtr<SListView<TSharedPtr<FRshipTargetListItem>>> TargetListView;
-    TWeakObjectPtr<URshipTargetComponent> SelectedTargetComponent;
+    TWeakObjectPtr<URshipActorRegistrationComponent> SelectedTargetComponent;
     TWeakObjectPtr<AActor> SelectedTargetOwner;
     FString SelectedTargetId;
     TArray<TSharedPtr<FRshipActionEntryState>> ActionEntries;
@@ -189,3 +189,4 @@ private:
 
     TSharedPtr<FRshipTargetListItem> Item;
 };
+

@@ -2,7 +2,7 @@
 
 #include "RshipHealthMonitor.h"
 #include "RshipSubsystem.h"
-#include "RshipTargetComponent.h"
+#include "RshipActorRegistrationComponent.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
 
@@ -81,7 +81,7 @@ FRshipHealthStatus URshipHealthMonitor::GetCurrentHealth()
 
 		for (auto& Pair : *Subsystem->TargetComponents)
 		{
-			URshipTargetComponent* Comp = Pair.Value;
+			URshipActorRegistrationComponent* Comp = Pair.Value;
 			if (!Comp) continue;
 
 			FTargetPulseInfo* Info = TargetPulseInfo.Find(Comp->targetName);
@@ -185,7 +185,7 @@ TArray<FRshipTargetActivity> URshipHealthMonitor::GetInactiveTargets(float Inact
 
 	for (auto& Pair : *Subsystem->TargetComponents)
 	{
-		URshipTargetComponent* Comp = Pair.Value;
+		URshipActorRegistrationComponent* Comp = Pair.Value;
 		if (!Comp) continue;
 
 		FTargetPulseInfo* Info = TargetPulseInfo.Find(Comp->targetName);
@@ -494,3 +494,4 @@ void URshipHealthMonitor::CheckAndFireEvents(const FRshipHealthStatus& NewStatus
 		OnHealthChanged.Broadcast(NewStatus);
 	}
 }
+

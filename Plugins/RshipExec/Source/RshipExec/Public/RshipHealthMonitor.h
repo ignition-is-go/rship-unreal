@@ -8,7 +8,7 @@
 
 // Forward declarations
 class URshipSubsystem;
-class URshipTargetComponent;
+class URshipActorRegistrationComponent;
 
 /**
  * Aggregated health status for the rship connection and targets
@@ -340,3 +340,4 @@ private:
 	/** Previous messages dropped count (for calculating per-second) */
 	int32 PreviousMessagesDropped = 0;
 };
+

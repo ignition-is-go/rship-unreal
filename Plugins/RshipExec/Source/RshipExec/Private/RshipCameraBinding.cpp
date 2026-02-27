@@ -2,7 +2,7 @@
 
 #include "RshipCameraBinding.h"
 #include "RshipSubsystem.h"
-#include "RshipTargetComponent.h"
+#include "RshipActorRegistrationComponent.h"
 #include "Logs.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
@@ -51,11 +51,7 @@ void URshipCameraBinding::BeginPlay()
 
 	UE_LOG(LogRshipExec, Log, TEXT("RshipCameraBinding: Initialized on %s"), *GetOwner()->GetName());
 
-	// Trigger rescan on RshipTargetComponent so our RS_ members are registered
-	if (URshipTargetComponent* TargetComp = GetOwner()->FindComponentByClass<URshipTargetComponent>())
-	{
-		TargetComp->RescanSiblingComponents();
-	}
+	// Reflection-based registration for this component is owned by URshipBPController.
 }
 
 void URshipCameraBinding::EndPlay(const EEndPlayReason::Type EndPlayReason)

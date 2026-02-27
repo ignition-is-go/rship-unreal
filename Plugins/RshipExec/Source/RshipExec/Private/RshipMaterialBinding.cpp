@@ -3,7 +3,7 @@
 #include "RshipMaterialBinding.h"
 #include "RshipSubsystem.h"
 #include "RshipPulseReceiver.h"
-#include "RshipTargetComponent.h"
+#include "RshipActorRegistrationComponent.h"
 #include "Logs.h"
 #include "Engine/Engine.h"
 #include "Components/MeshComponent.h"
@@ -66,16 +66,7 @@ void URshipMaterialBinding::BeginPlay()
         }
     }
 
-    // Trigger rescan on RshipTargetComponent so our RS_ members are registered
-    AActor* Owner = GetOwner();
-    if (Owner)
-    {
-        if (URshipTargetComponent* TargetComp = Owner->FindComponentByClass<URshipTargetComponent>())
-        {
-            UE_LOG(LogRshipExec, Log, TEXT("MaterialBinding: Triggering rescan on RshipTargetComponent"));
-            TargetComp->RescanSiblingComponents();
-        }
-    }
+    // Reflection-based registration for this component is owned by URshipBPController.
 }
 
 void URshipMaterialBinding::EndPlay(const EEndPlayReason::Type EndPlayReason)

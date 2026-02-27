@@ -7,7 +7,7 @@
 #include "RshipTestUtilities.generated.h"
 
 class URshipSubsystem;
-class URshipTargetComponent;
+class URshipActorRegistrationComponent;
 
 /**
  * Validation issue severity levels
@@ -242,7 +242,7 @@ public:
 	 * @return Array of test issues for this target
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Testing")
-	TArray<FRshipTestIssue> ValidateTargetComponent(URshipTargetComponent* Target);
+	TArray<FRshipTestIssue> ValidateTargetComponent(URshipActorRegistrationComponent* Target);
 
 	// ========================================================================
 	// STRESS TESTING
@@ -343,13 +343,13 @@ private:
 	URshipSubsystem* GetSubsystem() const;
 
 	// Helper to find target components in world
-	TArray<URshipTargetComponent*> GetAllTargetComponents() const;
+	TArray<URshipActorRegistrationComponent*> GetAllTargetComponents() const;
 
 	// Helper to find target by ID
-	URshipTargetComponent* FindTargetById(const FString& TargetId) const;
+	URshipActorRegistrationComponent* FindTargetById(const FString& TargetId) const;
 
 	// Inject pulse to a specific target component
-	bool InjectPulseToTarget(URshipTargetComponent* Target, const FString& EmitterId, TSharedPtr<FJsonObject> Data);
+	bool InjectPulseToTarget(URshipActorRegistrationComponent* Target, const FString& EmitterId, TSharedPtr<FJsonObject> Data);
 
 	// Stress test state
 	bool bStressTestRunning = false;
@@ -366,3 +366,4 @@ private:
 	// Cached world reference
 	TWeakObjectPtr<UWorld> CachedWorld;
 };
+

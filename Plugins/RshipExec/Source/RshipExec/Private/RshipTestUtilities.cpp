@@ -2,7 +2,7 @@
 
 #include "RshipTestUtilities.h"
 #include "RshipSubsystem.h"
-#include "RshipTargetComponent.h"
+#include "RshipActorRegistrationComponent.h"
 #include "RshipMaterialBinding.h"
 #include "RshipLiveLinkSource.h"
 #include "RshipTimecodeSync.h"
@@ -32,9 +32,9 @@ URshipSubsystem* URshipTestUtilities::GetSubsystem() const
 	return nullptr;
 }
 
-TArray<URshipTargetComponent*> URshipTestUtilities::GetAllTargetComponents() const
+TArray<URshipActorRegistrationComponent*> URshipTestUtilities::GetAllTargetComponents() const
 {
-	TArray<URshipTargetComponent*> Result;
+	TArray<URshipActorRegistrationComponent*> Result;
 
 	UWorld* World = nullptr;
 
@@ -58,7 +58,7 @@ TArray<URshipTargetComponent*> URshipTestUtilities::GetAllTargetComponents() con
 	for (TActorIterator<AActor> It(World); It; ++It)
 	{
 		AActor* Actor = *It;
-		if (URshipTargetComponent* Target = Actor->FindComponentByClass<URshipTargetComponent>())
+		if (URshipActorRegistrationComponent* Target = Actor->FindComponentByClass<URshipActorRegistrationComponent>())
 		{
 			Result.Add(Target);
 		}
@@ -67,10 +67,10 @@ TArray<URshipTargetComponent*> URshipTestUtilities::GetAllTargetComponents() con
 	return Result;
 }
 
-URshipTargetComponent* URshipTestUtilities::FindTargetById(const FString& TargetId) const
+URshipActorRegistrationComponent* URshipTestUtilities::FindTargetById(const FString& TargetId) const
 {
-	TArray<URshipTargetComponent*> Targets = GetAllTargetComponents();
-	for (URshipTargetComponent* Target : Targets)
+	TArray<URshipActorRegistrationComponent*> Targets = GetAllTargetComponents();
+	for (URshipActorRegistrationComponent* Target : Targets)
 	{
 		if (Target && Target->targetName == TargetId)
 		{
@@ -80,7 +80,7 @@ URshipTargetComponent* URshipTestUtilities::FindTargetById(const FString& Target
 	return nullptr;
 }
 
-bool URshipTestUtilities::InjectPulseToTarget(URshipTargetComponent* Target, const FString& EmitterId, TSharedPtr<FJsonObject> Data)
+bool URshipTestUtilities::InjectPulseToTarget(URshipActorRegistrationComponent* Target, const FString& EmitterId, TSharedPtr<FJsonObject> Data)
 {
 	if (!Target || !Data.IsValid())
 	{
@@ -118,7 +118,7 @@ bool URshipTestUtilities::InjectPulseToTarget(URshipTargetComponent* Target, con
 
 bool URshipTestUtilities::InjectMockPulse(const FString& TargetId, const FString& EmitterId, const FString& JsonData)
 {
-	URshipTargetComponent* Target = FindTargetById(TargetId);
+	URshipActorRegistrationComponent* Target = FindTargetById(TargetId);
 	if (!Target)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("RshipTestUtilities: Target '%s' not found"), *TargetId);
@@ -141,7 +141,7 @@ bool URshipTestUtilities::InjectMockPulse(const FString& TargetId, const FString
 
 bool URshipTestUtilities::InjectMockPulseFloat(const FString& TargetId, const FString& EmitterId, float Value)
 {
-	URshipTargetComponent* Target = FindTargetById(TargetId);
+	URshipActorRegistrationComponent* Target = FindTargetById(TargetId);
 	if (!Target)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("RshipTestUtilities: Target '%s' not found"), *TargetId);
@@ -156,7 +156,7 @@ bool URshipTestUtilities::InjectMockPulseFloat(const FString& TargetId, const FS
 
 bool URshipTestUtilities::InjectMockPulseColor(const FString& TargetId, const FString& EmitterId, FLinearColor Color)
 {
-	URshipTargetComponent* Target = FindTargetById(TargetId);
+	URshipActorRegistrationComponent* Target = FindTargetById(TargetId);
 	if (!Target)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("RshipTestUtilities: Target '%s' not found"), *TargetId);
@@ -174,7 +174,7 @@ bool URshipTestUtilities::InjectMockPulseColor(const FString& TargetId, const FS
 
 bool URshipTestUtilities::InjectMockPulseTransform(const FString& TargetId, const FString& EmitterId, const FTransform& Transform)
 {
-	URshipTargetComponent* Target = FindTargetById(TargetId);
+	URshipActorRegistrationComponent* Target = FindTargetById(TargetId);
 	if (!Target)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("RshipTestUtilities: Target '%s' not found"), *TargetId);
@@ -207,9 +207,9 @@ bool URshipTestUtilities::InjectMockPulseTransform(const FString& TargetId, cons
 int32 URshipTestUtilities::InjectRandomPulsesToAllTargets()
 {
 	int32 PulsesInjected = 0;
-	TArray<URshipTargetComponent*> Targets = GetAllTargetComponents();
+	TArray<URshipActorRegistrationComponent*> Targets = GetAllTargetComponents();
 
-	for (URshipTargetComponent* Target : Targets)
+	for (URshipActorRegistrationComponent* Target : Targets)
 	{
 		if (!Target)
 		{
@@ -260,8 +260,8 @@ TArray<FRshipTestIssue> URshipTestUtilities::ValidateAll()
 TArray<FRshipTestIssue> URshipTestUtilities::ValidateTargets()
 {
 	TArray<FRshipTestIssue> Results;
-	TArray<URshipTargetComponent*> Targets = GetAllTargetComponents();
-	TMap<FString, URshipTargetComponent*> TargetIdMap;
+	TArray<URshipActorRegistrationComponent*> Targets = GetAllTargetComponents();
+	TMap<FString, URshipActorRegistrationComponent*> TargetIdMap;
 
 	if (Targets.Num() == 0)
 	{
@@ -274,7 +274,7 @@ TArray<FRshipTestIssue> URshipTestUtilities::ValidateTargets()
 		return Results;
 	}
 
-	for (URshipTargetComponent* Target : Targets)
+	for (URshipActorRegistrationComponent* Target : Targets)
 	{
 		if (!Target)
 		{
@@ -300,7 +300,7 @@ TArray<FRshipTestIssue> URshipTestUtilities::ValidateTargets()
 		}
 
 		// Check for duplicate Target IDs
-		if (URshipTargetComponent** ExistingTarget = TargetIdMap.Find(Target->targetName))
+		if (URshipActorRegistrationComponent** ExistingTarget = TargetIdMap.Find(Target->targetName))
 		{
 			AActor* ExistingOwner = (*ExistingTarget)->GetOwner();
 			FString ExistingName = ExistingOwner ? ExistingOwner->GetName() : TEXT("Unknown");
@@ -334,7 +334,7 @@ TArray<FRshipTestIssue> URshipTestUtilities::ValidateTargets()
 	return Results;
 }
 
-TArray<FRshipTestIssue> URshipTestUtilities::ValidateTargetComponent(URshipTargetComponent* Target)
+TArray<FRshipTestIssue> URshipTestUtilities::ValidateTargetComponent(URshipActorRegistrationComponent* Target)
 {
 	TArray<FRshipTestIssue> Results;
 
@@ -638,9 +638,9 @@ void URshipTestUtilities::StartStressTest(const FRshipStressTestConfig& Config)
 
 	// Cache target IDs matching pattern
 	StressTestTargetIds.Empty();
-	TArray<URshipTargetComponent*> Targets = GetAllTargetComponents();
+	TArray<URshipActorRegistrationComponent*> Targets = GetAllTargetComponents();
 
-	for (URshipTargetComponent* Target : Targets)
+	for (URshipActorRegistrationComponent* Target : Targets)
 	{
 		if (!Target || Target->targetName.IsEmpty())
 		{
@@ -817,3 +817,4 @@ void URshipTestUtilities::ResetConnectionSimulation()
 
 	UE_LOG(LogTemp, Log, TEXT("RshipTestUtilities: Connection simulation reset"));
 }
+

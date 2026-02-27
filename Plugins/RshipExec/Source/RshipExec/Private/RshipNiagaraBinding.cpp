@@ -3,7 +3,7 @@
 #include "RshipNiagaraBinding.h"
 #include "RshipSubsystem.h"
 #include "RshipPulseReceiver.h"
-#include "RshipTargetComponent.h"
+#include "RshipActorRegistrationComponent.h"
 #include "Logs.h"
 #include "Engine/Engine.h"
 #include "NiagaraComponent.h"
@@ -71,11 +71,7 @@ void URshipNiagaraBinding::BeginPlay()
     UE_LOG(LogRshipExec, Log, TEXT("RshipNiagaraBinding: Initialized for %s on %s"),
         *GetFullEmitterId(), *GetOwner()->GetName());
 
-    // Trigger rescan on RshipTargetComponent so our RS_ members are registered
-    if (URshipTargetComponent* TargetComp = GetOwner()->FindComponentByClass<URshipTargetComponent>())
-    {
-        TargetComp->RescanSiblingComponents();
-    }
+    // Reflection-based registration for this component is owned by URshipBPController.
 }
 
 void URshipNiagaraBinding::EndPlay(const EEndPlayReason::Type EndPlayReason)

@@ -2,9 +2,8 @@
 
 #include "RshipPresetManager.h"
 #include "RshipSubsystem.h"
-#include "RshipTargetComponent.h"
+#include "RshipActorRegistrationComponent.h"
 #include "RshipTargetGroup.h"
-#include "Action.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
 #include "Misc/FileHelper.h"
@@ -35,7 +34,7 @@ void URshipPresetManager::Shutdown()
 // CAPTURE
 // ============================================================================
 
-FRshipPreset URshipPresetManager::CapturePreset(const FString& Name, const TArray<URshipTargetComponent*>& Targets)
+FRshipPreset URshipPresetManager::CapturePreset(const FString& Name, const TArray<URshipActorRegistrationComponent*>& Targets)
 {
 	FRshipPreset Preset;
 	Preset.PresetId = GeneratePresetId();
@@ -43,7 +42,7 @@ FRshipPreset URshipPresetManager::CapturePreset(const FString& Name, const TArra
 	Preset.CreatedAt = FDateTime::Now();
 	Preset.ModifiedAt = FDateTime::Now();
 
-	for (URshipTargetComponent* Target : Targets)
+	for (URshipActorRegistrationComponent* Target : Targets)
 	{
 		if (!Target || !Target->TargetData) continue;
 
@@ -51,7 +50,7 @@ FRshipPreset URshipPresetManager::CapturePreset(const FString& Name, const TArra
 		for (const auto& EmitterPair : Target->TargetData->GetEmitters())
 		{
 			FString EmitterId = EmitterPair.Key;
-			FString EmitterName = EmitterPair.Value->GetName();
+			FString EmitterName = EmitterPair.Value.Name;
 
 			// Get cached value
 			FString CacheKey = Target->targetName + TEXT(":") + EmitterName;
@@ -89,7 +88,7 @@ FRshipPreset URshipPresetManager::CapturePresetByTag(const FString& Name, const 
 	URshipTargetGroupManager* GroupManager = Subsystem->GetGroupManager();
 	if (!GroupManager) return FRshipPreset();
 
-	TArray<URshipTargetComponent*> Targets = GroupManager->GetTargetsByTag(Tag);
+	TArray<URshipActorRegistrationComponent*> Targets = GroupManager->GetTargetsByTag(Tag);
 	return CapturePreset(Name, Targets);
 }
 
@@ -100,7 +99,7 @@ FRshipPreset URshipPresetManager::CapturePresetByGroup(const FString& Name, cons
 	URshipTargetGroupManager* GroupManager = Subsystem->GetGroupManager();
 	if (!GroupManager) return FRshipPreset();
 
-	TArray<URshipTargetComponent*> Targets = GroupManager->GetTargetsByGroup(GroupId);
+	TArray<URshipActorRegistrationComponent*> Targets = GroupManager->GetTargetsByGroup(GroupId);
 	return CapturePreset(Name, Targets);
 }
 
@@ -108,7 +107,7 @@ FRshipPreset URshipPresetManager::CapturePresetAll(const FString& Name)
 {
 	if (!Subsystem || !Subsystem->TargetComponents) return FRshipPreset();
 
-	TArray<URshipTargetComponent*> Targets;
+	TArray<URshipActorRegistrationComponent*> Targets;
 	for (auto& Pair : *Subsystem->TargetComponents)
 	{
 		if (Pair.Value) Targets.Add(Pair.Value);
@@ -158,7 +157,7 @@ void URshipPresetManager::RecallPresetWithFade(const FRshipPreset& Preset, float
 	}
 
 	// Capture current state as "from" preset
-	TArray<URshipTargetComponent*> TargetsToCapture;
+	TArray<URshipActorRegistrationComponent*> TargetsToCapture;
 	if (Subsystem && Subsystem->TargetComponents)
 	{
 		for (auto& Pair : *Subsystem->TargetComponents)
@@ -542,16 +541,16 @@ void URshipPresetManager::ApplySnapshot(const FRshipEmitterSnapshot& Snapshot)
 
 	for (auto& Pair : *Subsystem->TargetComponents)
 	{
-		URshipTargetComponent* TargetComp = Pair.Value;
+		URshipActorRegistrationComponent* TargetComp = Pair.Value;
 		if (!TargetComp || TargetComp->targetName != Snapshot.TargetId) continue;
 		if (!TargetComp->TargetData) continue;
 
 		// Try to find an action with the same name as the emitter
 		// This is the typical rship pattern: emitter "intensity" pairs with action "intensity"
-		TMap<FString, Action*> Actions = TargetComp->TargetData->GetActions();
+		TMap<FString, FRshipActionBinding> Actions = TargetComp->TargetData->GetActions();
 
 		// Try exact match first
-		Action** FoundAction = Actions.Find(Snapshot.EmitterName);
+		FRshipActionBinding* FoundAction = Actions.Find(Snapshot.EmitterName);
 
 		// Try common variations if exact match fails
 		if (!FoundAction)
@@ -567,14 +566,14 @@ void URshipPresetManager::ApplySnapshot(const FRshipEmitterSnapshot& Snapshot)
 			FoundAction = Actions.Find(SetterName);
 		}
 
-		if (FoundAction && *FoundAction)
+		if (FoundAction)
 		{
 			// Get the owning actor
 			AActor* OwningActor = TargetComp->GetOwner();
 			if (OwningActor)
 			{
 				// Invoke through Target::TakeAction so data-received dispatch and routing are consistent.
-				bool bSuccess = TargetComp->TargetData->TakeAction(OwningActor, (*FoundAction)->GetId(), Values.ToSharedRef());
+				bool bSuccess = TargetComp->TargetData->TakeAction(OwningActor, FoundAction->Id, Values.ToSharedRef());
 				if (bSuccess)
 				{
 					UE_LOG(LogTemp, Log, TEXT("RshipPresets: Applied snapshot for %s:%s via action"),
@@ -619,13 +618,13 @@ void URshipPresetManager::ApplyInterpolatedSnapshot(const FRshipEmitterSnapshot&
 	// Find the target component and invoke the corresponding action
 	for (auto& Pair : *Subsystem->TargetComponents)
 	{
-		URshipTargetComponent* TargetComp = Pair.Value;
+		URshipActorRegistrationComponent* TargetComp = Pair.Value;
 		if (!TargetComp || TargetComp->targetName != To.TargetId) continue;
 		if (!TargetComp->TargetData) continue;
 
 		// Try to find an action with the same name as the emitter
-		TMap<FString, Action*> Actions = TargetComp->TargetData->GetActions();
-		Action** FoundAction = Actions.Find(To.EmitterName);
+		TMap<FString, FRshipActionBinding> Actions = TargetComp->TargetData->GetActions();
+		FRshipActionBinding* FoundAction = Actions.Find(To.EmitterName);
 
 		// Try common variations if exact match fails
 		if (!FoundAction)
@@ -639,12 +638,12 @@ void URshipPresetManager::ApplyInterpolatedSnapshot(const FRshipEmitterSnapshot&
 			FoundAction = Actions.Find(SetterName);
 		}
 
-		if (FoundAction && *FoundAction)
+		if (FoundAction)
 		{
 			AActor* OwningActor = TargetComp->GetOwner();
 			if (OwningActor)
 			{
-				TargetComp->TargetData->TakeAction(OwningActor, (*FoundAction)->GetId(), Interpolated.ToSharedRef());
+				TargetComp->TargetData->TakeAction(OwningActor, FoundAction->Id, Interpolated.ToSharedRef());
 			}
 		}
 
@@ -765,3 +764,4 @@ void URshipPresetManager::TickInterpolation()
 			*InterpolationToPreset.DisplayName);
 	}
 }
+

@@ -3,9 +3,8 @@
 #include "SRshipStatusPanel.h"
 #include "RshipStatusPanelStyle.h"
 #include "RshipSubsystem.h"
-#include "RshipTargetComponent.h"
+#include "RshipActorRegistrationComponent.h"
 #include "RshipSettings.h"
-#include "Action.h"
 
 #if RSHIP_EDITOR_HAS_2110
 #include "Rship2110.h"  // For SMPTE 2110 status
@@ -600,7 +599,7 @@ void SRshipStatusPanel::RefreshTargetList()
     }
 
     // Save currently selected component to restore after refresh
-    TWeakObjectPtr<URshipTargetComponent> SelectedComponent;
+    TWeakObjectPtr<URshipActorRegistrationComponent> SelectedComponent;
     if (TargetListView.IsValid())
     {
         TArray<TSharedPtr<FRshipTargetListItem>> SelectedItems = TargetListView->GetSelectedItems();
@@ -620,7 +619,7 @@ void SRshipStatusPanel::RefreshTargetList()
     {
         for (auto& Pair : *Subsystem->TargetComponents)
         {
-            URshipTargetComponent* Candidate = Pair.Value;
+            URshipActorRegistrationComponent* Candidate = Pair.Value;
             if (Candidate && Candidate->IsValidLowLevel() && Candidate->GetOwner() == SelectedTargetOwner.Get())
             {
                 SelectedComponent = Candidate;
@@ -633,7 +632,7 @@ void SRshipStatusPanel::RefreshTargetList()
     {
         for (auto& Pair : *Subsystem->TargetComponents)
         {
-            URshipTargetComponent* Candidate = Pair.Value;
+            URshipActorRegistrationComponent* Candidate = Pair.Value;
             if (Candidate && Candidate->IsValidLowLevel() && Candidate->targetName == SelectedTargetId)
             {
                 SelectedComponent = Candidate;
@@ -644,7 +643,7 @@ void SRshipStatusPanel::RefreshTargetList()
 
     // Build new items list
     TArray<TSharedPtr<FRshipTargetListItem>> NewItems;
-    TSet<URshipTargetComponent*> SeenComponents;
+    TSet<URshipActorRegistrationComponent*> SeenComponents;
 
     enum class ERshipTargetViewMode : uint8
     {
@@ -662,7 +661,7 @@ void SRshipStatusPanel::RefreshTargetList()
 
     for (auto& Pair : *Subsystem->TargetComponents)
     {
-        URshipTargetComponent* Component = Pair.Value;
+        URshipActorRegistrationComponent* Component = Pair.Value;
         if (Component && Component->IsValidLowLevel() && !SeenComponents.Contains(Component))
         {
             ERshipTargetViewMode ComponentMode = ERshipTargetViewMode::Editor;
@@ -1052,7 +1051,7 @@ void SRshipStatusPanel::SyncSelectionFromOutliner()
         }
 
         // Check if this actor has a target component
-        URshipTargetComponent* TargetComp = SelectedActor->FindComponentByClass<URshipTargetComponent>();
+        URshipActorRegistrationComponent* TargetComp = SelectedActor->FindComponentByClass<URshipActorRegistrationComponent>();
         if (!TargetComp)
         {
             continue;
@@ -1086,7 +1085,7 @@ void SRshipStatusPanel::RefreshActionsSection()
     ActionsListBox->ClearChildren();
     ActionEntries.Empty();
 
-    URshipTargetComponent* TargetComponent = SelectedTargetComponent.Get();
+    URshipActorRegistrationComponent* TargetComponent = SelectedTargetComponent.Get();
     if (!TargetComponent || !TargetComponent->TargetData)
     {
         ActionsListBox->AddSlot()
@@ -1099,7 +1098,7 @@ void SRshipStatusPanel::RefreshActionsSection()
         return;
     }
 
-    TMap<FString, Action*> Actions = TargetComponent->TargetData->GetActions();
+    const TMap<FString, FRshipActionBinding>& Actions = TargetComponent->TargetData->GetActions();
     if (Actions.Num() == 0)
     {
         ActionsListBox->AddSlot()
@@ -1112,35 +1111,35 @@ void SRshipStatusPanel::RefreshActionsSection()
         return;
     }
 
-    TArray<TPair<FString, Action*>> SortedActions;
+    TArray<TPair<FString, FRshipActionBinding>> SortedActions;
     SortedActions.Reserve(Actions.Num());
-    for (const TPair<FString, Action*>& Pair : Actions)
+    for (const TPair<FString, FRshipActionBinding>& Pair : Actions)
     {
         SortedActions.Add(Pair);
     }
 
-    SortedActions.Sort([](const TPair<FString, Action*>& A, const TPair<FString, Action*>& B)
+    SortedActions.Sort([](const TPair<FString, FRshipActionBinding>& A, const TPair<FString, FRshipActionBinding>& B)
     {
         return A.Key < B.Key;
     });
 
-    for (const TPair<FString, Action*>& Pair : SortedActions)
+    for (const TPair<FString, FRshipActionBinding>& Pair : SortedActions)
     {
-        if (!Pair.Value)
+        if (!Pair.Value.IsValid())
         {
             continue;
         }
 
         TSharedPtr<FRshipActionEntryState> Entry = MakeShared<FRshipActionEntryState>();
         Entry->ActionId = Pair.Key;
-        Entry->ActionName = Pair.Value->GetName();
-        Entry->ActionPtr = Pair.Value;
+        Entry->ActionName = Pair.Value.Name;
+        Entry->ActionBinding = Pair.Value;
         Entry->ParameterBag = MakeShared<FInstancedPropertyBag>();
         ActionEntries.Add(Entry);
 
         TSet<FName> UsedBagNames;
 
-        const TSharedPtr<FJsonObject> Schema = Entry->ActionPtr->GetSchema();
+        const TSharedPtr<FJsonObject> Schema = Entry->ActionBinding.GetSchema();
         const TSharedPtr<FJsonObject>* PropertiesPtr = nullptr;
         if (Schema.IsValid() && Schema->TryGetObjectField(TEXT("properties"), PropertiesPtr) && PropertiesPtr && (*PropertiesPtr).IsValid())
         {
@@ -1630,7 +1629,7 @@ bool SRshipStatusPanel::BuildActionPayload(const TSharedPtr<FRshipActionEntrySta
 
 FReply SRshipStatusPanel::OnExecuteActionClicked(TSharedPtr<FRshipActionEntryState> ActionEntry)
 {
-    URshipTargetComponent* TargetComponent = SelectedTargetComponent.Get();
+    URshipActorRegistrationComponent* TargetComponent = SelectedTargetComponent.Get();
     if (!TargetComponent || !TargetComponent->TargetData || !TargetComponent->GetOwner() || !ActionEntry.IsValid())
     {
         if (ActionEntry.IsValid() && ActionEntry->ResultText.IsValid())
@@ -2033,3 +2032,4 @@ void SRshipTargetRow::OnTargetIdCommitted(const FText& NewText, ETextCommit::Typ
 }
 
 #undef LOCTEXT_NAMESPACE
+

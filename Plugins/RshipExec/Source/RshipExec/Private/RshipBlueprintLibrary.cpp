@@ -2,7 +2,7 @@
 
 #include "RshipBlueprintLibrary.h"
 #include "RshipSubsystem.h"
-#include "RshipTargetComponent.h"
+#include "RshipActorRegistrationComponent.h"
 #include "RshipFixtureManager.h"
 #include "RshipPulseReceiver.h"
 #include "RshipSceneConverter.h"
@@ -72,9 +72,9 @@ FString URshipBlueprintLibrary::GetRshipInstanceId()
 // TARGETS
 // ============================================================================
 
-TArray<URshipTargetComponent*> URshipBlueprintLibrary::GetAllTargetComponents()
+TArray<URshipActorRegistrationComponent*> URshipBlueprintLibrary::GetAllTargetComponents()
 {
-    TArray<URshipTargetComponent*> Result;
+    TArray<URshipActorRegistrationComponent*> Result;
 
     URshipSubsystem* Subsystem = GetSubsystem();
     if (Subsystem && Subsystem->TargetComponents)
@@ -91,7 +91,7 @@ TArray<URshipTargetComponent*> URshipBlueprintLibrary::GetAllTargetComponents()
     return Result;
 }
 
-URshipTargetComponent* URshipBlueprintLibrary::FindTargetById(const FString& TargetId)
+URshipActorRegistrationComponent* URshipBlueprintLibrary::FindTargetById(const FString& TargetId)
 {
     URshipSubsystem* Subsystem = GetSubsystem();
     if (Subsystem)
@@ -1067,3 +1067,4 @@ TArray<FName> URshipBlueprintLibrary::GetLiveLinkSubjectNames()
     }
     return TArray<FName>();
 }
+

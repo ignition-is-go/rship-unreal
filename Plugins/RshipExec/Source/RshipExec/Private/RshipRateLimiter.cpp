@@ -10,7 +10,7 @@
  */
 
 #include "RshipRateLimiter.h"
-#include "Myko.h"
+#include "Transport/RshipMykoTransport.h"
 #include "Logs.h"
 #include "Serialization/JsonWriter.h"
 #include "Serialization/JsonSerializer.h"
@@ -367,7 +367,7 @@ int32 FRshipRateLimiter::ProcessQueue()
         if (Config.bEnableBatching)
         {
             // Only Myko ws:m:event envelopes can be packed into ws:m:event-batch.
-            if (!IsMykoEventEnvelope(Msg.Payload))
+            if (!FRshipMykoTransport::IsMykoEventEnvelope(Msg.Payload))
             {
                 if (CurrentBatch.Num() > 0)
                 {
@@ -1011,7 +1011,7 @@ FString FRshipRateLimiter::SerializeBatch(const TArray<FRshipQueuedMessage>& Bat
 
         // Create typed Myko event-batch wrapper.
     TSharedPtr<FJsonObject> BatchWrapper = MakeShareable(new FJsonObject);
-    BatchWrapper->SetStringField(TEXT("event"), MykoEventNames::EventBatch);
+    BatchWrapper->SetStringField(TEXT("event"), RshipMykoEventNames::EventBatch);
 
     // data must be an array of MEvent objects (not ws:m:event envelopes).
     TArray<TSharedPtr<FJsonValue>> PayloadArray;
@@ -1023,7 +1023,7 @@ FString FRshipRateLimiter::SerializeBatch(const TArray<FRshipQueuedMessage>& Bat
         }
 
         TSharedPtr<FJsonObject> EventData;
-        if (!TryGetMykoEventData(Msg.Payload, EventData))
+        if (!FRshipMykoTransport::TryGetMykoEventData(Msg.Payload, EventData))
         {
             LogMessage(0, TEXT("SerializeBatch received non-Myko payload; dropping from event-batch"));
             continue;

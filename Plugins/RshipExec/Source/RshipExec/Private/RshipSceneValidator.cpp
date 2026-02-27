@@ -2,7 +2,7 @@
 
 #include "RshipSceneValidator.h"
 #include "RshipSubsystem.h"
-#include "RshipTargetComponent.h"
+#include "RshipActorRegistrationComponent.h"
 #include "Logs.h"
 #include "EngineUtils.h"
 #include "Components/LightComponent.h"
@@ -194,7 +194,7 @@ bool URshipSceneValidator::CanConvertActor(AActor* Actor) const
     if (!Actor) return false;
 
     // Already has target component
-    if (Actor->FindComponentByClass<URshipTargetComponent>()) return true;
+    if (Actor->FindComponentByClass<URshipActorRegistrationComponent>()) return true;
 
     // Has light components
     if (Actor->FindComponentByClass<ULightComponent>()) return true;
@@ -240,7 +240,7 @@ void URshipSceneValidator::CheckComponents(AActor* Actor, TArray<FRshipValidatio
 {
     if (IsRuleEnabled(TEXT("COMP_ALREADY_TARGET")))
     {
-        if (Actor->FindComponentByClass<URshipTargetComponent>())
+        if (Actor->FindComponentByClass<URshipActorRegistrationComponent>())
         {
             OutIssues.Add(CreateIssue(
                 ERshipValidationSeverity::Info,
@@ -505,3 +505,4 @@ FRshipValidationIssue URshipSceneValidator::CreateIssue(
     Issue.bCanAutoFix = bCanAutoFix;
     return Issue;
 }
+

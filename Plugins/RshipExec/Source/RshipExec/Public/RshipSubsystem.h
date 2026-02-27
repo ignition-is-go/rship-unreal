@@ -7,7 +7,7 @@
 #include "Subsystems/SubsystemCollection.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
-#include "RshipTargetComponent.h"
+#include "RshipActorRegistrationComponent.h"
 #include "RshipTargetGroup.h"
 #include "RshipHealthMonitor.h"
 #include "RshipPresetManager.h"
@@ -43,9 +43,10 @@
 
 // Forward declaration for optional SpatialAudio plugin
 class URshipSpatialAudioManager;
+class AEmitterHandler;
 #include "Containers/List.h"
 #include "Containers/Ticker.h"
-#include "Target.h"
+#include "Core/Target.h"
 #include "RshipRateLimiter.h"
 #include "RshipWebSocket.h"
 #include "RshipSubsystem.generated.h"
@@ -89,7 +90,8 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     friend class URshipMultiCameraManager;
     friend class URshipDataLayerManager;
     friend class URshipSpatialAudioManager;
-    friend class URshipTargetComponent;
+    friend class URshipActorRegistrationComponent;
+    friend class Target;
 
     AEmitterHandler *EmitterHandler;
 
@@ -245,8 +247,22 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     FTSTicker::FDelegateHandle DeferredOnDataReceivedTickerHandle;
     double LastTickTime;
     // Components that had successful Take() calls this frame; flushed once per tick.
-    TSet<TWeakObjectPtr<URshipTargetComponent>> PendingOnDataReceivedComponents;
+    TSet<TWeakObjectPtr<URshipActorRegistrationComponent>> PendingOnDataReceivedComponents;
     TMap<FString, FRshipPendingExecTargetAction> PendingExecTargetActions;
+
+    struct FManagedTargetSnapshot
+    {
+        FString Id;
+        FString Name;
+        TArray<FString> ParentTargetIds;
+        TSet<FString> ActionIds;
+        TSet<FString> EmitterIds;
+        TWeakObjectPtr<URshipActorRegistrationComponent> BoundTargetComponent;
+        bool bBoundToComponent = false;
+    };
+    TMap<Target*, FManagedTargetSnapshot> ManagedTargetSnapshots;
+    TMultiMap<FString, Target*> RegisteredTargetsById;
+    TMap<FString, TUniquePtr<Target>> AutomationOwnedTargets;
 
     // Ticker callbacks (return true to keep ticking, false to stop)
     bool OnQueueProcessTick(float DeltaTime);
@@ -260,8 +276,8 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     void SendInstanceInfo();  // Send Machine and Instance only (called once on connect)
     void SendTarget(Target* target);
     void DeleteTarget(Target* target);
-    void SendAction(Action* action, FString targetId);
-    void SendEmitter(EmitterContainer* emitter, FString targetId);
+    void SendAction(const FRshipActionBinding& action, FString targetId);
+    void SendEmitter(const FRshipEmitterBinding& emitter, FString targetId);
     void SendTargetStatus(Target* target, bool online);
     void ProcessMessage(const FString& message);
 
@@ -293,6 +309,8 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
 
     // Initialize rate limiter from settings
     void InitializeRateLimiter();
+    FManagedTargetSnapshot BuildManagedTargetSnapshot(Target* ManagedTarget) const;
+    int32 PruneInvalidManagedTargetRefs(const FString& TargetId);
 
     // Schedule reconnection with backoff
     void ScheduleReconnect();
@@ -336,33 +354,49 @@ public:
     bool IsRemoteCommunicationEnabled() const { return bRemoteCommunicationEnabled; }
 
     void PulseEmitter(FString TargetId, FString EmitterId, TSharedPtr<FJsonObject> data);
-    void SendAll();
+	void SendAll();
 
-    EmitterContainer* GetEmitterInfo(FString targetId, FString emitterId);
+	const FRshipEmitterBinding* GetEmitterInfo(FString targetId, FString emitterId);
+
+	// Identity-first registration helpers.
+	FRshipRegisteredTarget EnsureTargetIdentity(const FString& FullTargetId, const FString& DisplayName = TEXT(""),
+		const TArray<FString>& ParentTargetIds = {});
+	FRshipRegisteredTarget EnsureActorIdentity(AActor* Actor);
+	FRshipTargetRegistrar GetTargetRegistrarForActor(AActor* Actor);
+
+	// Managed target lifecycle (owned by subsystem, fed by automation components/controllers)
+	void RegisterManagedTarget(Target* ManagedTarget);
+    void UnregisterManagedTarget(Target* ManagedTarget);
+    void OnManagedTargetChanged(Target* ManagedTarget);
+    Target* EnsureAutomationTarget(const FString& FullTargetId, const FString& Name, const TArray<FString>& ParentTargetIds);
+    bool RemoveAutomationTarget(const FString& FullTargetId);
+    bool RegisterFunctionActionForTarget(const FString& FullTargetId, UObject* Owner, const FName& FunctionName, const FString& ExposedActionName = TEXT(""));
+    bool RegisterPropertyActionForTarget(const FString& FullTargetId, UObject* Owner, const FName& PropertyName, const FString& ExposedActionName = TEXT(""));
+    bool RegisterEmitterForTarget(const FString& FullTargetId, UObject* Owner, const FName& DelegateName, const FString& ExposedEmitterName = TEXT(""));
 
     // Target component registry - keyed by full target ID for O(1) lookups
     // Key format: "ServiceId:TargetName"
     // Uses TMultiMap to allow multiple components with the same target ID
     // (e.g., during actor duplication before re-ID)
-    TMultiMap<FString, URshipTargetComponent*>* TargetComponents;
+    TMultiMap<FString, URshipActorRegistrationComponent*>* TargetComponents;
 
-    // Register a target component (called by URshipTargetComponent)
-    void RegisterTargetComponent(URshipTargetComponent* Component);
+    // Register a target component (called by URshipActorRegistrationComponent)
+    void RegisterTargetComponent(URshipActorRegistrationComponent* Component);
 
-    // Unregister a target component (called by URshipTargetComponent)
-    void UnregisterTargetComponent(URshipTargetComponent* Component);
+    // Unregister a target component (called by URshipActorRegistrationComponent)
+    void UnregisterTargetComponent(URshipActorRegistrationComponent* Component);
 
     // Find a target component by full target ID - returns first match (O(1) lookup)
-    URshipTargetComponent* FindTargetComponent(const FString& FullTargetId) const;
+    URshipActorRegistrationComponent* FindTargetComponent(const FString& FullTargetId) const;
 
     // Find all target components with the given target ID
-    TArray<URshipTargetComponent*> FindAllTargetComponents(const FString& FullTargetId) const;
+    TArray<URshipActorRegistrationComponent*> FindAllTargetComponents(const FString& FullTargetId) const;
 
     // Execute an action using the same routing/guards as server commands.
     bool ExecuteTargetAction(const FString& TargetId, const FString& ActionId, const TSharedRef<FJsonObject>& Data);
-    
+
     // Queue OnRshipData broadcast for end-of-frame dispatch.
-    void QueueOnDataReceived(URshipTargetComponent* Component);
+    void QueueOnDataReceived(URshipActorRegistrationComponent* Component);
 
     FString GetServiceId();
     FString GetInstanceId();
@@ -551,7 +585,3 @@ public:
     // Legacy compatibility - direct send (use sparingly, bypasses queue)
     void SendJson(TSharedPtr<FJsonObject> Payload);
 };
-
-
-
-
