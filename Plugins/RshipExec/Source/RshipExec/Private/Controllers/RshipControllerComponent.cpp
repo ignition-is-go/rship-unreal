@@ -1,7 +1,9 @@
 #include "Controllers/RshipControllerComponent.h"
 #include "Containers/Ticker.h"
+#include "Engine/Engine.h"
 #include "GameFramework/Actor.h"
 #include "RshipActorRegistrationComponent.h"
+#include "RshipSubsystem.h"
 
 void URshipControllerComponent::OnRegister()
 {
@@ -24,6 +26,46 @@ void URshipControllerComponent::RegisterRshipBindings()
 
 void URshipControllerComponent::OnBeforeRegisterRshipBindings()
 {
+}
+
+URshipSubsystem* URshipControllerComponent::ResolveRshipSubsystem() const
+{
+	if (!GEngine)
+	{
+		return nullptr;
+	}
+
+	return GEngine->GetEngineSubsystem<URshipSubsystem>();
+}
+
+FRshipTargetProxy URshipControllerComponent::ResolveParentTarget() const
+{
+	AActor* Owner = GetOwner();
+	if (!Owner)
+	{
+		return FRshipTargetProxy();
+	}
+
+	URshipSubsystem* Subsystem = ResolveRshipSubsystem();
+	if (!Subsystem)
+	{
+		return FRshipTargetProxy();
+	}
+
+	return Subsystem->EnsureActorIdentity(Owner);
+}
+
+FRshipTargetProxy URshipControllerComponent::ResolveChildTarget(const FString& RequestedSuffix, const FString& DefaultSuffix) const
+{
+	FRshipTargetProxy ParentTarget = ResolveParentTarget();
+	if (!ParentTarget.IsValid())
+	{
+		return FRshipTargetProxy();
+	}
+
+	const FString Trimmed = RequestedSuffix.TrimStartAndEnd();
+	const FString Suffix = Trimmed.IsEmpty() ? DefaultSuffix : Trimmed;
+	return ParentTarget.AddTarget(Suffix, Suffix);
 }
 
 void URshipControllerComponent::ScheduleDeferredRegisterRshipBindings()

@@ -7,23 +7,10 @@
 #include "Logs.h"
 #include "Rigs/RigHierarchy.h"
 #include "Rigs/RigHierarchyElements.h"
-#include "RshipSubsystem.h"
 
 void URshipRigController::RegisterOrRefreshTarget()
 {
-	AActor* Owner = GetOwner();
-	if (!Owner || !GEngine)
-	{
-		return;
-	}
-
-	URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
-	if (!Subsystem)
-	{
-		return;
-	}
-
-	FRshipTargetProxy ParentIdentity = Subsystem->EnsureActorIdentity(Owner);
+	FRshipTargetProxy ParentIdentity = ResolveParentTarget();
 	if (!ParentIdentity.IsValid())
 	{
 		return;

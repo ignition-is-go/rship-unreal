@@ -1,7 +1,6 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "RshipActorRegistrationComponent.h"
-#include "RshipTargetGroup.h"
 #include "Engine/World.h"
 #include "Engine/Engine.h"
 #include "RshipSubsystem.h"
@@ -25,11 +24,6 @@ void URshipActorRegistrationComponent::OnComponentDestroyed(bool bDestoryHierarc
 		if (URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>())
 		{
 			Subsystem->UnregisterTargetComponent(this);
-
-			if (URshipTargetGroupManager* GroupManager = Subsystem->GetGroupManager())
-			{
-				GroupManager->UnregisterTarget(this);
-			}
 		}
 	}
 
@@ -165,11 +159,6 @@ void URshipActorRegistrationComponent::Register()
 	TargetData->SetBoundTargetComponent(this);
 	Subsystem->RegisterTargetComponent(this);
 
-	if (URshipTargetGroupManager* GroupManager = Subsystem->GetGroupManager())
-	{
-		GroupManager->RegisterTarget(this);
-	}
-
 	RebindSiblingContributors();
 
 	UE_LOG(LogRshipExec, Log, TEXT("Component Registered: %s (actions=%d emitters=%d)"), *Parent->GetName(), TargetData->GetActions().Num(), TargetData->GetEmitters().Num());
@@ -208,11 +197,6 @@ void URshipActorRegistrationComponent::Unregister()
 		TargetData->SetBoundTargetComponent(nullptr);
 		delete TargetData;
 		TargetData = nullptr;
-	}
-
-	if (URshipTargetGroupManager* GroupManager = Subsystem->GetGroupManager())
-	{
-		GroupManager->UnregisterTarget(this);
 	}
 
 	UE_LOG(LogRshipExec, Log, TEXT("Target unregistered: %s"), *targetName);

@@ -12,10 +12,10 @@ class RSHIPEXEC_API URshipRigController : public URshipControllerComponent
 	GENERATED_BODY()
 
 public:
-	UFUNCTION(BlueprintCallable, Category = "Rship|Rig")
+	UFUNCTION()
 	void LogBones();
 
-	UFUNCTION(BlueprintCallable, Category = "Rship|Rig")
+	UFUNCTION()
 	void LogSockets();
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Rig")

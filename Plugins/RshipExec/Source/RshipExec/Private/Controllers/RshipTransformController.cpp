@@ -1,6 +1,5 @@
 #include "Controllers/RshipTransformController.h"
 
-#include "RshipSubsystem.h"
 #include "Components/SceneComponent.h"
 #include "GameFramework/Actor.h"
 
@@ -21,18 +20,12 @@ void URshipTransformController::OnBeforeRegisterRshipBindings()
 void URshipTransformController::RegisterOrRefreshTarget()
 {
 	AActor* Owner = GetOwner();
-	if (!Owner || !GEngine)
+	if (!Owner)
 	{
 		return;
 	}
 
-	URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
-	if (!Subsystem)
-	{
-		return;
-	}
-
-	FRshipTargetProxy ParentIdentity = Subsystem->EnsureActorIdentity(Owner);
+	FRshipTargetProxy ParentIdentity = ResolveParentTarget();
 	if (!ParentIdentity.IsValid())
 	{
 		return;
@@ -96,4 +89,3 @@ void URshipTransformController::SetRelativeScaleAction(float X, float Y, float Z
 		}
 	}
 }
-

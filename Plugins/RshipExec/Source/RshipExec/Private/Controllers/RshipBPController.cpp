@@ -1,31 +1,17 @@
 #include "Controllers/RshipBPController.h"
 
 #include "GameFramework/Actor.h"
-#include "RshipSubsystem.h"
 #include "UObject/UnrealType.h"
 
 void URshipBPController::RegisterOrRefreshTarget()
 {
 	AActor* Owner = GetOwner();
-	if (!Owner || !GEngine)
+	if (!Owner)
 	{
 		return;
 	}
 
-	URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
-	if (!Subsystem)
-	{
-		return;
-	}
-
-	FRshipTargetProxy ParentIdentity = Subsystem->EnsureActorIdentity(Owner);
-	if (!ParentIdentity.IsValid())
-	{
-		return;
-	}
-
-	const FString Suffix = ChildTargetSuffix.IsEmpty() ? TEXT("bp") : ChildTargetSuffix;
-	FRshipTargetProxy Target = ParentIdentity.AddTarget(Suffix, Suffix);
+	FRshipTargetProxy Target = ResolveChildTarget(ChildTargetSuffix, TEXT("bp"));
 	if (!Target.IsValid())
 	{
 		return;

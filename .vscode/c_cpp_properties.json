@@ -1,0 +1,33 @@
+{
+    "configurations": [
+        {
+            "name": "RshipSourceEditor Editor Linux Development (RshipSource)",
+            "compilerPath": "/home/trevor/Code/UnrealEngine/Engine/Extras/ThirdPartyNotUE/SDKs/HostLinux/Linux_x64/v26_clang-20.1.8-rockylinux8/x86_64-unknown-linux-gnu/bin/clang++",
+            "compilerArgs": [
+                "-isysroot",
+                "/home/trevor/Code/UnrealEngine/Engine/Extras/ThirdPartyNotUE/SDKs/HostLinux/Linux_x64/v26_clang-20.1.8-rockylinux8/x86_64-unknown-linux-gnu"
+            ],
+            "cStandard": "c17",
+            "cppStandard": "c++20",
+            "intelliSenseMode": "clang-x64",
+            "compileCommands": [
+                "/home/trevor/Code/rship/libs/unreal/rship-unreal/.vscode/compileCommands_RshipSource.json"
+            ]
+        },
+        {
+            "name": "Linux",
+            "compilerPath": "/home/trevor/Code/UnrealEngine/Engine/Extras/ThirdPartyNotUE/SDKs/HostLinux/Linux_x64/v26_clang-20.1.8-rockylinux8/x86_64-unknown-linux-gnu/bin/clang++",
+            "compilerArgs": [
+                "-isysroot",
+                "/home/trevor/Code/UnrealEngine/Engine/Extras/ThirdPartyNotUE/SDKs/HostLinux/Linux_x64/v26_clang-20.1.8-rockylinux8/x86_64-unknown-linux-gnu"
+            ],
+            "cStandard": "c17",
+            "cppStandard": "c++20",
+            "intelliSenseMode": "clang-x64",
+            "compileCommands": [
+                "/home/trevor/Code/rship/libs/unreal/rship-unreal/.vscode/compileCommands_Default.json"
+            ]
+        }
+    ],
+    "version": 4
+}

@@ -1,6 +1,5 @@
 #include "Controllers/RshipLightController.h"
 
-#include "RshipSubsystem.h"
 #include "GameFramework/Actor.h"
 #include "Components/LightComponent.h"
 #include "Components/PointLightComponent.h"
@@ -20,26 +19,7 @@ ULightComponent* URshipLightController::ResolveLightComponent() const
 
 void URshipLightController::RegisterOrRefreshTarget()
 {
-	AActor* Owner = GetOwner();
-	if (!Owner || !GEngine)
-	{
-		return;
-	}
-
-	URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
-	if (!Subsystem)
-	{
-		return;
-	}
-
-	FRshipTargetProxy ParentIdentity = Subsystem->EnsureActorIdentity(Owner);
-	if (!ParentIdentity.IsValid())
-	{
-		return;
-	}
-
-	const FString Suffix = ChildTargetSuffix.IsEmpty() ? TEXT("light") : ChildTargetSuffix;
-	FRshipTargetProxy Target = ParentIdentity.AddTarget(Suffix, Suffix);
+	FRshipTargetProxy Target = ResolveChildTarget(ChildTargetSuffix, TEXT("light"));
 	if (!Target.IsValid())
 	{
 		return;

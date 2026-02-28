@@ -35,37 +35,13 @@ void URshipCameraController::TickComponent(float DeltaTime, ELevelTick TickType,
 
 FString URshipCameraController::GetTargetId() const
 {
-	const AActor* Owner = GetOwner();
-	if (!Owner || !GEngine)
-	{
-		return FString();
-	}
-
-	URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
-	if (!Subsystem)
-	{
-		return FString();
-	}
-
-	FRshipTargetProxy RootTarget = Subsystem->EnsureActorIdentity(const_cast<AActor*>(Owner));
+	FRshipTargetProxy RootTarget = ResolveParentTarget();
 	return RootTarget.IsValid() ? RootTarget.GetId() : FString();
 }
 
 void URshipCameraController::RegisterOrRefreshTarget()
 {
-	AActor* Owner = GetOwner();
-	if (!Owner || !GEngine)
-	{
-		return;
-	}
-
-	URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
-	if (!Subsystem)
-	{
-		return;
-	}
-
-	FRshipTargetProxy Target = Subsystem->EnsureActorIdentity(Owner);
+	FRshipTargetProxy Target = ResolveParentTarget();
 	if (!Target.IsValid())
 	{
 		return;
@@ -198,11 +174,7 @@ void URshipCameraController::PublishState()
 	{
 		return;
 	}
-	if (!GEngine)
-	{
-		return;
-	}
-	URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+	URshipSubsystem* Subsystem = ResolveRshipSubsystem();
 	const FString TargetId = GetTargetId();
 	if (!Subsystem || TargetId.IsEmpty())
 	{
