@@ -37,18 +37,15 @@
 #include "RshipAudioReactive.h"
 #include "RshipRecorder.h"
 #include "RshipControlRigBinding.h"
-// PCG Manager is always available - only PCG graph nodes require PCG plugin
-#include "PCG/RshipPCGManager.h"
 #include "GameFramework/Actor.h"
 
 // Forward declaration for optional SpatialAudio plugin
 class URshipSpatialAudioManager;
-class AEmitterHandler;
 #include "Containers/List.h"
 #include "Containers/Ticker.h"
 #include "Core/Target.h"
-#include "RshipRateLimiter.h"
-#include "RshipWebSocket.h"
+#include "Network/RshipRateLimiter.h"
+#include "Network/RshipWebSocket.h"
 #include "RshipSubsystem.generated.h"
 
 
@@ -92,8 +89,6 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     friend class URshipSpatialAudioManager;
     friend class URshipActorRegistrationComponent;
     friend class Target;
-
-    AEmitterHandler *EmitterHandler;
 
     // High-performance WebSocket connection
     TSharedPtr<FRshipWebSocket> WebSocket;
@@ -227,11 +222,6 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     UPROPERTY()
     URshipControlRigManager* ControlRigManager;
 
-    // PCG manager for binding pulse data to PCG graphs (lazy initialized)
-    // Note: Returns nullptr if PCG plugin is not enabled
-    // Not a UPROPERTY because UHT requires full UCLASS definition which is only available when PCG plugin is enabled
-    URshipPCGManager* PCGManager;
-
     // Spatial Audio manager for loudspeaker management and spatialization (lazy initialized)
     // Note: Returns nullptr if RshipSpatialAudio plugin is not enabled
     // Not a UPROPERTY because UHT requires full UCLASS definition which is only available when SpatialAudio plugin is enabled
@@ -276,8 +266,8 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     void SendInstanceInfo();  // Send Machine and Instance only (called once on connect)
     void SendTarget(Target* target);
     void DeleteTarget(Target* target);
-    void SendAction(const FRshipActionBinding& action, FString targetId);
-    void SendEmitter(const FRshipEmitterBinding& emitter, FString targetId);
+    void SendAction(const FRshipActionProxy& action, FString targetId);
+    void SendEmitter(const FRshipEmitterProxy& emitter, FString targetId);
     void SendTargetStatus(Target* target, bool online);
     void ProcessMessage(const FString& message);
 
@@ -356,13 +346,13 @@ public:
     void PulseEmitter(FString TargetId, FString EmitterId, TSharedPtr<FJsonObject> data);
 	void SendAll();
 
-	const FRshipEmitterBinding* GetEmitterInfo(FString targetId, FString emitterId);
+	const FRshipEmitterProxy* GetEmitterInfo(FString targetId, FString emitterId);
 
 	// Identity-first registration helpers.
-	FRshipRegisteredTarget EnsureTargetIdentity(const FString& FullTargetId, const FString& DisplayName = TEXT(""),
+	FRshipTargetProxy EnsureTargetIdentity(const FString& FullTargetId, const FString& DisplayName = TEXT(""),
 		const TArray<FString>& ParentTargetIds = {});
-	FRshipRegisteredTarget EnsureActorIdentity(AActor* Actor);
-	FRshipTargetRegistrar GetTargetRegistrarForActor(AActor* Actor);
+	FRshipTargetProxy EnsureActorIdentity(AActor* Actor);
+	FRshipTargetProxy GetTargetProxyForActor(AActor* Actor);
 
 	// Managed target lifecycle (owned by subsystem, fed by automation components/controllers)
 	void RegisterManagedTarget(Target* ManagedTarget);
@@ -520,11 +510,6 @@ public:
     /** Get the Control Rig manager for binding pulse data to Control Rigs */
     UFUNCTION(BlueprintCallable, Category = "Rship|ControlRig")
     URshipControlRigManager* GetControlRigManager();
-
-    /** Get the PCG manager for binding pulse data to PCG graphs.
-     *  Note: Returns nullptr if PCG plugin is not enabled.
-     *  Not exposed to Blueprint because UHT requires full UCLASS definition. */
-    URshipPCGManager* GetPCGManager();
 
     /** Get the Spatial Audio manager for loudspeaker management and spatialization.
      *  Note: Returns nullptr if RshipSpatialAudio plugin is not enabled.

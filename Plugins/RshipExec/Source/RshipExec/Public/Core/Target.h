@@ -3,7 +3,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Core/RshipBindings.h"
+#include "Core/ActionProxy.h"
+#include "Core/EmitterProxy.h"
 
 class URshipActorRegistrationComponent;
 class URshipSubsystem;
@@ -14,8 +15,8 @@ private:
 	FString id;
 	FString name;
 	TArray<FString> parentTargetIds;
-	TMap<FString, FRshipActionBinding> actions;
-	TMap<FString, FRshipEmitterBinding> emitters;
+	TMap<FString, FRshipActionProxy> actions;
+	TMap<FString, FRshipEmitterProxy> emitters;
 	TWeakObjectPtr<URshipActorRegistrationComponent> BoundTargetComponent;
 	TWeakObjectPtr<URshipSubsystem> BoundSubsystem;
 
@@ -28,8 +29,8 @@ public:
 	Target(Target&&) = delete;
 	Target& operator=(Target&&) = delete;
 
-	void AddAction(const FRshipActionBinding& action);
-	void AddEmitter(const FRshipEmitterBinding& emitter);
+	void AddAction(const FRshipActionProxy& action);
+	void AddEmitter(const FRshipEmitterProxy& emitter);
 
 	FString GetId() const;
 	void SetId(const FString& InId);
@@ -37,8 +38,8 @@ public:
 	void SetName(const FString& InName);
 	const TArray<FString>& GetParentTargetIds() const;
 	void SetParentTargetIds(const TArray<FString>& InParentTargetIds);
-	const TMap<FString, FRshipActionBinding>& GetActions() const;
-	const TMap<FString, FRshipEmitterBinding>& GetEmitters() const;
+	const TMap<FString, FRshipActionProxy>& GetActions() const;
+	const TMap<FString, FRshipEmitterProxy>& GetEmitters() const;
 
 	void SetBoundTargetComponent(URshipActorRegistrationComponent* InTargetComponent);
 	URshipActorRegistrationComponent* GetBoundTargetComponent() const;

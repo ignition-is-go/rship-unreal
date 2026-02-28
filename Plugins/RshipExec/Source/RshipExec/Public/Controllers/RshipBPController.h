@@ -4,7 +4,7 @@
 #include "Controllers/RshipControllerComponent.h"
 #include "RshipBPController.generated.h"
 
-class FRshipRegisteredTarget;
+class FRshipTargetProxy;
 class UObject;
 
 UCLASS(ClassGroup = (Rship), meta = (BlueprintSpawnableComponent, DisplayName = "Rship BP Controller"))
@@ -27,6 +27,6 @@ public:
 
 private:
 	virtual void RegisterOrRefreshTarget() override;
-	void RegisterObjectMembers(FRshipRegisteredTarget& Target, UObject* Object) const;
+	void RegisterObjectMembers(FRshipTargetProxy& Target, UObject* Object) const;
 	bool ShouldRegisterMemberName(const FString& Name) const;
 };

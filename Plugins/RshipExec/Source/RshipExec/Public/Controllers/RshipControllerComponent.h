@@ -3,7 +3,7 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "Core/RshipBindingContributor.h"
-#include "Core/RshipTargetRegistrar.h"
+#include "Core/TargetProxy.h"
 #include "RshipControllerComponent.generated.h"
 
 class URshipSubsystem;

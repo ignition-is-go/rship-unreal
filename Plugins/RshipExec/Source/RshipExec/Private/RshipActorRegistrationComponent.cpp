@@ -101,20 +101,20 @@ FString URshipActorRegistrationComponent::GetFullTargetId() const
 	return targetName;
 }
 
-FRshipTargetRegistrar URshipActorRegistrationComponent::GetTargetRegistrar() const
+FRshipTargetProxy URshipActorRegistrationComponent::GetTargetProxy() const
 {
 	if (!GEngine)
 	{
-		return FRshipTargetRegistrar();
+		return FRshipTargetProxy();
 	}
 
 	URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
 	if (!Subsystem)
 	{
-		return FRshipTargetRegistrar();
+		return FRshipTargetProxy();
 	}
 
-	return Subsystem->GetTargetRegistrarForActor(GetOwner());
+	return Subsystem->GetTargetProxyForActor(GetOwner());
 }
 
 void URshipActorRegistrationComponent::Register()

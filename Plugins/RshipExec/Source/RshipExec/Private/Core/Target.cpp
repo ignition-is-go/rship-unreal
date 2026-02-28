@@ -25,7 +25,7 @@ Target::~Target()
 	}
 }
 
-void Target::AddAction(const FRshipActionBinding& action)
+void Target::AddAction(const FRshipActionProxy& action)
 {
 	if (action.IsValid())
 	{
@@ -37,7 +37,7 @@ void Target::AddAction(const FRshipActionBinding& action)
 	}
 }
 
-void Target::AddEmitter(const FRshipEmitterBinding& emitter)
+void Target::AddEmitter(const FRshipEmitterProxy& emitter)
 {
 	if (emitter.IsValid())
 	{
@@ -96,12 +96,12 @@ void Target::SetParentTargetIds(const TArray<FString>& InParentTargetIds)
 	}
 }
 
-const TMap<FString, FRshipActionBinding>& Target::GetActions() const
+const TMap<FString, FRshipActionProxy>& Target::GetActions() const
 {
 	return actions;
 }
 
-const TMap<FString, FRshipEmitterBinding>& Target::GetEmitters() const
+const TMap<FString, FRshipEmitterProxy>& Target::GetEmitters() const
 {
 	return emitters;
 }
@@ -123,14 +123,14 @@ URshipSubsystem* Target::GetBoundSubsystem() const
 
 bool Target::TakeAction(AActor* actor, FString actionId, const TSharedRef<FJsonObject> data)
 {
-	FRshipActionBinding* ActionPtr = actions.Find(actionId);
+	FRshipActionProxy* ActionPtr = actions.Find(actionId);
 	if (!ActionPtr)
 	{
 		UE_LOG(LogRshipExec, Error, TEXT("Action not found: [%s] on target [%s]"), *actionId, *id);
 		return false;
 	}
 
-	const FRshipActionBinding& TakenAction = *ActionPtr;
+	const FRshipActionProxy& TakenAction = *ActionPtr;
 	const bool bTaken = TakenAction.Take(actor, data);
 
 	if (GEngine)

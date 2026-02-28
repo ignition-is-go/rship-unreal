@@ -25,7 +25,6 @@
 
 
 
-#include "EmitterHandler.h"
 #include "Logs.h"
 
 #if WITH_EDITOR
@@ -88,7 +87,6 @@ void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
     AudioManager = nullptr;
     Recorder = nullptr;
     ControlRigManager = nullptr;
-    PCGManager = nullptr;
     LastTickTime = 0.0;
 
     // Initialize rate limiter
@@ -102,13 +100,6 @@ void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
     else
     {
         UE_LOG(LogRshipExec, Warning, TEXT("Remote communication is disabled; skipping initial connect"));
-    }
-
-    auto world = GetWorld();
-
-    if (world != nullptr)
-    {
-        this->EmitterHandler = GetWorld()->SpawnActor<AEmitterHandler>();
     }
 
     this->TargetComponents = new TMultiMap<FString, URshipActorRegistrationComponent*>;
@@ -766,12 +757,6 @@ void URshipSubsystem::TickSubsystems()
         Recorder->Tick(DeltaTime);
     }
 
-    // Tick PCG manager for binding lifecycle
-    if (PCGManager)
-    {
-        PCGManager->Tick(DeltaTime);
-    }
-
     // Fire OnRshipData once per target/component at end-of-frame for all successful Take() calls.
     FlushPendingOnDataReceived();
 
@@ -1189,18 +1174,6 @@ void URshipSubsystem::ProcessMessage(const FString &message)
 
 bool URshipSubsystem::ExecuteTargetAction(const FString& TargetId, const FString& ActionId, const TSharedRef<FJsonObject>& Data)
 {
-    // Check if this is a PCG target (paths start with "/pcg/")
-    if (TargetId.StartsWith(TEXT("/pcg/")))
-    {
-        if (PCGManager)
-        {
-            return PCGManager->RouteAction(TargetId, ActionId, Data);
-        }
-
-        UE_LOG(LogRshipExec, Warning, TEXT("PCG target action received but PCGManager not initialized: %s"), *TargetId);
-        return false;
-    }
-
     if (RegisteredTargetsById.Num() == 0)
     {
         return false;
@@ -1475,13 +1448,6 @@ void URshipSubsystem::Deinitialize()
         ControlRigManager = nullptr;
     }
 
-    // Shutdown PCG manager
-    if (PCGManager)
-    {
-        PCGManager->Shutdown();
-        PCGManager = nullptr;
-    }
-
     // Clear rate limiter
     if (RateLimiter)
     {
@@ -1722,7 +1688,7 @@ void URshipSubsystem::DeleteTarget(Target* target)
     UE_LOG(LogRshipExec, Log, TEXT("DeleteTarget: %s - offline status sent"), *target->GetId());
 }
 
-void URshipSubsystem::SendAction(const FRshipActionBinding& action, FString targetId)
+void URshipSubsystem::SendAction(const FRshipActionProxy& action, FString targetId)
 {
     UE_LOG(LogRshipExec, Log, TEXT("SendAction: id=%s target=%s"), *action.Id, *targetId);
 
@@ -1738,7 +1704,7 @@ void URshipSubsystem::SendAction(const FRshipActionBinding& action, FString targ
     SetItem("Action", FRshipEntitySerializer::ToJson(Record), ERshipMessagePriority::High, action.Id);
 }
 
-void URshipSubsystem::SendEmitter(const FRshipEmitterBinding& emitter, FString targetId)
+void URshipSubsystem::SendEmitter(const FRshipEmitterProxy& emitter, FString targetId)
 {
     UE_LOG(LogRshipExec, Log, TEXT("SendEmitter: id=%s target=%s"), *emitter.Id, *targetId);
 
@@ -1840,11 +1806,11 @@ int32 URshipSubsystem::PruneInvalidManagedTargetRefs(const FString& TargetId)
     return RemovedCount;
 }
 
-FRshipRegisteredTarget URshipSubsystem::EnsureTargetIdentity(const FString& FullTargetId, const FString& DisplayName, const TArray<FString>& ParentTargetIds)
+FRshipTargetProxy URshipSubsystem::EnsureTargetIdentity(const FString& FullTargetId, const FString& DisplayName, const TArray<FString>& ParentTargetIds)
 {
 	if (FullTargetId.IsEmpty())
 	{
-		return FRshipRegisteredTarget();
+		return FRshipTargetProxy();
 	}
 
 	Target* TargetRef = EnsureAutomationTarget(
@@ -1852,14 +1818,14 @@ FRshipRegisteredTarget URshipSubsystem::EnsureTargetIdentity(const FString& Full
 		DisplayName.IsEmpty() ? FullTargetId : DisplayName,
 		ParentTargetIds);
 
-	return TargetRef ? FRshipRegisteredTarget(this, FullTargetId) : FRshipRegisteredTarget();
+	return TargetRef ? FRshipTargetProxy(this, FullTargetId) : FRshipTargetProxy();
 }
 
-FRshipRegisteredTarget URshipSubsystem::EnsureActorIdentity(AActor* Actor)
+FRshipTargetProxy URshipSubsystem::EnsureActorIdentity(AActor* Actor)
 {
 	if (!Actor)
 	{
-		return FRshipRegisteredTarget();
+		return FRshipTargetProxy();
 	}
 
 	URshipActorRegistrationComponent* Registration = Actor->FindComponentByClass<URshipActorRegistrationComponent>();
@@ -1874,13 +1840,13 @@ FRshipRegisteredTarget URshipSubsystem::EnsureActorIdentity(AActor* Actor)
 
 		if (Registration->TargetData)
 		{
-			return FRshipRegisteredTarget(this, Registration->TargetData->GetId());
+			return FRshipTargetProxy(this, Registration->TargetData->GetId());
 		}
 
 		UE_LOG(LogRshipExec, Verbose,
 			TEXT("EnsureActorIdentity deferred: registration component exists but target not ready for actor '%s'"),
 			*GetNameSafe(Actor));
-		return FRshipRegisteredTarget();
+		return FRshipTargetProxy();
 	}
 
 	const FString DisplayName = GetActorDisplayName(Actor);
@@ -1889,15 +1855,15 @@ FRshipRegisteredTarget URshipSubsystem::EnsureActorIdentity(AActor* Actor)
 	return EnsureTargetIdentity(FullTargetId, DisplayName, ParentTargetIds);
 }
 
-FRshipTargetRegistrar URshipSubsystem::GetTargetRegistrarForActor(AActor* Actor)
+FRshipTargetProxy URshipSubsystem::GetTargetProxyForActor(AActor* Actor)
 {
-	FRshipRegisteredTarget RootTarget = EnsureActorIdentity(Actor);
+	FRshipTargetProxy RootTarget = EnsureActorIdentity(Actor);
 	if (!RootTarget.IsValid())
 	{
-		return FRshipTargetRegistrar();
+		return FRshipTargetProxy();
 	}
 
-	return FRshipTargetRegistrar(this, RootTarget.GetId());
+	return FRshipTargetProxy(this, RootTarget.GetId());
 }
 
 void URshipSubsystem::RegisterManagedTarget(Target* ManagedTarget)
@@ -1995,8 +1961,8 @@ void URshipSubsystem::OnManagedTargetChanged(Target* ManagedTarget)
         return;
     }
 
-    const TMap<FString, FRshipActionBinding>& CurrentActions = ManagedTarget->GetActions();
-    const TMap<FString, FRshipEmitterBinding>& CurrentEmitters = ManagedTarget->GetEmitters();
+    const TMap<FString, FRshipActionProxy>& CurrentActions = ManagedTarget->GetActions();
+    const TMap<FString, FRshipEmitterProxy>& CurrentEmitters = ManagedTarget->GetEmitters();
 
     bool bBindingsChanged = false;
 
@@ -2161,7 +2127,7 @@ bool URshipSubsystem::RegisterFunctionActionForTarget(const FString& FullTargetI
         return false;
     }
 
-    TargetRef->AddAction(FRshipActionBinding::FromFunction(FullActionId, FinalName, Func, Owner));
+    TargetRef->AddAction(FRshipActionProxy::FromFunction(FullActionId, FinalName, Func, Owner));
     return true;
 }
 
@@ -2200,7 +2166,7 @@ bool URshipSubsystem::RegisterPropertyActionForTarget(const FString& FullTargetI
         return false;
     }
 
-    TargetRef->AddAction(FRshipActionBinding::FromProperty(FullActionId, FinalName, Prop, Owner));
+    TargetRef->AddAction(FRshipActionProxy::FromProperty(FullActionId, FinalName, Prop, Owner));
     return true;
 }
 
@@ -2240,7 +2206,7 @@ bool URshipSubsystem::RegisterEmitterForTarget(const FString& FullTargetId, UObj
         return false;
     }
 
-    TargetRef->AddEmitter(FRshipEmitterBinding::FromDelegateProperty(FullEmitterId, FinalName, EmitterProp));
+    TargetRef->AddEmitter(FRshipEmitterProxy::FromDelegateProperty(FullEmitterId, FinalName, EmitterProp));
     return true;
 }
 
@@ -2367,7 +2333,7 @@ void URshipSubsystem::PulseEmitter(FString targetId, FString emitterId, TSharedP
     }
 }
 
-const FRshipEmitterBinding* URshipSubsystem::GetEmitterInfo(FString fullTargetId, FString emitterId)
+const FRshipEmitterProxy* URshipSubsystem::GetEmitterInfo(FString fullTargetId, FString emitterId)
 {
     Target* FoundTarget = nullptr;
     if (Target* const* FoundPtr = RegisteredTargetsById.Find(fullTargetId))
@@ -3005,24 +2971,6 @@ URshipControlRigManager* URshipSubsystem::GetControlRigManager()
         UE_LOG(LogRshipExec, Log, TEXT("ControlRigManager initialized"));
     }
     return ControlRigManager;
-}
-
-// ============================================================================
-// PCG MANAGER
-// ============================================================================
-
-URshipPCGManager* URshipSubsystem::GetPCGManager()
-{
-    // Lazy initialization
-    // PCGManager is always available - only the PCG graph nodes require PCG plugin
-    if (!PCGManager)
-    {
-        PCGManager = NewObject<URshipPCGManager>(this);
-        PCGManager->Initialize(this);
-
-        UE_LOG(LogRshipExec, Log, TEXT("PCGManager initialized"));
-    }
-    return PCGManager;
 }
 
 URshipSpatialAudioManager* URshipSubsystem::GetSpatialAudioManager()

@@ -37,7 +37,7 @@ void URshipBPController::RegisterOrRefreshTarget()
 	}
 }
 
-void URshipBPController::RegisterObjectMembers(FRshipRegisteredTarget& Target, UObject* Object) const
+void URshipBPController::RegisterObjectMembers(FRshipTargetProxy& Target, UObject* Object) const
 {
 	if (!Object)
 	{

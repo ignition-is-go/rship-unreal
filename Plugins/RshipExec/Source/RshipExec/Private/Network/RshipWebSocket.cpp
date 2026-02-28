@@ -6,7 +6,7 @@
  * 2. RSHIP_USE_IXWEBSOCKET=0: Falls back to UE's WebSocket + dedicated send thread
  */
 
-#include "RshipWebSocket.h"
+#include "Network/RshipWebSocket.h"
 #include "Logs.h"
 
 #if RSHIP_USE_IXWEBSOCKET

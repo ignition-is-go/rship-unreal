@@ -5,7 +5,7 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "Core/Target.h"
-#include "Core/RshipTargetRegistrar.h"
+#include "Core/TargetProxy.h"
 #include "RshipActorRegistrationComponent.generated.h"
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnRshipData);
@@ -42,7 +42,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "RshipActorRegistration")
 	FString GetFullTargetId() const;
 
-	FRshipTargetRegistrar GetTargetRegistrar() const;
+	FRshipTargetProxy GetTargetProxy() const;
 
 	UFUNCTION(BlueprintPure, Category = "RshipActorRegistration")
 	bool IsRegistered() const { return TargetData != nullptr; }

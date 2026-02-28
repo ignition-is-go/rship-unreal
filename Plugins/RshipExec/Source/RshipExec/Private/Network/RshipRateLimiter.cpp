@@ -9,7 +9,7 @@
  * - Comprehensive instrumentation
  */
 
-#include "RshipRateLimiter.h"
+#include "Network/RshipRateLimiter.h"
 #include "Transport/RshipMykoTransport.h"
 #include "Logs.h"
 #include "Serialization/JsonWriter.h"
