@@ -2,55 +2,81 @@
 
 #include "ControlRig.h"
 #include "ControlRigComponent.h"
-#include "Components/SceneComponent.h"
 #include "GameFramework/Actor.h"
 #include "Logs.h"
 #include "Rigs/RigHierarchy.h"
+#include "Rigs/RigHierarchyController.h"
 #include "Rigs/RigHierarchyElements.h"
+
+namespace
+{
+FString MakeTargetSegmentFromBoneName(const FName& BoneName)
+{
+	FString Segment = BoneName.ToString();
+	Segment.TrimStartAndEndInline();
+	if (Segment.IsEmpty())
+	{
+		return TEXT("bone");
+	}
+
+	Segment.ReplaceInline(TEXT(" "), TEXT("_"));
+	Segment.ReplaceInline(TEXT("/"), TEXT("_"));
+	Segment.ReplaceInline(TEXT("\\"), TEXT("_"));
+	Segment.ReplaceInline(TEXT(":"), TEXT("_"));
+	Segment.ReplaceInline(TEXT("."), TEXT("_"));
+	return Segment;
+}
+}
+
+void URshipRigBoneActionProxy::Initialize(URshipRigController* InController, const FName& InBoneName)
+{
+	Controller = InController;
+	BoneName = InBoneName;
+}
+
+void URshipRigBoneActionProxy::RotateInSocket(float X, float Y, float Z)
+{
+	if (!Controller)
+	{
+		return;
+	}
+
+	Controller->RotateBoneInSocket(BoneName, FRotator(X, Y, Z));
+}
+
+void URshipRigBoneActionProxy::AttachToBone(FString ParentBoneName)
+{
+	if (!Controller)
+	{
+		return;
+	}
+
+	Controller->AttachBoneToParent(BoneName, FName(*ParentBoneName));
+}
 
 void URshipRigController::RegisterOrRefreshTarget()
 {
-	FRshipTargetProxy ParentIdentity = ResolveParentTarget();
-	if (!ParentIdentity.IsValid())
+	BoneActionProxies.Reset();
+
+	FRshipTargetProxy ParentTarget = ResolveParentTarget();
+	if (!ParentTarget.IsValid())
 	{
 		return;
 	}
 
-	ParentIdentity
-		.AddAction(this, GET_FUNCTION_NAME_CHECKED(URshipRigController, LogBones), TEXT("LogBones"))
-		.AddAction(this, GET_FUNCTION_NAME_CHECKED(URshipRigController, LogSockets), TEXT("LogSockets"));
-}
-
-void URshipRigController::LogBones()
-{
-	if (!ControlRigComponent)
+	FRshipTargetProxy RigTarget = ParentTarget.AddTarget(TEXT("rig"), TEXT("Rig"));
+	if (!RigTarget.IsValid())
 	{
-		ControlRigComponent = GetOwner() ? GetOwner()->FindComponentByClass<UControlRigComponent>() : nullptr;
-	}
-
-	if (!ControlRigComponent)
-	{
-		UE_LOG(LogRshipExec, Warning, TEXT("RshipRigController on '%s' has no ControlRigComponent assigned."), *GetNameSafe(GetOwner()));
 		return;
 	}
 
-	UControlRig* ControlRig = ControlRigComponent->GetControlRig();
-	if (!ControlRig)
-	{
-		UE_LOG(LogRshipExec, Warning, TEXT("ControlRigComponent '%s' has no active Control Rig instance."), *GetNameSafe(ControlRigComponent));
-		return;
-	}
-
-	URigHierarchy* Hierarchy = ControlRig->GetHierarchy();
+	URigHierarchy* Hierarchy = ResolveRigHierarchy();
 	if (!Hierarchy)
 	{
-		UE_LOG(LogRshipExec, Warning, TEXT("Control Rig '%s' has no hierarchy."), *GetNameSafe(ControlRig));
 		return;
 	}
 
 	const TArray<FRigBoneElement*> Bones = Hierarchy->GetElementsOfType<FRigBoneElement>();
-	UE_LOG(LogRshipExec, Log, TEXT("Control Rig '%s' bone count: %d"), *GetNameSafe(ControlRig), Bones.Num());
-
 	for (const FRigBoneElement* Bone : Bones)
 	{
 		if (!Bone)
@@ -58,48 +84,130 @@ void URshipRigController::LogBones()
 			continue;
 		}
 
-		const FRigElementKey BoneKey = Bone->GetKey();
-		UE_LOG(LogRshipExec, Log, TEXT("Bone: %s"), *BoneKey.Name.ToString());
+		const FName BoneName = Bone->GetKey().Name;
+		const FString BoneSegment = MakeTargetSegmentFromBoneName(BoneName);
+		FRshipTargetProxy BoneTarget = RigTarget.AddTarget(BoneSegment, BoneName.ToString());
+		if (!BoneTarget.IsValid())
+		{
+			continue;
+		}
+
+		URshipRigBoneActionProxy* Proxy = NewObject<URshipRigBoneActionProxy>(this);
+		if (!Proxy)
+		{
+			continue;
+		}
+
+		Proxy->Initialize(this, BoneName);
+		BoneActionProxies.Add(Proxy);
+
+		BoneTarget
+			.AddAction(Proxy, GET_FUNCTION_NAME_CHECKED(URshipRigBoneActionProxy, RotateInSocket), TEXT("RotateInSocket"))
+			.AddAction(Proxy, GET_FUNCTION_NAME_CHECKED(URshipRigBoneActionProxy, AttachToBone), TEXT("AttachToBone"));
 	}
 }
 
-void URshipRigController::LogSockets()
+void URshipRigController::RotateBoneInSocket(const FName& BoneName, const FRotator& Rotation)
 {
-	AActor* Owner = GetOwner();
-	if (!Owner)
+	URigHierarchy* Hierarchy = ResolveRigHierarchy();
+	if (!Hierarchy)
 	{
-		UE_LOG(LogRshipExec, Warning, TEXT("RshipRigController has no owner."));
 		return;
 	}
 
-	TArray<USceneComponent*> SceneComponents;
-	Owner->GetComponents(SceneComponents);
-
-	int32 TotalSocketCount = 0;
-	for (const USceneComponent* SceneComponent : SceneComponents)
+	const FRigElementKey BoneKey(BoneName, ERigElementType::Bone);
+	if (!Hierarchy->Contains(BoneKey))
 	{
-		if (!SceneComponent)
-		{
-			continue;
-		}
-
-		const TArray<FName> SocketNames = SceneComponent->GetAllSocketNames();
-		if (SocketNames.Num() == 0)
-		{
-			continue;
-		}
-
-		UE_LOG(LogRshipExec, Log, TEXT("Component '%s' socket count: %d"), *GetNameSafe(SceneComponent), SocketNames.Num());
-		TotalSocketCount += SocketNames.Num();
-
-		for (const FName& SocketName : SocketNames)
-		{
-			UE_LOG(LogRshipExec, Log, TEXT("Socket: %s.%s"), *GetNameSafe(SceneComponent), *SocketName.ToString());
-		}
+		UE_LOG(LogRshipExec, Warning, TEXT("Rig bone not found: %s"), *BoneName.ToString());
+		return;
 	}
 
-	if (TotalSocketCount == 0)
+	FTransform LocalTransform = Hierarchy->GetLocalTransform(BoneKey);
+	LocalTransform.SetRotation(Rotation.Quaternion());
+	Hierarchy->SetLocalTransform(BoneKey, LocalTransform, true);
+}
+
+void URshipRigController::AttachBoneToParent(const FName& BoneName, const FName& ParentBoneName)
+{
+	if (ParentBoneName.IsNone())
 	{
-		UE_LOG(LogRshipExec, Log, TEXT("Actor '%s' has no sockets on its scene components."), *GetNameSafe(Owner));
+		return;
 	}
+
+	URigHierarchy* Hierarchy = ResolveRigHierarchy();
+	if (!Hierarchy)
+	{
+		return;
+	}
+
+	const FRigElementKey ChildKey(BoneName, ERigElementType::Bone);
+	const FRigElementKey ParentKey(ParentBoneName, ERigElementType::Bone);
+	if (!Hierarchy->Contains(ChildKey))
+	{
+		UE_LOG(LogRshipExec, Warning, TEXT("Rig child bone not found: %s"), *BoneName.ToString());
+		return;
+	}
+	if (!Hierarchy->Contains(ParentKey))
+	{
+		UE_LOG(LogRshipExec, Warning, TEXT("Rig parent bone not found: %s"), *ParentBoneName.ToString());
+		return;
+	}
+	if (ChildKey == ParentKey)
+	{
+		return;
+	}
+
+	URigHierarchyController* Controller = Hierarchy->GetController(true);
+	if (!Controller)
+	{
+		return;
+	}
+
+	Controller->SetParent(ChildKey, ParentKey, true, false, false);
+}
+
+UControlRigComponent* URshipRigController::ResolveControlRigComponent()
+{
+	if (!ControlRigComponent)
+	{
+		ControlRigComponent = GetOwner() ? GetOwner()->FindComponentByClass<UControlRigComponent>() : nullptr;
+	}
+	return ControlRigComponent;
+}
+
+UControlRig* URshipRigController::ResolveControlRig()
+{
+	UControlRigComponent* RigComponent = ResolveControlRigComponent();
+	if (!RigComponent)
+	{
+		UE_LOG(LogRshipExec, Warning, TEXT("RshipRigController on '%s' has no ControlRigComponent assigned."), *GetNameSafe(GetOwner()));
+		return nullptr;
+	}
+
+	UControlRig* ControlRig = RigComponent->GetControlRig();
+	if (!ControlRig)
+	{
+		UE_LOG(LogRshipExec, Warning, TEXT("ControlRigComponent '%s' has no active Control Rig instance."), *GetNameSafe(RigComponent));
+		return nullptr;
+	}
+
+	return ControlRig;
+}
+
+URigHierarchy* URshipRigController::ResolveRigHierarchy()
+{
+	UControlRig* ControlRig = ResolveControlRig();
+	if (!ControlRig)
+	{
+		return nullptr;
+	}
+
+	URigHierarchy* Hierarchy = ControlRig->GetHierarchy();
+	if (!Hierarchy)
+	{
+		UE_LOG(LogRshipExec, Warning, TEXT("Control Rig '%s' has no hierarchy."), *GetNameSafe(ControlRig));
+		return nullptr;
+	}
+
+	return Hierarchy;
 }
