@@ -88,7 +88,6 @@ public:
     void SetVectorParameter(FName ParameterName, float R, float G, float B, float A);
 
     /** Optional texture choices keyed by parameter name for SetTextureIndex. */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Material|Parameters")
     TMap<FName, TArray<UTexture*>> TextureParameterOptions;
 
     /** Set texture parameter to a specific index in TextureParameterOptions. */

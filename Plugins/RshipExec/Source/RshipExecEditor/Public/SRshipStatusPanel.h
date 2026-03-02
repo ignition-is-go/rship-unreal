@@ -3,7 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Core/RshipBindings.h"
+#include "Core/ActionProxy.h"
 #include "Widgets/SCompoundWidget.h"
 #include "Widgets/DeclarativeSyntaxSupport.h"
 #include "Widgets/Views/SListView.h"
@@ -53,7 +53,7 @@ struct FRshipActionEntryState
 {
     FString ActionId;
     FString ActionName;
-    FRshipActionBinding ActionBinding;
+    FRshipActionProxy ActionBinding;
     TArray<FRshipActionFieldBinding> FieldBindings;
     TSharedPtr<FInstancedPropertyBag> ParameterBag;
     TSharedPtr<FInstancePropertyBagStructureDataProvider> BagDataProvider;

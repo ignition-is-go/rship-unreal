@@ -174,11 +174,11 @@ public:
 
     /** Activate the Niagara system */
     UFUNCTION()
-    void Activate();
+    void ActivateSystem();
 
     /** Deactivate the Niagara system */
     UFUNCTION()
-    void Deactivate();
+    void DeactivateSystem();
 
     /** Reset and restart the Niagara system */
     UFUNCTION()

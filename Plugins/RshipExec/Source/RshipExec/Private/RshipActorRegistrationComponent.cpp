@@ -6,7 +6,7 @@
 #include "RshipSubsystem.h"
 #include "GameFramework/Actor.h"
 #include "Logs.h"
-#include "Core/RshipBindingContributor.h"
+#include "Core/RshipTargetContributor.h"
 #include "Controllers/RshipControllerComponent.h"
 
 void URshipActorRegistrationComponent::OnRegister()
@@ -246,14 +246,14 @@ void URshipActorRegistrationComponent::RebindSiblingContributors()
 
 		if (URshipControllerComponent* Controller = Cast<URshipControllerComponent>(Component))
 		{
-			Controller->RegisterRshipBindings();
+			Controller->RegisterRshipTargets();
 			continue;
 		}
 
-		IRshipBindingContributor* Contributor = Cast<IRshipBindingContributor>(Component);
+		IRshipTargetContributor* Contributor = Cast<IRshipTargetContributor>(Component);
 		if (Contributor)
 		{
-			Contributor->RegisterRshipBindings();
+			Contributor->RegisterRshipTargets();
 		}
 	}
 }

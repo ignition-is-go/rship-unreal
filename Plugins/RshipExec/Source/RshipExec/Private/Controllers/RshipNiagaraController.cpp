@@ -51,8 +51,8 @@ void URshipNiagaraController::RegisterOrRefreshTarget()
         .AddAction(this, GET_FUNCTION_NAME_CHECKED(URshipNiagaraController, SetOpacity), TEXT("SetOpacity"))
         .AddAction(this, GET_FUNCTION_NAME_CHECKED(URshipNiagaraController, SetSpriteRotation), TEXT("SetSpriteRotation"))
         .AddAction(this, GET_FUNCTION_NAME_CHECKED(URshipNiagaraController, SetSpriteSize), TEXT("SetSpriteSize"))
-        .AddAction(this, GET_FUNCTION_NAME_CHECKED(URshipNiagaraController, Activate), TEXT("Activate"))
-        .AddAction(this, GET_FUNCTION_NAME_CHECKED(URshipNiagaraController, Deactivate), TEXT("Deactivate"))
+        .AddAction(this, GET_FUNCTION_NAME_CHECKED(URshipNiagaraController, ActivateSystem), TEXT("Activate"))
+        .AddAction(this, GET_FUNCTION_NAME_CHECKED(URshipNiagaraController, DeactivateSystem), TEXT("Deactivate"))
         .AddAction(this, GET_FUNCTION_NAME_CHECKED(URshipNiagaraController, Reset), TEXT("Reset"))
         .AddAction(this, GET_FUNCTION_NAME_CHECKED(URshipNiagaraController, Pause), TEXT("Pause"))
         .AddAction(this, GET_FUNCTION_NAME_CHECKED(URshipNiagaraController, Resume), TEXT("Resume"))
@@ -394,7 +394,7 @@ void URshipNiagaraController::SetSpriteSize(float Width, float Height)
 //  ACTIONS - System Control
 // ============================================================================
 
-void URshipNiagaraController::Activate()
+void URshipNiagaraController::ActivateSystem()
 {
     if (NiagaraComponent)
     {
@@ -404,7 +404,7 @@ void URshipNiagaraController::Activate()
     }
 }
 
-void URshipNiagaraController::Deactivate()
+void URshipNiagaraController::DeactivateSystem()
 {
     if (NiagaraComponent)
     {

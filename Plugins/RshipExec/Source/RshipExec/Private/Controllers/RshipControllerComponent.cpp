@@ -8,9 +8,9 @@
 void URshipControllerComponent::OnRegister()
 {
 	Super::OnRegister();
-	OnBeforeRegisterRshipBindings();
-	RegisterRshipBindings();
-	ScheduleDeferredRegisterRshipBindings();
+	OnBeforeRegisterRshipTargets();
+	RegisterRshipTargets();
+	ScheduleDeferredRegisterRshipTargets();
 }
 
 void URshipControllerComponent::OnUnregister()
@@ -19,12 +19,12 @@ void URshipControllerComponent::OnUnregister()
 	Super::OnUnregister();
 }
 
-void URshipControllerComponent::RegisterRshipBindings()
+void URshipControllerComponent::RegisterRshipTargets()
 {
 	RegisterOrRefreshTarget();
 }
 
-void URshipControllerComponent::OnBeforeRegisterRshipBindings()
+void URshipControllerComponent::OnBeforeRegisterRshipTargets()
 {
 }
 
@@ -68,7 +68,7 @@ FRshipTargetProxy URshipControllerComponent::ResolveChildTarget(const FString& R
 	return ParentTarget.AddTarget(Suffix, Suffix);
 }
 
-void URshipControllerComponent::ScheduleDeferredRegisterRshipBindings()
+void URshipControllerComponent::ScheduleDeferredRegisterRshipTargets()
 {
 	const TWeakObjectPtr<URshipControllerComponent> WeakThis(this);
 	FTSTicker::GetCoreTicker().AddTicker(
@@ -80,7 +80,7 @@ void URshipControllerComponent::ScheduleDeferredRegisterRshipBindings()
 				return false;
 			}
 
-			StrongThis->RegisterRshipBindings();
+			StrongThis->RegisterRshipTargets();
 			return false;
 		}),
 		0.0f);

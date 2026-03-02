@@ -136,7 +136,7 @@ struct RSHIPEXEC_API FRshipSubstrateMaterialState
 	/** Lerp this state toward another state */
 	FRshipSubstrateMaterialState LerpTo(const FRshipSubstrateMaterialState& Target, float Alpha) const;
 
-	/** Create state from JSON pulse data */
+	/** Create state from JSON action payload */
 	static FRshipSubstrateMaterialState FromJson(const TSharedPtr<FJsonObject>& JsonData);
 
 	/** Convert state to JSON for emitter publishing */
@@ -202,14 +202,14 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnSubstrateTransitionProgress, flo
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnSubstrateTransitionComplete);
 
 // ============================================================================
-// SUBSTRATE MATERIAL BINDING COMPONENT
+// SUBSTRATE MATERIAL CONTROLLER COMPONENT
 // ============================================================================
 
 /**
- * Component that binds rship pulse data to Substrate material parameters.
+ * Component that applies rship action data to Substrate material parameters.
  * Provides full control over all Substrate shading properties with smooth transitions.
  */
-UCLASS(ClassGroup = (Rship), meta = (BlueprintSpawnableComponent, DisplayName = "Rship Substrate Binding"))
+UCLASS(ClassGroup = (Rship), meta = (BlueprintSpawnableComponent, DisplayName = "Rship Substrate Controller"))
 class RSHIPEXEC_API URshipSubstraitMaterialController : public UActorComponent
 {
 	GENERATED_BODY()
@@ -226,14 +226,6 @@ public:
 	// CONFIGURATION
 	// ========================================================================
 
-	/** Target ID for receiving pulse data */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Substrate")
-	FString TargetId;
-
-	/** Emitter ID to bind to (e.g., "material_state") */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Substrate")
-	FString EmitterId = TEXT("material");
-
 	/** Material slots to affect (empty = all slots) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Substrate")
 	TArray<int32> MaterialSlots;
@@ -242,7 +234,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Substrate")
 	TArray<FName> MeshComponentNames;
 
-	/** Default state when no pulses received */
+	/** Default state before any action is received */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Substrate")
 	FRshipSubstrateMaterialState DefaultState;
 
@@ -580,8 +572,6 @@ private:
 	UPROPERTY()
 	TArray<UMaterialInstanceDynamic*> DynamicMaterials;
 
-	FDelegateHandle PulseHandle;
-
 	// State management
 	FRshipSubstrateMaterialState CurrentState;
 	FRshipSubstrateMaterialState TargetState;
@@ -590,11 +580,8 @@ private:
 	float TransitionProgress = 0.0f;
 	float TransitionDuration = 1.0f;
 
-	// Setup and binding
+	// Setup
 	void SetupMaterials();
-	void BindToPulseReceiver();
-	void UnbindFromPulseReceiver();
-	void OnPulseReceived(const FString& InEmitterId, float Intensity, FLinearColor Color, TSharedPtr<FJsonObject> Data);
 
 	// Apply state to materials
 	void ApplyStateToMaterials(const FRshipSubstrateMaterialState& State);
@@ -620,17 +607,17 @@ public:
 	void Shutdown();
 	void Tick(float DeltaTime);
 
-	/** Register a Substrate binding component */
-	void RegisterBinding(URshipSubstraitMaterialController* Binding);
+	/** Register a Substrate controller component */
+	void RegisterController(URshipSubstraitMaterialController* Controller);
 
-	/** Unregister a Substrate binding component */
-	void UnregisterBinding(URshipSubstraitMaterialController* Binding);
+	/** Unregister a Substrate controller component */
+	void UnregisterController(URshipSubstraitMaterialController* Controller);
 
-	/** Get all registered Substrate bindings */
+	/** Get all registered Substrate controllers */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Substrate")
-	TArray<URshipSubstraitMaterialController*> GetAllBindings() const { return RegisteredBindings; }
+	TArray<URshipSubstraitMaterialController*> GetAllControllers() const { return RegisteredControllers; }
 
-	/** Transition all bindings to a preset */
+	/** Transition all controllers to a preset */
 	UFUNCTION(BlueprintCallable, Category = "Rship|Substrate")
 	void TransitionAllToPreset(const FString& PresetName, float Duration = 1.0f);
 
@@ -659,7 +646,7 @@ private:
 	URshipSubsystem* Subsystem;
 
 	UPROPERTY()
-	TArray<URshipSubstraitMaterialController*> RegisteredBindings;
+	TArray<URshipSubstraitMaterialController*> RegisteredControllers;
 
 	UPROPERTY()
 	TArray<FRshipSubstratePreset> GlobalPresets;

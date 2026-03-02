@@ -1098,7 +1098,7 @@ void SRshipStatusPanel::RefreshActionsSection()
         return;
     }
 
-    const TMap<FString, FRshipActionBinding>& Actions = TargetComponent->TargetData->GetActions();
+    const TMap<FString, FRshipActionProxy>& Actions = TargetComponent->TargetData->GetActions();
     if (Actions.Num() == 0)
     {
         ActionsListBox->AddSlot()
@@ -1111,19 +1111,19 @@ void SRshipStatusPanel::RefreshActionsSection()
         return;
     }
 
-    TArray<TPair<FString, FRshipActionBinding>> SortedActions;
+    TArray<TPair<FString, FRshipActionProxy>> SortedActions;
     SortedActions.Reserve(Actions.Num());
-    for (const TPair<FString, FRshipActionBinding>& Pair : Actions)
+    for (const TPair<FString, FRshipActionProxy>& Pair : Actions)
     {
         SortedActions.Add(Pair);
     }
 
-    SortedActions.Sort([](const TPair<FString, FRshipActionBinding>& A, const TPair<FString, FRshipActionBinding>& B)
+    SortedActions.Sort([](const TPair<FString, FRshipActionProxy>& A, const TPair<FString, FRshipActionProxy>& B)
     {
         return A.Key < B.Key;
     });
 
-    for (const TPair<FString, FRshipActionBinding>& Pair : SortedActions)
+    for (const TPair<FString, FRshipActionProxy>& Pair : SortedActions)
     {
         if (!Pair.Value.IsValid())
         {

@@ -64,7 +64,7 @@ public:
 	FRshipCameraVectorEmitter OnRotationChanged;
 
 private:
-	virtual void OnBeforeRegisterRshipBindings() override;
+	virtual void OnBeforeRegisterRshipTargets() override;
 	virtual void RegisterOrRefreshTarget() override;
 	FString GetTargetId() const;
 	UCameraComponent* ResolveCameraComponent() const;

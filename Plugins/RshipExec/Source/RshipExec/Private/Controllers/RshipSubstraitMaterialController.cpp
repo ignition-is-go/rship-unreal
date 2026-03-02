@@ -191,7 +191,6 @@ void URshipSubstraitMaterialController::BeginPlay()
 	TargetState = DefaultState;
 
 	SetupMaterials();
-	BindToPulseReceiver();
 	ApplyStateToMaterials(CurrentState);
 
 	// Reflection-based registration for this component is owned by URshipBPController.
@@ -199,7 +198,6 @@ void URshipSubstraitMaterialController::BeginPlay()
 
 void URshipSubstraitMaterialController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-	UnbindFromPulseReceiver();
 	Super::EndPlay(EndPlayReason);
 }
 
@@ -284,55 +282,6 @@ void URshipSubstraitMaterialController::SetupMaterials()
 	}
 
 	UE_LOG(LogTemp, Log, TEXT("RshipSubstraitMaterialController: Set up %d dynamic materials"), DynamicMaterials.Num());
-}
-
-void URshipSubstraitMaterialController::BindToPulseReceiver()
-{
-	// Pulse receiver removed during hard purge.
-}
-
-void URshipSubstraitMaterialController::UnbindFromPulseReceiver()
-{
-	PulseHandle.Reset();
-}
-
-void URshipSubstraitMaterialController::OnPulseReceived(const FString& InEmitterId, float Intensity, FLinearColor Color, TSharedPtr<FJsonObject> Data)
-{
-	// Check if this pulse is for us
-	FString ExpectedEmitterId = FString::Printf(TEXT("%s:%s"), *TargetId, *EmitterId);
-	if (InEmitterId != ExpectedEmitterId && InEmitterId != EmitterId)
-	{
-		return;
-	}
-
-	// Parse state from JSON data
-	if (Data.IsValid())
-	{
-		FRshipSubstrateMaterialState NewState = FRshipSubstrateMaterialState::FromJson(Data);
-
-		// Check for explicit transition duration in pulse
-		double PulseDuration = -1.0;
-		if (Data->TryGetNumberField(TEXT("transitionDuration"), PulseDuration) && PulseDuration >= 0.0)
-		{
-			TransitionToState(NewState, PulseDuration);
-		}
-		else if (TransitionConfig.Duration > 0.0f)
-		{
-			TransitionToState(NewState, TransitionConfig.Duration);
-		}
-		else
-		{
-			SetState(NewState);
-		}
-	}
-	else
-	{
-		// Basic intensity/color update
-		FRshipSubstrateMaterialState NewState = CurrentState;
-		NewState.EmissiveIntensity = Intensity;
-		NewState.EmissiveColor = Color;
-		SetState(NewState);
-	}
 }
 
 void URshipSubstraitMaterialController::ApplyStateToMaterials(const FRshipSubstrateMaterialState& State)
@@ -814,7 +763,7 @@ void URshipSubstrateMaterialManager::Initialize(URshipSubsystem* InSubsystem)
 
 void URshipSubstrateMaterialManager::Shutdown()
 {
-	RegisteredBindings.Empty();
+	RegisteredControllers.Empty();
 	Subsystem = nullptr;
 }
 
@@ -823,26 +772,26 @@ void URshipSubstrateMaterialManager::Tick(float DeltaTime)
 	// Manager tick - could be used for global effects
 }
 
-void URshipSubstrateMaterialManager::RegisterBinding(URshipSubstraitMaterialController* Binding)
+void URshipSubstrateMaterialManager::RegisterController(URshipSubstraitMaterialController* Controller)
 {
-	if (Binding && !RegisteredBindings.Contains(Binding))
+	if (Controller && !RegisteredControllers.Contains(Controller))
 	{
-		RegisteredBindings.Add(Binding);
+		RegisteredControllers.Add(Controller);
 	}
 }
 
-void URshipSubstrateMaterialManager::UnregisterBinding(URshipSubstraitMaterialController* Binding)
+void URshipSubstrateMaterialManager::UnregisterController(URshipSubstraitMaterialController* Controller)
 {
-	RegisteredBindings.Remove(Binding);
+	RegisteredControllers.Remove(Controller);
 }
 
 void URshipSubstrateMaterialManager::TransitionAllToPreset(const FString& PresetName, float Duration)
 {
-	for (URshipSubstraitMaterialController* Binding : RegisteredBindings)
+	for (URshipSubstraitMaterialController* Controller : RegisteredControllers)
 	{
-		if (Binding)
+		if (Controller)
 		{
-			Binding->TransitionToPreset(PresetName, Duration);
+			Controller->TransitionToPreset(PresetName, Duration);
 		}
 	}
 }
@@ -851,15 +800,15 @@ void URshipSubstrateMaterialManager::SetGlobalMasterBrightness(float Brightness)
 {
 	GlobalMasterBrightness = FMath::Clamp(Brightness, 0.0f, 10.0f);
 
-	// Apply to all bindings by adjusting their emissive intensity
-	for (URshipSubstraitMaterialController* Binding : RegisteredBindings)
+	// Apply to all controllers by adjusting their emissive intensity
+	for (URshipSubstraitMaterialController* Controller : RegisteredControllers)
 	{
-		if (Binding)
+		if (Controller)
 		{
-			FRshipSubstrateMaterialState State = Binding->GetCurrentState();
+			FRshipSubstrateMaterialState State = Controller->GetCurrentState();
 			// Scale emissive by global brightness
 			// This is a simple approach - could be more sophisticated
-			Binding->SetState(State);
+			Controller->SetState(State);
 		}
 	}
 }

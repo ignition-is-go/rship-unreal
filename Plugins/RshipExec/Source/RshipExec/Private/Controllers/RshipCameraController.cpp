@@ -7,7 +7,7 @@
 #include "GameFramework/Actor.h"
 #include "Dom/JsonObject.h"
 
-void URshipCameraController::OnBeforeRegisterRshipBindings()
+void URshipCameraController::OnBeforeRegisterRshipTargets()
 {
 	PrimaryComponentTick.bCanEverTick = true;
 	SetComponentTickEnabled(bPublishStateEmitters);

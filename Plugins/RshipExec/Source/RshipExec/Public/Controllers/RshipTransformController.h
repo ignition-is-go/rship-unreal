@@ -29,6 +29,6 @@ public:
 	void SetRelativeScaleAction(float X, float Y, float Z);
 
 private:
-	virtual void OnBeforeRegisterRshipBindings() override;
+	virtual void OnBeforeRegisterRshipTargets() override;
 	virtual void RegisterOrRefreshTarget() override;
 };
