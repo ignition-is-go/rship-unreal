@@ -34,6 +34,12 @@ if not exist "%PLUGIN_DIR%\RshipExec.uplugin" (
     exit /b 1
 )
 
+REM Verify content-mapping runtime readiness before packaging.
+if exist "%SCRIPT_DIR%verify-content-mapping-readiness.bat" (
+    call "%SCRIPT_DIR%verify-content-mapping-readiness.bat"
+    if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
+)
+
 REM Create output directory
 if not exist "%OUTPUT_DIR%" mkdir "%OUTPUT_DIR%"
 set OUTPUT_PATH=%OUTPUT_DIR%\RshipExec-%UE_VERSION%-Win64

@@ -57,7 +57,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "RshipTarget")
 	bool IsRegistered() const { return TargetData != nullptr; }
 
-	UPROPERTY(EditAnywhere, config, Category = "RshipTarget", meta = (DisplayName = "Target Id"))
+	UPROPERTY(EditAnywhere, Category = "RshipTarget", meta = (DisplayName = "Target Id"))
 	FString targetName;
 
 	/** Category for organizing targets (e.g., "light", "camera", "actor") */

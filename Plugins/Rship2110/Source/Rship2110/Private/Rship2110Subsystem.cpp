@@ -504,7 +504,7 @@ void URship2110Subsystem::RefreshStreamRenderContextBindings()
         return;
     }
 
-    URshipContentMappingManager* MappingManager = RshipSubsystem->GetContentMappingManager();
+    URshipContentMappingManager* MappingManager = Cast<URshipContentMappingManager>(RshipSubsystem->GetContentMappingManager());
     if (!MappingManager)
     {
         return;
@@ -589,7 +589,7 @@ bool URship2110Subsystem::ResolveRenderContextRenderTarget(const FString& Contex
         return false;
     }
 
-    URshipContentMappingManager* MappingManager = RshipSubsystem->GetContentMappingManager();
+    URshipContentMappingManager* MappingManager = Cast<URshipContentMappingManager>(RshipSubsystem->GetContentMappingManager());
     if (!MappingManager)
     {
         return false;

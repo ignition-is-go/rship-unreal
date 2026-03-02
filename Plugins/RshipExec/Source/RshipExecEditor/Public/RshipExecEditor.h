@@ -62,12 +62,6 @@ public:
     /** Unregister the NDI panel tab spawner */
     void UnregisterNDIPanel();
 
-    /** Register the Content Mapping panel tab spawner */
-    void RegisterContentMappingPanel();
-
-    /** Unregister the Content Mapping panel tab spawner */
-    void UnregisterContentMappingPanel();
-
 private:
     /** Handle for the status panel tab spawner */
     TSharedPtr<class FUICommandList> PluginCommands;
@@ -95,9 +89,6 @@ private:
 
     /** Spawn the NDI panel tab */
     TSharedRef<class SDockTab> SpawnNDIPanelTab(const class FSpawnTabArgs& Args);
-
-    /** Spawn the Content Mapping panel tab */
-    TSharedRef<class SDockTab> SpawnContentMappingPanelTab(const class FSpawnTabArgs& Args);
 
     /** Register the 2110 mapping panel tab spawner */
     void Register2110MappingPanel();

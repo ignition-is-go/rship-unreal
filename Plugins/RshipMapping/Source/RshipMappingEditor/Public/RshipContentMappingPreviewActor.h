@@ -8,7 +8,7 @@
 #include "RshipContentMappingPreviewActor.generated.h"
 
 UCLASS(NotPlaceable)
-class RSHIPEXECEDITOR_API ARshipContentMappingPreviewActor : public AActor
+class RSHIPMAPPINGEDITOR_API ARshipContentMappingPreviewActor : public AActor
 {
     GENERATED_BODY()
 

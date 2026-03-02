@@ -6,6 +6,7 @@
 #include "RshipTargetComponent.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
+#include "Serialization/JsonWriter.h"
 #include "JsonObjectWrapper.h"
 #include "JsonObjectConverter.h"
 #include "Util.h"
@@ -20,9 +21,9 @@
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 #include "Misc/ScopeLock.h"
+#include "Modules/ModuleManager.h"
 #include "Action.h"
 #include "Target.h"
-#include "RshipContentMappingManager.h"
 #include "RshipDisplayManager.h"
 #include "Containers/Ticker.h"
 
@@ -226,6 +227,48 @@ bool RshipObjectTargetsLocalNode(
     }
 
     return false;
+}
+
+bool SerializeJsonObject(const TSharedPtr<FJsonObject>& JsonObject, FString& OutJson)
+{
+    OutJson.Reset();
+    if (!JsonObject.IsValid())
+    {
+        return false;
+    }
+
+    TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutJson);
+    if (!FJsonSerializer::Serialize(JsonObject.ToSharedRef(), Writer))
+    {
+        OutJson.Reset();
+        return false;
+    }
+    return true;
+}
+
+bool InvokeContentMappingFunction(
+    UObject* MappingManagerObject,
+    const TCHAR* FunctionName,
+    void* Params = nullptr,
+    bool bWarnIfMissing = true)
+{
+    if (!MappingManagerObject)
+    {
+        return false;
+    }
+
+    UFunction* Function = MappingManagerObject->FindFunction(FName(FunctionName));
+    if (!Function)
+    {
+        if (bWarnIfMissing)
+        {
+            UE_LOG(LogRshipExec, Warning, TEXT("ContentMapping function missing: %s"), FunctionName);
+        }
+        return false;
+    }
+
+    MappingManagerObject->ProcessEvent(Function, Params);
+    return true;
 }
 
 
@@ -1302,7 +1345,14 @@ void URshipSubsystem::TickSubsystems()
     // Tick Content Mapping manager for render contexts and mappings
     if (ContentMappingManager)
     {
-        ContentMappingManager->Tick(DeltaTime);
+        struct FTickParams
+        {
+            float DeltaSeconds = 0.0f;
+        };
+
+        FTickParams Params;
+        Params.DeltaSeconds = DeltaTime;
+        InvokeContentMappingFunction(ContentMappingManager, TEXT("TickForSubsystem"), &Params, false);
     }
 
     // Tick Display manager for monitor topology and pixel routing state
@@ -1503,9 +1553,27 @@ void URshipSubsystem::ProcessMessage(const FString &message, const TSharedPtr<FJ
             // Route content mapping targets
             else if (targetId.StartsWith(TEXT("/content-mapping/")))
             {
-                if (URshipContentMappingManager* MappingManager = GetContentMappingManager())
+                if (UObject* MappingManager = GetContentMappingManager())
                 {
-                    result = MappingManager->RouteAction(targetId, actionId, execData);
+                    FString ActionDataJson;
+                    SerializeJsonObject(execData, ActionDataJson);
+
+                    struct FRouteActionParams
+                    {
+                        FString TargetId;
+                        FString ActionId;
+                        FString DataJson;
+                        bool ReturnValue = false;
+                    };
+
+                    FRouteActionParams Params;
+                    Params.TargetId = targetId;
+                    Params.ActionId = actionId;
+                    Params.DataJson = ActionDataJson;
+                    if (InvokeContentMappingFunction(MappingManager, TEXT("RouteActionJson"), &Params))
+                    {
+                        result = Params.ReturnValue;
+                    }
                 }
                 else
                 {
@@ -1706,23 +1774,62 @@ void URshipSubsystem::ProcessMessage(const FString &message, const TSharedPtr<FJ
         }
         else if (itemType == TEXT("RenderContext"))
         {
-            if (URshipContentMappingManager* MappingManager = GetContentMappingManager())
+            if (UObject* MappingManager = GetContentMappingManager())
             {
-                MappingManager->ProcessRenderContextEvent(item, bIsDelete);
+                FString ItemJson;
+                if (SerializeJsonObject(item, ItemJson))
+                {
+                    struct FEventParams
+                    {
+                        FString Json;
+                        bool bDelete = false;
+                    };
+
+                    FEventParams Params;
+                    Params.Json = ItemJson;
+                    Params.bDelete = bIsDelete;
+                    InvokeContentMappingFunction(MappingManager, TEXT("ProcessRenderContextEventJson"), &Params);
+                }
             }
         }
         else if (itemType == TEXT("MappingSurface"))
         {
-            if (URshipContentMappingManager* MappingManager = GetContentMappingManager())
+            if (UObject* MappingManager = GetContentMappingManager())
             {
-                MappingManager->ProcessMappingSurfaceEvent(item, bIsDelete);
+                FString ItemJson;
+                if (SerializeJsonObject(item, ItemJson))
+                {
+                    struct FEventParams
+                    {
+                        FString Json;
+                        bool bDelete = false;
+                    };
+
+                    FEventParams Params;
+                    Params.Json = ItemJson;
+                    Params.bDelete = bIsDelete;
+                    InvokeContentMappingFunction(MappingManager, TEXT("ProcessMappingSurfaceEventJson"), &Params);
+                }
             }
         }
         else if (itemType == TEXT("Mapping"))
         {
-            if (URshipContentMappingManager* MappingManager = GetContentMappingManager())
+            if (UObject* MappingManager = GetContentMappingManager())
             {
-                MappingManager->ProcessMappingEvent(item, bIsDelete);
+                FString ItemJson;
+                if (SerializeJsonObject(item, ItemJson))
+                {
+                    struct FEventParams
+                    {
+                        FString Json;
+                        bool bDelete = false;
+                    };
+
+                    FEventParams Params;
+                    Params.Json = ItemJson;
+                    Params.bDelete = bIsDelete;
+                    InvokeContentMappingFunction(MappingManager, TEXT("ProcessMappingEventJson"), &Params);
+                }
             }
         }
         else if (itemType == TEXT("DisplayProfile"))
@@ -1958,7 +2065,7 @@ void URshipSubsystem::Deinitialize()
     // Shutdown Content Mapping manager
     if (ContentMappingManager)
     {
-        ContentMappingManager->Shutdown();
+        InvokeContentMappingFunction(ContentMappingManager, TEXT("ShutdownForSubsystem"), nullptr, false);
         ContentMappingManager = nullptr;
     }
 
@@ -3001,7 +3108,7 @@ URshipPCGManager* URshipSubsystem::GetPCGManager()
 // CONTENT MAPPING MANAGER
 // ============================================================================
 
-URshipContentMappingManager* URshipSubsystem::GetContentMappingManager()
+UObject* URshipSubsystem::GetContentMappingManager()
 {
     const URshipSettings* Settings = GetDefault<URshipSettings>();
     if (Settings && !Settings->bEnableContentMapping)
@@ -3011,12 +3118,101 @@ URshipContentMappingManager* URshipSubsystem::GetContentMappingManager()
 
     if (!ContentMappingManager)
     {
-        ContentMappingManager = NewObject<URshipContentMappingManager>(this);
-        ContentMappingManager->Initialize(this);
+        if (!FModuleManager::Get().IsModuleLoaded("RshipMapping"))
+        {
+            FModuleManager::Get().LoadModule("RshipMapping");
+        }
 
-        UE_LOG(LogRshipExec, Log, TEXT("ContentMappingManager initialized"));
+        UClass* ManagerClass = FindObject<UClass>(nullptr, TEXT("/Script/RshipMapping.RshipContentMappingManager"));
+        if (!ManagerClass)
+        {
+            UE_LOG(LogRshipExec, Warning, TEXT("Content mapping runtime class not found: /Script/RshipMapping.RshipContentMappingManager"));
+            return nullptr;
+        }
+
+        ContentMappingManager = NewObject<UObject>(this, ManagerClass);
+        if (!ContentMappingManager)
+        {
+            UE_LOG(LogRshipExec, Warning, TEXT("Failed to create content mapping manager object"));
+            return nullptr;
+        }
+
+        struct FInitParams
+        {
+            URshipSubsystem* InSubsystem = nullptr;
+        };
+
+        FInitParams Params;
+        Params.InSubsystem = this;
+        if (!InvokeContentMappingFunction(ContentMappingManager, TEXT("InitializeForSubsystem"), &Params))
+        {
+            UE_LOG(LogRshipExec, Warning, TEXT("Content mapping manager is missing InitializeForSubsystem"));
+        }
+
+        UE_LOG(LogRshipExec, Log, TEXT("ContentMappingManager initialized via RshipMapping runtime module"));
     }
     return ContentMappingManager;
+}
+
+bool URshipSubsystem::IsContentMappingDebugOverlayEnabled()
+{
+    UObject* ManagerObject = GetContentMappingManager();
+    if (!ManagerObject)
+    {
+        return false;
+    }
+
+    struct FDebugStateParams
+    {
+        bool ReturnValue = false;
+    };
+
+    FDebugStateParams Params;
+    if (!InvokeContentMappingFunction(ManagerObject, TEXT("IsDebugOverlayEnabledForSubsystem"), &Params, false))
+    {
+        return false;
+    }
+    return Params.ReturnValue;
+}
+
+void URshipSubsystem::SetContentMappingDebugOverlayEnabled(bool bEnabled)
+{
+    UObject* ManagerObject = GetContentMappingManager();
+    if (!ManagerObject)
+    {
+        return;
+    }
+
+    struct FSetDebugStateParams
+    {
+        bool bValue = false;
+    };
+
+    FSetDebugStateParams Params;
+    Params.bValue = bEnabled;
+    InvokeContentMappingFunction(ManagerObject, TEXT("SetDebugOverlayEnabledForSubsystem"), &Params, false);
+}
+
+FString URshipSubsystem::GetContentMappingRenderContextsJson()
+{
+    UObject* ManagerObject = GetContentMappingManager();
+    if (!ManagerObject)
+    {
+        return FString();
+    }
+
+    struct FGetContextsJsonParams
+    {
+        FString ReturnValue;
+    };
+
+    FGetContextsJsonParams Params;
+    if (!InvokeContentMappingFunction(ManagerObject, TEXT("GetRenderContextsJsonForSubsystem"), &Params, false))
+    {
+        return FString();
+    }
+
+    return Params.ReturnValue;
 }
 
 URshipDisplayManager* URshipSubsystem::GetDisplayManager()

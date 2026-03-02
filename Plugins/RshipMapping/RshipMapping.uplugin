@@ -1,0 +1,33 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0.0",
+	"FriendlyName": "Rship Mapping",
+	"Description": "Rocketship content mapping editor tools",
+	"Category": "Rocketship",
+	"CreatedBy": "Lucid",
+	"CreatedByURL": "https://lucid.rocks",
+	"DocsURL": "https://docs.rocketship.live",
+	"MarketplaceURL": "",
+	"SupportURL": "https://github.com/lucidlive/rship-unreal/issues",
+	"CanContainContent": true,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": false,
+	"Installed": true,
+	"EnabledByDefault": true,
+	"Modules": [
+		{
+			"Name": "RshipMapping",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "RshipMappingEditor",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{ "Name": "RshipExec", "Enabled": true }
+	]
+}

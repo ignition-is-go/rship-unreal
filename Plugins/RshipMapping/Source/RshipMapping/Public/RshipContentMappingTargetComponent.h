@@ -7,7 +7,7 @@
 #include "RshipContentMappingTargetComponent.generated.h"
 
 UCLASS(ClassGroup = (Rship), meta = (BlueprintSpawnableComponent, DisplayName = "Rship Content Mapping Target"))
-class RSHIPEXEC_API URshipContentMappingTargetComponent : public UActorComponent
+class RSHIPMAPPING_API URshipContentMappingTargetComponent : public UActorComponent
 {
     GENERATED_BODY()
 

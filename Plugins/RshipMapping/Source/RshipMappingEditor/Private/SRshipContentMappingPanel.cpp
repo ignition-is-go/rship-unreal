@@ -49,7 +49,6 @@
 #include "RshipCameraActor.h"
 #include "HAL/PlatformApplicationMisc.h"
 #include "ScopedTransaction.h"
-#include "Misc/Crc.h"
 
 #define LOCTEXT_NAMESPACE "SRshipContentMappingPanel"
 
@@ -74,6 +73,35 @@ namespace
 	const FSlateFontInfo MappingListFont = FCoreStyle::GetDefaultFontStyle("Regular", 9);
 	const FSlateFontInfo CompactErrorFont = FCoreStyle::GetDefaultFontStyle("Regular", 9);
 	const FVector2D MappingTypeIconSize(4.0f, 4.0f);
+
+	URshipContentMappingManager* ResolveContentMappingManager(URshipSubsystem* Subsystem)
+	{
+		return Subsystem ? Cast<URshipContentMappingManager>(Subsystem->GetContentMappingManager()) : nullptr;
+	}
+
+	TSharedPtr<FJsonObject> DeepCloneJsonObject(const TSharedPtr<FJsonObject>& InObject)
+	{
+		if (!InObject.IsValid())
+		{
+			return MakeShared<FJsonObject>();
+		}
+
+		FString Serialized;
+		const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Serialized);
+		if (!FJsonSerializer::Serialize(InObject.ToSharedRef(), Writer))
+		{
+			return MakeShared<FJsonObject>();
+		}
+
+		TSharedPtr<FJsonObject> Cloned = MakeShared<FJsonObject>();
+		const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Serialized);
+		if (!FJsonSerializer::Deserialize(Reader, Cloned) || !Cloned.IsValid())
+		{
+			return MakeShared<FJsonObject>();
+		}
+
+		return Cloned;
+	}
 
 	void EnsureContextDefaultsForMapping(URshipContentMappingManager* Manager, const FString& ContextId)
 	{
@@ -132,14 +160,22 @@ namespace
 		if (InValue.Equals(TEXT("surface-feed"), ESearchCase::IgnoreCase)) return MapModeFeed;
 		if (InValue.Equals(TEXT("surface-uv"), ESearchCase::IgnoreCase)) return MapModeDirect;
 		if (InValue.Equals(TEXT("surface-projection"), ESearchCase::IgnoreCase)) return MapModePerspective;
+		if (InValue.Equals(TEXT("projection"), ESearchCase::IgnoreCase) || InValue.Equals(TEXT("projector"), ESearchCase::IgnoreCase)) return MapModePerspective;
 		if (InValue.Equals(MapModeFeed, ESearchCase::IgnoreCase)) return MapModeFeed;
 		if (InValue.Equals(MapModeDirect, ESearchCase::IgnoreCase)) return MapModeDirect;
 		if (InValue.Equals(MapModePerspective, ESearchCase::IgnoreCase)) return MapModePerspective;
 		if (InValue.Equals(MapModeCustomMatrix, ESearchCase::IgnoreCase) || InValue.Equals(TEXT("custom matrix"), ESearchCase::IgnoreCase) || InValue.Equals(TEXT("matrix"), ESearchCase::IgnoreCase)) return MapModeCustomMatrix;
 		if (InValue.Equals(MapModeCylindrical, ESearchCase::IgnoreCase)) return MapModeCylindrical;
 		if (InValue.Equals(MapModeSpherical, ESearchCase::IgnoreCase)) return MapModeSpherical;
+		if (InValue.Equals(TEXT("orthographic"), ESearchCase::IgnoreCase) || InValue.Equals(TEXT("ortho"), ESearchCase::IgnoreCase) || InValue.Equals(TEXT("planar"), ESearchCase::IgnoreCase)) return MapModeParallel;
 		if (InValue.Equals(MapModeParallel, ESearchCase::IgnoreCase)) return MapModeParallel;
 		if (InValue.Equals(MapModeRadial, ESearchCase::IgnoreCase)) return MapModeRadial;
+		if (InValue.Equals(TEXT("mesh-projection"), ESearchCase::IgnoreCase)
+			|| InValue.Equals(TEXT("mesh projection"), ESearchCase::IgnoreCase)
+			|| InValue.Equals(TEXT("mesh-camera"), ESearchCase::IgnoreCase)
+			|| InValue.Equals(TEXT("mesh camera"), ESearchCase::IgnoreCase)
+			|| InValue.Equals(TEXT("ndisplay"), ESearchCase::IgnoreCase)
+			|| InValue.Equals(TEXT("n-display"), ESearchCase::IgnoreCase)) return MapModeMesh;
 		if (InValue.Equals(MapModeMesh, ESearchCase::IgnoreCase)) return MapModeMesh;
 		if (InValue.Equals(MapModeFisheye, ESearchCase::IgnoreCase)) return MapModeFisheye;
 		if (InValue.Equals(MapModeCameraPlate, ESearchCase::IgnoreCase) || InValue.Equals(TEXT("camera plate"), ESearchCase::IgnoreCase) || InValue.Equals(TEXT("cameraplate"), ESearchCase::IgnoreCase)) return MapModeCameraPlate;
@@ -158,9 +194,7 @@ namespace
 		{
 			return NormalizeMapMode(Config->GetStringField(TEXT("uvMode")), MapModeDirect);
 		}
-		if (Config->HasTypedField<EJson::Object>(TEXT("feedRect"))
-			|| Config->HasTypedField<EJson::Array>(TEXT("feedRects"))
-			|| Config->HasTypedField<EJson::Object>(TEXT("feedV2")))
+		if (Config->HasTypedField<EJson::Object>(TEXT("feedV2")))
 		{
 			return MapModeFeed;
 		}
@@ -260,6 +294,11 @@ namespace
 		{
 			Mapping.Config = MakeShared<FJsonObject>();
 		}
+		else
+		{
+			// Avoid mutating shared config pointers from manager snapshots.
+			Mapping.Config = DeepCloneJsonObject(Mapping.Config);
+		}
 
 		auto EnsureUvTransformDefaults = [&]()
 		{
@@ -317,15 +356,6 @@ namespace
 			Mapping.Config->SetStringField(TEXT("uvMode"), (Mode == MapModeFeed) ? MapModeFeed : MapModeDirect);
 			Mapping.Config->RemoveField(TEXT("projectionType"));
 			EnsureUvTransformDefaults();
-			if (Mode == MapModeFeed && !Mapping.Config->HasTypedField<EJson::Object>(TEXT("feedRect")))
-			{
-				TSharedPtr<FJsonObject> FeedRect = MakeShared<FJsonObject>();
-				FeedRect->SetNumberField(TEXT("u"), 0.0);
-				FeedRect->SetNumberField(TEXT("v"), 0.0);
-				FeedRect->SetNumberField(TEXT("width"), 1.0);
-				FeedRect->SetNumberField(TEXT("height"), 1.0);
-				Mapping.Config->SetObjectField(TEXT("feedRect"), FeedRect);
-			}
 			if (Mode == MapModeFeed && !Mapping.Config->HasTypedField<EJson::Object>(TEXT("feedV2")))
 			{
 				TSharedPtr<FJsonObject> FeedV2 = MakeShared<FJsonObject>();
@@ -402,17 +432,50 @@ namespace
 			}
 		}
 
-		if (Mode == MapModeFisheye)
-		{
-			if (!Mapping.Config->HasTypedField<EJson::Number>(TEXT("fisheyeFov")))
+			if (Mode == MapModeFisheye)
 			{
-				Mapping.Config->SetNumberField(TEXT("fisheyeFov"), 180.0);
+				if (!Mapping.Config->HasTypedField<EJson::Number>(TEXT("fisheyeFov")))
+				{
+					Mapping.Config->SetNumberField(TEXT("fisheyeFov"), 180.0);
 			}
 			if (!Mapping.Config->HasTypedField<EJson::String>(TEXT("lensType")))
-			{
-				Mapping.Config->SetStringField(TEXT("lensType"), TEXT("equidistant"));
+				{
+					Mapping.Config->SetStringField(TEXT("lensType"), TEXT("equidistant"));
+				}
 			}
-		}
+
+			if (Mode == MapModeCameraPlate && !Mapping.Config->HasTypedField<EJson::Object>(TEXT("cameraPlate")))
+			{
+				TSharedPtr<FJsonObject> CameraPlate = MakeShared<FJsonObject>();
+				CameraPlate->SetStringField(TEXT("fit"), TEXT("contain"));
+				CameraPlate->SetStringField(TEXT("anchor"), TEXT("center"));
+				CameraPlate->SetBoolField(TEXT("flipV"), false);
+				Mapping.Config->SetObjectField(TEXT("cameraPlate"), CameraPlate);
+			}
+
+			if (Mode == MapModeSpatial && !Mapping.Config->HasTypedField<EJson::Object>(TEXT("spatial")))
+			{
+				TSharedPtr<FJsonObject> Spatial = MakeShared<FJsonObject>();
+				Spatial->SetNumberField(TEXT("scaleU"), 1.0);
+				Spatial->SetNumberField(TEXT("scaleV"), 1.0);
+				Spatial->SetNumberField(TEXT("offsetU"), 0.0);
+				Spatial->SetNumberField(TEXT("offsetV"), 0.0);
+				Mapping.Config->SetObjectField(TEXT("spatial"), Spatial);
+			}
+
+			if (Mode == MapModeDepthMap && !Mapping.Config->HasTypedField<EJson::Object>(TEXT("depthMap")))
+			{
+				TSharedPtr<FJsonObject> DepthMap = MakeShared<FJsonObject>();
+				DepthMap->SetNumberField(TEXT("depthScale"), 1.0);
+				DepthMap->SetNumberField(TEXT("depthBias"), 0.0);
+				DepthMap->SetNumberField(TEXT("depthNear"), 0.0);
+				DepthMap->SetNumberField(TEXT("depthFar"), 1.0);
+				Mapping.Config->SetObjectField(TEXT("depthMap"), DepthMap);
+				Mapping.Config->SetNumberField(TEXT("depthScale"), 1.0);
+				Mapping.Config->SetNumberField(TEXT("depthBias"), 0.0);
+				Mapping.Config->SetNumberField(TEXT("depthNear"), 0.0);
+				Mapping.Config->SetNumberField(TEXT("depthFar"), 1.0);
+			}
 
 		if (Mode == MapModeCustomMatrix
 			&& !Mapping.Config->HasTypedField<EJson::Object>(TEXT("customProjectionMatrix"))
@@ -1051,7 +1114,7 @@ bool SRshipContentMappingPanel::TryApplySelectionToTarget(TSharedPtr<SEditableTe
 	{
 		if (URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>())
 		{
-			if (URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager())
+			if (URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem))
 			{
 				KnownSurfaces = Manager->GetMappingSurfaces();
 			}
@@ -1183,7 +1246,7 @@ int32 SRshipContentMappingPanel::CreateScreensFromSelectedActors()
 		return 0;
 	}
 
-	URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
+	URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
 	if (!Manager)
 	{
 		return 0;
@@ -1536,7 +1599,7 @@ void SRshipContentMappingPanel::StartProjectionEdit(const FRshipContentMappingSt
 	}
 
 	URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
-	URshipContentMappingManager* Manager = Subsystem ? Subsystem->GetContentMappingManager() : nullptr;
+	URshipContentMappingManager* Manager = Subsystem ? ResolveContentMappingManager(Subsystem) : nullptr;
 	if (!Manager)
 	{
 		return;
@@ -1552,7 +1615,6 @@ void SRshipContentMappingPanel::StartProjectionEdit(const FRshipContentMappingSt
 	if (!Actor)
 	{
 		FActorSpawnParameters SpawnParams;
-		SpawnParams.Name = FName(*FString::Printf(TEXT("RshipContentMappingProjector_%s"), *Mapping.Id));
 		SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 		SpawnParams.ObjectFlags |= RF_Transient;
 		Actor = World->SpawnActor<ARshipContentMappingPreviewActor>(SpawnParams);
@@ -1758,7 +1820,7 @@ void SRshipContentMappingPanel::OpenMappingEditorWindow(const FRshipContentMappi
 	{
 		if (URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>())
 		{
-			if (URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager())
+			if (URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem))
 			{
 				const TArray<FRshipContentMappingState> ExistingMappings = Manager->GetMappings();
 				for (const FRshipContentMappingState& ExistingMapping : ExistingMappings)
@@ -1818,32 +1880,40 @@ void SRshipContentMappingPanel::SyncProjectionActorFromMapping(const FRshipConte
 
 	if (Mapping.Config.IsValid())
 	{
+		auto ReadNumber = [](const TSharedPtr<FJsonObject>& Obj, const TCHAR* Field, double DefaultValue) -> double
+		{
+			return (Obj.IsValid() && Obj->HasTypedField<EJson::Number>(Field))
+				? Obj->GetNumberField(Field)
+				: DefaultValue;
+		};
+
 		if (Mapping.Config->HasTypedField<EJson::Object>(TEXT("eyepoint")))
 		{
 			const TSharedPtr<FJsonObject> EyeObj = Mapping.Config->GetObjectField(TEXT("eyepoint"));
-			Position.X = EyeObj->GetNumberField(TEXT("x"));
-			Position.Y = EyeObj->GetNumberField(TEXT("y"));
-			Position.Z = EyeObj->GetNumberField(TEXT("z"));
+			Position.X = static_cast<float>(ReadNumber(EyeObj, TEXT("x"), Position.X));
+			Position.Y = static_cast<float>(ReadNumber(EyeObj, TEXT("y"), Position.Y));
+			Position.Z = static_cast<float>(ReadNumber(EyeObj, TEXT("z"), Position.Z));
 		}
 		else if (Mapping.Config->HasTypedField<EJson::Object>(TEXT("projectorPosition")))
 		{
 			const TSharedPtr<FJsonObject> PosObj = Mapping.Config->GetObjectField(TEXT("projectorPosition"));
-			Position.X = PosObj->GetNumberField(TEXT("x"));
-			Position.Y = PosObj->GetNumberField(TEXT("y"));
-			Position.Z = PosObj->GetNumberField(TEXT("z"));
+			Position.X = static_cast<float>(ReadNumber(PosObj, TEXT("x"), Position.X));
+			Position.Y = static_cast<float>(ReadNumber(PosObj, TEXT("y"), Position.Y));
+			Position.Z = static_cast<float>(ReadNumber(PosObj, TEXT("z"), Position.Z));
 		}
 		if (Mapping.Config->HasTypedField<EJson::Object>(TEXT("projectorRotation")))
 		{
 			const TSharedPtr<FJsonObject> RotObj = Mapping.Config->GetObjectField(TEXT("projectorRotation"));
+			const FVector CurrentEuler = Rotation.Euler();
 			Rotation = FRotator::MakeFromEuler(FVector(
-				RotObj->GetNumberField(TEXT("x")),
-				RotObj->GetNumberField(TEXT("y")),
-				RotObj->GetNumberField(TEXT("z"))));
+				static_cast<float>(ReadNumber(RotObj, TEXT("x"), CurrentEuler.X)),
+				static_cast<float>(ReadNumber(RotObj, TEXT("y"), CurrentEuler.Y)),
+				static_cast<float>(ReadNumber(RotObj, TEXT("z"), CurrentEuler.Z))));
 		}
-		Fov = Mapping.Config->HasField(TEXT("fov")) ? Mapping.Config->GetNumberField(TEXT("fov")) : Fov;
-		Aspect = Mapping.Config->HasField(TEXT("aspectRatio")) ? Mapping.Config->GetNumberField(TEXT("aspectRatio")) : Aspect;
-		NearClip = Mapping.Config->HasField(TEXT("near")) ? Mapping.Config->GetNumberField(TEXT("near")) : NearClip;
-		FarClip = Mapping.Config->HasField(TEXT("far")) ? Mapping.Config->GetNumberField(TEXT("far")) : FarClip;
+		Fov = static_cast<float>(ReadNumber(Mapping.Config, TEXT("fov"), Fov));
+		Aspect = static_cast<float>(ReadNumber(Mapping.Config, TEXT("aspectRatio"), Aspect));
+		NearClip = static_cast<float>(ReadNumber(Mapping.Config, TEXT("near"), NearClip));
+		FarClip = static_cast<float>(ReadNumber(Mapping.Config, TEXT("far"), FarClip));
 	}
 	else if (ContextState && ContextState->CameraActor.IsValid())
 	{
@@ -1887,11 +1957,10 @@ void SRshipContentMappingPanel::UpdateProjectionFromActor(float DeltaTime)
 	}
 
 	ProjectorUpdateAccumulator += DeltaTime;
-	if (ProjectorUpdateAccumulator < 0.08f)
+	if (ProjectorUpdateAccumulator < (1.0f / 60.0f))
 	{
 		return;
 	}
-
 	ProjectorUpdateAccumulator = 0.0f;
 	LastProjectorTransform = CurrentTransform;
 
@@ -1901,7 +1970,7 @@ void SRshipContentMappingPanel::UpdateProjectionFromActor(float DeltaTime)
 	}
 
 	URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
-	URshipContentMappingManager* Manager = Subsystem ? Subsystem->GetContentMappingManager() : nullptr;
+	URshipContentMappingManager* Manager = Subsystem ? ResolveContentMappingManager(Subsystem) : nullptr;
 	if (!Manager)
 	{
 		return;
@@ -1921,7 +1990,7 @@ void SRshipContentMappingPanel::UpdateProjectionFromActor(float DeltaTime)
 		return;
 	}
 
-	TSharedPtr<FJsonObject> Config = Mapping->Config.IsValid() ? Mapping->Config : MakeShared<FJsonObject>();
+	TSharedPtr<FJsonObject> Config = Mapping->Config.IsValid() ? DeepCloneJsonObject(Mapping->Config) : MakeShared<FJsonObject>();
 	FString ProjectionType = TEXT("perspective");
 	if (Config->HasTypedField<EJson::String>(TEXT("projectionType")))
 	{
@@ -2050,10 +2119,10 @@ void SRshipContentMappingPanel::UpdatePreviewImage(UTexture* Texture, const FRsh
 				if (Mapping.Config->HasTypedField<EJson::Object>(TEXT("projectorRotation")))
 				{
 					TSharedPtr<FJsonObject> Rot = Mapping.Config->GetObjectField(TEXT("projectorRotation"));
-					Gizmo->ProjectorRotation = FRotator(
+					Gizmo->ProjectorRotation = FRotator::MakeFromEuler(FVector(
 						GetNum(Rot, TEXT("x"), 0.f),
 						GetNum(Rot, TEXT("y"), 0.f),
-						GetNum(Rot, TEXT("z"), 0.f));
+						GetNum(Rot, TEXT("z"), 0.f)));
 				}
 				Gizmo->FOV = GetNum(Mapping.Config, TEXT("fov"), 60.f);
 				Gizmo->Aspect = GetNum(Mapping.Config, TEXT("aspectRatio"), 1.7778f);
@@ -2597,7 +2666,7 @@ bool SRshipContentMappingPanel::DuplicateSelectedMappings()
 		return false;
 	}
 
-	URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
+	URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
 	if (!Manager)
 	{
 		return false;
@@ -2669,7 +2738,7 @@ bool SRshipContentMappingPanel::ToggleSelectedMappingsEnabled()
 		return false;
 	}
 
-	URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
+	URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
 	if (!Manager)
 	{
 		return false;
@@ -2810,7 +2879,7 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildHeaderSection()
 					{
 						if (URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>())
 						{
-							if (URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager())
+							if (URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem))
 							{
 								Manager->SetCoveragePreviewEnabled(bCoveragePreviewEnabled);
 							}
@@ -2855,7 +2924,7 @@ bool SRshipContentMappingPanel::ExecuteQuickCreateMapping()
 		return false;
 	}
 
-	URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
+	URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
 	if (!Manager)
 	{
 		return false;
@@ -3196,13 +3265,6 @@ bool SRshipContentMappingPanel::ExecuteQuickCreateMapping()
 				NewMapping.Config->SetObjectField(TEXT("uvTransform"), Uv);
 				if (DesiredUvMode == TEXT("feed"))
 				{
-					TSharedPtr<FJsonObject> Feed = MakeShared<FJsonObject>();
-					Feed->SetNumberField(TEXT("u"), QuickFeedUInput.IsValid() ? QuickFeedUInput->GetValue() : 0.0);
-					Feed->SetNumberField(TEXT("v"), QuickFeedVInput.IsValid() ? QuickFeedVInput->GetValue() : 0.0);
-					Feed->SetNumberField(TEXT("width"), QuickFeedWInput.IsValid() ? QuickFeedWInput->GetValue() : 1.0);
-					Feed->SetNumberField(TEXT("height"), QuickFeedHInput.IsValid() ? QuickFeedHInput->GetValue() : 1.0);
-					NewMapping.Config->SetObjectField(TEXT("feedRect"), Feed);
-
 					const int32 FeedWidth = FMath::Max(1, Width);
 					const int32 FeedHeight = FMath::Max(1, Height);
 					TSharedPtr<FJsonObject> FeedV2 = MakeShared<FJsonObject>();
@@ -3291,15 +3353,45 @@ bool SRshipContentMappingPanel::ExecuteQuickCreateMapping()
 				NewMapping.Config->SetNumberField(TEXT("horizontalArc"), 360.0);
 				NewMapping.Config->SetNumberField(TEXT("verticalArc"), 180.0);
 			}
-			if (DesiredProjectionType.Equals(TEXT("parallel"), ESearchCase::IgnoreCase))
-			{
-				NewMapping.Config->SetNumberField(TEXT("sizeW"), 1000.0);
-				NewMapping.Config->SetNumberField(TEXT("sizeH"), 1000.0);
-			}
-			TSharedPtr<FJsonObject> EpObj = MakeShared<FJsonObject>();
-			EpObj->SetNumberField(TEXT("x"), 0.0);
-			EpObj->SetNumberField(TEXT("y"), 0.0);
-			EpObj->SetNumberField(TEXT("z"), 0.0);
+				if (DesiredProjectionType.Equals(TEXT("parallel"), ESearchCase::IgnoreCase))
+				{
+					NewMapping.Config->SetNumberField(TEXT("sizeW"), 1000.0);
+					NewMapping.Config->SetNumberField(TEXT("sizeH"), 1000.0);
+				}
+				if (DesiredProjectionType.Equals(TEXT("camera-plate"), ESearchCase::IgnoreCase))
+				{
+					TSharedPtr<FJsonObject> CameraPlate = MakeShared<FJsonObject>();
+					CameraPlate->SetStringField(TEXT("fit"), TEXT("contain"));
+					CameraPlate->SetStringField(TEXT("anchor"), TEXT("center"));
+					CameraPlate->SetBoolField(TEXT("flipV"), false);
+					NewMapping.Config->SetObjectField(TEXT("cameraPlate"), CameraPlate);
+				}
+				if (DesiredProjectionType.Equals(TEXT("spatial"), ESearchCase::IgnoreCase))
+				{
+					TSharedPtr<FJsonObject> Spatial = MakeShared<FJsonObject>();
+					Spatial->SetNumberField(TEXT("scaleU"), 1.0);
+					Spatial->SetNumberField(TEXT("scaleV"), 1.0);
+					Spatial->SetNumberField(TEXT("offsetU"), 0.0);
+					Spatial->SetNumberField(TEXT("offsetV"), 0.0);
+					NewMapping.Config->SetObjectField(TEXT("spatial"), Spatial);
+				}
+				if (DesiredProjectionType.Equals(TEXT("depth-map"), ESearchCase::IgnoreCase))
+				{
+					TSharedPtr<FJsonObject> DepthMap = MakeShared<FJsonObject>();
+					DepthMap->SetNumberField(TEXT("depthScale"), 1.0);
+					DepthMap->SetNumberField(TEXT("depthBias"), 0.0);
+					DepthMap->SetNumberField(TEXT("depthNear"), 0.0);
+					DepthMap->SetNumberField(TEXT("depthFar"), 1.0);
+					NewMapping.Config->SetObjectField(TEXT("depthMap"), DepthMap);
+					NewMapping.Config->SetNumberField(TEXT("depthScale"), 1.0);
+					NewMapping.Config->SetNumberField(TEXT("depthBias"), 0.0);
+					NewMapping.Config->SetNumberField(TEXT("depthNear"), 0.0);
+					NewMapping.Config->SetNumberField(TEXT("depthFar"), 1.0);
+				}
+				TSharedPtr<FJsonObject> EpObj = MakeShared<FJsonObject>();
+				EpObj->SetNumberField(TEXT("x"), 0.0);
+				EpObj->SetNumberField(TEXT("y"), 0.0);
+				EpObj->SetNumberField(TEXT("z"), 0.0);
 			NewMapping.Config->SetObjectField(TEXT("eyepoint"), EpObj);
 			if (DesiredProjectionType.Equals(TEXT("fisheye"), ESearchCase::IgnoreCase))
 			{
@@ -3966,7 +4058,7 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildMappingsSection()
 					if (!GEngine) return FReply::Handled();
 					URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
 					if (!Subsystem) return FReply::Handled();
-					URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
+					URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
 					if (!Manager) return FReply::Handled();
 
 					FRshipContentMappingState NewMapping;
@@ -4510,7 +4602,7 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildContextForm()
 									{
 										if (URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>())
 										{
-											if (URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager())
+											if (URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem))
 											{
 												const TArray<FRshipRenderContextState> Contexts = Manager->GetRenderContexts();
 												for (const FRshipRenderContextState& Context : Contexts)
@@ -4987,7 +5079,7 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildContextForm()
 							}
 
 							URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
-							URshipContentMappingManager* Manager = Subsystem ? Subsystem->GetContentMappingManager() : nullptr;
+							URshipContentMappingManager* Manager = Subsystem ? ResolveContentMappingManager(Subsystem) : nullptr;
 							if (!Manager)
 							{
 								return FReply::Handled();
@@ -5349,10 +5441,10 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildContextForm()
 				]
 			]
 
-			// Fisheye-specific: FOV, Lens Type
-					+ SVerticalBox::Slot().AutoHeight().Padding(0,4,0,2)
-					[
-						SNew(SVerticalBox)
+				// Fisheye-specific: FOV, Lens Type
+						+ SVerticalBox::Slot().AutoHeight().Padding(0,4,0,2)
+						[
+							SNew(SVerticalBox)
 							.Visibility_Lambda([this]() { return GetProjectionPrecisionControlsVisibility() == EVisibility::Visible && MapMode == TEXT("fisheye")
 								? EVisibility::Visible : EVisibility::Collapsed; })
 				+ SVerticalBox::Slot().AutoHeight()
@@ -5378,12 +5470,135 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildContextForm()
 					[
 						SAssignNew(MapFisheyeLensInput, SEditableTextBox).Text(FText::FromString(TEXT("equidistant")))
 					]
+					]
 				]
-			]
 
-			// Content mode (UV modes)
-			+ SVerticalBox::Slot().AutoHeight().Padding(0,4,0,2)
-			[
+				// Camera plate-specific: fit, anchor, flipV
+						+ SVerticalBox::Slot().AutoHeight().Padding(0,4,0,2)
+						[
+							SNew(SVerticalBox)
+								.Visibility_Lambda([this]() { return GetProjectionPrecisionControlsVisibility() == EVisibility::Visible && MapMode == TEXT("camera-plate")
+									? EVisibility::Visible : EVisibility::Collapsed; })
+					+ SVerticalBox::Slot().AutoHeight()
+					[
+						SNew(STextBlock).Text(LOCTEXT("MapCameraPlateHeader", "Camera Plate"))
+					]
+					+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
+					[
+						SNew(SHorizontalBox)
+						+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,6,0)
+						[
+							SNew(STextBlock).Text(LOCTEXT("MapCameraPlateFit", "Fit / Anchor"))
+						]
+						+ SHorizontalBox::Slot().FillWidth(0.5f).Padding(0,0,4,0)
+						[
+							SAssignNew(MapCameraPlateFitInput, SEditableTextBox).Text(FText::FromString(TEXT("contain")))
+						]
+						+ SHorizontalBox::Slot().FillWidth(0.5f).Padding(0,0,8,0)
+						[
+							SAssignNew(MapCameraPlateAnchorInput, SEditableTextBox).Text(FText::FromString(TEXT("center")))
+						]
+						+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+						[
+							SAssignNew(MapCameraPlateFlipVInput, SCheckBox)
+							[
+								SNew(STextBlock).Text(LOCTEXT("MapCameraPlateFlipV", "Flip V"))
+							]
+						]
+					]
+				]
+
+				// Spatial-specific: scale/offset
+						+ SVerticalBox::Slot().AutoHeight().Padding(0,4,0,2)
+						[
+							SNew(SVerticalBox)
+								.Visibility_Lambda([this]() { return GetProjectionPrecisionControlsVisibility() == EVisibility::Visible && MapMode == TEXT("spatial")
+									? EVisibility::Visible : EVisibility::Collapsed; })
+					+ SVerticalBox::Slot().AutoHeight()
+					[
+						SNew(STextBlock).Text(LOCTEXT("MapSpatialHeader", "Spatial"))
+					]
+					+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
+					[
+						SNew(SHorizontalBox)
+						+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,6,0)
+						[
+							SNew(STextBlock).Text(LOCTEXT("MapSpatialScale", "Scale U/V"))
+						]
+						+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
+						[
+							SAssignNew(MapSpatialScaleUInput, SSpinBox<float>).MinValue(0.0001f).MaxValue(1000.0f).Delta(0.01f).Value(1.0f)
+						]
+						+ SHorizontalBox::Slot().AutoWidth()
+						[
+							SAssignNew(MapSpatialScaleVInput, SSpinBox<float>).MinValue(0.0001f).MaxValue(1000.0f).Delta(0.01f).Value(1.0f)
+						]
+					]
+					+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
+					[
+						SNew(SHorizontalBox)
+						+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,6,0)
+						[
+							SNew(STextBlock).Text(LOCTEXT("MapSpatialOffset", "Offset U/V"))
+						]
+						+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
+						[
+							SAssignNew(MapSpatialOffsetUInput, SSpinBox<float>).MinValue(-1000.0f).MaxValue(1000.0f).Delta(0.01f).Value(0.0f)
+						]
+						+ SHorizontalBox::Slot().AutoWidth()
+						[
+							SAssignNew(MapSpatialOffsetVInput, SSpinBox<float>).MinValue(-1000.0f).MaxValue(1000.0f).Delta(0.01f).Value(0.0f)
+						]
+					]
+				]
+
+				// Depth map-specific: depth params
+						+ SVerticalBox::Slot().AutoHeight().Padding(0,4,0,2)
+						[
+							SNew(SVerticalBox)
+								.Visibility_Lambda([this]() { return GetProjectionPrecisionControlsVisibility() == EVisibility::Visible && MapMode == TEXT("depth-map")
+									? EVisibility::Visible : EVisibility::Collapsed; })
+					+ SVerticalBox::Slot().AutoHeight()
+					[
+						SNew(STextBlock).Text(LOCTEXT("MapDepthHeader", "Depth Map"))
+					]
+					+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
+					[
+						SNew(SHorizontalBox)
+						+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,6,0)
+						[
+							SNew(STextBlock).Text(LOCTEXT("MapDepthScaleBias", "Scale / Bias"))
+						]
+						+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
+						[
+							SAssignNew(MapDepthScaleInput, SSpinBox<float>).MinValue(-10000.0f).MaxValue(10000.0f).Delta(0.01f).Value(1.0f)
+						]
+						+ SHorizontalBox::Slot().AutoWidth()
+						[
+							SAssignNew(MapDepthBiasInput, SSpinBox<float>).MinValue(-10000.0f).MaxValue(10000.0f).Delta(0.01f).Value(0.0f)
+						]
+					]
+					+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
+					[
+						SNew(SHorizontalBox)
+						+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,6,0)
+						[
+							SNew(STextBlock).Text(LOCTEXT("MapDepthNearFar", "Near / Far"))
+						]
+						+ SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)
+						[
+							SAssignNew(MapDepthNearInput, SSpinBox<float>).MinValue(-100000.0f).MaxValue(100000.0f).Delta(0.01f).Value(0.0f)
+						]
+						+ SHorizontalBox::Slot().AutoWidth()
+						[
+							SAssignNew(MapDepthFarInput, SSpinBox<float>).MinValue(-100000.0f).MaxValue(100000.0f).Delta(0.01f).Value(1.0f)
+						]
+					]
+				]
+
+				// Content mode (UV modes)
+				+ SVerticalBox::Slot().AutoHeight().Padding(0,4,0,2)
+				[
 				SNew(SVerticalBox)
 				.Visibility_Lambda([this]() { return (MapMode == TEXT("direct") || MapMode == TEXT("feed")) ? EVisibility::Visible : EVisibility::Collapsed; })
 				+ SVerticalBox::Slot().AutoHeight()
@@ -5612,7 +5827,7 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildContextForm()
 						if (!GEngine) return FReply::Handled();
 						URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
 						if (!Subsystem) return FReply::Handled();
-						if (URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager())
+						if (URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem))
 						{
 							FRshipRenderContextState State;
 							State.Id = SelectedContextId;
@@ -5832,7 +6047,7 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildSurfaceForm()
 						if (!GEngine) return FReply::Handled();
 						URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
 						if (!Subsystem) return FReply::Handled();
-						if (URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager())
+						if (URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem))
 						{
 							FRshipMappingSurfaceState State;
 							State.Id = SelectedSurfaceId;
@@ -6122,6 +6337,17 @@ void SRshipContentMappingPanel::ResetForms()
 	if (MapMeshEyeXInput.IsValid()) MapMeshEyeXInput->SetValue(0.f);
 	if (MapMeshEyeYInput.IsValid()) MapMeshEyeYInput->SetValue(0.f);
 	if (MapMeshEyeZInput.IsValid()) MapMeshEyeZInput->SetValue(0.f);
+	if (MapCameraPlateFitInput.IsValid()) MapCameraPlateFitInput->SetText(FText::FromString(TEXT("contain")));
+	if (MapCameraPlateAnchorInput.IsValid()) MapCameraPlateAnchorInput->SetText(FText::FromString(TEXT("center")));
+	if (MapCameraPlateFlipVInput.IsValid()) MapCameraPlateFlipVInput->SetIsChecked(ECheckBoxState::Unchecked);
+	if (MapSpatialScaleUInput.IsValid()) MapSpatialScaleUInput->SetValue(1.f);
+	if (MapSpatialScaleVInput.IsValid()) MapSpatialScaleVInput->SetValue(1.f);
+	if (MapSpatialOffsetUInput.IsValid()) MapSpatialOffsetUInput->SetValue(0.f);
+	if (MapSpatialOffsetVInput.IsValid()) MapSpatialOffsetVInput->SetValue(0.f);
+	if (MapDepthScaleInput.IsValid()) MapDepthScaleInput->SetValue(1.f);
+	if (MapDepthBiasInput.IsValid()) MapDepthBiasInput->SetValue(0.f);
+	if (MapDepthNearInput.IsValid()) MapDepthNearInput->SetValue(0.f);
+	if (MapDepthFarInput.IsValid()) MapDepthFarInput->SetValue(1.f);
 	if (MapContentModeInput.IsValid()) MapContentModeInput->SetText(FText::FromString(TEXT("stretch")));
 	if (MapMaskStartInput.IsValid()) MapMaskStartInput->SetValue(0.f);
 	if (MapMaskEndInput.IsValid()) MapMaskEndInput->SetValue(360.f);
@@ -6227,41 +6453,10 @@ void SRshipContentMappingPanel::PopulateMappingForm(const FRshipContentMappingSt
 		{
 			return (Obj.IsValid() && Obj->HasTypedField<EJson::Number>(Field)) ? Obj->GetNumberField(Field) : DefaultVal;
 		};
-		if (State.Type == TEXT("surface-uv"))
-		{
-			if (State.Config->HasTypedField<EJson::Object>(TEXT("feedRect")))
+			if (State.Type == TEXT("surface-uv"))
 			{
-				TSharedPtr<FJsonObject> Feed = State.Config->GetObjectField(TEXT("feedRect"));
-				if (MapFeedUInput.IsValid()) MapFeedUInput->SetValue(GetNum(Feed, TEXT("u"), 0.0));
-				if (MapFeedVInput.IsValid()) MapFeedVInput->SetValue(GetNum(Feed, TEXT("v"), 0.0));
-				if (MapFeedWInput.IsValid()) MapFeedWInput->SetValue(GetNum(Feed, TEXT("width"), 1.0));
-				if (MapFeedHInput.IsValid()) MapFeedHInput->SetValue(GetNum(Feed, TEXT("height"), 1.0));
+				MapFeedRectOverrides.Empty();
 			}
-			MapFeedRectOverrides.Empty();
-			if (State.Config->HasTypedField<EJson::Array>(TEXT("feedRects")))
-			{
-				const TArray<TSharedPtr<FJsonValue>> Rects = State.Config->GetArrayField(TEXT("feedRects"));
-				for (const TSharedPtr<FJsonValue>& Value : Rects)
-				{
-					if (!Value.IsValid() || Value->Type != EJson::Object)
-					{
-						continue;
-					}
-					TSharedPtr<FJsonObject> RectObj = Value->AsObject();
-					if (!RectObj.IsValid() || !RectObj->HasTypedField<EJson::String>(TEXT("surfaceId")))
-					{
-						continue;
-					}
-					const FString SurfaceId = RectObj->GetStringField(TEXT("surfaceId"));
-					FFeedRect Rect;
-					Rect.U = GetNum(RectObj, TEXT("u"), 0.0);
-					Rect.V = GetNum(RectObj, TEXT("v"), 0.0);
-					Rect.W = GetNum(RectObj, TEXT("width"), 1.0);
-					Rect.H = GetNum(RectObj, TEXT("height"), 1.0);
-					MapFeedRectOverrides.Add(SurfaceId, Rect);
-				}
-			}
-		}
 		else if (State.Type == TEXT("surface-projection"))
 		{
 			if (State.Config->HasTypedField<EJson::Object>(TEXT("eyepoint")))
@@ -6333,12 +6528,67 @@ void SRshipContentMappingPanel::PopulateMappingForm(const FRshipContentMappingSt
 
 			// Fisheye
 			if (MapFisheyeFovInput.IsValid()) MapFisheyeFovInput->SetValue(GetNum(State.Config, TEXT("fisheyeFov"), 180.0));
-			if (MapFisheyeLensInput.IsValid())
-			{
-				const FString LensStr = (State.Config->HasTypedField<EJson::String>(TEXT("lensType")))
-					? State.Config->GetStringField(TEXT("lensType")) : TEXT("equidistant");
-				MapFisheyeLensInput->SetText(FText::FromString(LensStr));
-			}
+				if (MapFisheyeLensInput.IsValid())
+				{
+					const FString LensStr = (State.Config->HasTypedField<EJson::String>(TEXT("lensType")))
+						? State.Config->GetStringField(TEXT("lensType")) : TEXT("equidistant");
+					MapFisheyeLensInput->SetText(FText::FromString(LensStr));
+				}
+
+				// Camera plate
+				if (State.Config->HasTypedField<EJson::Object>(TEXT("cameraPlate")))
+				{
+					const TSharedPtr<FJsonObject> CameraPlate = State.Config->GetObjectField(TEXT("cameraPlate"));
+					const FString Fit = (CameraPlate.IsValid() && CameraPlate->HasTypedField<EJson::String>(TEXT("fit")))
+						? CameraPlate->GetStringField(TEXT("fit"))
+						: TEXT("contain");
+					const FString Anchor = (CameraPlate.IsValid() && CameraPlate->HasTypedField<EJson::String>(TEXT("anchor")))
+						? CameraPlate->GetStringField(TEXT("anchor"))
+						: TEXT("center");
+					const bool bFlipV = (CameraPlate.IsValid() && CameraPlate->HasTypedField<EJson::Boolean>(TEXT("flipV")))
+						? CameraPlate->GetBoolField(TEXT("flipV"))
+						: false;
+					if (MapCameraPlateFitInput.IsValid()) MapCameraPlateFitInput->SetText(FText::FromString(Fit));
+					if (MapCameraPlateAnchorInput.IsValid()) MapCameraPlateAnchorInput->SetText(FText::FromString(Anchor));
+					if (MapCameraPlateFlipVInput.IsValid()) MapCameraPlateFlipVInput->SetIsChecked(bFlipV ? ECheckBoxState::Checked : ECheckBoxState::Unchecked);
+				}
+				else
+				{
+					if (MapCameraPlateFitInput.IsValid()) MapCameraPlateFitInput->SetText(FText::FromString(TEXT("contain")));
+					if (MapCameraPlateAnchorInput.IsValid()) MapCameraPlateAnchorInput->SetText(FText::FromString(TEXT("center")));
+					if (MapCameraPlateFlipVInput.IsValid()) MapCameraPlateFlipVInput->SetIsChecked(ECheckBoxState::Unchecked);
+				}
+
+				// Spatial
+				if (State.Config->HasTypedField<EJson::Object>(TEXT("spatial")))
+				{
+					const TSharedPtr<FJsonObject> Spatial = State.Config->GetObjectField(TEXT("spatial"));
+					if (MapSpatialScaleUInput.IsValid()) MapSpatialScaleUInput->SetValue(GetNum(Spatial, TEXT("scaleU"), 1.0));
+					if (MapSpatialScaleVInput.IsValid()) MapSpatialScaleVInput->SetValue(GetNum(Spatial, TEXT("scaleV"), 1.0));
+					if (MapSpatialOffsetUInput.IsValid()) MapSpatialOffsetUInput->SetValue(GetNum(Spatial, TEXT("offsetU"), 0.0));
+					if (MapSpatialOffsetVInput.IsValid()) MapSpatialOffsetVInput->SetValue(GetNum(Spatial, TEXT("offsetV"), 0.0));
+				}
+				else
+				{
+					if (MapSpatialScaleUInput.IsValid()) MapSpatialScaleUInput->SetValue(1.0);
+					if (MapSpatialScaleVInput.IsValid()) MapSpatialScaleVInput->SetValue(1.0);
+					if (MapSpatialOffsetUInput.IsValid()) MapSpatialOffsetUInput->SetValue(0.0);
+					if (MapSpatialOffsetVInput.IsValid()) MapSpatialOffsetVInput->SetValue(0.0);
+				}
+
+				// Depth map
+				if (MapDepthScaleInput.IsValid()) MapDepthScaleInput->SetValue(GetNum(State.Config, TEXT("depthScale"), 1.0));
+				if (MapDepthBiasInput.IsValid()) MapDepthBiasInput->SetValue(GetNum(State.Config, TEXT("depthBias"), 0.0));
+				if (MapDepthNearInput.IsValid()) MapDepthNearInput->SetValue(GetNum(State.Config, TEXT("depthNear"), 0.0));
+				if (MapDepthFarInput.IsValid()) MapDepthFarInput->SetValue(GetNum(State.Config, TEXT("depthFar"), 1.0));
+				if (State.Config->HasTypedField<EJson::Object>(TEXT("depthMap")))
+				{
+					const TSharedPtr<FJsonObject> DepthMap = State.Config->GetObjectField(TEXT("depthMap"));
+					if (MapDepthScaleInput.IsValid()) MapDepthScaleInput->SetValue(GetNum(DepthMap, TEXT("depthScale"), MapDepthScaleInput->GetValue()));
+					if (MapDepthBiasInput.IsValid()) MapDepthBiasInput->SetValue(GetNum(DepthMap, TEXT("depthBias"), MapDepthBiasInput->GetValue()));
+					if (MapDepthNearInput.IsValid()) MapDepthNearInput->SetValue(GetNum(DepthMap, TEXT("depthNear"), MapDepthNearInput->GetValue()));
+					if (MapDepthFarInput.IsValid()) MapDepthFarInput->SetValue(GetNum(DepthMap, TEXT("depthFar"), MapDepthFarInput->GetValue()));
+				}
 
 			// Masking
 			if (MapMaskStartInput.IsValid()) MapMaskStartInput->SetValue(GetNum(State.Config, TEXT("angleMaskStart"), 0.0));
@@ -6520,16 +6770,10 @@ void SRshipContentMappingPanel::ClampFeedRouteToCanvas(FFeedRouteV2& Route)
 	if (Route.SourceId.IsEmpty())
 	{
 		EnsureFeedSourcesBoundToContext(ContextId);
-		if (MapFeedSources.Num() == 0)
+		if (MapFeedSources.Num() > 0)
 		{
-			FFeedSourceV2 Source;
-			Source.Id = FString::Printf(TEXT("source-%s"), *FGuid::NewGuid().ToString(EGuidFormats::Digits).Left(8));
-			Source.ContextId = ContextId;
-			Source.Width = 1920;
-			Source.Height = 1080;
-			MapFeedSources.Add(Source);
+			Route.SourceId = MapFeedSources[0].Id;
 		}
-		Route.SourceId = MapFeedSources[0].Id;
 	}
 	else if (!FindFeedSourceById(Route.SourceId) && MapFeedSources.Num() > 0)
 	{
@@ -6539,16 +6783,10 @@ void SRshipContentMappingPanel::ClampFeedRouteToCanvas(FFeedRouteV2& Route)
 	if (Route.DestinationId.IsEmpty())
 	{
 		EnsureFeedDestinationsBoundToSurfaces(SurfaceIds);
-		if (MapFeedDestinations.Num() == 0)
+		if (MapFeedDestinations.Num() > 0)
 		{
-			FFeedDestinationV2 Destination;
-			Destination.Id = FString::Printf(TEXT("dest-%s"), *FGuid::NewGuid().ToString(EGuidFormats::Digits).Left(8));
-			Destination.Width = 1920;
-			Destination.Height = 1080;
-			Destination.SurfaceId = SurfaceIds.Num() > 0 ? SurfaceIds[0] : TEXT("");
-			MapFeedDestinations.Add(Destination);
+			Route.DestinationId = MapFeedDestinations[0].Id;
 		}
-		Route.DestinationId = MapFeedDestinations[0].Id;
 	}
 	else if (!FindFeedDestinationById(Route.DestinationId) && MapFeedDestinations.Num() > 0)
 	{
@@ -6597,7 +6835,7 @@ void SRshipContentMappingPanel::EnsureFeedSourcesBoundToContext(const FString& D
 	{
 		if (URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>())
 		{
-			if (URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager())
+			if (URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem))
 			{
 				const TArray<FRshipRenderContextState> Contexts = Manager->GetRenderContexts();
 				for (const FRshipRenderContextState& Context : Contexts)
@@ -6634,14 +6872,6 @@ void SRshipContentMappingPanel::EnsureFeedSourcesBoundToContext(const FString& D
 		}
 	}
 
-	if (MapFeedSources.Num() == 0 && !ResolvedDefault.IsEmpty())
-	{
-		FFeedSourceV2 Source;
-		Source.Id = FString::Printf(TEXT("source-%s"), *FGuid::NewGuid().ToString(EGuidFormats::Digits).Left(8));
-		Source.ContextId = ResolvedDefault;
-		MapFeedSources.Add(Source);
-	}
-
 	if (ResolvedDefault.IsEmpty())
 	{
 		return;
@@ -6649,10 +6879,7 @@ void SRshipContentMappingPanel::EnsureFeedSourcesBoundToContext(const FString& D
 
 	for (FFeedSourceV2& Source : MapFeedSources)
 	{
-		if (Source.ContextId.TrimStartAndEnd().IsEmpty())
-		{
-			Source.ContextId = ResolvedDefault;
-		}
+		Source.ContextId = Source.ContextId.TrimStartAndEnd();
 	}
 }
 
@@ -6680,42 +6907,13 @@ void SRshipContentMappingPanel::EnsureFeedDestinationsBoundToSurfaces(const TArr
 	}
 	ValidSurfaceIds = MoveTemp(UniqueSurfaceIds);
 
-	int32 SurfaceIdx = 0;
 	for (FFeedDestinationV2& Destination : MapFeedDestinations)
 	{
-		const FString SurfaceId = Destination.SurfaceId.TrimStartAndEnd();
-		const bool bInvalidSurface = SurfaceId.IsEmpty()
-			|| SurfaceId.Equals(TEXT("surface"), ESearchCase::IgnoreCase)
-			|| !ValidSurfaceIds.Contains(SurfaceId);
-		if (bInvalidSurface)
-		{
-			Destination.SurfaceId = ValidSurfaceIds[SurfaceIdx % ValidSurfaceIds.Num()];
-			++SurfaceIdx;
-		}
+		Destination.SurfaceId = Destination.SurfaceId.TrimStartAndEnd();
 	}
 
-	TSet<FString> ExistingBoundSurfaces;
-	for (const FFeedDestinationV2& Destination : MapFeedDestinations)
-	{
-		const FString SurfaceId = Destination.SurfaceId.TrimStartAndEnd();
-		if (ValidSurfaceIds.Contains(SurfaceId))
-		{
-			ExistingBoundSurfaces.Add(SurfaceId);
-		}
-	}
-
-	for (const FString& SurfaceId : ValidSurfaceIds)
-	{
-		if (ExistingBoundSurfaces.Contains(SurfaceId))
-		{
-			continue;
-		}
-		FFeedDestinationV2 Destination;
-		Destination.Id = FString::Printf(TEXT("dest-%s"), *FGuid::NewGuid().ToString(EGuidFormats::Digits).Left(8));
-		Destination.SurfaceId = SurfaceId;
-		MapFeedDestinations.Add(Destination);
-		ExistingBoundSurfaces.Add(SurfaceId);
-	}
+	// Keep destination bindings user-authored. Do not auto-rotate or auto-add
+	// destinations during passive UI refresh, otherwise deleted rows reappear.
 }
 
 void SRshipContentMappingPanel::EnsureFeedRoutesForDestinations(const TArray<FString>& MappingSurfaceIds)
@@ -6879,13 +7077,9 @@ void SRshipContentMappingPanel::PopulateFeedV2FromMapping(const FRshipContentMap
 		}
 	}
 
-	const bool bHasRoutes = FeedV2->HasTypedField<EJson::Array>(TEXT("routes"));
-	const bool bHasLinks = FeedV2->HasTypedField<EJson::Array>(TEXT("links"));
-	if (bHasRoutes || bHasLinks)
+	if (FeedV2->HasTypedField<EJson::Array>(TEXT("routes")))
 	{
-		const TArray<TSharedPtr<FJsonValue>>& Routes = bHasRoutes
-			? FeedV2->GetArrayField(TEXT("routes"))
-			: FeedV2->GetArrayField(TEXT("links"));
+		const TArray<TSharedPtr<FJsonValue>>& Routes = FeedV2->GetArrayField(TEXT("routes"));
 		for (const TSharedPtr<FJsonValue>& Value : Routes)
 		{
 			if (!Value.IsValid() || Value->Type != EJson::Object)
@@ -6906,49 +7100,35 @@ void SRshipContentMappingPanel::PopulateFeedV2FromMapping(const FRshipContentMap
 			Route.bEnabled = RouteObj->HasTypedField<EJson::Boolean>(TEXT("enabled")) ? RouteObj->GetBoolField(TEXT("enabled")) : true;
 			Route.Opacity = static_cast<float>(FMath::Clamp(GetNum(RouteObj, TEXT("opacity"), 1.0), 0.0, 1.0));
 
-			auto ParseRect = [&GetNum](const TSharedPtr<FJsonObject>& RectObj, int32& OutX, int32& OutY, int32& OutW, int32& OutH, int32 DefaultW, int32 DefaultH)
-			{
-				if (!RectObj.IsValid())
+				auto ParseRect = [&GetNum](const TSharedPtr<FJsonObject>& RectObj, int32& OutX, int32& OutY, int32& OutW, int32& OutH, int32 DefaultW, int32 DefaultH)
 				{
-					return;
+					if (!RectObj.IsValid())
+					{
+						return;
+					}
+					OutX = static_cast<int32>(GetNum(RectObj, TEXT("x"), 0.0));
+					OutY = static_cast<int32>(GetNum(RectObj, TEXT("y"), 0.0));
+					OutW = static_cast<int32>(GetNum(RectObj, TEXT("w"), GetNum(RectObj, TEXT("width"), DefaultW)));
+					OutH = static_cast<int32>(GetNum(RectObj, TEXT("h"), GetNum(RectObj, TEXT("height"), DefaultH)));
+				};
+
+				Route.SourceX = 0;
+				Route.SourceY = 0;
+				Route.SourceW = 1920;
+				Route.SourceH = 1080;
+				if (RouteObj->HasTypedField<EJson::Object>(TEXT("sourceRect")))
+				{
+					ParseRect(RouteObj->GetObjectField(TEXT("sourceRect")), Route.SourceX, Route.SourceY, Route.SourceW, Route.SourceH, 1920, 1080);
 				}
-				OutX = static_cast<int32>(GetNum(RectObj, TEXT("x"), GetNum(RectObj, TEXT("u"), 0.0)));
-				OutY = static_cast<int32>(GetNum(RectObj, TEXT("y"), GetNum(RectObj, TEXT("v"), 0.0)));
-				OutW = static_cast<int32>(GetNum(RectObj, TEXT("w"), GetNum(RectObj, TEXT("width"), DefaultW)));
-				OutH = static_cast<int32>(GetNum(RectObj, TEXT("h"), GetNum(RectObj, TEXT("height"), DefaultH)));
-			};
 
-			if (RouteObj->HasTypedField<EJson::Object>(TEXT("sourceRect")))
-			{
-				ParseRect(RouteObj->GetObjectField(TEXT("sourceRect")), Route.SourceX, Route.SourceY, Route.SourceW, Route.SourceH, 1920, 1080);
-			}
-			else if (RouteObj->HasTypedField<EJson::Object>(TEXT("srcRect")))
-			{
-				ParseRect(RouteObj->GetObjectField(TEXT("srcRect")), Route.SourceX, Route.SourceY, Route.SourceW, Route.SourceH, 1920, 1080);
-			}
-			else
-			{
-				Route.SourceX = static_cast<int32>(GetNum(RouteObj, TEXT("sourceX"), GetNum(RouteObj, TEXT("srcX"), 0.0)));
-				Route.SourceY = static_cast<int32>(GetNum(RouteObj, TEXT("sourceY"), GetNum(RouteObj, TEXT("srcY"), 0.0)));
-				Route.SourceW = static_cast<int32>(GetNum(RouteObj, TEXT("sourceW"), GetNum(RouteObj, TEXT("srcW"), 1920.0)));
-				Route.SourceH = static_cast<int32>(GetNum(RouteObj, TEXT("sourceH"), GetNum(RouteObj, TEXT("srcH"), 1080.0)));
-			}
-
-			if (RouteObj->HasTypedField<EJson::Object>(TEXT("destinationRect")))
-			{
-				ParseRect(RouteObj->GetObjectField(TEXT("destinationRect")), Route.DestinationX, Route.DestinationY, Route.DestinationW, Route.DestinationH, 1920, 1080);
-			}
-			else if (RouteObj->HasTypedField<EJson::Object>(TEXT("dstRect")))
-			{
-				ParseRect(RouteObj->GetObjectField(TEXT("dstRect")), Route.DestinationX, Route.DestinationY, Route.DestinationW, Route.DestinationH, 1920, 1080);
-			}
-			else
-			{
-				Route.DestinationX = static_cast<int32>(GetNum(RouteObj, TEXT("destinationX"), GetNum(RouteObj, TEXT("dstX"), 0.0)));
-				Route.DestinationY = static_cast<int32>(GetNum(RouteObj, TEXT("destinationY"), GetNum(RouteObj, TEXT("dstY"), 0.0)));
-				Route.DestinationW = static_cast<int32>(GetNum(RouteObj, TEXT("destinationW"), GetNum(RouteObj, TEXT("dstW"), 1920.0)));
-				Route.DestinationH = static_cast<int32>(GetNum(RouteObj, TEXT("destinationH"), GetNum(RouteObj, TEXT("dstH"), 1080.0)));
-			}
+				Route.DestinationX = 0;
+				Route.DestinationY = 0;
+				Route.DestinationW = 1920;
+				Route.DestinationH = 1080;
+				if (RouteObj->HasTypedField<EJson::Object>(TEXT("destinationRect")))
+				{
+					ParseRect(RouteObj->GetObjectField(TEXT("destinationRect")), Route.DestinationX, Route.DestinationY, Route.DestinationW, Route.DestinationH, 1920, 1080);
+				}
 
 			Route.Id = Route.Id.TrimStartAndEnd();
 			Route.SourceId = Route.SourceId.TrimStartAndEnd();
@@ -6969,9 +7149,6 @@ void SRshipContentMappingPanel::PopulateFeedV2FromMapping(const FRshipContentMap
 		}
 	}
 
-	EnsureFeedSourcesBoundToContext(State.ContextId);
-	EnsureFeedDestinationsBoundToSurfaces(State.SurfaceIds);
-	EnsureFeedRoutesForDestinations(State.SurfaceIds);
 	ClampAllFeedRoutesToCanvases();
 
 	if (MapFeedSources.Num() > 0)
@@ -7144,7 +7321,7 @@ void SRshipContentMappingPanel::RefreshFeedV2Canvases()
 			{
 				if (URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>())
 				{
-					if (URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager())
+					if (URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem))
 					{
 						const TArray<FRshipRenderContextState> Contexts = Manager->GetRenderContexts();
 						for (const FRshipRenderContextState& Context : Contexts)
@@ -7200,7 +7377,7 @@ void SRshipContentMappingPanel::RefreshFeedV2Canvases()
 			{
 				return nullptr;
 			}
-			URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
+			URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
 			if (!Manager)
 			{
 				return nullptr;
@@ -7382,11 +7559,7 @@ void SRshipContentMappingPanel::RebuildFeedV2Lists()
 		return;
 	}
 
-	const FString ContextId = MapContextInput.IsValid() ? MapContextInput->GetText().ToString().TrimStartAndEnd() : TEXT("");
 	const TArray<FString> MappingSurfaceIds = GetCurrentMappingSurfaceIds();
-	EnsureFeedSourcesBoundToContext(ContextId);
-	EnsureFeedDestinationsBoundToSurfaces(MappingSurfaceIds);
-	EnsureFeedRoutesForDestinations(MappingSurfaceIds);
 	ClampAllFeedRoutesToCanvases();
 
 	if (MapFeedSources.Num() == 0)
@@ -7931,7 +8104,7 @@ bool SRshipContentMappingPanel::ApplyCurrentFormToSelectedMapping(bool bCreateIf
 		return false;
 	}
 
-	URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
+	URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
 	if (!Manager)
 	{
 		return false;
@@ -8019,20 +8192,23 @@ bool SRshipContentMappingPanel::ApplyCurrentFormToSelectedMapping(bool bCreateIf
 			}
 		}
 
-		EnsureFeedSourcesBoundToContext(State.ContextId);
-		if (!State.ContextId.IsEmpty()
-			&& !MapFeedSources.ContainsByPredicate([&State](const FFeedSourceV2& Source)
-			{
-				return Source.ContextId.TrimStartAndEnd().Equals(State.ContextId.TrimStartAndEnd(), ESearchCase::IgnoreCase);
-			}))
+		if (bCreatingNewMapping)
 		{
-			FFeedSourceV2 Source;
-			Source.Id = FString::Printf(TEXT("source-%s"), *FGuid::NewGuid().ToString(EGuidFormats::Digits).Left(8));
-			Source.ContextId = State.ContextId.TrimStartAndEnd();
-			MapFeedSources.Add(Source);
-			if (ActiveFeedSourceId.IsEmpty())
+			EnsureFeedSourcesBoundToContext(State.ContextId);
+			if (!State.ContextId.IsEmpty()
+				&& !MapFeedSources.ContainsByPredicate([&State](const FFeedSourceV2& Source)
+				{
+					return Source.ContextId.TrimStartAndEnd().Equals(State.ContextId.TrimStartAndEnd(), ESearchCase::IgnoreCase);
+				}))
 			{
-				ActiveFeedSourceId = Source.Id;
+				FFeedSourceV2 Source;
+				Source.Id = FString::Printf(TEXT("source-%s"), *FGuid::NewGuid().ToString(EGuidFormats::Digits).Left(8));
+				Source.ContextId = State.ContextId.TrimStartAndEnd();
+				MapFeedSources.Add(Source);
+				if (ActiveFeedSourceId.IsEmpty())
+				{
+					ActiveFeedSourceId = Source.Id;
+				}
 			}
 		}
 		if (State.ContextId.IsEmpty())
@@ -8048,9 +8224,11 @@ bool SRshipContentMappingPanel::ApplyCurrentFormToSelectedMapping(bool bCreateIf
 			}
 		}
 
-		EnsureFeedDestinationsBoundToSurfaces(State.SurfaceIds);
-
-		EnsureFeedRoutesForDestinations(State.SurfaceIds);
+		if (bCreatingNewMapping)
+		{
+			EnsureFeedDestinationsBoundToSurfaces(State.SurfaceIds);
+			EnsureFeedRoutesForDestinations(State.SurfaceIds);
+		}
 		if (MapFeedRoutes.Num() > 0 && (bCreatingNewMapping || ActiveFeedRouteId.IsEmpty()))
 		{
 			ActiveFeedRouteId = MapFeedRoutes[0].Id;
@@ -8060,10 +8238,11 @@ bool SRshipContentMappingPanel::ApplyCurrentFormToSelectedMapping(bool bCreateIf
 		ClampAllFeedRoutesToCanvases();
 	}
 
-	TSharedPtr<FJsonObject> Config = MakeShared<FJsonObject>();
+	TSharedPtr<FJsonObject> Config = State.Config.IsValid() ? DeepCloneJsonObject(State.Config) : MakeShared<FJsonObject>();
 	if (bUvMode)
 	{
 		Config->SetStringField(TEXT("uvMode"), (NormalizedMode == MapModeFeed) ? MapModeFeed : MapModeDirect);
+		Config->RemoveField(TEXT("projectionType"));
 		TSharedPtr<FJsonObject> Uv = MakeShared<FJsonObject>();
 		Uv->SetNumberField(TEXT("scaleU"), MapUvScaleUInput.IsValid() ? MapUvScaleUInput->GetValue() : 1.0);
 		Uv->SetNumberField(TEXT("scaleV"), MapUvScaleVInput.IsValid() ? MapUvScaleVInput->GetValue() : 1.0);
@@ -8074,12 +8253,13 @@ bool SRshipContentMappingPanel::ApplyCurrentFormToSelectedMapping(bool bCreateIf
 
 		if (NormalizedMode == MapModeFeed)
 		{
-			// Feed mode is driven by feedV2 only; legacy feedRect/feedRects are intentionally omitted.
+			// Feed mode is driven by feedV2 only.
 		}
 	}
 	else
 	{
 		Config->SetStringField(TEXT("projectionType"), NormalizedMode);
+		Config->RemoveField(TEXT("uvMode"));
 
 		TSharedPtr<FJsonObject> Pos = MakeShared<FJsonObject>();
 		Pos->SetNumberField(TEXT("x"), MapProjPosXInput.IsValid() ? MapProjPosXInput->GetValue() : 0.0);
@@ -8126,24 +8306,67 @@ bool SRshipContentMappingPanel::ApplyCurrentFormToSelectedMapping(bool bCreateIf
 			Config->SetNumberField(TEXT("sizeH"), MapParallelSizeHInput.IsValid() ? MapParallelSizeHInput->GetValue() : 1000.0);
 		}
 
-		if (NormalizedMode == MapModeSpherical)
-		{
-			Config->SetNumberField(TEXT("sphereRadius"), MapSphRadiusInput.IsValid() ? MapSphRadiusInput->GetValue() : 500.0);
-			Config->SetNumberField(TEXT("horizontalArc"), MapSphHArcInput.IsValid() ? MapSphHArcInput->GetValue() : 360.0);
-			Config->SetNumberField(TEXT("verticalArc"), MapSphVArcInput.IsValid() ? MapSphVArcInput->GetValue() : 180.0);
-		}
+			if (NormalizedMode == MapModeSpherical)
+			{
+				Config->SetNumberField(TEXT("sphereRadius"), MapSphRadiusInput.IsValid() ? MapSphRadiusInput->GetValue() : 500.0);
+				Config->SetNumberField(TEXT("horizontalArc"), MapSphHArcInput.IsValid() ? MapSphHArcInput->GetValue() : 360.0);
+				Config->SetNumberField(TEXT("verticalArc"), MapSphVArcInput.IsValid() ? MapSphVArcInput->GetValue() : 180.0);
+			}
 
-		TSharedPtr<FJsonObject> EpObj = MakeShared<FJsonObject>();
-		EpObj->SetNumberField(TEXT("x"), MapProjPosXInput.IsValid() ? MapProjPosXInput->GetValue() : (MapMeshEyeXInput.IsValid() ? MapMeshEyeXInput->GetValue() : 0.0));
-		EpObj->SetNumberField(TEXT("y"), MapProjPosYInput.IsValid() ? MapProjPosYInput->GetValue() : (MapMeshEyeYInput.IsValid() ? MapMeshEyeYInput->GetValue() : 0.0));
-		EpObj->SetNumberField(TEXT("z"), MapProjPosZInput.IsValid() ? MapProjPosZInput->GetValue() : (MapMeshEyeZInput.IsValid() ? MapMeshEyeZInput->GetValue() : 0.0));
-		Config->SetObjectField(TEXT("eyepoint"), EpObj);
+			TSharedPtr<FJsonObject> EpObj = MakeShared<FJsonObject>();
+			EpObj->SetNumberField(TEXT("x"), MapMeshEyeXInput.IsValid() ? MapMeshEyeXInput->GetValue() : (MapProjPosXInput.IsValid() ? MapProjPosXInput->GetValue() : 0.0));
+			EpObj->SetNumberField(TEXT("y"), MapMeshEyeYInput.IsValid() ? MapMeshEyeYInput->GetValue() : (MapProjPosYInput.IsValid() ? MapProjPosYInput->GetValue() : 0.0));
+			EpObj->SetNumberField(TEXT("z"), MapMeshEyeZInput.IsValid() ? MapMeshEyeZInput->GetValue() : (MapProjPosZInput.IsValid() ? MapProjPosZInput->GetValue() : 0.0));
+			Config->SetObjectField(TEXT("eyepoint"), EpObj);
 
-		if (NormalizedMode == MapModeFisheye)
-		{
-			Config->SetNumberField(TEXT("fisheyeFov"), MapFisheyeFovInput.IsValid() ? MapFisheyeFovInput->GetValue() : 180.0);
-			Config->SetStringField(TEXT("lensType"), MapFisheyeLensInput.IsValid() ? MapFisheyeLensInput->GetText().ToString() : TEXT("equidistant"));
-		}
+			if (NormalizedMode == MapModeFisheye)
+			{
+				Config->SetNumberField(TEXT("fisheyeFov"), MapFisheyeFovInput.IsValid() ? MapFisheyeFovInput->GetValue() : 180.0);
+				Config->SetStringField(TEXT("lensType"), MapFisheyeLensInput.IsValid() ? MapFisheyeLensInput->GetText().ToString() : TEXT("equidistant"));
+			}
+
+			if (NormalizedMode == MapModeCameraPlate)
+			{
+				TSharedPtr<FJsonObject> CameraPlate = Config->HasTypedField<EJson::Object>(TEXT("cameraPlate"))
+					? Config->GetObjectField(TEXT("cameraPlate"))
+					: MakeShared<FJsonObject>();
+				CameraPlate->SetStringField(TEXT("fit"), MapCameraPlateFitInput.IsValid() ? MapCameraPlateFitInput->GetText().ToString().TrimStartAndEnd() : TEXT("contain"));
+				CameraPlate->SetStringField(TEXT("anchor"), MapCameraPlateAnchorInput.IsValid() ? MapCameraPlateAnchorInput->GetText().ToString().TrimStartAndEnd() : TEXT("center"));
+				CameraPlate->SetBoolField(TEXT("flipV"), MapCameraPlateFlipVInput.IsValid() && MapCameraPlateFlipVInput->IsChecked());
+				Config->SetObjectField(TEXT("cameraPlate"), CameraPlate);
+			}
+
+			if (NormalizedMode == MapModeSpatial)
+			{
+				TSharedPtr<FJsonObject> Spatial = Config->HasTypedField<EJson::Object>(TEXT("spatial"))
+					? Config->GetObjectField(TEXT("spatial"))
+					: MakeShared<FJsonObject>();
+				Spatial->SetNumberField(TEXT("scaleU"), MapSpatialScaleUInput.IsValid() ? MapSpatialScaleUInput->GetValue() : 1.0);
+				Spatial->SetNumberField(TEXT("scaleV"), MapSpatialScaleVInput.IsValid() ? MapSpatialScaleVInput->GetValue() : 1.0);
+				Spatial->SetNumberField(TEXT("offsetU"), MapSpatialOffsetUInput.IsValid() ? MapSpatialOffsetUInput->GetValue() : 0.0);
+				Spatial->SetNumberField(TEXT("offsetV"), MapSpatialOffsetVInput.IsValid() ? MapSpatialOffsetVInput->GetValue() : 0.0);
+				Config->SetObjectField(TEXT("spatial"), Spatial);
+			}
+
+			if (NormalizedMode == MapModeDepthMap)
+			{
+				const double DepthScale = MapDepthScaleInput.IsValid() ? MapDepthScaleInput->GetValue() : 1.0;
+				const double DepthBias = MapDepthBiasInput.IsValid() ? MapDepthBiasInput->GetValue() : 0.0;
+				const double DepthNear = MapDepthNearInput.IsValid() ? MapDepthNearInput->GetValue() : 0.0;
+				const double DepthFar = MapDepthFarInput.IsValid() ? MapDepthFarInput->GetValue() : 1.0;
+				TSharedPtr<FJsonObject> DepthMap = Config->HasTypedField<EJson::Object>(TEXT("depthMap"))
+					? Config->GetObjectField(TEXT("depthMap"))
+					: MakeShared<FJsonObject>();
+				DepthMap->SetNumberField(TEXT("depthScale"), DepthScale);
+				DepthMap->SetNumberField(TEXT("depthBias"), DepthBias);
+				DepthMap->SetNumberField(TEXT("depthNear"), DepthNear);
+				DepthMap->SetNumberField(TEXT("depthFar"), DepthFar);
+				Config->SetObjectField(TEXT("depthMap"), DepthMap);
+				Config->SetNumberField(TEXT("depthScale"), DepthScale);
+				Config->SetNumberField(TEXT("depthBias"), DepthBias);
+				Config->SetNumberField(TEXT("depthNear"), DepthNear);
+				Config->SetNumberField(TEXT("depthFar"), DepthFar);
+			}
 
 		Config->SetNumberField(TEXT("angleMaskStart"), MapMaskStartInput.IsValid() ? MapMaskStartInput->GetValue() : 0.0);
 		Config->SetNumberField(TEXT("angleMaskEnd"), MapMaskEndInput.IsValid() ? MapMaskEndInput->GetValue() : 360.0);
@@ -8209,6 +8432,8 @@ bool SRshipContentMappingPanel::ApplyCurrentFormToSelectedMapping(bool bCreateIf
 
 	EnsureContextDefaultsForMapping(Manager, State.ContextId);
 	Manager->Tick(0.0f);
+	LastLiveMappingFormHash = ComputeMappingFormLiveHash();
+	bHasLiveMappingFormHash = true;
 	return true;
 }
 
@@ -8271,6 +8496,17 @@ uint32 SRshipContentMappingPanel::ComputeMappingFormLiveHash() const
 	HashFloat(MapMeshEyeXInput.IsValid() ? MapMeshEyeXInput->GetValue() : 0.0f);
 	HashFloat(MapMeshEyeYInput.IsValid() ? MapMeshEyeYInput->GetValue() : 0.0f);
 	HashFloat(MapMeshEyeZInput.IsValid() ? MapMeshEyeZInput->GetValue() : 0.0f);
+	HashStr(MapCameraPlateFitInput.IsValid() ? MapCameraPlateFitInput->GetText().ToString() : TEXT("contain"));
+	HashStr(MapCameraPlateAnchorInput.IsValid() ? MapCameraPlateAnchorInput->GetText().ToString() : TEXT("center"));
+	HashBool(MapCameraPlateFlipVInput.IsValid() && MapCameraPlateFlipVInput->IsChecked());
+	HashFloat(MapSpatialScaleUInput.IsValid() ? MapSpatialScaleUInput->GetValue() : 1.0f);
+	HashFloat(MapSpatialScaleVInput.IsValid() ? MapSpatialScaleVInput->GetValue() : 1.0f);
+	HashFloat(MapSpatialOffsetUInput.IsValid() ? MapSpatialOffsetUInput->GetValue() : 0.0f);
+	HashFloat(MapSpatialOffsetVInput.IsValid() ? MapSpatialOffsetVInput->GetValue() : 0.0f);
+	HashFloat(MapDepthScaleInput.IsValid() ? MapDepthScaleInput->GetValue() : 1.0f);
+	HashFloat(MapDepthBiasInput.IsValid() ? MapDepthBiasInput->GetValue() : 0.0f);
+	HashFloat(MapDepthNearInput.IsValid() ? MapDepthNearInput->GetValue() : 0.0f);
+	HashFloat(MapDepthFarInput.IsValid() ? MapDepthFarInput->GetValue() : 1.0f);
 	HashStr(MapContentModeInput.IsValid() ? MapContentModeInput->GetText().ToString() : TEXT("stretch"));
 	HashFloat(MapMaskStartInput.IsValid() ? MapMaskStartInput->GetValue() : 0.0f);
 	HashFloat(MapMaskEndInput.IsValid() ? MapMaskEndInput->GetValue() : 360.0f);
@@ -8360,7 +8596,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 		ConnectionText->SetColorAndOpacity(bConnected ? FLinearColor::Green : FLinearColor::Yellow);
 	}
 
-	URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
+	URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
 	if (!Manager)
 	{
 		if (CountsText.IsValid())
@@ -8470,27 +8706,97 @@ void SRshipContentMappingPanel::RefreshStatus()
 			{
 				HashString(SnapshotHash, Mapping.Config->GetStringField(TEXT("projectionType")));
 			}
-			if (Mapping.Config->HasTypedField<EJson::String>(TEXT("uvMode")))
-			{
-				HashString(SnapshotHash, Mapping.Config->GetStringField(TEXT("uvMode")));
-			}
-				if (Mapping.Config->HasTypedField<EJson::Object>(TEXT("feedRect")))
+				if (Mapping.Config->HasTypedField<EJson::String>(TEXT("uvMode")))
 				{
-					const TSharedPtr<FJsonObject> FeedRect = Mapping.Config->GetObjectField(TEXT("feedRect"));
-					HashFloat(SnapshotHash, GetNumField(FeedRect, TEXT("u"), 0.0f));
-					HashFloat(SnapshotHash, GetNumField(FeedRect, TEXT("v"), 0.0f));
-					HashFloat(SnapshotHash, GetNumField(FeedRect, TEXT("width"), 1.0f));
-					HashFloat(SnapshotHash, GetNumField(FeedRect, TEXT("height"), 1.0f));
+					HashString(SnapshotHash, Mapping.Config->GetStringField(TEXT("uvMode")));
 				}
-				if (Mapping.Config->HasTypedField<EJson::Object>(TEXT("feedV2")))
-				{
+					if (Mapping.Config->HasTypedField<EJson::Object>(TEXT("feedV2")))
+					{
 					const TSharedPtr<FJsonObject> FeedV2Obj = Mapping.Config->GetObjectField(TEXT("feedV2"));
-					FString FeedV2Json;
-					const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&FeedV2Json);
 					if (FeedV2Obj.IsValid())
 					{
-						FJsonSerializer::Serialize(FeedV2Obj.ToSharedRef(), Writer);
-						HashString(SnapshotHash, FeedV2Json);
+						HashString(SnapshotHash, FeedV2Obj->HasTypedField<EJson::String>(TEXT("coordinateSpace"))
+							? FeedV2Obj->GetStringField(TEXT("coordinateSpace"))
+							: TEXT("pixel"));
+
+						auto HashRectObject = [&](const TSharedPtr<FJsonObject>& RectObj)
+						{
+							HashInt(SnapshotHash, RectObj.IsValid() ? FMath::RoundToInt(GetNumField(RectObj, TEXT("x"), 0.0f)) : 0);
+							HashInt(SnapshotHash, RectObj.IsValid() ? FMath::RoundToInt(GetNumField(RectObj, TEXT("y"), 0.0f)) : 0);
+							HashInt(SnapshotHash, RectObj.IsValid() ? FMath::RoundToInt(GetNumField(RectObj, TEXT("w"), GetNumField(RectObj, TEXT("width"), 0.0f))) : 0);
+							HashInt(SnapshotHash, RectObj.IsValid() ? FMath::RoundToInt(GetNumField(RectObj, TEXT("h"), GetNumField(RectObj, TEXT("height"), 0.0f))) : 0);
+						};
+
+						if (FeedV2Obj->HasTypedField<EJson::Array>(TEXT("sources")))
+						{
+							const TArray<TSharedPtr<FJsonValue>>& Sources = FeedV2Obj->GetArrayField(TEXT("sources"));
+							HashInt(SnapshotHash, Sources.Num());
+							for (const TSharedPtr<FJsonValue>& Value : Sources)
+							{
+								if (!Value.IsValid() || Value->Type != EJson::Object)
+								{
+									continue;
+								}
+								const TSharedPtr<FJsonObject> Obj = Value->AsObject();
+								if (!Obj.IsValid())
+								{
+									continue;
+								}
+								HashString(SnapshotHash, Obj->HasTypedField<EJson::String>(TEXT("id")) ? Obj->GetStringField(TEXT("id")) : TEXT(""));
+								HashString(SnapshotHash, Obj->HasTypedField<EJson::String>(TEXT("label")) ? Obj->GetStringField(TEXT("label")) : TEXT(""));
+								HashString(SnapshotHash, Obj->HasTypedField<EJson::String>(TEXT("contextId")) ? Obj->GetStringField(TEXT("contextId")) : TEXT(""));
+								HashInt(SnapshotHash, FMath::RoundToInt(GetNumField(Obj, TEXT("width"), 0.0f)));
+								HashInt(SnapshotHash, FMath::RoundToInt(GetNumField(Obj, TEXT("height"), 0.0f)));
+							}
+						}
+
+						if (FeedV2Obj->HasTypedField<EJson::Array>(TEXT("destinations")))
+						{
+							const TArray<TSharedPtr<FJsonValue>>& Destinations = FeedV2Obj->GetArrayField(TEXT("destinations"));
+							HashInt(SnapshotHash, Destinations.Num());
+							for (const TSharedPtr<FJsonValue>& Value : Destinations)
+							{
+								if (!Value.IsValid() || Value->Type != EJson::Object)
+								{
+									continue;
+								}
+								const TSharedPtr<FJsonObject> Obj = Value->AsObject();
+								if (!Obj.IsValid())
+								{
+									continue;
+								}
+								HashString(SnapshotHash, Obj->HasTypedField<EJson::String>(TEXT("id")) ? Obj->GetStringField(TEXT("id")) : TEXT(""));
+								HashString(SnapshotHash, Obj->HasTypedField<EJson::String>(TEXT("label")) ? Obj->GetStringField(TEXT("label")) : TEXT(""));
+								HashString(SnapshotHash, Obj->HasTypedField<EJson::String>(TEXT("surfaceId")) ? Obj->GetStringField(TEXT("surfaceId")) : TEXT(""));
+								HashInt(SnapshotHash, FMath::RoundToInt(GetNumField(Obj, TEXT("width"), 0.0f)));
+								HashInt(SnapshotHash, FMath::RoundToInt(GetNumField(Obj, TEXT("height"), 0.0f)));
+							}
+						}
+
+						if (FeedV2Obj->HasTypedField<EJson::Array>(TEXT("routes")))
+						{
+							const TArray<TSharedPtr<FJsonValue>>& Routes = FeedV2Obj->GetArrayField(TEXT("routes"));
+							HashInt(SnapshotHash, Routes.Num());
+							for (const TSharedPtr<FJsonValue>& Value : Routes)
+							{
+								if (!Value.IsValid() || Value->Type != EJson::Object)
+								{
+									continue;
+								}
+								const TSharedPtr<FJsonObject> Obj = Value->AsObject();
+								if (!Obj.IsValid())
+								{
+									continue;
+								}
+								HashString(SnapshotHash, Obj->HasTypedField<EJson::String>(TEXT("id")) ? Obj->GetStringField(TEXT("id")) : TEXT(""));
+								HashString(SnapshotHash, Obj->HasTypedField<EJson::String>(TEXT("sourceId")) ? Obj->GetStringField(TEXT("sourceId")) : TEXT(""));
+								HashString(SnapshotHash, Obj->HasTypedField<EJson::String>(TEXT("destinationId")) ? Obj->GetStringField(TEXT("destinationId")) : TEXT(""));
+								HashBool(SnapshotHash, Obj->HasTypedField<EJson::Boolean>(TEXT("enabled")) ? Obj->GetBoolField(TEXT("enabled")) : true);
+								HashFloat(SnapshotHash, GetNumField(Obj, TEXT("opacity"), 1.0f));
+								HashRectObject(Obj->HasTypedField<EJson::Object>(TEXT("sourceRect")) ? Obj->GetObjectField(TEXT("sourceRect")) : nullptr);
+								HashRectObject(Obj->HasTypedField<EJson::Object>(TEXT("destinationRect")) ? Obj->GetObjectField(TEXT("destinationRect")) : nullptr);
+							}
+						}
 					}
 				}
 				const TSharedPtr<FJsonObject> MatrixObj = GetCustomProjectionMatrixObject(Mapping.Config);
@@ -8820,7 +9126,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 							if (!GEngine) return FReply::Handled();
 							if (URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>())
 							{
-								if (URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager())
+								if (URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem))
 								{
 									FRshipRenderContextState State;
 									State.Name = NameBox.IsValid() ? NameBox->GetText().ToString() : TEXT("");
@@ -8922,7 +9228,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 							if (!GEngine) return FReply::Handled();
 							if (URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>())
 							{
-								if (URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager())
+								if (URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem))
 								{
 									const bool bUseSelection = SelectedContextRows.Num() > 0;
 									for (const FRshipRenderContextState& Context : VisibleContexts)
@@ -8958,7 +9264,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 							if (!GEngine) return FReply::Handled();
 							if (URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>())
 							{
-								if (URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager())
+								if (URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem))
 								{
 									const bool bUseSelection = SelectedContextRows.Num() > 0;
 									for (const FRshipRenderContextState& Context : VisibleContexts)
@@ -8998,7 +9304,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 								if (!GEngine) return FReply::Handled();
 								URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
 								if (!Subsystem) return FReply::Handled();
-								URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
+								URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
 								if (!Manager) return FReply::Handled();
 
 								TSet<FString> TargetIds = SelectedContextRows;
@@ -9339,7 +9645,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 							if (!GEngine) return FReply::Handled();
 							if (URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>())
 							{
-								if (URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager())
+								if (URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem))
 								{
 									const bool bUseSelection = SelectedSurfaceRows.Num() > 0;
 									for (const FRshipMappingSurfaceState& Surface : VisibleSurfaces)
@@ -9375,7 +9681,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 								if (!GEngine) return FReply::Handled();
 								if (URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>())
 								{
-									if (URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager())
+									if (URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem))
 									{
 										const bool bUseSelection = SelectedSurfaceRows.Num() > 0;
 										for (const FRshipMappingSurfaceState& Surface : VisibleSurfaces)
@@ -9415,7 +9721,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 								if (!GEngine) return FReply::Handled();
 								URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
 								if (!Subsystem) return FReply::Handled();
-								URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
+								URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
 								if (!Manager) return FReply::Handled();
 
 								TSet<FString> TargetIds = SelectedSurfaceRows;
@@ -9590,7 +9896,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 										return;
 									}
 
-									URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
+									URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
 									if (!Manager)
 									{
 										return;
@@ -9622,7 +9928,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 										return;
 									}
 
-									URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
+									URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
 									if (!Manager)
 									{
 										return;
@@ -9653,7 +9959,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 										return;
 									}
 
-									URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
+									URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
 									if (!Manager)
 									{
 										return;
@@ -9685,7 +9991,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 										return;
 									}
 
-									URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
+									URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
 									if (!Manager)
 									{
 										return;
@@ -9733,7 +10039,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 										return;
 									}
 
-									URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
+									URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
 									if (!Manager)
 									{
 										return;
@@ -9762,7 +10068,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 										return;
 									}
 
-									URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
+									URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
 									if (!Manager)
 									{
 										return;
@@ -10076,7 +10382,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 												if (!GEngine) return FReply::Handled();
 												URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
 												if (!Subsystem) return FReply::Handled();
-												URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
+												URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
 												if (!Manager) return FReply::Handled();
 
 												FRshipContentMappingState Updated = Mapping;
@@ -10138,15 +10444,17 @@ void SRshipContentMappingPanel::RefreshStatus()
 													if (!GEngine) return;
 													URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
 													if (!Subsystem) return;
-													URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
+													URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
 													if (!Manager) return;
 
-													FRshipContentMappingState Updated = Mapping;
-													ApplyModeToMappingState(Updated, CandidateMode);
-													Manager->UpdateMapping(Updated);
-													Manager->Tick(0.0f);
-													RefreshStatus();
-												})));
+														FRshipContentMappingState Updated = Mapping;
+														ApplyModeToMappingState(Updated, CandidateMode);
+														if (Manager->UpdateMapping(Updated))
+														{
+															Manager->Tick(0.0f);
+															RefreshStatus();
+														}
+													})));
 										}
 										return MenuBuilder.MakeWidget();
 									})
@@ -10190,7 +10498,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 												{
 													return;
 												}
-												URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
+												URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
 												if (!Manager)
 												{
 													return;
@@ -10299,12 +10607,14 @@ void SRshipContentMappingPanel::RefreshStatus()
 													{
 														Updated.ContextId = SourceToken;
 													}
-												}
-												EnsureContextDefaultsForMapping(Manager, Updated.ContextId);
-												Manager->UpdateMapping(Updated);
-												Manager->Tick(0.0f);
-												RefreshStatus();
-											})
+													}
+													EnsureContextDefaultsForMapping(Manager, Updated.ContextId);
+													if (Manager->UpdateMapping(Updated))
+													{
+														Manager->Tick(0.0f);
+														RefreshStatus();
+													}
+												})
 										]
 										+ SHorizontalBox::Slot().AutoWidth()
 										[
@@ -10322,15 +10632,17 @@ void SRshipContentMappingPanel::RefreshStatus()
 														if (!GEngine) return;
 														URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
 														if (!Subsystem) return;
-														URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
+														URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
 														if (!Manager) return;
 
-														FRshipContentMappingState Updated = Mapping;
-														Updated.ContextId.Reset();
-														Manager->UpdateMapping(Updated);
-														Manager->Tick(0.0f);
-														RefreshStatus();
-													})));
+															FRshipContentMappingState Updated = Mapping;
+															Updated.ContextId.Reset();
+															if (Manager->UpdateMapping(Updated))
+															{
+																Manager->Tick(0.0f);
+																RefreshStatus();
+															}
+														})));
 												MenuBuilder.AddSeparator();
 
 												if (ContextOptions.Num() == 0 && CameraOptions.Num() == 0 && AssetOptions.Num() == 0)
@@ -10360,16 +10672,18 @@ void SRshipContentMappingPanel::RefreshStatus()
 																if (!GEngine) return;
 																URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
 																if (!Subsystem) return;
-																URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
+																URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
 																if (!Manager) return;
 
-																FRshipContentMappingState Updated = Mapping;
-																Updated.ContextId = ContextId;
-																EnsureContextDefaultsForMapping(Manager, Updated.ContextId);
-																Manager->UpdateMapping(Updated);
-																Manager->Tick(0.0f);
-																RefreshStatus();
-															})));
+																	FRshipContentMappingState Updated = Mapping;
+																	Updated.ContextId = ContextId;
+																	EnsureContextDefaultsForMapping(Manager, Updated.ContextId);
+																	if (Manager->UpdateMapping(Updated))
+																	{
+																		Manager->Tick(0.0f);
+																		RefreshStatus();
+																	}
+																})));
 													}
 												}
 
@@ -10399,7 +10713,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 																if (!GEngine) return;
 																URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
 																if (!Subsystem) return;
-																URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
+																URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
 																if (!Manager) return;
 
 																FString ContextIdForCamera;
@@ -10441,13 +10755,15 @@ void SRshipContentMappingPanel::RefreshStatus()
 																	ContextIdForCamera = Manager->CreateRenderContext(NewCtx);
 																}
 
-																FRshipContentMappingState Updated = Mapping;
-																Updated.ContextId = ContextIdForCamera;
-																EnsureContextDefaultsForMapping(Manager, Updated.ContextId);
-																Manager->UpdateMapping(Updated);
-																Manager->Tick(0.0f);
-																RefreshStatus();
-															})));
+																	FRshipContentMappingState Updated = Mapping;
+																	Updated.ContextId = ContextIdForCamera;
+																	EnsureContextDefaultsForMapping(Manager, Updated.ContextId);
+																	if (Manager->UpdateMapping(Updated))
+																	{
+																		Manager->Tick(0.0f);
+																		RefreshStatus();
+																	}
+																})));
 													}
 												}
 
@@ -10472,7 +10788,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 																if (!GEngine) return;
 																URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
 																if (!Subsystem) return;
-																URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
+																URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
 																if (!Manager) return;
 
 																FString ContextIdForAsset;
@@ -10514,13 +10830,15 @@ void SRshipContentMappingPanel::RefreshStatus()
 																	ContextIdForAsset = Manager->CreateRenderContext(NewCtx);
 																}
 
-																FRshipContentMappingState Updated = Mapping;
-																Updated.ContextId = ContextIdForAsset;
-																EnsureContextDefaultsForMapping(Manager, Updated.ContextId);
-																Manager->UpdateMapping(Updated);
-																Manager->Tick(0.0f);
-																RefreshStatus();
-															})));
+																	FRshipContentMappingState Updated = Mapping;
+																	Updated.ContextId = ContextIdForAsset;
+																	EnsureContextDefaultsForMapping(Manager, Updated.ContextId);
+																	if (Manager->UpdateMapping(Updated))
+																	{
+																		Manager->Tick(0.0f);
+																		RefreshStatus();
+																	}
+																})));
 													}
 												}
 												return MenuBuilder.MakeWidget();
@@ -10553,7 +10871,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 												{
 													return FReply::Handled();
 												}
-												URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
+												URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
 												if (!Manager)
 												{
 													return FReply::Handled();
@@ -10649,14 +10967,16 @@ void SRshipContentMappingPanel::RefreshStatus()
 													ContextIdForSelection = Manager->CreateRenderContext(NewCtx);
 												}
 
-												FRshipContentMappingState Updated = Mapping;
-												Updated.ContextId = ContextIdForSelection;
-												EnsureContextDefaultsForMapping(Manager, Updated.ContextId);
-												Manager->UpdateMapping(Updated);
-												Manager->Tick(0.0f);
-												RefreshStatus();
+													FRshipContentMappingState Updated = Mapping;
+													Updated.ContextId = ContextIdForSelection;
+													EnsureContextDefaultsForMapping(Manager, Updated.ContextId);
+													if (Manager->UpdateMapping(Updated))
+													{
+														Manager->Tick(0.0f);
+														RefreshStatus();
+													}
 #endif
-												return FReply::Handled();
+													return FReply::Handled();
 											})
 										]
 										+ SHorizontalBox::Slot().AutoWidth().Padding(2, 0, 0, 0)
@@ -10673,7 +10993,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 												if (!GEngine) return FReply::Handled();
 												URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
 												if (!Subsystem) return FReply::Handled();
-												URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
+												URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
 												if (!Manager) return FReply::Handled();
 
 												FRshipContentMappingState Updated = Mapping;
@@ -10724,7 +11044,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 												{
 													return;
 												}
-												URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
+												URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
 												if (!Manager)
 												{
 													return;
@@ -10781,7 +11101,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 												{
 													return;
 												}
-												URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
+												URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
 												if (!Manager)
 												{
 													return;
@@ -10853,7 +11173,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 																if (!GEngine) return;
 																URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
 																if (!Subsystem) return;
-																URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
+																URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
 																if (!Manager) return;
 
 																FRshipContentMappingState Updated = Mapping;
@@ -10906,7 +11226,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 												{
 													return FReply::Handled();
 												}
-												URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
+												URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
 												if (!Manager)
 												{
 													return FReply::Handled();
@@ -11159,7 +11479,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 										{
 											return;
 										}
-										URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
+										URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
 										if (!Manager)
 										{
 											return;
@@ -11178,10 +11498,10 @@ void SRshipContentMappingPanel::RefreshStatus()
 												return;
 											}
 
-											FRshipContentMappingState Updated = ExistingMapping;
-											Updated.Opacity = ClampedOpacity;
-											Manager->UpdateMapping(Updated);
-											return;
+												FRshipContentMappingState Updated = ExistingMapping;
+												Updated.Opacity = ClampedOpacity;
+												Manager->UpdateMapping(Updated);
+												return;
 										}
 									})
 								]
@@ -11200,7 +11520,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 										{
 											return;
 										}
-										URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
+										URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
 										if (!Manager)
 										{
 											return;
@@ -11220,12 +11540,14 @@ void SRshipContentMappingPanel::RefreshStatus()
 												return;
 											}
 
-											FRshipContentMappingState Updated = ExistingMapping;
-											Updated.bEnabled = bEnabled;
-											Manager->UpdateMapping(Updated);
-											Manager->Tick(0.0f);
-											RefreshStatus();
-											return;
+												FRshipContentMappingState Updated = ExistingMapping;
+												Updated.bEnabled = bEnabled;
+												if (Manager->UpdateMapping(Updated))
+												{
+													Manager->Tick(0.0f);
+													RefreshStatus();
+												}
+												return;
 										}
 									})
 									[
@@ -11251,7 +11573,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 												if (!GEngine) return FReply::Handled();
 												URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
 												if (!Subsystem) return FReply::Handled();
-												URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
+												URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
 												if (!Manager) return FReply::Handled();
 
 												const TArray<FRshipContentMappingState> ExistingMappings = Manager->GetMappings();
@@ -11293,7 +11615,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 												if (!GEngine) return FReply::Handled();
 												URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
 												if (!Subsystem) return FReply::Handled();
-												URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
+												URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
 												if (!Manager) return FReply::Handled();
 
 												const bool bDeletingSelectedMapping = (SelectedMappingId == MappingId);

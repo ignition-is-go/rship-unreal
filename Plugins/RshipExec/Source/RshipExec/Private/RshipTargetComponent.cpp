@@ -296,6 +296,11 @@ FString URshipTargetComponent::ResolveRuntimeTargetName(URshipSubsystem* Subsyst
 {
     const FString OwnerName = OwnerActor ? OwnerActor->GetName() : FString();
     FString Candidate = targetName.TrimStartAndEnd();
+    int32 LastColon = INDEX_NONE;
+    if (Candidate.FindLastChar(TEXT(':'), LastColon))
+    {
+        Candidate = Candidate.Mid(LastColon + 1).TrimStartAndEnd();
+    }
 
     // Default to owner name unless a meaningful custom target name is provided.
     bool bUseOwnerName = Candidate.IsEmpty();

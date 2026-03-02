@@ -21,8 +21,16 @@ class UTexture;
 class UTexture2D;
 class UTextureRenderTarget2D;
 
+UENUM(BlueprintType)
+enum class ERshipContentMappingRuntimeHealth : uint8
+{
+    Ready,
+    Degraded,
+    Blocked
+};
+
 USTRUCT(BlueprintType)
-struct RSHIPEXEC_API FRshipRenderContextState
+struct RSHIPMAPPING_API FRshipRenderContextState
 {
     GENERATED_BODY()
 
@@ -88,7 +96,7 @@ struct RSHIPEXEC_API FRshipRenderContextState
 };
 
 USTRUCT(BlueprintType)
-struct RSHIPEXEC_API FRshipMappingSurfaceState
+struct RSHIPMAPPING_API FRshipMappingSurfaceState
 {
     GENERATED_BODY()
 
@@ -139,7 +147,7 @@ struct RSHIPEXEC_API FRshipMappingSurfaceState
 };
 
 USTRUCT(BlueprintType)
-struct RSHIPEXEC_API FRshipContentMappingState
+struct RSHIPMAPPING_API FRshipContentMappingState
 {
     GENERATED_BODY()
 
@@ -174,7 +182,7 @@ struct RSHIPEXEC_API FRshipContentMappingState
 };
 
 UCLASS(BlueprintType)
-class RSHIPEXEC_API URshipContentMappingManager : public UObject
+class RSHIPMAPPING_API URshipContentMappingManager : public UObject
 {
     GENERATED_BODY()
 
@@ -183,11 +191,33 @@ public:
     void Shutdown();
     void Tick(float DeltaTime);
 
+    // Reflection bridge for RshipExec (keeps module dependency one-way).
+    UFUNCTION()
+    void InitializeForSubsystem(URshipSubsystem* InSubsystem);
+
+    UFUNCTION()
+    void ShutdownForSubsystem();
+
+    UFUNCTION()
+    void TickForSubsystem(float DeltaSeconds);
+
     void ProcessRenderContextEvent(const TSharedPtr<FJsonObject>& Data, bool bIsDelete);
     void ProcessMappingSurfaceEvent(const TSharedPtr<FJsonObject>& Data, bool bIsDelete);
     void ProcessMappingEvent(const TSharedPtr<FJsonObject>& Data, bool bIsDelete);
 
+    UFUNCTION()
+    void ProcessRenderContextEventJson(const FString& Json, bool bDelete);
+
+    UFUNCTION()
+    void ProcessMappingSurfaceEventJson(const FString& Json, bool bDelete);
+
+    UFUNCTION()
+    void ProcessMappingEventJson(const FString& Json, bool bDelete);
+
     bool RouteAction(const FString& TargetId, const FString& ActionId, const TSharedRef<FJsonObject>& Data);
+
+    UFUNCTION()
+    bool RouteActionJson(const FString& TargetId, const FString& ActionId, const FString& DataJson);
 
     TArray<FRshipRenderContextState> GetRenderContexts() const;
     TArray<FRshipMappingSurfaceState> GetMappingSurfaces() const;
@@ -195,6 +225,17 @@ public:
 
     void SetDebugOverlayEnabled(bool bEnabled);
     bool IsDebugOverlayEnabled() const;
+    UFUNCTION()
+    void SetDebugOverlayEnabledForSubsystem(bool bEnabled);
+    UFUNCTION()
+    bool IsDebugOverlayEnabledForSubsystem() const;
+
+    UFUNCTION()
+    FString GetRenderContextsJsonForSubsystem() const;
+    UFUNCTION(BlueprintPure, Category = "Rship|ContentMapping")
+    ERshipContentMappingRuntimeHealth GetRuntimeHealth() const;
+    UFUNCTION(BlueprintPure, Category = "Rship|ContentMapping")
+    FString GetRuntimeHealthReason() const;
     void SetCoveragePreviewEnabled(bool bEnabled);
     bool IsCoveragePreviewEnabled() const;
 
@@ -233,50 +274,14 @@ public:
 #endif
 
 private:
-    struct FFeedSingleRtBinding
-    {
-        bool bValid = false;
-        UTexture* Texture = nullptr;
-        UTexture* DepthTexture = nullptr;
-        bool bHasSourceRect = false;
-        float SourceU = 0.0f;
-        float SourceV = 0.0f;
-        float SourceW = 1.0f;
-        float SourceH = 1.0f;
-        bool bHasDestinationRect = false;
-        float DestinationU = 0.0f;
-        float DestinationV = 0.0f;
-        float DestinationW = 1.0f;
-        float DestinationH = 1.0f;
-        FString Error;
-    };
-
-    struct FFeedSingleRtPreparedRoute
-    {
-        bool bPrepared = false;
-        bool bHasRoute = false;
-        FString Error;
-        TArray<FString> ContextCandidates;
-        int32 SourceWidth = 0;
-        int32 SourceHeight = 0;
-        int32 DestinationWidth = 0;
-        int32 DestinationHeight = 0;
-        int32 SourceX = 0;
-        int32 SourceY = 0;
-        int32 SourceW = 0;
-        int32 SourceH = 0;
-        int32 DestinationX = 0;
-        int32 DestinationY = 0;
-        int32 DestinationW = 0;
-        int32 DestinationH = 0;
-    };
-
     struct FRenderContextRuntimeState
     {
         uint32 SetupHash = 0;
         bool bHasAppliedTransform = false;
         FTransform LastAppliedTransform = FTransform::Identity;
         float LastAppliedFov = -1.0f;
+        double NextResolveRetryTimeSeconds = 0.0;
+        double NextMissingSourceWarningTimeSeconds = 0.0;
     };
 
     struct FMappingRequiredContexts
@@ -302,7 +307,6 @@ private:
     TMap<FString, TObjectPtr<UTextureRenderTarget2D>> FeedCompositeTargets;
     UPROPERTY(Transient)
     TMap<FString, uint32> FeedCompositeStaticSignatures;
-    TMap<FString, FFeedSingleRtPreparedRoute> FeedSingleRtBindingCache;
     TMap<FString, TArray<FString>> EffectiveSurfaceIdsCache;
     TMap<FString, FRenderContextRuntimeState> RenderContextRuntimeStates;
     TMap<FString, FMappingRequiredContexts> RequiredContextIdsCache;
@@ -320,31 +324,46 @@ private:
     bool bNeedsWorldResolutionRetry = false;
     bool bDebugOverlayEnabled = false;
     bool bCoveragePreviewEnabled = false;
+    bool bAutoBootstrapComplete = false;
     bool bMaterialContractValid = false;
     bool bMaterialContractChecked = false;
+    ERshipContentMappingRuntimeHealth RuntimeHealth = ERshipContentMappingRuntimeHealth::Ready;
+    FString RuntimeHealthReason;
+    double NextMaterialResolveAttemptSeconds = 0.0;
     TWeakObjectPtr<UMaterialInterface> LastContractMaterial;
     FString MaterialContractError;
     float DebugOverlayAccumulated = 0.0f;
     mutable TWeakObjectPtr<UWorld> LastValidWorld;
-    uint64 RuntimeStateRevision = 1;
     double LastPerfLogTimeSeconds = 0.0;
     float LastTickMsTotal = 0.0f;
     float LastTickMsRebuild = 0.0f;
     float LastTickMsRefresh = 0.0f;
     float LastTickMsCacheSave = 0.0f;
+    float LastTickMsContextResolve = 0.0f;
+    float LastTickMsApplyMappings = 0.0f;
+    float LastTickMsConfigHash = 0.0f;
     int32 LastTickEnabledMappings = 0;
     int32 LastTickActiveContexts = 0;
     int32 LastTickAppliedSurfaces = 0;
+    int32 LastTickMaterialBindingsUpdated = 0;
+    int32 LastTickMaterialBindingsSkipped = 0;
     bool bRuntimePreparePending = true;
+    double CacheSaveDueTimeSeconds = 0.0;
+    double NextAutoBootstrapAttemptSeconds = 0.0;
     FString CachedEnabledTextureContextId;
     FString CachedAnyTextureContextId;
     FString CachedEnabledContextId;
     FString CachedAnyContextId;
+    TMap<FString, uint32> LastEmittedStateHashes;
+    TMap<FString, uint32> LastEmittedStatusHashes;
 
     void MarkMappingsDirty();
     void ArmMappings();
     void MarkCacheDirty();
     bool HasAnyEnabledMappings() const;
+    bool HasAnyMappingsRequiringContinuousRefresh() const;
+    bool HasPendingRuntimeBindings();
+    bool TryAutoBootstrapDefaults();
     const TArray<FString>& GetEffectiveSurfaceIds(FRshipContentMappingState& MappingState);
     void RefreshResolvedContextFallbackIds();
     void RefreshLiveMappings();
@@ -358,15 +377,18 @@ private:
     void ApplyMappingToSurface(
         const FRshipContentMappingState& MappingState,
         FRshipMappingSurfaceState& SurfaceState,
-        const FRshipRenderContextState* ContextState);
+        const FRshipRenderContextState* ContextState,
+        uint32 MappingConfigHash = 0,
+        double* OutApplyMs = nullptr,
+        int32* OutMaterialBindingsUpdated = nullptr,
+        int32* OutMaterialBindingsSkipped = nullptr);
 
     void ApplyMaterialParameters(
         UMaterialInstanceDynamic* MID,
         const FRshipContentMappingState& MappingState,
         const FRshipMappingSurfaceState& SurfaceState,
         const FRshipRenderContextState* ContextState,
-        bool bUseFeedV2 = false,
-        const FFeedSingleRtBinding* FeedBinding = nullptr);
+        bool bUseFeedV2 = false);
 
     bool IsFeedV2Mapping(const FRshipContentMappingState& MappingState) const;
     bool IsKnownRenderContextId(const FString& ContextId) const;
@@ -382,10 +404,6 @@ private:
         bool bRequireTexture) const;
     bool EnsureMappingRuntimeReady(FRshipContentMappingState& MappingState);
     bool EnsureFeedMappingRuntimeReady(FRshipContentMappingState& MappingState);
-    bool TryResolveFeedSingleRtBinding(
-        const FRshipContentMappingState& MappingState,
-        const FRshipMappingSurfaceState& SurfaceState,
-        FFeedSingleRtBinding& OutBinding);
     UTexture* BuildFeedCompositeTextureForSurface(
         const FRshipContentMappingState& MappingState,
         const FRshipMappingSurfaceState& SurfaceState,
@@ -408,6 +426,12 @@ private:
     void EmitSurfaceState(const FRshipMappingSurfaceState& SurfaceState);
     void EmitMappingState(const FRshipContentMappingState& MappingState);
     void EmitStatus(const FString& TargetId, const FString& Status, const FString& LastError);
+    bool PulseEmitterIfChanged(
+        const FString& TargetId,
+        const FString& EmitterName,
+        const TSharedPtr<FJsonObject>& Payload,
+        TMap<FString, uint32>& CacheStore);
+    void ClearEmitterCacheForTarget(const FString& TargetId);
 
     TSharedPtr<FJsonObject> BuildRenderContextJson(const FRshipRenderContextState& ContextState) const;
     TSharedPtr<FJsonObject> BuildMappingSurfaceJson(const FRshipMappingSurfaceState& SurfaceState) const;
@@ -427,9 +451,21 @@ private:
     void OnAssetDownloaded(const FString& AssetId, const FString& LocalPath);
     void OnAssetDownloadFailed(const FString& AssetId, const FString& ErrorMessage);
     UTexture2D* LoadTextureFromFile(const FString& LocalPath) const;
-    void BuildFallbackMaterial();
     bool ValidateMaterialContract(UMaterialInterface* Material, FString& OutError) const;
     void EnsureMaterialContract();
+    UMaterialInterface* ResolveSurfaceFallbackMaterial(
+        const FRshipMappingSurfaceState& SurfaceState,
+        UMeshComponent* Mesh,
+        FString& OutError) const;
+    bool ResolveContentMappingMaterial();
+    void RunRuntimePreflight(bool bForceMaterialResolve);
+    void SetRuntimeHealth(ERshipContentMappingRuntimeHealth NewHealth, const FString& NewReason);
+    bool IsRuntimeBlocked() const;
+    FString GetRuntimeHealthStatusToken() const;
+    FString GetTargetStatusForEnabledFlag(bool bEnabled) const;
+    void ApplyRuntimeHealthToStates(bool bEmitChanges);
+    static FString BuildRuntimeBlockedError(const FString& Reason);
+    static bool IsRuntimeBlockedError(const FString& ErrorText);
     void TrackPendingMappingUpsert(const FRshipContentMappingState& State);
     void TrackPendingMappingDelete(const FString& MappingId);
     void PrunePendingMappingGuards(double NowSeconds);

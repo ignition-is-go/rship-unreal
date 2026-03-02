@@ -6,6 +6,7 @@
 #include "RshipAssetStoreClient.h"
 #include "RshipCameraActor.h"
 #include "RshipSceneConverter.h"
+#include "RshipTargetComponent.h"
 #include "Logs.h"
 
 #include "Dom/JsonValue.h"
@@ -16,18 +17,7 @@
 #include "Engine/TextureRenderTarget2D.h"
 #include "TextureResource.h"
 #include "Materials/MaterialInstanceDynamic.h"
-#include "Materials/Material.h"
 #include "Materials/MaterialInterface.h"
-#include "Materials/MaterialExpressionCustom.h"
-#include "Materials/MaterialExpressionScalarParameter.h"
-#include "Materials/MaterialExpressionVectorParameter.h"
-#include "Materials/MaterialExpressionTextureSampleParameter2D.h"
-#include "Materials/MaterialExpressionTextureCoordinate.h"
-#include "Materials/MaterialExpressionConstant.h"
-#include "Materials/MaterialExpressionAppendVector.h"
-#include "Materials/MaterialExpressionMultiply.h"
-#include "Materials/MaterialExpressionAdd.h"
-#include "Materials/MaterialExpressionWorldPosition.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "HAL/FileManager.h"
@@ -37,7 +27,9 @@
 #include "IImageWrapperModule.h"
 #include "IImageWrapper.h"
 #include "Serialization/JsonWriter.h"
+#include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
+#include "Misc/Crc.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "CanvasItem.h"
@@ -50,8 +42,14 @@
 #include "EngineUtils.h"
 #include "GameFramework/PlayerController.h"
 #include "Camera/PlayerCameraManager.h"
+#if WITH_EDITOR
+#include "Editor.h"
+#include "EditorViewportClient.h"
+#endif
 
 static const FName ParamContextTexture(TEXT("RshipContextTexture"));
+static const FName ParamContextTextureAliasSlateUI(TEXT("SlateUI"));
+static const FName ParamContextTextureAliasTexture(TEXT("Texture"));
 static const FName ParamContextDepthTexture(TEXT("RshipContextDepthTexture"));
 static const FName ParamMappingMode(TEXT("RshipMappingMode"));
 static const FName ParamProjectionType(TEXT("RshipProjectionType"));
@@ -95,7 +93,7 @@ static TAutoConsoleVariable<int32> CVarRshipContentMappingPerfStats(
 
 static TAutoConsoleVariable<int32> CVarRshipContentMappingCaptureUseMainView(
     TEXT("rship.cm.capture_use_main_view"),
-    1,
+    0,
     TEXT("Use main-view scene capture integration for mapping camera contexts."));
 
 static TAutoConsoleVariable<int32> CVarRshipContentMappingCaptureUseMainViewCamera(
@@ -115,13 +113,35 @@ static TAutoConsoleVariable<float> CVarRshipContentMappingCaptureLodFactor(
 
 static TAutoConsoleVariable<int32> CVarRshipContentMappingCaptureQualityProfile(
     TEXT("rship.cm.capture_quality_profile"),
-    0,
+    1,
     TEXT("Capture quality profile for mapping contexts. 0=performance, 1=balanced, 2=fidelity."));
 
 static TAutoConsoleVariable<float> CVarRshipContentMappingCaptureMaxViewDistance(
     TEXT("rship.cm.capture_max_view_distance"),
     0.0f,
     TEXT("Optional max view distance override for mapping scene captures (0 disables)."));
+
+static TAutoConsoleVariable<int32> CVarRshipContentMappingAllowSurfaceMaterialFallback(
+    TEXT("rship.cm.allow_surface_material_fallback"),
+    1,
+    TEXT("Allow runtime to use compatible existing surface materials when canonical mapping material is unavailable."));
+
+static TAutoConsoleVariable<int32> CVarRshipContentMappingAutoBootstrap(
+    TEXT("rship.cm.autobootstrap"),
+    1,
+    TEXT("Automatically create a default content mapping setup when no contexts/surfaces/mappings exist."));
+
+static TAutoConsoleVariable<int32> CVarRshipContentMappingAutoBootstrapMaxSurfaces(
+    TEXT("rship.cm.autobootstrap_max_surfaces"),
+    8,
+    TEXT("Maximum number of surfaces created by content mapping autobootstrap."));
+
+static TAutoConsoleVariable<int32> CVarRshipContentMappingPreferPlayerViewInPlay(
+    TEXT("rship.cm.prefer_player_view_in_play"),
+    0,
+    TEXT("When in PIE/Game and mapped source camera is unavailable, allow fallback to active player view."));
+
+static const TCHAR* RuntimeBlockedErrorPrefix = TEXT("Runtime blocked: ");
 
 static FString GetActionName(const FString& ActionId)
 {
@@ -135,6 +155,20 @@ static FString GetActionName(const FString& ActionId)
 
 namespace
 {
+    FString RuntimeHealthToToken(ERshipContentMappingRuntimeHealth Health)
+    {
+        switch (Health)
+        {
+            case ERshipContentMappingRuntimeHealth::Blocked:
+                return TEXT("blocked");
+            case ERshipContentMappingRuntimeHealth::Degraded:
+                return TEXT("degraded");
+            case ERshipContentMappingRuntimeHealth::Ready:
+            default:
+                return TEXT("ready");
+        }
+    }
+
     enum class ERshipCaptureQualityProfile : uint8
     {
         Performance = 0,
@@ -286,6 +320,23 @@ namespace
         }
     }
 
+    TSharedPtr<FJsonObject> ParseJsonObjectString(const FString& Json)
+    {
+        if (Json.IsEmpty())
+        {
+            return MakeShared<FJsonObject>();
+        }
+
+        TSharedPtr<FJsonObject> Parsed = MakeShared<FJsonObject>();
+        const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Json);
+        if (!FJsonSerializer::Deserialize(Reader, Parsed) || !Parsed.IsValid())
+        {
+            return nullptr;
+        }
+
+        return Parsed;
+    }
+
     struct FFeedRectPx
     {
         int32 X = 0;
@@ -344,6 +395,77 @@ namespace
     bool IsPlayContentMappingWorldType(EWorldType::Type WorldType)
     {
         return WorldType == EWorldType::PIE || WorldType == EWorldType::Game;
+    }
+
+    UWorld* GetPreferredContentMappingViewportWorld()
+    {
+#if WITH_EDITOR
+        if (GEditor && GEditor->PlayWorld && !GEditor->PlayWorld->bIsTearingDown)
+        {
+            return GEditor->PlayWorld;
+        }
+#endif
+
+        if (GEngine && GEngine->GameViewport)
+        {
+            if (UWorld* ViewportWorld = GEngine->GameViewport->GetWorld())
+            {
+                if (!ViewportWorld->bIsTearingDown)
+                {
+                    return ViewportWorld;
+                }
+            }
+        }
+
+        return nullptr;
+    }
+
+    bool TryGetEditorViewportFallback(UWorld* PreferredWorld, FTransform& OutTransform, float& OutFov)
+    {
+#if WITH_EDITOR
+        if (!GEditor)
+        {
+            return false;
+        }
+
+        auto IsViewportUsableForWorld = [PreferredWorld](const FEditorViewportClient* ViewportClient) -> bool
+        {
+            if (!ViewportClient || !ViewportClient->IsPerspective())
+            {
+                return false;
+            }
+
+            if (!PreferredWorld)
+            {
+                return true;
+            }
+
+            UWorld* ViewportWorld = ViewportClient->GetWorld();
+            return !ViewportWorld || ViewportWorld == PreferredWorld;
+        };
+
+        FEditorViewportClient* BestViewport = nullptr;
+        const TArray<FEditorViewportClient*>& Viewports = GEditor->GetAllViewportClients();
+        for (FEditorViewportClient* ViewportClient : Viewports)
+        {
+            if (IsViewportUsableForWorld(ViewportClient))
+            {
+                BestViewport = ViewportClient;
+                break;
+            }
+        }
+
+        if (!BestViewport)
+        {
+            return false;
+        }
+
+        OutTransform = FTransform(BestViewport->GetViewRotation(), BestViewport->GetViewLocation());
+        OutFov = BestViewport->ViewFOV;
+        return true;
+#else
+        return false;
+#endif
     }
 
     bool IsEditorContentMappingWorldType(EWorldType::Type WorldType)
@@ -414,14 +536,55 @@ namespace
         return nullptr;
     }
 
-    UTexture* GetDefaultPreviewTexture()
+    AActor* FindAnySourceCameraAnchorActor()
     {
-        static TWeakObjectPtr<UTexture> CachedDefaultTexture;
-        if (!CachedDefaultTexture.IsValid())
+        if (!GEngine)
         {
-            CachedDefaultTexture = LoadObject<UTexture>(nullptr, TEXT("/Engine/EngineResources/DefaultTexture.DefaultTexture"));
+            return nullptr;
         }
-        return CachedDefaultTexture.Get();
+
+        for (int32 Pass = 0; Pass < 3; ++Pass)
+        {
+            for (const FWorldContext& Context : GEngine->GetWorldContexts())
+            {
+                UWorld* World = Context.World();
+                if (!World || !IsRelevantContentMappingWorldType(Context.WorldType))
+                {
+                    continue;
+                }
+
+                const bool bIsPlay = IsPlayContentMappingWorldType(Context.WorldType);
+                const bool bIsEditor = IsEditorContentMappingWorldType(Context.WorldType);
+                if (Pass == 0 && !bIsPlay)
+                {
+                    continue;
+                }
+                if (Pass == 1 && !bIsEditor)
+                {
+                    continue;
+                }
+                if (Pass == 2 && (bIsPlay || bIsEditor))
+                {
+                    continue;
+                }
+
+                for (TActorIterator<AActor> It(World); It; ++It)
+                {
+                    AActor* Candidate = *It;
+                    if (!Candidate || Candidate->IsA<ARshipCameraActor>())
+                    {
+                        continue;
+                    }
+
+                    if (Candidate->FindComponentByClass<UCameraComponent>())
+                    {
+                        return Candidate;
+                    }
+                }
+            }
+        }
+
+        return nullptr;
     }
 
     bool IsMeshReadyForMaterialMutation(const UMeshComponent* Mesh)
@@ -572,8 +735,10 @@ namespace
             return FindAnySourceCameraActor();
         }
 
+        const FString RequestedId = CameraId.TrimStartAndEnd();
+        const FString RequestedShortId = GetShortIdToken(RequestedId);
+        const bool bAllowPartialMatch = RequestedShortId.Len() >= 4 || RequestedId.Len() >= 4;
         URshipSceneConverter* Converter = Subsystem->GetSceneConverter();
-        ACameraActor* FirstCameraFallback = nullptr;
 
         for (int32 Pass = 0; Pass < 3; ++Pass)
         {
@@ -608,15 +773,16 @@ namespace
                         continue;
                     }
 
-                    if (!FirstCameraFallback)
-                    {
-                        FirstCameraFallback = Candidate;
-                    }
-
                     const FString CandidateName = Candidate->GetName();
                     const FString CandidateLabel = GetActorLabelCompat(Candidate);
-                    if (CandidateName.Equals(CameraId, ESearchCase::IgnoreCase)
-                        || CandidateLabel.Equals(CameraId, ESearchCase::IgnoreCase))
+                    if (CandidateName.Equals(RequestedId, ESearchCase::IgnoreCase)
+                        || CandidateLabel.Equals(RequestedId, ESearchCase::IgnoreCase)
+                        || CandidateName.Equals(RequestedShortId, ESearchCase::IgnoreCase)
+                        || CandidateLabel.Equals(RequestedShortId, ESearchCase::IgnoreCase)
+                        || (bAllowPartialMatch && CandidateName.Contains(RequestedId, ESearchCase::IgnoreCase))
+                        || (bAllowPartialMatch && CandidateLabel.Contains(RequestedId, ESearchCase::IgnoreCase))
+                        || (bAllowPartialMatch && CandidateName.Contains(RequestedShortId, ESearchCase::IgnoreCase))
+                        || (bAllowPartialMatch && CandidateLabel.Contains(RequestedShortId, ESearchCase::IgnoreCase)))
                     {
                         return Candidate;
                     }
@@ -624,8 +790,16 @@ namespace
                     if (Converter)
                     {
                         const FString ConvertedId = Converter->GetConvertedEntityId(Candidate);
-                        if (ConvertedId.Equals(CameraId, ESearchCase::CaseSensitive)
-                            || ConvertedId.Equals(CameraId, ESearchCase::IgnoreCase))
+                        const FString ConvertedShortId = GetShortIdToken(ConvertedId);
+                        if (ConvertedId.Equals(RequestedId, ESearchCase::CaseSensitive)
+                            || ConvertedId.Equals(RequestedId, ESearchCase::IgnoreCase)
+                            || ConvertedShortId.Equals(RequestedId, ESearchCase::IgnoreCase)
+                            || ConvertedId.Equals(RequestedShortId, ESearchCase::IgnoreCase)
+                            || ConvertedShortId.Equals(RequestedShortId, ESearchCase::IgnoreCase)
+                            || (bAllowPartialMatch && ConvertedId.Contains(RequestedId, ESearchCase::IgnoreCase))
+                            || (bAllowPartialMatch && ConvertedShortId.Contains(RequestedId, ESearchCase::IgnoreCase))
+                            || (bAllowPartialMatch && ConvertedId.Contains(RequestedShortId, ESearchCase::IgnoreCase))
+                            || (bAllowPartialMatch && ConvertedShortId.Contains(RequestedShortId, ESearchCase::IgnoreCase)))
                         {
                             return Candidate;
                         }
@@ -634,7 +808,9 @@ namespace
             }
         }
 
-        return FirstCameraFallback ? FirstCameraFallback : FindAnySourceCameraActor();
+        // If a specific camera ID was requested and could not be resolved, do not silently
+        // bind to an arbitrary camera. This avoids stale/wrong-camera output in PIE.
+        return nullptr;
     }
 
     AActor* FindSourceAnchorActorByEntityId(URshipSubsystem* Subsystem, const FString& SourceId)
@@ -646,6 +822,7 @@ namespace
 
         const FString RequestedId = SourceId.TrimStartAndEnd();
         const FString RequestedShortId = GetShortIdToken(RequestedId);
+        const bool bAllowPartialMatch = RequestedShortId.Len() >= 4 || RequestedId.Len() >= 4;
         if (RequestedId.IsEmpty())
         {
             return nullptr;
@@ -697,7 +874,11 @@ namespace
                     if (CandidateName.Equals(RequestedId, ESearchCase::IgnoreCase)
                         || CandidateLabel.Equals(RequestedId, ESearchCase::IgnoreCase)
                         || CandidateName.Equals(RequestedShortId, ESearchCase::IgnoreCase)
-                        || CandidateLabel.Equals(RequestedShortId, ESearchCase::IgnoreCase))
+                        || CandidateLabel.Equals(RequestedShortId, ESearchCase::IgnoreCase)
+                        || (bAllowPartialMatch && CandidateName.Contains(RequestedId, ESearchCase::IgnoreCase))
+                        || (bAllowPartialMatch && CandidateLabel.Contains(RequestedId, ESearchCase::IgnoreCase))
+                        || (bAllowPartialMatch && CandidateName.Contains(RequestedShortId, ESearchCase::IgnoreCase))
+                        || (bAllowPartialMatch && CandidateLabel.Contains(RequestedShortId, ESearchCase::IgnoreCase)))
                     {
                         return Candidate;
                     }
@@ -710,7 +891,11 @@ namespace
                             || ConvertedId.Equals(RequestedId, ESearchCase::IgnoreCase)
                             || ConvertedShortId.Equals(RequestedId, ESearchCase::IgnoreCase)
                             || ConvertedId.Equals(RequestedShortId, ESearchCase::IgnoreCase)
-                            || ConvertedShortId.Equals(RequestedShortId, ESearchCase::IgnoreCase))
+                            || ConvertedShortId.Equals(RequestedShortId, ESearchCase::IgnoreCase)
+                            || (bAllowPartialMatch && ConvertedId.Contains(RequestedId, ESearchCase::IgnoreCase))
+                            || (bAllowPartialMatch && ConvertedShortId.Contains(RequestedId, ESearchCase::IgnoreCase))
+                            || (bAllowPartialMatch && ConvertedId.Contains(RequestedShortId, ESearchCase::IgnoreCase))
+                            || (bAllowPartialMatch && ConvertedShortId.Contains(RequestedShortId, ESearchCase::IgnoreCase)))
                         {
                             return Candidate;
                         }
@@ -845,6 +1030,33 @@ namespace
         return Out;
     }
 
+    TSharedPtr<FJsonObject> DeepCloneJsonObject(const TSharedPtr<FJsonObject>& InObject)
+    {
+        if (!InObject.IsValid())
+        {
+            return MakeShared<FJsonObject>();
+        }
+
+        const FString Serialized = JsonToString(InObject);
+        if (Serialized.IsEmpty())
+        {
+            return MakeShared<FJsonObject>();
+        }
+
+        TSharedPtr<FJsonObject> Cloned = MakeShared<FJsonObject>();
+        const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Serialized);
+        if (!FJsonSerializer::Deserialize(Reader, Cloned) || !Cloned.IsValid())
+        {
+            return MakeShared<FJsonObject>();
+        }
+        return Cloned;
+    }
+
+    uint32 HashJsonPayload(const TSharedPtr<FJsonObject>& JsonObj)
+    {
+        return FCrc::StrCrc32(*JsonToString(JsonObj));
+    }
+
     bool AreJsonObjectsEqual(const TSharedPtr<FJsonObject>& A, const TSharedPtr<FJsonObject>& B)
     {
         return JsonToString(A) == JsonToString(B);
@@ -891,6 +1103,21 @@ namespace
             && A.Height == B.Height
             && A.CaptureMode == B.CaptureMode
             && A.DepthCaptureMode == B.DepthCaptureMode
+            && A.bEnabled == B.bEnabled
+            && A.bDepthCaptureEnabled == B.bDepthCaptureEnabled;
+    }
+
+    bool AreRenderContextStatesFunctionallyEquivalent(const FRshipRenderContextState& A, const FRshipRenderContextState& B)
+    {
+        return A.ProjectId == B.ProjectId
+            && A.SourceType.Equals(B.SourceType, ESearchCase::IgnoreCase)
+            && A.CameraId.Equals(B.CameraId, ESearchCase::IgnoreCase)
+            && A.AssetId.Equals(B.AssetId, ESearchCase::IgnoreCase)
+            && A.DepthAssetId.Equals(B.DepthAssetId, ESearchCase::IgnoreCase)
+            && A.Width == B.Width
+            && A.Height == B.Height
+            && A.CaptureMode.Equals(B.CaptureMode, ESearchCase::IgnoreCase)
+            && A.DepthCaptureMode.Equals(B.DepthCaptureMode, ESearchCase::IgnoreCase)
             && A.bEnabled == B.bEnabled
             && A.bDepthCaptureEnabled == B.bDepthCaptureEnabled;
     }
@@ -1286,15 +1513,6 @@ namespace
 
             if (UvMode == TEXT("feed"))
             {
-                TSharedPtr<FJsonObject> FeedRect = State.Config->HasTypedField<EJson::Object>(TEXT("feedRect"))
-                    ? State.Config->GetObjectField(TEXT("feedRect"))
-                    : MakeShared<FJsonObject>();
-                FeedRect->SetNumberField(TEXT("u"), ReadNumber(FeedRect, TEXT("u"), 0.0f));
-                FeedRect->SetNumberField(TEXT("v"), ReadNumber(FeedRect, TEXT("v"), 0.0f));
-                FeedRect->SetNumberField(TEXT("width"), ReadNumber(FeedRect, TEXT("width"), 1.0f));
-                FeedRect->SetNumberField(TEXT("height"), ReadNumber(FeedRect, TEXT("height"), 1.0f));
-                State.Config->SetObjectField(TEXT("feedRect"), FeedRect);
-
                 if (State.Config->HasTypedField<EJson::Object>(TEXT("feedV2")))
                 {
                     TSharedPtr<FJsonObject> FeedV2 = State.Config->GetObjectField(TEXT("feedV2"));
@@ -1308,7 +1526,7 @@ namespace
                     {
                         FeedV2->SetArrayField(TEXT("destinations"), TArray<TSharedPtr<FJsonValue>>());
                     }
-                    if (!FeedV2->HasTypedField<EJson::Array>(TEXT("routes")) && !FeedV2->HasTypedField<EJson::Array>(TEXT("links")))
+                    if (!FeedV2->HasTypedField<EJson::Array>(TEXT("routes")))
                     {
                         FeedV2->SetArrayField(TEXT("routes"), TArray<TSharedPtr<FJsonValue>>());
                     }
@@ -1446,6 +1664,11 @@ void URshipContentMappingManager::Initialize(URshipSubsystem* InSubsystem)
     Subsystem = InSubsystem;
     bMappingsArmed = true;
     bCoveragePreviewEnabled = false;
+    RuntimeHealth = ERshipContentMappingRuntimeHealth::Ready;
+    RuntimeHealthReason.Empty();
+    NextMaterialResolveAttemptSeconds = 0.0;
+    bAutoBootstrapComplete = false;
+    NextAutoBootstrapAttemptSeconds = 0.0;
 
     const URshipSettings* Settings = GetDefault<URshipSettings>();
     if (Settings && !Settings->bEnableContentMapping)
@@ -1468,50 +1691,16 @@ void URshipContentMappingManager::Initialize(URshipSubsystem* InSubsystem)
             &URshipContentMappingManager::OnAssetDownloadFailed);
     }
 
-    // Use one deterministic material resolution order across all platforms.
-    if (Settings && !Settings->ContentMappingMaterialPath.IsEmpty())
-    {
-        ContentMappingMaterial = TryLoadMaterialPath(Settings->ContentMappingMaterialPath);
-        if (!ContentMappingMaterial)
-        {
-            UE_LOG(LogRshipExec, Warning, TEXT("ContentMapping material override failed to load: %s"),
-                *Settings->ContentMappingMaterialPath);
-        }
-    }
-
-    if (!ContentMappingMaterial)
-    {
-        static const TCHAR* RuntimeMaterialCandidates[] =
-        {
-            TEXT("/RshipExec/Materials/MI_RshipContentMapping.MI_RshipContentMapping"),
-            TEXT("/RshipExec/Materials/M_RshipContentMapping.M_RshipContentMapping")
-        };
-        for (const TCHAR* CandidatePath : RuntimeMaterialCandidates)
-        {
-            if (UMaterialInterface* Candidate = TryLoadMaterialPath(CandidatePath))
-            {
-                ContentMappingMaterial = Candidate;
-                break;
-            }
-        }
-    }
-
-#if WITH_EDITOR
-    if (!ContentMappingMaterial)
-    {
-        // Keep editor usable even when plugin/project content is missing.
-        BuildFallbackMaterial();
-    }
-#endif
-
-    if (!ContentMappingMaterial)
-    {
-        ContentMappingMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/EngineMaterials/DefaultMaterial.DefaultMaterial"));
-        UE_LOG(LogRshipExec, Warning, TEXT("Runtime mapping material unavailable; using Engine DefaultMaterial."));
-    }
-
+    ResolveContentMappingMaterial();
+    RunRuntimePreflight(/*bForceMaterialResolve=*/false);
     LoadCache();
+    RunRuntimePreflight(/*bForceMaterialResolve=*/false);
     MarkMappingsDirty();
+}
+
+void URshipContentMappingManager::InitializeForSubsystem(URshipSubsystem* InSubsystem)
+{
+    Initialize(InSubsystem);
 }
 
 void URshipContentMappingManager::Shutdown()
@@ -1562,7 +1751,6 @@ void URshipContentMappingManager::Shutdown()
     Mappings.Empty();
     FeedCompositeTargets.Empty();
     FeedCompositeStaticSignatures.Empty();
-    FeedSingleRtBindingCache.Empty();
     EffectiveSurfaceIdsCache.Empty();
     RequiredContextIdsCache.Empty();
     RenderContextRuntimeStates.Empty();
@@ -1570,10 +1758,23 @@ void URshipContentMappingManager::Shutdown()
     CachedAnyTextureContextId.Reset();
     CachedEnabledContextId.Reset();
     CachedAnyContextId.Reset();
+    LastEmittedStateHashes.Empty();
+    LastEmittedStatusHashes.Empty();
     AssetTextureCache.Empty();
     PendingAssetDownloads.Empty();
     bMappingsArmed = false;
+    RuntimeHealth = ERshipContentMappingRuntimeHealth::Ready;
+    RuntimeHealthReason.Empty();
+    NextMaterialResolveAttemptSeconds = 0.0;
     bRuntimePreparePending = true;
+    CacheSaveDueTimeSeconds = 0.0;
+    bAutoBootstrapComplete = false;
+    NextAutoBootstrapAttemptSeconds = 0.0;
+}
+
+void URshipContentMappingManager::ShutdownForSubsystem()
+{
+    Shutdown();
 }
 
 void URshipContentMappingManager::Tick(float DeltaTime)
@@ -1582,6 +1783,9 @@ void URshipContentMappingManager::Tick(float DeltaTime)
     {
         return;
     }
+
+    RunRuntimePreflight(/*bForceMaterialResolve=*/false);
+    TryAutoBootstrapDefaults();
 
     const bool bConnected = Subsystem->IsConnected();
     if (bConnected && !bWasConnected)
@@ -1595,6 +1799,11 @@ void URshipContentMappingManager::Tick(float DeltaTime)
     LastTickMsRebuild = 0.0f;
     LastTickMsRefresh = 0.0f;
     LastTickMsCacheSave = 0.0f;
+    LastTickMsContextResolve = 0.0f;
+    LastTickMsApplyMappings = 0.0f;
+    LastTickMsConfigHash = 0.0f;
+    LastTickMaterialBindingsUpdated = 0;
+    LastTickMaterialBindingsSkipped = 0;
 
     if (bMappingsDirty)
     {
@@ -1608,14 +1817,25 @@ void URshipContentMappingManager::Tick(float DeltaTime)
 
     if (bCacheDirty)
     {
-        const double SaveStartSeconds = FPlatformTime::Seconds();
-        SaveCache();
-        bCacheDirty = false;
-        LastTickMsCacheSave = static_cast<float>((FPlatformTime::Seconds() - SaveStartSeconds) * 1000.0);
+        const double NowSeconds = FPlatformTime::Seconds();
+        if (CacheSaveDueTimeSeconds <= 0.0)
+        {
+            CacheSaveDueTimeSeconds = NowSeconds + 0.2;
+        }
+        if (NowSeconds >= CacheSaveDueTimeSeconds)
+        {
+            const double SaveStartSeconds = FPlatformTime::Seconds();
+            SaveCache();
+            bCacheDirty = false;
+            CacheSaveDueTimeSeconds = 0.0;
+            LastTickMsCacheSave = static_cast<float>((FPlatformTime::Seconds() - SaveStartSeconds) * 1000.0);
+        }
     }
 
     const bool bHasEnabledMappings = HasAnyEnabledMappings();
-    if (bDidRebuild || bHasEnabledMappings)
+    const bool bRequiresContinuousRefresh = bHasEnabledMappings && HasAnyMappingsRequiringContinuousRefresh();
+    const bool bNeedsConvergenceRefresh = bHasEnabledMappings && HasPendingRuntimeBindings();
+    if (bDidRebuild || bRequiresContinuousRefresh || bRuntimePreparePending || bNeedsConvergenceRefresh)
     {
         const double RefreshStartSeconds = FPlatformTime::Seconds();
         RefreshLiveMappings();
@@ -1637,14 +1857,19 @@ void URshipContentMappingManager::Tick(float DeltaTime)
         {
             LastPerfLogTimeSeconds = NowSeconds;
             UE_LOG(LogRshipExec, Log,
-                TEXT("CMPerf total=%.3fms rebuild=%.3fms refresh=%.3fms cache=%.3fms enabled=%d contexts=%d appliedSurfaces=%d"),
+                TEXT("CMPerf total=%.3fms rebuild=%.3fms refresh=%.3fms cache=%.3fms ctxResolve=%.3fms apply=%.3fms cfgHash=%.3fms enabled=%d contexts=%d appliedSurfaces=%d bindsUpdated=%d bindsSkipped=%d"),
                 LastTickMsTotal,
                 LastTickMsRebuild,
                 LastTickMsRefresh,
                 LastTickMsCacheSave,
+                LastTickMsContextResolve,
+                LastTickMsApplyMappings,
+                LastTickMsConfigHash,
                 LastTickEnabledMappings,
                 LastTickActiveContexts,
-                LastTickAppliedSurfaces);
+                LastTickAppliedSurfaces,
+                LastTickMaterialBindingsUpdated,
+                LastTickMaterialBindingsSkipped);
         }
     }
 
@@ -1696,10 +1921,11 @@ void URshipContentMappingManager::Tick(float DeltaTime)
                 }
             }
 
-            const bool bConnected = Subsystem && Subsystem->IsConnected();
+            const bool bIsCurrentlyConnected = Subsystem && Subsystem->IsConnected();
             FString DebugText = FString::Printf(
-                TEXT("Rship Content Mapping (%s)\nContexts: %d (%d err)  Surfaces: %d (%d err)  Mappings: %d (%d err)\nPending assets: %d"),
-                bConnected ? TEXT("connected") : TEXT("offline"),
+                TEXT("Rship Content Mapping (%s)\nRuntime: %s\nContexts: %d (%d err)  Surfaces: %d (%d err)  Mappings: %d (%d err)\nPending assets: %d"),
+                bIsCurrentlyConnected ? TEXT("connected") : TEXT("offline"),
+                *GetRuntimeHealthStatusToken(),
                 RenderContexts.Num(),
                 ContextErrors,
                 MappingSurfaces.Num(),
@@ -1716,6 +1942,11 @@ void URshipContentMappingManager::Tick(float DeltaTime)
             GEngine->AddOnScreenDebugMessage(0xC0FFEE, 0.6f, FColor::Cyan, DebugText);
         }
     }
+}
+
+void URshipContentMappingManager::TickForSubsystem(float DeltaSeconds)
+{
+    Tick(DeltaSeconds);
 }
 
 void URshipContentMappingManager::RefreshLiveMappings()
@@ -1736,6 +1967,19 @@ void URshipContentMappingManager::RefreshLiveMappings()
     if (bRuntimePreparePending)
     {
         PrepareMappingsForRuntime(true);
+    }
+
+    if (IsRuntimeBlocked())
+    {
+        LastTickEnabledMappings = 0;
+        LastTickAppliedSurfaces = 0;
+        LastTickActiveContexts = 0;
+        LastTickMsContextResolve = 0.0f;
+        LastTickMsApplyMappings = 0.0f;
+        LastTickMsConfigHash = 0.0f;
+        LastTickMaterialBindingsUpdated = 0;
+        LastTickMaterialBindingsSkipped = 0;
+        return;
     }
 
     TSet<FString> RequiredContextIds;
@@ -1825,17 +2069,45 @@ void URshipContentMappingManager::RefreshLiveMappings()
 
     TMap<FString, FString> SignatureToResolvedContextId;
     int32 ActiveResolvedContexts = 0;
+    double ContextResolveMsAccum = 0.0;
+    double ApplyMappingsMsAccum = 0.0;
+    double ConfigHashMsAccum = 0.0;
+    int32 MaterialBindingsUpdated = 0;
+    int32 MaterialBindingsSkipped = 0;
 
     for (auto& Pair : RenderContexts)
     {
         FRshipRenderContextState& ContextState = Pair.Value;
         NormalizeRenderContextState(ContextState);
+        FRenderContextRuntimeState& RuntimeState = RenderContextRuntimeStates.FindOrAdd(ContextState.Id);
 
         if (!RequiredContextIds.Contains(ContextState.Id))
         {
+            if (ARshipCameraActor* CameraActor = ContextState.CameraActor.Get())
+            {
+                CameraActor->Destroy();
+            }
+            ContextState.CameraActor.Reset();
+            ContextState.SourceCameraActor.Reset();
+            if (USceneCaptureComponent2D* DepthCapture = ContextState.DepthCaptureComponent.Get())
+            {
+                DepthCapture->DestroyComponent();
+            }
+            ContextState.DepthCaptureComponent.Reset();
+            ContextState.DepthRenderTarget.Reset();
             ContextState.ResolvedTexture = nullptr;
             ContextState.ResolvedDepthTexture = nullptr;
             ContextState.LastError.Empty();
+            DisableContextCapture(ContextState);
+            RenderContextRuntimeStates.Remove(ContextState.Id);
+            continue;
+        }
+
+        const double NowSeconds = FPlatformTime::Seconds();
+        if (RuntimeState.NextResolveRetryTimeSeconds > 0.0 && NowSeconds < RuntimeState.NextResolveRetryTimeSeconds)
+        {
+            ContextState.ResolvedTexture = nullptr;
+            ContextState.ResolvedDepthTexture = nullptr;
             DisableContextCapture(ContextState);
             continue;
         }
@@ -1859,14 +2131,23 @@ void URshipContentMappingManager::RefreshLiveMappings()
             }
         }
 
+        const double ResolveStartSeconds = FPlatformTime::Seconds();
         ResolveRenderContext(ContextState);
+        ContextResolveMsAccum += (FPlatformTime::Seconds() - ResolveStartSeconds) * 1000.0;
         if (ContextState.ResolvedTexture)
         {
+            RuntimeState.NextResolveRetryTimeSeconds = 0.0;
             ++ActiveResolvedContexts;
             if (!Signature.IsEmpty())
             {
                 SignatureToResolvedContextId.Add(Signature, ContextState.Id);
             }
+        }
+        else
+        {
+            const bool bLikelyMissingSource = ContextState.LastError.Contains(TEXT("No source actor resolved"), ESearchCase::IgnoreCase)
+                || ContextState.LastError.Contains(TEXT("CameraId not set"), ESearchCase::IgnoreCase);
+            RuntimeState.NextResolveRetryTimeSeconds = NowSeconds + (bLikelyMissingSource ? 0.20 : 0.05);
         }
     }
 
@@ -1875,6 +2156,9 @@ void URshipContentMappingManager::RefreshLiveMappings()
 
     int32 EnabledMappingCount = 0;
     int32 AppliedSurfaceCount = 0;
+    int32 SkippedMissingSurfaceStateCount = 0;
+    int32 SkippedDisabledSurfaceCount = 0;
+    int32 SkippedMeshNotReadyCount = 0;
     FString FirstMappingError;
     UWorld* PreferredWorld = GetBestWorld();
     const double NowSeconds = FPlatformTime::Seconds();
@@ -1882,11 +2166,20 @@ void URshipContentMappingManager::RefreshLiveMappings()
     for (auto& MappingPair : Mappings)
     {
         FRshipContentMappingState& MappingState = MappingPair.Value;
+        MappingState.LastError.Empty();
         if (!MappingState.bEnabled)
         {
             continue;
         }
         ++EnabledMappingCount;
+
+        uint32 MappingConfigHash = 0;
+        if (MappingState.Config.IsValid())
+        {
+            const double HashStartSeconds = FPlatformTime::Seconds();
+            MappingConfigHash = HashJsonPayload(MappingState.Config);
+            ConfigHashMsAccum += (FPlatformTime::Seconds() - HashStartSeconds) * 1000.0;
+        }
 
         const bool bFeedV2 = IsFeedV2Mapping(MappingState);
         const FRshipRenderContextState* ContextState = ResolveEffectiveContextState(MappingState, bFeedV2);
@@ -1902,13 +2195,24 @@ void URshipContentMappingManager::RefreshLiveMappings()
         }
 
         const TArray<FString>& EffectiveSurfaceIds = GetEffectiveSurfaceIds(MappingState);
+        bool bSawSurfaceEntry = false;
+        bool bSawEnabledSurface = false;
+        bool bSawMeshReady = false;
         for (const FString& SurfaceId : EffectiveSurfaceIds)
         {
+            bSawSurfaceEntry = true;
             FRshipMappingSurfaceState* SurfaceState = MappingSurfaces.Find(SurfaceId);
-            if (!SurfaceState || !SurfaceState->bEnabled)
+            if (!SurfaceState)
             {
+                ++SkippedMissingSurfaceStateCount;
                 continue;
             }
+            if (!SurfaceState->bEnabled)
+            {
+                ++SkippedDisabledSurfaceCount;
+                continue;
+            }
+            bSawEnabledSurface = true;
 
             if (!IsMeshReadyForMaterialMutation(SurfaceState->MeshComponent.Get()))
             {
@@ -1939,19 +2243,52 @@ void URshipContentMappingManager::RefreshLiveMappings()
 
             if (!IsMeshReadyForMaterialMutation(SurfaceState->MeshComponent.Get()))
             {
+                ++SkippedMeshNotReadyCount;
                 continue;
             }
+            bSawMeshReady = true;
 
-            ApplyMappingToSurface(MappingState, *SurfaceState, ContextState);
+            ApplyMappingToSurface(
+                MappingState,
+                *SurfaceState,
+                ContextState,
+                MappingConfigHash,
+                &ApplyMappingsMsAccum,
+                &MaterialBindingsUpdated,
+                &MaterialBindingsSkipped);
             if (SurfaceState->LastError.IsEmpty())
             {
                 ++AppliedSurfaceCount;
+            }
+            else if (MappingState.LastError.IsEmpty())
+            {
+                MappingState.LastError = SurfaceState->LastError;
             }
         }
 
         if (FirstMappingError.IsEmpty() && !MappingState.LastError.IsEmpty())
         {
             FirstMappingError = MappingState.LastError;
+        }
+        if (MappingState.LastError.IsEmpty())
+        {
+            if (!bSawSurfaceEntry)
+            {
+                MappingState.LastError = TEXT("No mapping surfaces assigned");
+            }
+            else if (!bSawEnabledSurface)
+            {
+                MappingState.LastError = TEXT("All mapping surfaces are disabled");
+            }
+            else if (!bSawMeshReady)
+            {
+                MappingState.LastError = TEXT("All mapping surfaces unresolved");
+            }
+
+            if (FirstMappingError.IsEmpty() && !MappingState.LastError.IsEmpty())
+            {
+                FirstMappingError = MappingState.LastError;
+            }
         }
     }
 
@@ -1967,22 +2304,30 @@ void URshipContentMappingManager::RefreshLiveMappings()
         }
 
         static double LastNoSurfaceWarningTime = 0.0;
-        const double NowSeconds = FPlatformTime::Seconds();
-        if ((NowSeconds - LastNoSurfaceWarningTime) >= 1.0)
+        const double WarningNowSeconds = FPlatformTime::Seconds();
+        if ((WarningNowSeconds - LastNoSurfaceWarningTime) >= 1.0)
         {
-            LastNoSurfaceWarningTime = NowSeconds;
+            LastNoSurfaceWarningTime = WarningNowSeconds;
             UE_LOG(LogRshipExec, Warning,
-                TEXT("ContentMapping produced no applied surfaces (enabledMappings=%d, contexts=%d, contextsWithTexture=%d, surfaces=%d, firstError='%s')"),
+                TEXT("ContentMapping produced no applied surfaces (enabledMappings=%d, contexts=%d, contextsWithTexture=%d, surfaces=%d, missingSurfaceState=%d, surfaceDisabled=%d, meshNotReady=%d, firstError='%s')"),
                 EnabledMappingCount,
                 RenderContexts.Num(),
                 ContextsWithTexture,
                 MappingSurfaces.Num(),
+                SkippedMissingSurfaceStateCount,
+                SkippedDisabledSurfaceCount,
+                SkippedMeshNotReadyCount,
                 *FirstMappingError);
         }
     }
 
     LastTickEnabledMappings = EnabledMappingCount;
     LastTickAppliedSurfaces = AppliedSurfaceCount;
+    LastTickMsContextResolve = static_cast<float>(ContextResolveMsAccum);
+    LastTickMsApplyMappings = static_cast<float>(ApplyMappingsMsAccum);
+    LastTickMsConfigHash = static_cast<float>(ConfigHashMsAccum);
+    LastTickMaterialBindingsUpdated = MaterialBindingsUpdated;
+    LastTickMaterialBindingsSkipped = MaterialBindingsSkipped;
 }
 
 TArray<FRshipRenderContextState> URshipContentMappingManager::GetRenderContexts() const
@@ -2017,6 +2362,55 @@ bool URshipContentMappingManager::IsDebugOverlayEnabled() const
     return bDebugOverlayEnabled;
 }
 
+void URshipContentMappingManager::SetDebugOverlayEnabledForSubsystem(bool bEnabled)
+{
+    SetDebugOverlayEnabled(bEnabled);
+}
+
+bool URshipContentMappingManager::IsDebugOverlayEnabledForSubsystem() const
+{
+    return IsDebugOverlayEnabled();
+}
+
+FString URshipContentMappingManager::GetRenderContextsJsonForSubsystem() const
+{
+    TSharedPtr<FJsonObject> Root = MakeShared<FJsonObject>();
+    Root->SetStringField(TEXT("runtimeHealth"), GetRuntimeHealthStatusToken());
+    if (!RuntimeHealthReason.IsEmpty())
+    {
+        Root->SetStringField(TEXT("runtimeReason"), RuntimeHealthReason);
+    }
+    TArray<TSharedPtr<FJsonValue>> ContextValues;
+    ContextValues.Reserve(RenderContexts.Num());
+
+    for (const TPair<FString, FRshipRenderContextState>& Pair : RenderContexts)
+    {
+        const FRshipRenderContextState& Context = Pair.Value;
+        TSharedPtr<FJsonObject> ContextObject = MakeShared<FJsonObject>();
+        ContextObject->SetStringField(TEXT("id"), Context.Id);
+        ContextObject->SetStringField(TEXT("name"), Context.Name);
+        ContextObject->SetStringField(TEXT("sourceType"), Context.SourceType);
+        ContextObject->SetStringField(TEXT("cameraId"), Context.CameraId);
+        ContextObject->SetNumberField(TEXT("width"), Context.Width);
+        ContextObject->SetNumberField(TEXT("height"), Context.Height);
+        ContextObject->SetBoolField(TEXT("enabled"), Context.bEnabled);
+        ContextObject->SetBoolField(TEXT("hasRenderTarget"), Cast<UTextureRenderTarget2D>(Context.ResolvedTexture) != nullptr);
+        ContextObject->SetStringField(TEXT("lastError"), Context.LastError);
+        ContextValues.Add(MakeShared<FJsonValueObject>(ContextObject));
+    }
+
+    Root->SetArrayField(TEXT("contexts"), ContextValues);
+
+    FString Serialized;
+    const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Serialized);
+    if (!FJsonSerializer::Serialize(Root.ToSharedRef(), Writer))
+    {
+        return FString();
+    }
+
+    return Serialized;
+}
+
 void URshipContentMappingManager::SetCoveragePreviewEnabled(bool bEnabled)
 {
     bCoveragePreviewEnabled = bEnabled;
@@ -2038,6 +2432,18 @@ FString URshipContentMappingManager::CreateRenderContext(const FRshipRenderConte
         NewState.Id = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower);
     }
     NormalizeRenderContextState(NewState);
+
+    // Guard against runaway context creation: reuse an existing context when the
+    // functional capture settings already match.
+    for (const TPair<FString, FRshipRenderContextState>& Pair : RenderContexts)
+    {
+        const FRshipRenderContextState& Existing = Pair.Value;
+        if (AreRenderContextStatesFunctionallyEquivalent(Existing, NewState))
+        {
+            return Existing.Id;
+        }
+    }
+
     RenderContexts.Add(NewState.Id, NewState);
     RenderContextRuntimeStates.Remove(NewState.Id);
     ResolveRenderContext(RenderContexts[NewState.Id]);
@@ -2228,6 +2634,7 @@ FString URshipContentMappingManager::CreateMapping(const FRshipContentMappingSta
     ArmMappings();
 
     FRshipContentMappingState NewState = InState;
+    NewState.Config = DeepCloneJsonObject(InState.Config);
     if (NewState.Id.IsEmpty())
     {
         NewState.Id = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower);
@@ -2260,6 +2667,7 @@ bool URshipContentMappingManager::UpdateMapping(const FRshipContentMappingState&
     ArmMappings();
 
     FRshipContentMappingState Clamped = InState;
+    Clamped.Config = DeepCloneJsonObject(InState.Config);
     NormalizeMappingState(Clamped);
     if (EnsureMappingRuntimeReady(Clamped))
     {
@@ -2318,6 +2726,36 @@ bool URshipContentMappingManager::DeleteMapping(const FString& Id)
     }
     MarkCacheDirty();
     return true;
+}
+
+void URshipContentMappingManager::ProcessRenderContextEventJson(const FString& Json, bool bDelete)
+{
+    const TSharedPtr<FJsonObject> Data = ParseJsonObjectString(Json);
+    if (!Data.IsValid())
+    {
+        return;
+    }
+    ProcessRenderContextEvent(Data, bDelete);
+}
+
+void URshipContentMappingManager::ProcessMappingSurfaceEventJson(const FString& Json, bool bDelete)
+{
+    const TSharedPtr<FJsonObject> Data = ParseJsonObjectString(Json);
+    if (!Data.IsValid())
+    {
+        return;
+    }
+    ProcessMappingSurfaceEvent(Data, bDelete);
+}
+
+void URshipContentMappingManager::ProcessMappingEventJson(const FString& Json, bool bDelete)
+{
+    const TSharedPtr<FJsonObject> Data = ParseJsonObjectString(Json);
+    if (!Data.IsValid())
+    {
+        return;
+    }
+    ProcessMappingEvent(Data, bDelete);
 }
 
 void URshipContentMappingManager::ProcessRenderContextEvent(const TSharedPtr<FJsonObject>& Data, bool bIsDelete)
@@ -2615,7 +3053,7 @@ void URshipContentMappingManager::ProcessMappingEvent(const TSharedPtr<FJsonObje
 
     if (Data->HasTypedField<EJson::Object>(TEXT("config")))
     {
-        State.Config = Data->GetObjectField(TEXT("config"));
+        State.Config = DeepCloneJsonObject(Data->GetObjectField(TEXT("config")));
     }
 
     if (!DerivedMode.IsEmpty())
@@ -2699,8 +3137,10 @@ void URshipContentMappingManager::TrackPendingMappingUpsert(const FRshipContentM
     // Backend echoes can lag several seconds; keep a longer guard so stale state
     // does not immediately revert local mapping edits.
     const double ExpiresAt = FPlatformTime::Seconds() + 15.0;
+    FRshipContentMappingState ClonedState = State;
+    ClonedState.Config = DeepCloneJsonObject(State.Config);
     PendingMappingDeletes.Remove(State.Id);
-    PendingMappingUpserts.Add(State.Id, State);
+    PendingMappingUpserts.Add(State.Id, MoveTemp(ClonedState));
     PendingMappingUpsertExpiry.Add(State.Id, ExpiresAt);
 }
 
@@ -2753,22 +3193,26 @@ bool URshipContentMappingManager::RouteAction(const FString& TargetId, const FSt
     return false;
 }
 
+bool URshipContentMappingManager::RouteActionJson(const FString& TargetId, const FString& ActionId, const FString& DataJson)
+{
+    TSharedPtr<FJsonObject> Parsed = ParseJsonObjectString(DataJson);
+    if (!Parsed.IsValid())
+    {
+        Parsed = MakeShared<FJsonObject>();
+    }
+    return RouteAction(TargetId, ActionId, Parsed.ToSharedRef());
+}
+
 void URshipContentMappingManager::MarkMappingsDirty()
 {
     bMappingsDirty = true;
     bRuntimePreparePending = true;
-    FeedSingleRtBindingCache.Empty();
     EffectiveSurfaceIdsCache.Empty();
     RequiredContextIdsCache.Empty();
     CachedEnabledTextureContextId.Reset();
     CachedAnyTextureContextId.Reset();
     CachedEnabledContextId.Reset();
     CachedAnyContextId.Reset();
-    RuntimeStateRevision++;
-    if (RuntimeStateRevision == 0)
-    {
-        RuntimeStateRevision = 1;
-    }
 }
 
 void URshipContentMappingManager::ArmMappings()
@@ -2784,6 +3228,7 @@ void URshipContentMappingManager::ArmMappings()
 void URshipContentMappingManager::MarkCacheDirty()
 {
     bCacheDirty = true;
+    CacheSaveDueTimeSeconds = FPlatformTime::Seconds() + 0.2;
 }
 
 bool URshipContentMappingManager::HasAnyEnabledMappings() const
@@ -2796,6 +3241,340 @@ bool URshipContentMappingManager::HasAnyEnabledMappings() const
         }
     }
     return false;
+}
+
+bool URshipContentMappingManager::HasAnyMappingsRequiringContinuousRefresh() const
+{
+    auto IsContextDynamic = [this](const FString& InContextId) -> bool
+    {
+        const FString ContextId = InContextId.TrimStartAndEnd();
+        if (ContextId.IsEmpty())
+        {
+            return true;
+        }
+
+        const FRshipRenderContextState* ContextState = RenderContexts.Find(ContextId);
+        if (!ContextState)
+        {
+            return true;
+        }
+
+        return !ContextState->SourceType.Equals(TEXT("asset-store"), ESearchCase::IgnoreCase);
+    };
+
+    for (const TPair<FString, FRshipContentMappingState>& Pair : Mappings)
+    {
+        const FRshipContentMappingState& MappingState = Pair.Value;
+        if (!MappingState.bEnabled)
+        {
+            continue;
+        }
+
+        if (!IsFeedV2Mapping(MappingState))
+        {
+            if (IsContextDynamic(MappingState.ContextId))
+            {
+                return true;
+            }
+            continue;
+        }
+
+        if (!MappingState.Config.IsValid()
+            || !MappingState.Config->HasTypedField<EJson::Object>(TEXT("feedV2")))
+        {
+            return true;
+        }
+
+        const TSharedPtr<FJsonObject> FeedV2 = MappingState.Config->GetObjectField(TEXT("feedV2"));
+        if (!FeedV2.IsValid() || !FeedV2->HasTypedField<EJson::Array>(TEXT("sources")))
+        {
+            return true;
+        }
+
+        bool bFoundAnySource = false;
+        const TArray<TSharedPtr<FJsonValue>>& Sources = FeedV2->GetArrayField(TEXT("sources"));
+        for (const TSharedPtr<FJsonValue>& SourceValue : Sources)
+        {
+            if (!SourceValue.IsValid() || SourceValue->Type != EJson::Object)
+            {
+                continue;
+            }
+
+            const TSharedPtr<FJsonObject> SourceObj = SourceValue->AsObject();
+            if (!SourceObj.IsValid())
+            {
+                continue;
+            }
+
+            bFoundAnySource = true;
+            if (IsContextDynamic(GetStringField(SourceObj, TEXT("contextId"))))
+            {
+                return true;
+            }
+        }
+
+        if (!bFoundAnySource && IsContextDynamic(MappingState.ContextId))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool URshipContentMappingManager::HasPendingRuntimeBindings()
+{
+    if (IsRuntimeBlocked())
+    {
+        return false;
+    }
+
+    UWorld* PreferredWorld = GetBestWorld();
+
+    for (auto& Pair : Mappings)
+    {
+        FRshipContentMappingState& MappingState = Pair.Value;
+        if (!MappingState.bEnabled)
+        {
+            continue;
+        }
+
+        const bool bFeedV2 = IsFeedV2Mapping(MappingState);
+        const FRshipRenderContextState* ContextState = ResolveEffectiveContextState(MappingState, bFeedV2);
+        if (bFeedV2 && (!ContextState || !ContextState->ResolvedTexture))
+        {
+            ContextState = ResolveEffectiveContextState(MappingState, false);
+        }
+
+        if (!bFeedV2 && (!ContextState || !ContextState->ResolvedTexture))
+        {
+            return true;
+        }
+
+        const TArray<FString>& EffectiveSurfaceIds = GetEffectiveSurfaceIds(MappingState);
+        for (const FString& SurfaceId : EffectiveSurfaceIds)
+        {
+            FRshipMappingSurfaceState* SurfaceState = MappingSurfaces.Find(SurfaceId);
+            if (!SurfaceState || !SurfaceState->bEnabled)
+            {
+                continue;
+            }
+
+            UMeshComponent* Mesh = SurfaceState->MeshComponent.Get();
+            if (!IsMeshReadyForMaterialMutation(Mesh))
+            {
+                return true;
+            }
+            if (PreferredWorld && Mesh && Mesh->GetWorld() != PreferredWorld)
+            {
+                return true;
+            }
+
+            const FString LastError = SurfaceState->LastError.TrimStartAndEnd();
+            if (LastError.Contains(TEXT("World not available"), ESearchCase::IgnoreCase)
+                || LastError.Contains(TEXT("Mesh component not resolved"), ESearchCase::IgnoreCase)
+                || LastError.Contains(TEXT("No mesh component found"), ESearchCase::IgnoreCase))
+            {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+bool URshipContentMappingManager::TryAutoBootstrapDefaults()
+{
+    if (bAutoBootstrapComplete)
+    {
+        return false;
+    }
+
+    if (CVarRshipContentMappingAutoBootstrap.GetValueOnGameThread() <= 0)
+    {
+        bAutoBootstrapComplete = true;
+        return false;
+    }
+
+    if (RenderContexts.Num() > 0 || MappingSurfaces.Num() > 0 || Mappings.Num() > 0)
+    {
+        bAutoBootstrapComplete = true;
+        return false;
+    }
+
+    const double NowSeconds = FPlatformTime::Seconds();
+    if (NextAutoBootstrapAttemptSeconds > 0.0 && NowSeconds < NextAutoBootstrapAttemptSeconds)
+    {
+        return false;
+    }
+
+    UWorld* World = GetBestWorld();
+    if (!World)
+    {
+        NextAutoBootstrapAttemptSeconds = NowSeconds + 1.0;
+        return false;
+    }
+
+    const int32 MaxSurfaces = FMath::Clamp(
+        CVarRshipContentMappingAutoBootstrapMaxSurfaces.GetValueOnGameThread(),
+        1,
+        64);
+
+    TArray<AActor*> CandidateActors;
+    TSet<const AActor*> SeenActors;
+    auto AddCandidateIfValid = [&](AActor* Actor, bool bRequireNameHint) -> void
+    {
+        if (!Actor || SeenActors.Contains(Actor) || !IsLikelyScreenActor(Actor))
+        {
+            return;
+        }
+
+        if (bRequireNameHint)
+        {
+            const FString ActorName = Actor->GetName().ToLower();
+            const FString ActorLabel = GetActorLabelCompat(Actor).ToLower();
+            const bool bHasHint =
+                ActorName.Contains(TEXT("screen")) || ActorName.Contains(TEXT("display"))
+                || ActorName.Contains(TEXT("plane")) || ActorName.Contains(TEXT("panel"))
+                || ActorName.Contains(TEXT("wall"))
+                || ActorLabel.Contains(TEXT("screen")) || ActorLabel.Contains(TEXT("display"))
+                || ActorLabel.Contains(TEXT("plane")) || ActorLabel.Contains(TEXT("panel"))
+                || ActorLabel.Contains(TEXT("wall"));
+            if (!bHasHint)
+            {
+                return;
+            }
+        }
+
+        TArray<UMeshComponent*> MeshComponents;
+        Actor->GetComponents(MeshComponents);
+        if (MeshComponents.Num() == 0)
+        {
+            return;
+        }
+
+        CandidateActors.Add(Actor);
+        SeenActors.Add(Actor);
+    };
+
+    for (TActorIterator<AActor> It(World); It && CandidateActors.Num() < MaxSurfaces; ++It)
+    {
+        AActor* Actor = *It;
+        if (!Actor || !Actor->FindComponentByClass<URshipTargetComponent>())
+        {
+            continue;
+        }
+        AddCandidateIfValid(Actor, false);
+    }
+
+    if (CandidateActors.Num() == 0)
+    {
+        for (TActorIterator<AActor> It(World); It && CandidateActors.Num() < MaxSurfaces; ++It)
+        {
+            AddCandidateIfValid(*It, true);
+        }
+    }
+
+    if (CandidateActors.Num() == 0)
+    {
+        NextAutoBootstrapAttemptSeconds = NowSeconds + 2.0;
+        return false;
+    }
+
+    FRshipRenderContextState ContextState;
+    ContextState.Name = TEXT("Autobootstrap Context");
+    ContextState.SourceType = TEXT("camera");
+    ContextState.CameraId = TEXT("AUTO");
+    ContextState.CaptureMode = TEXT("FinalColorLDR");
+    ContextState.Width = 1920;
+    ContextState.Height = 1080;
+    ContextState.bEnabled = true;
+    const FString ContextId = CreateRenderContext(ContextState);
+    if (ContextId.IsEmpty())
+    {
+        NextAutoBootstrapAttemptSeconds = NowSeconds + 2.0;
+        return false;
+    }
+
+    TArray<FString> SurfaceIds;
+    SurfaceIds.Reserve(CandidateActors.Num());
+
+    for (AActor* Actor : CandidateActors)
+    {
+        if (!Actor)
+        {
+            continue;
+        }
+
+        TArray<UMeshComponent*> MeshComponents;
+        Actor->GetComponents(MeshComponents);
+        UMeshComponent* Mesh = nullptr;
+        for (UMeshComponent* CandidateMesh : MeshComponents)
+        {
+            if (CandidateMesh && IsValid(CandidateMesh))
+            {
+                Mesh = CandidateMesh;
+                break;
+            }
+        }
+        if (!Mesh)
+        {
+            continue;
+        }
+
+        FRshipMappingSurfaceState SurfaceState;
+        SurfaceState.Name = GetActorLabelCompat(Actor);
+        if (SurfaceState.Name.IsEmpty())
+        {
+            SurfaceState.Name = Actor->GetName();
+        }
+        SurfaceState.ActorPath = Actor->GetPathName();
+        SurfaceState.MeshComponentName = Mesh->GetName();
+        SurfaceState.UVChannel = 0;
+        SurfaceState.bEnabled = true;
+
+        const FString SurfaceId = CreateMappingSurface(SurfaceState);
+        if (!SurfaceId.IsEmpty())
+        {
+            SurfaceIds.Add(SurfaceId);
+        }
+    }
+
+    if (SurfaceIds.Num() == 0)
+    {
+        DeleteRenderContext(ContextId);
+        NextAutoBootstrapAttemptSeconds = NowSeconds + 2.0;
+        return false;
+    }
+
+    FRshipContentMappingState MappingState;
+    MappingState.Name = TEXT("Autobootstrap Mapping");
+    MappingState.Type = TEXT("direct");
+    MappingState.ContextId = ContextId;
+    MappingState.SurfaceIds = SurfaceIds;
+    MappingState.Opacity = 1.0f;
+    MappingState.bEnabled = true;
+    MappingState.Config = MakeShared<FJsonObject>();
+    MappingState.Config->SetStringField(TEXT("uvMode"), TEXT("direct"));
+    MappingState.Config->SetObjectField(TEXT("uvTransform"), MakeShared<FJsonObject>());
+
+    const FString MappingId = CreateMapping(MappingState);
+    if (MappingId.IsEmpty())
+    {
+        NextAutoBootstrapAttemptSeconds = NowSeconds + 2.0;
+        return false;
+    }
+
+    bAutoBootstrapComplete = true;
+    NextAutoBootstrapAttemptSeconds = 0.0;
+
+    UE_LOG(LogRshipExec, Warning,
+        TEXT("ContentMapping autobootstrap created context=%s mapping=%s surfaces=%d"),
+        *ContextId,
+        *MappingId,
+        SurfaceIds.Num());
+
+    return true;
 }
 
 void URshipContentMappingManager::RefreshResolvedContextFallbackIds()
@@ -2855,7 +3634,66 @@ UWorld* URshipContentMappingManager::GetBestWorld() const
         return nullptr;
     }
 
+    if (UWorld* PreferredViewportWorld = GetPreferredContentMappingViewportWorld())
+    {
+        LastValidWorld = PreferredViewportWorld;
+        return PreferredViewportWorld;
+    }
+
     const TIndirectArray<FWorldContext>& Contexts = GEngine->GetWorldContexts();
+    int32 BestScore = MIN_int32;
+    UWorld* BestWorld = nullptr;
+
+    auto ScoreContextWorld = [](const FWorldContext& Context, UWorld* World) -> int32
+    {
+        int32 Score = 0;
+        const bool bIsPlay = IsPlayContentMappingWorldType(Context.WorldType);
+        const bool bIsEditor = IsEditorContentMappingWorldType(Context.WorldType);
+
+        if (bIsPlay)
+        {
+            Score += 3000;
+            if (Context.GameViewport)
+            {
+                Score += 1200;
+            }
+
+            APlayerController* PrimaryController = World ? World->GetFirstPlayerController() : nullptr;
+            if (PrimaryController)
+            {
+                Score += PrimaryController->IsLocalController() ? 900 : 300;
+            }
+
+            if (World)
+            {
+                switch (World->GetNetMode())
+                {
+                    case NM_DedicatedServer:
+                        Score -= 4000;
+                        break;
+                    case NM_Client:
+                        Score += 800;
+                        break;
+                    case NM_Standalone:
+                        Score += 600;
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+        else if (bIsEditor)
+        {
+            Score += 2000;
+        }
+        else
+        {
+            Score += 500;
+        }
+
+        return Score;
+    };
+
     for (int32 Pass = 0; Pass < 3; ++Pass)
     {
         for (const FWorldContext& Context : Contexts)
@@ -2881,9 +3719,19 @@ UWorld* URshipContentMappingManager::GetBestWorld() const
                 continue;
             }
 
-            LastValidWorld = World;
-            return World;
+            const int32 Score = ScoreContextWorld(Context, World);
+            if (Score > BestScore)
+            {
+                BestScore = Score;
+                BestWorld = World;
+            }
         }
+    }
+
+    if (BestWorld)
+    {
+        LastValidWorld = BestWorld;
+        return BestWorld;
     }
 
     if (LastValidWorld.IsValid())
@@ -2933,39 +3781,45 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
         return;
     }
 
-    if (ContextState.SourceType.Equals(TEXT("camera"), ESearchCase::IgnoreCase))
-    {
-        if (ContextState.CameraId.IsEmpty())
+        if (ContextState.SourceType.Equals(TEXT("camera"), ESearchCase::IgnoreCase))
         {
-            if (ACameraActor* FallbackCamera = FindAnySourceCameraActor())
+            if (ContextState.CameraId.IsEmpty())
             {
-                FString ResolvedCameraId;
-                if (Subsystem)
+                AActor* FallbackSourceActor = FindAnySourceCameraActor();
+                if (!FallbackSourceActor)
                 {
-                    if (URshipSceneConverter* Converter = Subsystem->GetSceneConverter())
+                    FallbackSourceActor = FindAnySourceCameraAnchorActor();
+                }
+
+                if (FallbackSourceActor)
+                {
+                    FString ResolvedCameraId;
+                    if (Subsystem)
                     {
-                        ResolvedCameraId = Converter->GetConvertedEntityId(FallbackCamera);
+                        if (URshipSceneConverter* Converter = Subsystem->GetSceneConverter())
+                        {
+                            ResolvedCameraId = Converter->GetConvertedEntityId(FallbackSourceActor);
+                        }
+                    }
+
+                    if (ResolvedCameraId.IsEmpty())
+                    {
+                        ResolvedCameraId = FallbackSourceActor->GetName();
+                    }
+
+                    if (!ResolvedCameraId.IsEmpty())
+                    {
+                        ContextState.CameraId = ResolvedCameraId;
+                        ContextState.SourceCameraActor = Cast<ACameraActor>(FallbackSourceActor);
+                        MarkCacheDirty();
+                        UE_LOG(LogRshipExec, Log, TEXT("ResolveRenderContext[%s]: Auto-selected camera '%s' -> id '%s'"),
+                            *ContextState.Id,
+                            *FallbackSourceActor->GetName(),
+                            *ResolvedCameraId);
                     }
                 }
 
-                if (ResolvedCameraId.IsEmpty())
-                {
-                    ResolvedCameraId = FallbackCamera->GetName();
-                }
-
-                if (!ResolvedCameraId.IsEmpty())
-                {
-                    ContextState.CameraId = ResolvedCameraId;
-                    ContextState.SourceCameraActor = FallbackCamera;
-                    MarkCacheDirty();
-                    UE_LOG(LogRshipExec, Log, TEXT("ResolveRenderContext[%s]: Auto-selected camera '%s' -> id '%s'"),
-                        *ContextState.Id,
-                        *FallbackCamera->GetName(),
-                        *ResolvedCameraId);
-                }
-            }
-
-            if (ContextState.CameraId.IsEmpty())
+                if (ContextState.CameraId.IsEmpty())
             {
                 ContextState.LastError = TEXT("CameraId not set");
                 return;
@@ -2973,6 +3827,8 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
         }
 
         UWorld* PreferredWorld = GetBestWorld();
+        const bool bRequirePlayWorldBinding = PreferredWorld
+            && IsPlayContentMappingWorldType(PreferredWorld->WorldType);
 
         ACameraActor* SourceCamera = ContextState.SourceCameraActor.Get();
         if (!SourceCamera || !IsValid(SourceCamera))
@@ -2985,6 +3841,50 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
             SourceCamera = FindSourceCameraActorByEntityId(Subsystem, ContextState.CameraId);
             ContextState.SourceCameraActor = SourceCamera;
         }
+
+        // Auto-repair stale camera bindings by rebinding to an available camera actor.
+        if ((!SourceCamera || !IsValid(SourceCamera)) && !ContextState.CameraId.IsEmpty())
+        {
+            AActor* FallbackSourceActor = FindAnySourceCameraActor();
+            if (!FallbackSourceActor)
+            {
+                FallbackSourceActor = FindAnySourceCameraAnchorActor();
+            }
+
+            if (FallbackSourceActor)
+            {
+                FString ReboundCameraId;
+                if (Subsystem)
+                {
+                    if (URshipSceneConverter* Converter = Subsystem->GetSceneConverter())
+                    {
+                        ReboundCameraId = Converter->GetConvertedEntityId(FallbackSourceActor);
+                    }
+                }
+                if (ReboundCameraId.IsEmpty())
+                {
+                    ReboundCameraId = FallbackSourceActor->GetName();
+                }
+
+                if (!ReboundCameraId.IsEmpty())
+                {
+                    const FString PreviousCameraId = ContextState.CameraId;
+                    ContextState.CameraId = ReboundCameraId;
+                    ContextState.SourceCameraActor = Cast<ACameraActor>(FallbackSourceActor);
+                    SourceCamera = Cast<ACameraActor>(FallbackSourceActor);
+                    MarkCacheDirty();
+                    bRuntimePreparePending = true;
+
+                    UE_LOG(LogRshipExec, Warning,
+                        TEXT("ResolveRenderContext[%s]: rebound unresolved CameraId '%s' to camera '%s' (id '%s')"),
+                        *ContextState.Id,
+                        *PreviousCameraId,
+                        *FallbackSourceActor->GetName(),
+                        *ReboundCameraId);
+                }
+            }
+        }
+
         AActor* SourceAnchorActor = SourceCamera;
         if ((!SourceAnchorActor || !IsValid(SourceAnchorActor)) && !ContextState.CameraId.IsEmpty())
         {
@@ -2996,7 +3896,8 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
         }
 
         UWorld* World = nullptr;
-        if (SourceAnchorActor)
+        if (SourceAnchorActor
+            && (!bRequirePlayWorldBinding || !PreferredWorld || SourceAnchorActor->GetWorld() == PreferredWorld))
         {
             World = SourceAnchorActor->GetWorld();
         }
@@ -3013,9 +3914,64 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
         }
         if (!World)
         {
-            bNeedsWorldResolutionRetry = true;
+            // Runtime refresh retries context resolution continuously; avoid forcing
+            // full mapping rebuild loops when world selection is temporarily unavailable.
             return;
         }
+
+        FRenderContextRuntimeState& RuntimeState = RenderContextRuntimeStates.FindOrAdd(ContextState.Id);
+
+        // Avoid spawning helper capture actors when the source camera/anchor is unresolved.
+        bool bHasPlayerViewFallback = false;
+        if (!SourceCamera && !SourceAnchorActor && World)
+        {
+            for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
+            {
+                if (It->Get())
+                {
+                    bHasPlayerViewFallback = true;
+                    break;
+                }
+            }
+        }
+        bool bHasEditorViewFallback = false;
+        if (!SourceCamera && !SourceAnchorActor && World)
+        {
+            FTransform EditorViewTransform = FTransform::Identity;
+            float EditorViewFov = 60.0f;
+            bHasEditorViewFallback = TryGetEditorViewportFallback(World, EditorViewTransform, EditorViewFov);
+        }
+
+        if (!SourceCamera && !SourceAnchorActor && !bHasPlayerViewFallback && !bHasEditorViewFallback)
+        {
+            ContextState.LastError = FString::Printf(TEXT("No source actor resolved for CameraId '%s'"), *ContextState.CameraId);
+            const double NowSeconds = FPlatformTime::Seconds();
+            if (NowSeconds >= RuntimeState.NextMissingSourceWarningTimeSeconds)
+            {
+                UE_LOG(LogRshipExec, Warning, TEXT("ResolveRenderContext[%s]: no source actor resolved for CameraId '%s'"),
+                    *ContextState.Id, *ContextState.CameraId);
+                RuntimeState.NextMissingSourceWarningTimeSeconds = NowSeconds + 1.0;
+            }
+
+            if (ARshipCameraActor* ExistingCamera = ContextState.CameraActor.Get())
+            {
+                if (ExistingCamera->SceneCapture)
+                {
+                    ExistingCamera->SceneCapture->bCaptureEveryFrame = false;
+                    ExistingCamera->SceneCapture->bCaptureOnMovement = false;
+                }
+            }
+            ContextState.SourceCameraActor.Reset();
+            if (USceneCaptureComponent2D* DepthCapture = ContextState.DepthCaptureComponent.Get())
+            {
+                DepthCapture->bCaptureEveryFrame = false;
+                DepthCapture->bCaptureOnMovement = false;
+            }
+            RuntimeState.bHasAppliedTransform = false;
+            RuntimeState.LastAppliedFov = -1.0f;
+            return;
+        }
+        RuntimeState.NextMissingSourceWarningTimeSeconds = 0.0;
 
         ARshipCameraActor* CameraActor = ContextState.CameraActor.Get();
         if (CameraActor && CameraActor->GetWorld() != World)
@@ -3033,7 +3989,13 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
             for (TActorIterator<ARshipCameraActor> It(World); It; ++It)
             {
                 ARshipCameraActor* Candidate = *It;
-                if (Candidate && Candidate->GetName().Equals(DesiredActorName, ESearchCase::CaseSensitive))
+                if (!Candidate)
+                {
+                    continue;
+                }
+                const FString CandidateName = Candidate->GetName();
+                if (CandidateName.Equals(DesiredActorName, ESearchCase::CaseSensitive)
+                    || CandidateName.StartsWith(DesiredActorName + TEXT("_"), ESearchCase::CaseSensitive))
                 {
                     CameraActor = Candidate;
                     break;
@@ -3046,6 +4008,9 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
             FActorSpawnParameters SpawnParams;
             SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
             SpawnParams.ObjectFlags |= RF_Transient;
+#if WITH_EDITOR
+            SpawnParams.bTemporaryEditorActor = true;
+#endif
             CameraActor = World->SpawnActor<ARshipCameraActor>(SpawnParams);
         }
 
@@ -3059,7 +4024,9 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
         CameraActor->bEnableSceneCapture = true;
         CameraActor->bShowFrustumVisualization = false;
         CameraActor->SetActorTickEnabled(false);
-        CameraActor->SetActorHiddenInGame(true);
+        // Keep helper actor non-rendering via mesh visibility, but do not hide the actor in-game.
+        // HiddenInGame can suppress scene capture updates in PIE/Simulate.
+        CameraActor->SetActorHiddenInGame(false);
         if (CameraActor->CameraMesh)
         {
             CameraActor->CameraMesh->SetVisibility(false, true);
@@ -3067,7 +4034,13 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
         }
 
         const ERshipCaptureQualityProfile CaptureQualityProfile = GetCaptureQualityProfile();
-        const bool bUseMainViewCapture = CVarRshipContentMappingCaptureUseMainView.GetValueOnGameThread() > 0;
+        const bool bWorldSupportsMainViewCapture = World
+            && (World->WorldType == EWorldType::PIE || World->WorldType == EWorldType::Game);
+        const bool bPreferPlayerViewInPlay = bWorldSupportsMainViewCapture
+            && (CVarRshipContentMappingPreferPlayerViewInPlay.GetValueOnGameThread() > 0);
+        const bool bUseMainViewCapture = (CVarRshipContentMappingCaptureUseMainView.GetValueOnGameThread() > 0)
+            && bWorldSupportsMainViewCapture;
+        const bool bUseResolvedMainViewCapture = bUseMainViewCapture;
         const bool bUseMainViewCamera = bUseMainViewCapture && (CVarRshipContentMappingCaptureUseMainViewCamera.GetValueOnGameThread() > 0);
         const int32 RequestedMainViewDivisor = CVarRshipContentMappingCaptureMainViewDivisor.GetValueOnGameThread();
         const int32 MainViewDivisor = GetEffectiveCaptureDivisor(CaptureQualityProfile, RequestedMainViewDivisor);
@@ -3084,21 +4057,24 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
         ContextSetupHash = HashCombineFast(ContextSetupHash, GetTypeHash(ContextState.bDepthCaptureEnabled));
         ContextSetupHash = HashCombineFast(ContextSetupHash, GetTypeHash(ContextState.Width));
         ContextSetupHash = HashCombineFast(ContextSetupHash, GetTypeHash(ContextState.Height));
-        ContextSetupHash = HashCombineFast(ContextSetupHash, GetTypeHash(bUseMainViewCapture));
+        ContextSetupHash = HashCombineFast(ContextSetupHash, GetTypeHash(bUseResolvedMainViewCapture));
         ContextSetupHash = HashCombineFast(ContextSetupHash, GetTypeHash(bUseMainViewCamera));
         ContextSetupHash = HashCombineFast(ContextSetupHash, GetTypeHash(MainViewDivisor));
         ContextSetupHash = HashCombineFast(ContextSetupHash, GetTypeHash(CaptureLodFactor));
         ContextSetupHash = HashCombineFast(ContextSetupHash, GetTypeHash(CaptureMaxViewDistance));
         ContextSetupHash = HashCombineFast(ContextSetupHash, GetTypeHash(static_cast<uint8>(CaptureQualityProfile)));
         ContextSetupHash = HashCombineFast(ContextSetupHash, GetTypeHash(static_cast<int32>(CaptureSource)));
-        FRenderContextRuntimeState& RuntimeState = RenderContextRuntimeStates.FindOrAdd(ContextState.Id);
         const bool bNeedsCaptureSetup = (RuntimeState.SetupHash != ContextSetupHash);
 
         if (CameraActor->SceneCapture)
         {
+            CameraActor->SceneCapture->SetVisibility(true, true);
+            CameraActor->SceneCapture->SetHiddenInGame(false);
+            bool bNeedsExplicitCapture = false;
             if (!CameraActor->SceneCapture->bCaptureEveryFrame)
             {
                 CameraActor->SceneCapture->bCaptureEveryFrame = true;
+                bNeedsExplicitCapture = true;
             }
             if (CameraActor->SceneCapture->bCaptureOnMovement)
             {
@@ -3113,18 +4089,27 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
             {
                 CameraActor->SceneCapture->SetRelativeLocation(FVector::ZeroVector);
                 CameraActor->SceneCapture->SetRelativeRotation(FRotator::ZeroRotator);
-                CameraActor->SceneCapture->bMainViewFamily = bUseMainViewCapture;
-                CameraActor->SceneCapture->bMainViewResolution = bUseMainViewCapture;
+                CameraActor->SceneCapture->bMainViewFamily = bUseResolvedMainViewCapture;
+                CameraActor->SceneCapture->bMainViewResolution = bUseResolvedMainViewCapture;
                 CameraActor->SceneCapture->bMainViewCamera = bUseMainViewCamera;
                 CameraActor->SceneCapture->bInheritMainViewCameraPostProcessSettings = bUseMainViewCamera;
                 CameraActor->SceneCapture->bIgnoreScreenPercentage = false;
                 CameraActor->SceneCapture->MainViewResolutionDivisor = FIntPoint(MainViewDivisor, MainViewDivisor);
-                CameraActor->SceneCapture->bRenderInMainRenderer = bUseMainViewCapture;
+                CameraActor->SceneCapture->bRenderInMainRenderer = bUseResolvedMainViewCapture;
                 CameraActor->SceneCapture->LODDistanceFactor = CaptureLodFactor;
                 CameraActor->SceneCapture->MaxViewDistanceOverride = CaptureMaxViewDistance;
                 CameraActor->SceneCapture->CaptureSource = CaptureSource;
                 ApplyCaptureQualityProfile(CameraActor->SceneCapture, CaptureQualityProfile, false);
                 RuntimeState.SetupHash = ContextSetupHash;
+                bNeedsExplicitCapture = true;
+            }
+
+            // Avoid manual CaptureScene calls when bCaptureEveryFrame is enabled.
+            // Engine already captures every frame in this mode, and explicit calls trigger
+            // "major inefficiency" warnings and extra render cost.
+            if (bNeedsExplicitCapture && !CameraActor->SceneCapture->bCaptureEveryFrame)
+            {
+                CameraActor->SceneCapture->CaptureScene();
             }
         }
         else
@@ -3180,18 +4165,44 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
         }
 
         // Ensure scene capture always writes into the current render target.
-        if (CameraActor->SceneCapture && CameraActor->CaptureRenderTarget)
-        {
-            FTransform DesiredTransform = CameraActor->GetActorTransform();
-            float DesiredFov = CameraActor->SceneCapture->FOVAngle;
-            bool bHasDesiredTransform = false;
-            bool bHasDesiredFov = false;
-
-            if (SourceCamera)
+            if (CameraActor->SceneCapture && CameraActor->CaptureRenderTarget)
             {
-                if (UCameraComponent* SourceCameraComponent = SourceCamera->GetCameraComponent())
+                FTransform DesiredTransform = CameraActor->GetActorTransform();
+                float DesiredFov = CameraActor->SceneCapture->FOVAngle;
+                bool bHasDesiredTransform = false;
+                bool bHasDesiredFov = false;
+                bool bNeedsExplicitCapture = false;
+
+                if (!bHasDesiredTransform && bPreferPlayerViewInPlay && World)
                 {
-                    DesiredTransform = FTransform(SourceCameraComponent->GetComponentRotation(), SourceCameraComponent->GetComponentLocation());
+                    for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
+                    {
+                        APlayerController* PC = It->Get();
+                        if (!PC)
+                        {
+                            continue;
+                        }
+
+                        FVector ViewLocation = FVector::ZeroVector;
+                        FRotator ViewRotation = FRotator::ZeroRotator;
+                        PC->GetPlayerViewPoint(ViewLocation, ViewRotation);
+                        DesiredTransform = FTransform(ViewRotation, ViewLocation);
+                        bHasDesiredTransform = true;
+
+                        if (PC->PlayerCameraManager)
+                        {
+                            DesiredFov = PC->PlayerCameraManager->GetFOVAngle();
+                            bHasDesiredFov = true;
+                        }
+                        break;
+                    }
+                }
+
+                if (!bHasDesiredTransform && SourceCamera)
+                {
+                    if (UCameraComponent* SourceCameraComponent = SourceCamera->GetCameraComponent())
+                    {
+                        DesiredTransform = FTransform(SourceCameraComponent->GetComponentRotation(), SourceCameraComponent->GetComponentLocation());
                     DesiredFov = SourceCameraComponent->FieldOfView;
                     bHasDesiredTransform = true;
                     bHasDesiredFov = true;
@@ -3202,15 +4213,26 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
                     bHasDesiredTransform = true;
                 }
             }
-            else if (SourceAnchorActor)
+            else if (!bHasDesiredTransform && SourceAnchorActor)
             {
-                DesiredTransform = SourceAnchorActor->GetActorTransform();
-                bHasDesiredTransform = true;
+                if (UCameraComponent* AnchorCameraComponent = SourceAnchorActor->FindComponentByClass<UCameraComponent>())
+                {
+                    DesiredTransform = FTransform(AnchorCameraComponent->GetComponentRotation(), AnchorCameraComponent->GetComponentLocation());
+                    DesiredFov = AnchorCameraComponent->FieldOfView;
+                    bHasDesiredTransform = true;
+                    bHasDesiredFov = true;
+                }
+                else
+                {
+                    DesiredTransform = SourceAnchorActor->GetActorTransform();
+                    bHasDesiredTransform = true;
+                }
             }
-            else
+            if (!bHasDesiredTransform)
             {
                 bool bAppliedPlayerViewFallback = false;
-                if (World)
+                const bool bAllowPlayerViewFallback = true;
+                if (bAllowPlayerViewFallback && World)
                 {
                     for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
                     {
@@ -3236,18 +4258,56 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
                         break;
                     }
                 }
+                bool bAppliedEditorViewFallback = false;
+                if (!bAppliedPlayerViewFallback)
+                {
+                    FTransform EditorViewTransform = FTransform::Identity;
+                    float EditorViewFov = 60.0f;
+                    if (TryGetEditorViewportFallback(World, EditorViewTransform, EditorViewFov))
+                    {
+                        DesiredTransform = EditorViewTransform;
+                        DesiredFov = EditorViewFov;
+                        bHasDesiredTransform = true;
+                        bHasDesiredFov = true;
+                        bAppliedEditorViewFallback = true;
+                    }
+                }
 
                 if (bAppliedPlayerViewFallback)
                 {
                     UE_LOG(LogRshipExec, Verbose, TEXT("ResolveRenderContext[%s]: using player camera fallback for CameraId '%s'"),
                         *ContextState.Id, *ContextState.CameraId);
                 }
-                else
+                else if (bAppliedEditorViewFallback)
                 {
-                    UE_LOG(LogRshipExec, Warning, TEXT("ResolveRenderContext[%s]: no source actor resolved for CameraId '%s'"),
+                    UE_LOG(LogRshipExec, Verbose, TEXT("ResolveRenderContext[%s]: using editor viewport fallback for CameraId '%s'"),
                         *ContextState.Id, *ContextState.CameraId);
                 }
+                else
+                {
+                    ContextState.LastError = FString::Printf(TEXT("No source actor resolved for CameraId '%s'"), *ContextState.CameraId);
+                    const double NowSeconds = FPlatformTime::Seconds();
+                    if (NowSeconds >= RuntimeState.NextMissingSourceWarningTimeSeconds)
+                    {
+                        UE_LOG(LogRshipExec, Warning, TEXT("ResolveRenderContext[%s]: no source actor resolved for CameraId '%s'"),
+                            *ContextState.Id, *ContextState.CameraId);
+                        RuntimeState.NextMissingSourceWarningTimeSeconds = NowSeconds + 1.0;
+                    }
+                }
             }
+
+            if (!bHasDesiredTransform)
+            {
+                if (CameraActor->SceneCapture)
+                {
+                    CameraActor->SceneCapture->bCaptureEveryFrame = false;
+                    CameraActor->SceneCapture->bCaptureOnMovement = false;
+                }
+                RuntimeState.bHasAppliedTransform = false;
+                RuntimeState.LastAppliedFov = -1.0f;
+                return;
+            }
+            RuntimeState.NextMissingSourceWarningTimeSeconds = 0.0;
 
             if (bHasDesiredTransform)
             {
@@ -3257,6 +4317,7 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
                     CameraActor->SetActorTransform(DesiredTransform);
                     RuntimeState.LastAppliedTransform = DesiredTransform;
                     RuntimeState.bHasAppliedTransform = true;
+                    bNeedsExplicitCapture = true;
                 }
             }
 
@@ -3264,11 +4325,18 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
             {
                 CameraActor->SceneCapture->FOVAngle = DesiredFov;
                 RuntimeState.LastAppliedFov = DesiredFov;
+                bNeedsExplicitCapture = true;
             }
 
             if (CameraActor->SceneCapture->TextureTarget != CameraActor->CaptureRenderTarget)
             {
                 CameraActor->SceneCapture->TextureTarget = CameraActor->CaptureRenderTarget;
+                bNeedsExplicitCapture = true;
+            }
+
+            if (bNeedsExplicitCapture && !CameraActor->SceneCapture->bCaptureEveryFrame)
+            {
+                CameraActor->SceneCapture->CaptureScene();
             }
         }
 
@@ -3311,9 +4379,13 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
 
             if (DepthCapture)
             {
+                DepthCapture->SetVisibility(true, true);
+                DepthCapture->SetHiddenInGame(false);
+                bool bNeedsExplicitDepthCapture = false;
                 if (!DepthCapture->bCaptureEveryFrame)
                 {
                     DepthCapture->bCaptureEveryFrame = true;
+                    bNeedsExplicitDepthCapture = true;
                 }
                 if (DepthCapture->bCaptureOnMovement)
                 {
@@ -3331,22 +4403,29 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
                         : ESceneCaptureSource::SCS_SceneDepth;
                     DepthCapture->SetRelativeLocation(FVector::ZeroVector);
                     DepthCapture->SetRelativeRotation(FRotator::ZeroRotator);
-                    DepthCapture->bMainViewFamily = bUseMainViewCapture;
-                    DepthCapture->bMainViewResolution = bUseMainViewCapture;
+                    DepthCapture->bMainViewFamily = bUseResolvedMainViewCapture;
+                    DepthCapture->bMainViewResolution = bUseResolvedMainViewCapture;
                     DepthCapture->bMainViewCamera = false;
                     DepthCapture->bInheritMainViewCameraPostProcessSettings = false;
                     DepthCapture->bIgnoreScreenPercentage = false;
                     DepthCapture->MainViewResolutionDivisor = FIntPoint(MainViewDivisor, MainViewDivisor);
-                    DepthCapture->bRenderInMainRenderer = bUseMainViewCapture;
+                    DepthCapture->bRenderInMainRenderer = bUseResolvedMainViewCapture;
                     DepthCapture->LODDistanceFactor = CaptureLodFactor;
                     DepthCapture->MaxViewDistanceOverride = CaptureMaxViewDistance;
                     ApplyCaptureQualityProfile(DepthCapture, CaptureQualityProfile, true);
+                    bNeedsExplicitDepthCapture = true;
                 }
 
                 DepthCapture->TextureTarget = ContextState.DepthRenderTarget.Get();
                 if (CameraActor->SceneCapture)
                 {
                     DepthCapture->FOVAngle = CameraActor->SceneCapture->FOVAngle;
+                    bNeedsExplicitDepthCapture = true;
+                }
+
+                if (bNeedsExplicitDepthCapture && !DepthCapture->bCaptureEveryFrame)
+                {
+                    DepthCapture->CaptureScene();
                 }
             }
 
@@ -3457,6 +4536,8 @@ void URshipContentMappingManager::ResolveMappingSurface(FRshipMappingSurfaceStat
         ? FString()
         : RequestedActorPath.Mid(RequestedActorPath.Find(TEXT("."), ESearchCase::CaseSensitive, ESearchDir::FromEnd) + 1);
     UWorld* PreferredWorld = GetBestWorld();
+    const bool bRequirePlayWorldBinding = PreferredWorld
+        && IsPlayContentMappingWorldType(PreferredWorld->WorldType);
 
     int32 BestScore = -1;
     UMeshComponent* BestMesh = nullptr;
@@ -3467,6 +4548,11 @@ void URshipContentMappingManager::ResolveMappingSurface(FRshipMappingSurfaceStat
     auto ScoreMeshCandidate = [&](AActor* Owner, UMeshComponent* Mesh) -> int32
     {
         if (!Owner || !Mesh || !IsValid(Mesh))
+        {
+            return -1;
+        }
+
+        if (bRequirePlayWorldBinding && PreferredWorld && Owner->GetWorld() != PreferredWorld)
         {
             return -1;
         }
@@ -3586,7 +4672,7 @@ void URshipContentMappingManager::ResolveMappingSurface(FRshipMappingSurfaceStat
                 ExplicitOwner = TryResolveInWorld(PreferredWorld, true);
             }
 
-            if (!ExplicitOwner)
+            if (!ExplicitOwner && !bRequirePlayWorldBinding)
             {
                 for (const FWorldContext& Context : GEngine->GetWorldContexts())
                 {
@@ -3671,39 +4757,43 @@ void URshipContentMappingManager::ResolveMappingSurface(FRshipMappingSurfaceStat
             ScanWorldForBest(PreferredWorld);
         }
 
-        for (int32 Pass = 0; Pass < 3; ++Pass)
+        if (!bRequirePlayWorldBinding)
         {
-            for (const FWorldContext& Context : GEngine->GetWorldContexts())
+            for (int32 Pass = 0; Pass < 3; ++Pass)
             {
-                UWorld* World = Context.World();
-                if (!World || !IsRelevantContentMappingWorldType(Context.WorldType) || World == PreferredWorld)
+                for (const FWorldContext& Context : GEngine->GetWorldContexts())
                 {
-                    continue;
-                }
+                    UWorld* World = Context.World();
+                    if (!World || !IsRelevantContentMappingWorldType(Context.WorldType) || World == PreferredWorld)
+                    {
+                        continue;
+                    }
 
-                const bool bIsPlay = IsPlayContentMappingWorldType(Context.WorldType);
-                const bool bIsEditor = IsEditorContentMappingWorldType(Context.WorldType);
-                if (Pass == 0 && !bIsPlay)
-                {
-                    continue;
-                }
-                if (Pass == 1 && !bIsEditor)
-                {
-                    continue;
-                }
-                if (Pass == 2 && (bIsPlay || bIsEditor))
-                {
-                    continue;
-                }
+                    const bool bIsPlay = IsPlayContentMappingWorldType(Context.WorldType);
+                    const bool bIsEditor = IsEditorContentMappingWorldType(Context.WorldType);
+                    if (Pass == 0 && !bIsPlay)
+                    {
+                        continue;
+                    }
+                    if (Pass == 1 && !bIsEditor)
+                    {
+                        continue;
+                    }
+                    if (Pass == 2 && (bIsPlay || bIsEditor))
+                    {
+                        continue;
+                    }
 
-                ScanWorldForBest(World);
+                    ScanWorldForBest(World);
+                }
             }
         }
     }
 
     if (!BestMesh || !BestOwner)
     {
-        bNeedsWorldResolutionRetry = true;
+        // Surface resolution is retried in the live refresh path; do not trigger
+        // full rebuild retries every tick for unresolved/stale surfaces.
         SurfaceState.LastError = bSawRelevantWorld ? TEXT("No mesh component found") : TEXT("World not available");
         UE_LOG(LogRshipExec, Warning, TEXT("ResolveMappingSurface[%s]: failed (mesh='%s' name='%s' actorPath='%s') -> %s"),
             *SurfaceState.Id,
@@ -3714,9 +4804,22 @@ void URshipContentMappingManager::ResolveMappingSurface(FRshipMappingSurfaceStat
         return;
     }
 
+    const FString ResolvedMeshComponentName = BestMesh->GetName();
+    const FString ResolvedActorPath = BestOwner->GetPathName();
+    const bool bResolvedBindingChanged =
+        !SurfaceState.MeshComponentName.Equals(ResolvedMeshComponentName, ESearchCase::CaseSensitive)
+        || !SurfaceState.ActorPath.Equals(ResolvedActorPath, ESearchCase::CaseSensitive);
+
+    if (bResolvedBindingChanged)
+    {
+        // World switches (Editor <-> PIE) can keep the same logical surface id while
+        // resolving to a different mesh instance. Clear old MID/cache state before rebinding.
+        RestoreSurfaceMaterials(SurfaceState);
+    }
+
     SurfaceState.MeshComponent = BestMesh;
-    SurfaceState.MeshComponentName = BestMesh->GetName();
-    SurfaceState.ActorPath = BestOwner->GetPathName();
+    SurfaceState.MeshComponentName = ResolvedMeshComponentName;
+    SurfaceState.ActorPath = ResolvedActorPath;
     SurfaceState.TargetId.Reset();
     SurfaceState.NextResolveRetryTimeSeconds = 0.0;
 
@@ -3750,10 +4853,16 @@ void URshipContentMappingManager::ResolveMappingSurface(FRshipMappingSurfaceStat
     }
     SurfaceState.MaterialSlots = MoveTemp(SanitizedSlots);
 
-    UE_LOG(LogRshipExec, Log, TEXT("ResolveMappingSurface[%s]: mesh='%s' actor='%s' slots=%d score=%d"),
+    if (bResolvedBindingChanged)
+    {
+        MarkCacheDirty();
+    }
+
+    UE_LOG(LogRshipExec, Log, TEXT("ResolveMappingSurface[%s]: mesh='%s' actor='%s' world='%s' slots=%d score=%d"),
         *SurfaceState.Id,
         *SurfaceState.MeshComponentName,
         *BestOwner->GetName(),
+        BestOwner->GetWorld() ? *BestOwner->GetWorld()->GetPathName() : TEXT("<none>"),
         SurfaceState.MaterialSlots.Num(),
         BestScore);
 }
@@ -3838,7 +4947,6 @@ void URshipContentMappingManager::PrepareMappingsForRuntime(bool bEmitChanges)
 
     if (bAnyChanged)
     {
-        FeedSingleRtBindingCache.Empty();
         EffectiveSurfaceIdsCache.Empty();
         RequiredContextIdsCache.Empty();
         MarkCacheDirty();
@@ -4107,44 +5215,8 @@ bool URshipContentMappingManager::EnsureMappingRuntimeReady(FRshipContentMapping
         bChanged = true;
     }
 
-    bool bHasKnownSurface = false;
-    for (const FString& RawSurfaceId : MappingState.SurfaceIds)
-    {
-        const FString SurfaceId = RawSurfaceId.TrimStartAndEnd();
-        if (!SurfaceId.IsEmpty() && MappingSurfaces.Contains(SurfaceId))
-        {
-            bHasKnownSurface = true;
-            break;
-        }
-    }
-
-    if (!bHasKnownSurface)
-    {
-        const int32 BeforeCount = MappingState.SurfaceIds.Num();
-
-        for (const TPair<FString, FRshipMappingSurfaceState>& Pair : MappingSurfaces)
-        {
-            if (!Pair.Key.IsEmpty() && Pair.Value.bEnabled)
-            {
-                MappingState.SurfaceIds.AddUnique(Pair.Key);
-            }
-        }
-        if (MappingState.SurfaceIds.Num() == BeforeCount)
-        {
-            for (const TPair<FString, FRshipMappingSurfaceState>& Pair : MappingSurfaces)
-            {
-                if (!Pair.Key.IsEmpty())
-                {
-                    MappingState.SurfaceIds.AddUnique(Pair.Key);
-                }
-            }
-        }
-
-        if (MappingState.SurfaceIds.Num() != BeforeCount)
-        {
-            bChanged = true;
-        }
-    }
+    // Do not auto-repopulate surface bindings during runtime normalization.
+    // Surface assignment is user-authored and should remain stable after deletes.
 
     if (EnsureFeedMappingRuntimeReady(MappingState))
     {
@@ -4293,26 +5365,6 @@ bool URshipContentMappingManager::EnsureFeedMappingRuntimeReady(FRshipContentMap
         SanitizedSources.Add(MakeShared<FJsonValueObject>(SourceObj));
     }
 
-    if (SanitizedSources.Num() == 0)
-    {
-        int32 Width = 1920;
-        int32 Height = 1080;
-        ResolveContextDimensions(DefaultContextId, Width, Height);
-
-        TSharedPtr<FJsonObject> SourceObj = MakeShared<FJsonObject>();
-        const FString SourceId = FString::Printf(TEXT("source-%s"), *FGuid::NewGuid().ToString(EGuidFormats::Digits).Left(8));
-        SourceObj->SetStringField(TEXT("id"), SourceId);
-        if (!DefaultContextId.IsEmpty())
-        {
-            SourceObj->SetStringField(TEXT("contextId"), DefaultContextId);
-        }
-        SourceObj->SetNumberField(TEXT("width"), FMath::Max(1, Width));
-        SourceObj->SetNumberField(TEXT("height"), FMath::Max(1, Height));
-        SourceDimensions.Add(SourceId, FIntPoint(FMath::Max(1, Width), FMath::Max(1, Height)));
-        SanitizedSources.Add(MakeShared<FJsonValueObject>(SourceObj));
-        bChanged = true;
-    }
-
     FeedV2->SetArrayField(TEXT("sources"), SanitizedSources);
 
     TArray<FString> MappingSurfaceIds;
@@ -4399,49 +5451,6 @@ bool URshipContentMappingManager::EnsureFeedMappingRuntimeReady(FRshipContentMap
         SanitizedDestinations.Add(MakeShared<FJsonValueObject>(DestinationObj));
     }
 
-    for (const FString& SurfaceId : MappingSurfaceIds)
-    {
-        const bool bHasDestinationForSurface = SanitizedDestinations.ContainsByPredicate([&](const TSharedPtr<FJsonValue>& Value)
-        {
-            if (!Value.IsValid() || Value->Type != EJson::Object)
-            {
-                return false;
-            }
-            const TSharedPtr<FJsonObject> Obj = Value->AsObject();
-            return Obj.IsValid() && GetStringField(Obj, TEXT("surfaceId")).TrimStartAndEnd() == SurfaceId;
-        });
-        if (bHasDestinationForSurface)
-        {
-            continue;
-        }
-
-        const FString DestinationId = FString::Printf(TEXT("dest-%s"), *FGuid::NewGuid().ToString(EGuidFormats::Digits).Left(8));
-        TSharedPtr<FJsonObject> DestinationObj = MakeShared<FJsonObject>();
-        DestinationObj->SetStringField(TEXT("id"), DestinationId);
-        DestinationObj->SetStringField(TEXT("surfaceId"), SurfaceId);
-        DestinationObj->SetNumberField(TEXT("width"), FallbackSourceWidth);
-        DestinationObj->SetNumberField(TEXT("height"), FallbackSourceHeight);
-        DestinationDimensions.Add(DestinationId, FIntPoint(FallbackSourceWidth, FallbackSourceHeight));
-        SanitizedDestinations.Add(MakeShared<FJsonValueObject>(DestinationObj));
-        bChanged = true;
-    }
-
-    if (SanitizedDestinations.Num() == 0)
-    {
-        const FString DestinationId = FString::Printf(TEXT("dest-%s"), *FGuid::NewGuid().ToString(EGuidFormats::Digits).Left(8));
-        TSharedPtr<FJsonObject> DestinationObj = MakeShared<FJsonObject>();
-        DestinationObj->SetStringField(TEXT("id"), DestinationId);
-        if (MappingSurfaceIds.Num() > 0)
-        {
-            DestinationObj->SetStringField(TEXT("surfaceId"), MappingSurfaceIds[0]);
-        }
-        DestinationObj->SetNumberField(TEXT("width"), FallbackSourceWidth);
-        DestinationObj->SetNumberField(TEXT("height"), FallbackSourceHeight);
-        DestinationDimensions.Add(DestinationId, FIntPoint(FallbackSourceWidth, FallbackSourceHeight));
-        SanitizedDestinations.Add(MakeShared<FJsonValueObject>(DestinationObj));
-        bChanged = true;
-    }
-
     FeedV2->SetArrayField(TEXT("destinations"), SanitizedDestinations);
 
     for (const TSharedPtr<FJsonValue>& Value : SanitizedDestinations)
@@ -4469,6 +5478,8 @@ bool URshipContentMappingManager::EnsureFeedMappingRuntimeReady(FRshipContentMap
     SourceDimensions.GetKeys(SourceIds);
     TArray<FString> DestinationIds;
     DestinationDimensions.GetKeys(DestinationIds);
+    SourceIds.Sort();
+    DestinationIds.Sort();
 
     const FString DefaultSourceId = SourceIds.Num() > 0 ? SourceIds[0] : FString();
     const FString DefaultDestinationId = DestinationIds.Num() > 0 ? DestinationIds[0] : FString();
@@ -4596,25 +5607,6 @@ bool URshipContentMappingManager::EnsureFeedMappingRuntimeReady(FRshipContentMap
         SanitizedRoutes.Add(MakeShared<FJsonValueObject>(RouteObj));
     }
 
-    if (SanitizedRoutes.Num() == 0 && SourceIds.Num() > 0 && DestinationIds.Num() > 0)
-    {
-        for (const FString& DestinationId : DestinationIds)
-        {
-            const FIntPoint SourceDim = SourceDimensions[SourceIds[0]];
-            const FIntPoint DestinationDim = DestinationDimensions[DestinationId];
-            TSharedPtr<FJsonObject> RouteObj = MakeShared<FJsonObject>();
-            RouteObj->SetStringField(TEXT("id"), FString::Printf(TEXT("route-%s"), *FGuid::NewGuid().ToString(EGuidFormats::Digits).Left(8)));
-            RouteObj->SetStringField(TEXT("sourceId"), SourceIds[0]);
-            RouteObj->SetStringField(TEXT("destinationId"), DestinationId);
-            RouteObj->SetBoolField(TEXT("enabled"), true);
-            RouteObj->SetNumberField(TEXT("opacity"), 1.0f);
-            RouteObj->SetObjectField(TEXT("sourceRect"), MakeRectObject(0, 0, SourceDim.X, SourceDim.Y));
-            RouteObj->SetObjectField(TEXT("destinationRect"), MakeRectObject(0, 0, DestinationDim.X, DestinationDim.Y));
-            SanitizedRoutes.Add(MakeShared<FJsonValueObject>(RouteObj));
-        }
-        bChanged = true;
-    }
-
     FeedV2->SetArrayField(TEXT("routes"), SanitizedRoutes);
     MappingState.Config->SetObjectField(TEXT("feedV2"), FeedV2);
     return bChanged;
@@ -4664,420 +5656,6 @@ void URshipContentMappingManager::RemoveFeedCompositeTexturesForSurface(const FS
             FeedCompositeStaticSignatures.Remove(Key);
         }
     }
-}
-
-bool URshipContentMappingManager::TryResolveFeedSingleRtBinding(
-    const FRshipContentMappingState& MappingState,
-    const FRshipMappingSurfaceState& SurfaceState,
-    FFeedSingleRtBinding& OutBinding)
-{
-    OutBinding = FFeedSingleRtBinding();
-
-    if (!IsFeedV2Mapping(MappingState)
-        || !MappingState.Config.IsValid()
-        || !MappingState.Config->HasTypedField<EJson::Object>(TEXT("feedV2")))
-    {
-        return false;
-    }
-
-    const TSharedPtr<FJsonObject> FeedV2 = MappingState.Config->GetObjectField(TEXT("feedV2"));
-    if (!FeedV2.IsValid())
-    {
-        return false;
-    }
-
-    const FString CacheKey = MakeFeedCompositeKey(MappingState.Id, SurfaceState.Id);
-    FFeedSingleRtPreparedRoute* PreparedRoute = FeedSingleRtBindingCache.Find(CacheKey);
-    if (!PreparedRoute)
-    {
-        FFeedSingleRtPreparedRoute NewPreparedRoute;
-        NewPreparedRoute.bPrepared = true;
-
-        const FString CoordinateSpace = GetStringField(FeedV2, TEXT("coordinateSpace"), TEXT("pixel")).TrimStartAndEnd().ToLower();
-        if (!CoordinateSpace.IsEmpty() && CoordinateSpace != TEXT("pixel"))
-        {
-            NewPreparedRoute.Error = FString::Printf(
-                TEXT("feedV2 coordinateSpace '%s' is not supported (expected 'pixel')"),
-                *CoordinateSpace);
-            PreparedRoute = &FeedSingleRtBindingCache.Add(CacheKey, MoveTemp(NewPreparedRoute));
-        }
-        else
-        {
-            TMap<FString, FString> SourceContextById;
-            TMap<FString, FIntPoint> SourceDimensionsById;
-            FString FirstSourceId;
-
-            if (FeedV2->HasTypedField<EJson::Array>(TEXT("sources")))
-            {
-                const TArray<TSharedPtr<FJsonValue>> SourceArray = FeedV2->GetArrayField(TEXT("sources"));
-                for (const TSharedPtr<FJsonValue>& Value : SourceArray)
-                {
-                    if (!Value.IsValid() || Value->Type != EJson::Object)
-                    {
-                        continue;
-                    }
-                    const TSharedPtr<FJsonObject> SourceObj = Value->AsObject();
-                    if (!SourceObj.IsValid())
-                    {
-                        continue;
-                    }
-
-                    const FString SourceId = GetStringField(SourceObj, TEXT("id")).TrimStartAndEnd();
-                    if (SourceId.IsEmpty())
-                    {
-                        continue;
-                    }
-                    if (FirstSourceId.IsEmpty())
-                    {
-                        FirstSourceId = SourceId;
-                    }
-
-                    SourceContextById.Add(SourceId, GetStringField(SourceObj, TEXT("contextId")).TrimStartAndEnd());
-                    const int32 Width = FMath::Max(0, GetIntField(SourceObj, TEXT("width"), 0));
-                    const int32 Height = FMath::Max(0, GetIntField(SourceObj, TEXT("height"), 0));
-                    SourceDimensionsById.Add(SourceId, FIntPoint(Width, Height));
-                }
-            }
-
-            struct FDestinationSpec
-            {
-                FString Id;
-                FString SurfaceId;
-                int32 Width = 0;
-                int32 Height = 0;
-            };
-
-            TArray<FDestinationSpec> DestinationSpecs;
-            if (FeedV2->HasTypedField<EJson::Array>(TEXT("destinations")))
-            {
-                const TArray<TSharedPtr<FJsonValue>> DestinationArray = FeedV2->GetArrayField(TEXT("destinations"));
-                for (const TSharedPtr<FJsonValue>& Value : DestinationArray)
-                {
-                    if (!Value.IsValid() || Value->Type != EJson::Object)
-                    {
-                        continue;
-                    }
-                    const TSharedPtr<FJsonObject> DestinationObj = Value->AsObject();
-                    if (!DestinationObj.IsValid())
-                    {
-                        continue;
-                    }
-
-                    FDestinationSpec Destination;
-                    Destination.Id = GetStringField(DestinationObj, TEXT("id")).TrimStartAndEnd();
-                    Destination.SurfaceId = GetStringField(DestinationObj, TEXT("surfaceId")).TrimStartAndEnd();
-                    Destination.Width = FMath::Max(0, GetIntField(DestinationObj, TEXT("width"), 0));
-                    Destination.Height = FMath::Max(0, GetIntField(DestinationObj, TEXT("height"), 0));
-
-                    if (Destination.Id.IsEmpty() && !Destination.SurfaceId.IsEmpty())
-                    {
-                        Destination.Id = Destination.SurfaceId;
-                    }
-                    if (Destination.SurfaceId.IsEmpty() && !Destination.Id.IsEmpty())
-                    {
-                        Destination.SurfaceId = Destination.Id;
-                    }
-                    if (!Destination.Id.IsEmpty())
-                    {
-                        DestinationSpecs.Add(Destination);
-                    }
-                }
-            }
-
-            if (DestinationSpecs.Num() == 0)
-            {
-                FDestinationSpec Synthetic;
-                Synthetic.Id = SurfaceState.Id;
-                Synthetic.SurfaceId = SurfaceState.Id;
-                DestinationSpecs.Add(Synthetic);
-            }
-
-            TArray<FDestinationSpec> MatchingDestinations;
-            for (const FDestinationSpec& Destination : DestinationSpecs)
-            {
-                if (Destination.SurfaceId == SurfaceState.Id || Destination.Id == SurfaceState.Id)
-                {
-                    MatchingDestinations.Add(Destination);
-                }
-            }
-            if (MatchingDestinations.Num() == 0 && DestinationSpecs.Num() == 1)
-            {
-                MatchingDestinations.Add(DestinationSpecs[0]);
-            }
-            if (MatchingDestinations.Num() == 0)
-            {
-                FDestinationSpec Synthetic;
-                Synthetic.Id = SurfaceState.Id;
-                Synthetic.SurfaceId = SurfaceState.Id;
-                MatchingDestinations.Add(Synthetic);
-            }
-
-            TSharedPtr<FJsonObject> SelectedRoute;
-            FString SelectedSourceId;
-            FDestinationSpec SelectedDestination = MatchingDestinations[0];
-
-            if (FeedV2->HasTypedField<EJson::Array>(TEXT("routes")))
-            {
-                const TArray<TSharedPtr<FJsonValue>> RouteArray = FeedV2->GetArrayField(TEXT("routes"));
-                for (const TSharedPtr<FJsonValue>& Value : RouteArray)
-                {
-                    if (!Value.IsValid() || Value->Type != EJson::Object)
-                    {
-                        continue;
-                    }
-                    const TSharedPtr<FJsonObject> RouteObj = Value->AsObject();
-                    if (!RouteObj.IsValid() || !GetBoolField(RouteObj, TEXT("enabled"), true))
-                    {
-                        continue;
-                    }
-
-                    FString RouteDestinationId = GetStringField(RouteObj, TEXT("destinationId")).TrimStartAndEnd();
-                    if (RouteDestinationId.IsEmpty())
-                    {
-                        RouteDestinationId = GetStringField(RouteObj, TEXT("surfaceId")).TrimStartAndEnd();
-                    }
-                    if (RouteDestinationId.IsEmpty() && MatchingDestinations.Num() == 1)
-                    {
-                        RouteDestinationId = MatchingDestinations[0].Id;
-                    }
-
-                    const FDestinationSpec* MatchedDestination = nullptr;
-                    for (const FDestinationSpec& CandidateDestination : MatchingDestinations)
-                    {
-                        if (RouteDestinationId == CandidateDestination.Id || RouteDestinationId == CandidateDestination.SurfaceId)
-                        {
-                            MatchedDestination = &CandidateDestination;
-                            break;
-                        }
-                    }
-                    if (!MatchedDestination)
-                    {
-                        continue;
-                    }
-
-                    SelectedRoute = RouteObj;
-                    SelectedSourceId = GetStringField(RouteObj, TEXT("sourceId")).TrimStartAndEnd();
-                    SelectedDestination = *MatchedDestination;
-                    break;
-                }
-            }
-
-            if (SelectedSourceId.IsEmpty())
-            {
-                SelectedSourceId = FirstSourceId;
-            }
-
-            auto AddCandidate = [&NewPreparedRoute](const FString& Candidate)
-            {
-                const FString Trimmed = Candidate.TrimStartAndEnd();
-                if (!Trimmed.IsEmpty())
-                {
-                    NewPreparedRoute.ContextCandidates.AddUnique(Trimmed);
-                }
-            };
-
-            if (!SelectedSourceId.IsEmpty())
-            {
-                AddCandidate(SelectedSourceId);
-                if (const FString* ContextId = SourceContextById.Find(SelectedSourceId))
-                {
-                    AddCandidate(*ContextId);
-                }
-                if (const FIntPoint* SourceDim = SourceDimensionsById.Find(SelectedSourceId))
-                {
-                    NewPreparedRoute.SourceWidth = FMath::Max(0, SourceDim->X);
-                    NewPreparedRoute.SourceHeight = FMath::Max(0, SourceDim->Y);
-                }
-            }
-            AddCandidate(MappingState.ContextId);
-
-            NewPreparedRoute.DestinationWidth = FMath::Max(0, SelectedDestination.Width);
-            NewPreparedRoute.DestinationHeight = FMath::Max(0, SelectedDestination.Height);
-
-            const int32 DefaultSourceWidth = FMath::Max(1, NewPreparedRoute.SourceWidth > 0 ? NewPreparedRoute.SourceWidth : 1920);
-            const int32 DefaultSourceHeight = FMath::Max(1, NewPreparedRoute.SourceHeight > 0 ? NewPreparedRoute.SourceHeight : 1080);
-            const int32 DefaultDestinationWidth = FMath::Max(1, NewPreparedRoute.DestinationWidth > 0 ? NewPreparedRoute.DestinationWidth : DefaultSourceWidth);
-            const int32 DefaultDestinationHeight = FMath::Max(1, NewPreparedRoute.DestinationHeight > 0 ? NewPreparedRoute.DestinationHeight : DefaultSourceHeight);
-
-            NewPreparedRoute.SourceX = 0;
-            NewPreparedRoute.SourceY = 0;
-            NewPreparedRoute.SourceW = DefaultSourceWidth;
-            NewPreparedRoute.SourceH = DefaultSourceHeight;
-            NewPreparedRoute.DestinationX = 0;
-            NewPreparedRoute.DestinationY = 0;
-            NewPreparedRoute.DestinationW = DefaultDestinationWidth;
-            NewPreparedRoute.DestinationH = DefaultDestinationHeight;
-            NewPreparedRoute.bHasRoute = SelectedRoute.IsValid();
-
-            auto ParseRectPx = [this](const TSharedPtr<FJsonObject>& RectObj, int32& OutX, int32& OutY, int32& OutW, int32& OutH) -> bool
-            {
-                if (!RectObj.IsValid())
-                {
-                    return false;
-                }
-                OutX = GetIntField(RectObj, TEXT("x"), GetIntField(RectObj, TEXT("u"), OutX));
-                OutY = GetIntField(RectObj, TEXT("y"), GetIntField(RectObj, TEXT("v"), OutY));
-                OutW = GetIntField(RectObj, TEXT("w"), GetIntField(RectObj, TEXT("width"), OutW));
-                OutH = GetIntField(RectObj, TEXT("h"), GetIntField(RectObj, TEXT("height"), OutH));
-                return true;
-            };
-
-            if (SelectedRoute.IsValid())
-            {
-                TSharedPtr<FJsonObject> SourceRectObj;
-                if (SelectedRoute->HasTypedField<EJson::Object>(TEXT("sourceRect")))
-                {
-                    SourceRectObj = SelectedRoute->GetObjectField(TEXT("sourceRect"));
-                }
-                else if (SelectedRoute->HasTypedField<EJson::Object>(TEXT("srcRect")))
-                {
-                    SourceRectObj = SelectedRoute->GetObjectField(TEXT("srcRect"));
-                }
-                if (!ParseRectPx(SourceRectObj, NewPreparedRoute.SourceX, NewPreparedRoute.SourceY, NewPreparedRoute.SourceW, NewPreparedRoute.SourceH))
-                {
-                    NewPreparedRoute.SourceX = GetIntField(SelectedRoute, TEXT("sourceX"), GetIntField(SelectedRoute, TEXT("srcX"), NewPreparedRoute.SourceX));
-                    NewPreparedRoute.SourceY = GetIntField(SelectedRoute, TEXT("sourceY"), GetIntField(SelectedRoute, TEXT("srcY"), NewPreparedRoute.SourceY));
-                    NewPreparedRoute.SourceW = GetIntField(SelectedRoute, TEXT("sourceW"), GetIntField(SelectedRoute, TEXT("srcW"), NewPreparedRoute.SourceW));
-                    NewPreparedRoute.SourceH = GetIntField(SelectedRoute, TEXT("sourceH"), GetIntField(SelectedRoute, TEXT("srcH"), NewPreparedRoute.SourceH));
-                }
-
-                TSharedPtr<FJsonObject> DestinationRectObj;
-                if (SelectedRoute->HasTypedField<EJson::Object>(TEXT("destinationRect")))
-                {
-                    DestinationRectObj = SelectedRoute->GetObjectField(TEXT("destinationRect"));
-                }
-                else if (SelectedRoute->HasTypedField<EJson::Object>(TEXT("dstRect")))
-                {
-                    DestinationRectObj = SelectedRoute->GetObjectField(TEXT("dstRect"));
-                }
-                if (!ParseRectPx(DestinationRectObj, NewPreparedRoute.DestinationX, NewPreparedRoute.DestinationY, NewPreparedRoute.DestinationW, NewPreparedRoute.DestinationH))
-                {
-                    NewPreparedRoute.DestinationX = GetIntField(SelectedRoute, TEXT("destinationX"), GetIntField(SelectedRoute, TEXT("dstX"), NewPreparedRoute.DestinationX));
-                    NewPreparedRoute.DestinationY = GetIntField(SelectedRoute, TEXT("destinationY"), GetIntField(SelectedRoute, TEXT("dstY"), NewPreparedRoute.DestinationY));
-                    NewPreparedRoute.DestinationW = GetIntField(SelectedRoute, TEXT("destinationW"), GetIntField(SelectedRoute, TEXT("dstW"), NewPreparedRoute.DestinationW));
-                    NewPreparedRoute.DestinationH = GetIntField(SelectedRoute, TEXT("destinationH"), GetIntField(SelectedRoute, TEXT("dstH"), NewPreparedRoute.DestinationH));
-                }
-            }
-
-            PreparedRoute = &FeedSingleRtBindingCache.Add(CacheKey, MoveTemp(NewPreparedRoute));
-        }
-    }
-
-    if (!PreparedRoute)
-    {
-        return false;
-    }
-
-    if (!PreparedRoute->Error.IsEmpty())
-    {
-        OutBinding.Error = PreparedRoute->Error;
-        return false;
-    }
-
-    auto ResolveContextByCandidates = [this, PreparedRoute]() -> const FRshipRenderContextState*
-    {
-        auto FindContextById = [this](const FString& ContextId) -> const FRshipRenderContextState*
-        {
-            return ContextId.IsEmpty() ? nullptr : RenderContexts.Find(ContextId);
-        };
-
-        for (const FString& CandidateId : PreparedRoute->ContextCandidates)
-        {
-            if (const FRshipRenderContextState* CandidateContext = FindContextById(CandidateId))
-            {
-                if (CandidateContext->ResolvedTexture)
-                {
-                    return CandidateContext;
-                }
-            }
-        }
-        for (const FString& CandidateId : PreparedRoute->ContextCandidates)
-        {
-            if (const FRshipRenderContextState* CandidateContext = FindContextById(CandidateId))
-            {
-                return CandidateContext;
-            }
-        }
-        if (const FRshipRenderContextState* CandidateContext = FindContextById(CachedEnabledTextureContextId))
-        {
-            return CandidateContext;
-        }
-        if (const FRshipRenderContextState* CandidateContext = FindContextById(CachedAnyTextureContextId))
-        {
-            return CandidateContext;
-        }
-        if (const FRshipRenderContextState* CandidateContext = FindContextById(CachedEnabledContextId))
-        {
-            return CandidateContext;
-        }
-        if (const FRshipRenderContextState* CandidateContext = FindContextById(CachedAnyContextId))
-        {
-            return CandidateContext;
-        }
-        return nullptr;
-    };
-
-    const FRshipRenderContextState* SourceContext = ResolveContextByCandidates();
-    if (!SourceContext || !SourceContext->ResolvedTexture)
-    {
-        OutBinding.Error = TEXT("No source texture available for feed route");
-        return false;
-    }
-
-    const int32 TextureWidth = FMath::Max(1, SourceContext->ResolvedTexture->GetSurfaceWidth());
-    const int32 TextureHeight = FMath::Max(1, SourceContext->ResolvedTexture->GetSurfaceHeight());
-
-    const int32 SourceWidth = FMath::Max(
-        1,
-        PreparedRoute->SourceWidth > 0
-            ? PreparedRoute->SourceWidth
-            : (SourceContext->Width > 0 ? SourceContext->Width : TextureWidth));
-    const int32 SourceHeight = FMath::Max(
-        1,
-        PreparedRoute->SourceHeight > 0
-            ? PreparedRoute->SourceHeight
-            : (SourceContext->Height > 0 ? SourceContext->Height : TextureHeight));
-
-    const int32 DestinationWidth = FMath::Max(
-        1,
-        PreparedRoute->DestinationWidth > 0 ? PreparedRoute->DestinationWidth : SourceWidth);
-    const int32 DestinationHeight = FMath::Max(
-        1,
-        PreparedRoute->DestinationHeight > 0 ? PreparedRoute->DestinationHeight : SourceHeight);
-
-    int32 SourceX = PreparedRoute->bHasRoute ? PreparedRoute->SourceX : 0;
-    int32 SourceY = PreparedRoute->bHasRoute ? PreparedRoute->SourceY : 0;
-    int32 SourceW = PreparedRoute->bHasRoute ? PreparedRoute->SourceW : SourceWidth;
-    int32 SourceH = PreparedRoute->bHasRoute ? PreparedRoute->SourceH : SourceHeight;
-    int32 DestinationX = PreparedRoute->bHasRoute ? PreparedRoute->DestinationX : 0;
-    int32 DestinationY = PreparedRoute->bHasRoute ? PreparedRoute->DestinationY : 0;
-    int32 DestinationW = PreparedRoute->bHasRoute ? PreparedRoute->DestinationW : DestinationWidth;
-    int32 DestinationH = PreparedRoute->bHasRoute ? PreparedRoute->DestinationH : DestinationHeight;
-
-    SourceX = FMath::Clamp(SourceX, 0, SourceWidth - 1);
-    SourceY = FMath::Clamp(SourceY, 0, SourceHeight - 1);
-    SourceW = FMath::Clamp(SourceW, 1, SourceWidth - SourceX);
-    SourceH = FMath::Clamp(SourceH, 1, SourceHeight - SourceY);
-
-    DestinationX = FMath::Clamp(DestinationX, 0, DestinationWidth - 1);
-    DestinationY = FMath::Clamp(DestinationY, 0, DestinationHeight - 1);
-    DestinationW = FMath::Clamp(DestinationW, 1, DestinationWidth - DestinationX);
-    DestinationH = FMath::Clamp(DestinationH, 1, DestinationHeight - DestinationY);
-
-    OutBinding.bValid = true;
-    OutBinding.Texture = SourceContext->ResolvedTexture;
-    OutBinding.DepthTexture = SourceContext->ResolvedDepthTexture;
-    OutBinding.bHasSourceRect = true;
-    OutBinding.SourceU = static_cast<float>(SourceX) / static_cast<float>(SourceWidth);
-    OutBinding.SourceV = static_cast<float>(SourceY) / static_cast<float>(SourceHeight);
-    OutBinding.SourceW = static_cast<float>(SourceW) / static_cast<float>(SourceWidth);
-    OutBinding.SourceH = static_cast<float>(SourceH) / static_cast<float>(SourceHeight);
-    OutBinding.bHasDestinationRect = true;
-    OutBinding.DestinationU = static_cast<float>(DestinationX) / static_cast<float>(DestinationWidth);
-    OutBinding.DestinationV = static_cast<float>(DestinationY) / static_cast<float>(DestinationHeight);
-    OutBinding.DestinationW = static_cast<float>(DestinationW) / static_cast<float>(DestinationWidth);
-    OutBinding.DestinationH = static_cast<float>(DestinationH) / static_cast<float>(DestinationHeight);
-    return true;
 }
 
 UTexture* URshipContentMappingManager::BuildFeedCompositeTextureForSurface(
@@ -5229,13 +5807,9 @@ UTexture* URshipContentMappingManager::BuildFeedCompositeTextureForSurface(
         }
     }
 
-    const bool bUseRoutesField = FeedV2->HasTypedField<EJson::Array>(TEXT("routes"));
-    const bool bUseLinksField = FeedV2->HasTypedField<EJson::Array>(TEXT("links"));
-    if (bUseRoutesField || bUseLinksField)
+    if (FeedV2->HasTypedField<EJson::Array>(TEXT("routes")))
     {
-        const TArray<TSharedPtr<FJsonValue>> RouteArray = bUseRoutesField
-            ? FeedV2->GetArrayField(TEXT("routes"))
-            : FeedV2->GetArrayField(TEXT("links"));
+        const TArray<TSharedPtr<FJsonValue>> RouteArray = FeedV2->GetArrayField(TEXT("routes"));
         for (const TSharedPtr<FJsonValue>& Value : RouteArray)
         {
             if (!Value.IsValid() || Value->Type != EJson::Object)
@@ -5256,19 +5830,6 @@ UTexture* URshipContentMappingManager::BuildFeedCompositeTextureForSurface(
             Route.DestinationId = GetStringField(RouteObj, TEXT("destinationId")).TrimStartAndEnd();
             Route.bEnabled = GetBoolField(RouteObj, TEXT("enabled"), true);
             Route.Opacity = FMath::Clamp(GetNumberField(RouteObj, TEXT("opacity"), 1.0f), 0.0f, 1.0f);
-
-            if (Route.SourceId.IsEmpty())
-            {
-                Route.SourceId = GetStringField(RouteObj, TEXT("source")).TrimStartAndEnd();
-            }
-            if (Route.DestinationId.IsEmpty())
-            {
-                Route.DestinationId = GetStringField(RouteObj, TEXT("destination")).TrimStartAndEnd();
-            }
-            if (Route.DestinationId.IsEmpty())
-            {
-                Route.DestinationId = GetStringField(RouteObj, TEXT("surfaceId")).TrimStartAndEnd();
-            }
 
             int32 DefaultSourceWidth = 1920;
             int32 DefaultSourceHeight = 1080;
@@ -5350,36 +5911,14 @@ UTexture* URshipContentMappingManager::BuildFeedCompositeTextureForSurface(
             {
                 SourceRectObj = RouteObj->GetObjectField(TEXT("sourceRect"));
             }
-            else if (RouteObj->HasTypedField<EJson::Object>(TEXT("srcRect")))
-            {
-                SourceRectObj = RouteObj->GetObjectField(TEXT("srcRect"));
-            }
             ParseRectPx(SourceRectObj, DefaultSourceRect, Route.SourceRect);
-            if (!SourceRectObj.IsValid())
-            {
-                Route.SourceRect.X = GetIntField(RouteObj, TEXT("sourceX"), GetIntField(RouteObj, TEXT("srcX"), 0));
-                Route.SourceRect.Y = GetIntField(RouteObj, TEXT("sourceY"), GetIntField(RouteObj, TEXT("srcY"), 0));
-                Route.SourceRect.W = GetIntField(RouteObj, TEXT("sourceW"), GetIntField(RouteObj, TEXT("srcW"), 1));
-                Route.SourceRect.H = GetIntField(RouteObj, TEXT("sourceH"), GetIntField(RouteObj, TEXT("srcH"), 1));
-            }
 
             TSharedPtr<FJsonObject> DestinationRectObj;
             if (RouteObj->HasTypedField<EJson::Object>(TEXT("destinationRect")))
             {
                 DestinationRectObj = RouteObj->GetObjectField(TEXT("destinationRect"));
             }
-            else if (RouteObj->HasTypedField<EJson::Object>(TEXT("dstRect")))
-            {
-                DestinationRectObj = RouteObj->GetObjectField(TEXT("dstRect"));
-            }
             ParseRectPx(DestinationRectObj, DefaultDestinationRect, Route.DestinationRect);
-            if (!DestinationRectObj.IsValid())
-            {
-                Route.DestinationRect.X = GetIntField(RouteObj, TEXT("destinationX"), GetIntField(RouteObj, TEXT("dstX"), 0));
-                Route.DestinationRect.Y = GetIntField(RouteObj, TEXT("destinationY"), GetIntField(RouteObj, TEXT("dstY"), 0));
-                Route.DestinationRect.W = GetIntField(RouteObj, TEXT("destinationW"), GetIntField(RouteObj, TEXT("dstW"), 1));
-                Route.DestinationRect.H = GetIntField(RouteObj, TEXT("destinationH"), GetIntField(RouteObj, TEXT("dstH"), 1));
-            }
 
             if (Route.Id.IsEmpty())
             {
@@ -5438,10 +5977,57 @@ UTexture* URshipContentMappingManager::BuildFeedCompositeTextureForSurface(
     const int32 DestinationWidth = FMath::Max(1, ResolveDestinationDimension(true));
     const int32 DestinationHeight = FMath::Max(1, ResolveDestinationDimension(false));
 
+    auto ResolveDirectFeedFallbackTexture = [this, &MappingState, &Spec]() -> UTexture*
+    {
+        auto ResolveContextTextureById = [this](const FString& RawContextId) -> UTexture*
+        {
+            const FString ContextId = RawContextId.TrimStartAndEnd();
+            if (ContextId.IsEmpty())
+            {
+                return nullptr;
+            }
+
+            if (const FRshipRenderContextState* ContextState = RenderContexts.Find(ContextId))
+            {
+                return ContextState->ResolvedTexture;
+            }
+
+            return nullptr;
+        };
+
+        for (const TPair<FString, FFeedSourceSpec>& Pair : Spec.Sources)
+        {
+            if (UTexture* SourceTexture = ResolveContextTextureById(Pair.Value.ContextId))
+            {
+                return SourceTexture;
+            }
+            if (UTexture* SourceTexture = ResolveContextTextureById(Pair.Value.Id))
+            {
+                return SourceTexture;
+            }
+            if (UTexture* SourceTexture = ResolveContextTextureById(Pair.Key))
+            {
+                return SourceTexture;
+            }
+        }
+
+        if (const FRshipRenderContextState* FallbackContext = ResolveEffectiveContextState(MappingState, true))
+        {
+            return FallbackContext->ResolvedTexture;
+        }
+
+        return nullptr;
+    };
+
     bool bHasRouteForDestination = false;
     const bool bSingleDestination = Spec.Destinations.Num() <= 1;
     for (const FFeedRouteSpec& Route : Spec.Routes)
     {
+        if (!Route.bEnabled)
+        {
+            continue;
+        }
+
         FString RouteDestinationId = Route.DestinationId;
         if (RouteDestinationId.IsEmpty() && bSingleDestination)
         {
@@ -5454,110 +6040,29 @@ UTexture* URshipContentMappingManager::BuildFeedCompositeTextureForSurface(
         }
     }
 
-    if (!bHasRouteForDestination && Spec.Sources.Num() > 0)
-    {
-        const FFeedSourceSpec* FallbackSource = nullptr;
-        if (!MappingState.ContextId.IsEmpty())
-        {
-            for (const TPair<FString, FFeedSourceSpec>& Pair : Spec.Sources)
-            {
-                if (Pair.Value.ContextId.Equals(MappingState.ContextId, ESearchCase::IgnoreCase))
-                {
-                    FallbackSource = &Pair.Value;
-                    break;
-                }
-            }
-        }
-        if (!FallbackSource)
-        {
-            for (const TPair<FString, FFeedSourceSpec>& Pair : Spec.Sources)
-            {
-                if (!Pair.Value.ContextId.IsEmpty())
-                {
-                    FallbackSource = &Pair.Value;
-                    break;
-                }
-            }
-        }
-        if (!FallbackSource)
-        {
-            for (const TPair<FString, FFeedSourceSpec>& Pair : Spec.Sources)
-            {
-                FallbackSource = &Pair.Value;
-                break;
-            }
-        }
-
-        if (FallbackSource)
-        {
-            int32 FallbackSourceWidth = FMath::Max(1, FallbackSource->Width);
-            int32 FallbackSourceHeight = FMath::Max(1, FallbackSource->Height);
-            if (!FallbackSource->ContextId.IsEmpty())
-            {
-                if (const FRshipRenderContextState* SourceContext = RenderContexts.Find(FallbackSource->ContextId))
-                {
-                    if (SourceContext->Width > 0)
-                    {
-                        FallbackSourceWidth = SourceContext->Width;
-                    }
-                    if (SourceContext->Height > 0)
-                    {
-                        FallbackSourceHeight = SourceContext->Height;
-                    }
-                    if (SourceContext->ResolvedTexture)
-                    {
-                        FallbackSourceWidth = FMath::Max(1, SourceContext->ResolvedTexture->GetSurfaceWidth());
-                        FallbackSourceHeight = FMath::Max(1, SourceContext->ResolvedTexture->GetSurfaceHeight());
-                    }
-                }
-            }
-
-            FFeedRouteSpec Route;
-            Route.Id = FString::Printf(TEXT("auto-route-%s"), *FGuid::NewGuid().ToString(EGuidFormats::Digits).Left(8));
-            Route.SourceId = FallbackSource->Id;
-            Route.DestinationId = DestinationSpec.Id.IsEmpty() ? DestinationSpec.SurfaceId : DestinationSpec.Id;
-            Route.bEnabled = true;
-            Route.Opacity = 1.0f;
-            Route.SourceRect.X = 0;
-            Route.SourceRect.Y = 0;
-            Route.SourceRect.W = FMath::Max(1, FallbackSourceWidth);
-            Route.SourceRect.H = FMath::Max(1, FallbackSourceHeight);
-            Route.DestinationRect.X = 0;
-            Route.DestinationRect.Y = 0;
-            Route.DestinationRect.W = DestinationWidth;
-            Route.DestinationRect.H = DestinationHeight;
-            Spec.Routes.Add(Route);
-        }
-    }
-
     const FString CompositeKey = MakeFeedCompositeKey(MappingState.Id, SurfaceState.Id);
     UTextureRenderTarget2D* CompositeRT = FeedCompositeTargets.FindRef(CompositeKey);
-    const bool bNeedsNewRT = !CompositeRT
-        || !IsValid(CompositeRT)
-        || CompositeRT->SizeX != DestinationWidth
-        || CompositeRT->SizeY != DestinationHeight;
-    if (bNeedsNewRT)
+
+    if (!bHasRouteForDestination)
     {
-        CompositeRT = NewObject<UTextureRenderTarget2D>(this);
-        if (!CompositeRT)
+        if (UTexture* DirectFallbackTexture = ResolveDirectFeedFallbackTexture())
         {
-            OutError = TEXT("Failed to allocate feed composite render target");
-            return nullptr;
+            FeedCompositeTargets.Remove(CompositeKey);
+            FeedCompositeStaticSignatures.Remove(CompositeKey);
+            return DirectFallbackTexture;
         }
-        CompositeRT->RenderTargetFormat = ETextureRenderTargetFormat::RTF_RGBA8;
-        CompositeRT->AddressX = TA_Clamp;
-        CompositeRT->AddressY = TA_Clamp;
-        CompositeRT->ClearColor = FLinearColor::Black;
-        CompositeRT->InitCustomFormat(DestinationWidth, DestinationHeight, PF_B8G8R8A8, false);
-        CompositeRT->UpdateResourceImmediate(true);
-        FeedCompositeTargets.Add(CompositeKey, CompositeRT);
+
+        OutError = TEXT("No feed routes mapped to this destination");
+        FeedCompositeTargets.Remove(CompositeKey);
+        FeedCompositeStaticSignatures.Remove(CompositeKey);
+        return nullptr;
     }
 
     UWorld* World = GetBestWorld();
     if (!World)
     {
         OutError = TEXT("World not available for feed composition");
-        return CompositeRT;
+        return nullptr;
     }
 
     auto ResolveContextForRoute = [this, &MappingState](const FFeedSourceSpec* SourceSpec, const FString& RouteSourceId) -> const FRshipRenderContextState*
@@ -5599,19 +6104,13 @@ UTexture* URshipContentMappingManager::BuildFeedCompositeTextureForSurface(
             }
         }
 
-        for (const TPair<FString, FRshipRenderContextState>& Pair : RenderContexts)
+        if (const FRshipRenderContextState* FallbackWithTexture = ResolveEffectiveContextState(MappingState, true))
         {
-            if (Pair.Value.bEnabled && Pair.Value.ResolvedTexture)
-            {
-                return &Pair.Value;
-            }
+            return FallbackWithTexture;
         }
-        for (const TPair<FString, FRshipRenderContextState>& Pair : RenderContexts)
+        if (const FRshipRenderContextState* FallbackAny = ResolveEffectiveContextState(MappingState, false))
         {
-            if (Pair.Value.ResolvedTexture)
-            {
-                return &Pair.Value;
-            }
+            return FallbackAny;
         }
         return nullptr;
     };
@@ -5626,14 +6125,76 @@ UTexture* URshipContentMappingManager::BuildFeedCompositeTextureForSurface(
         {
             return true;
         }
-        return !SourceContext->SourceType.Equals(TEXT("asset"), ESearchCase::IgnoreCase);
+        return !SourceContext->SourceType.Equals(TEXT("asset-store"), ESearchCase::IgnoreCase)
+            && !SourceContext->SourceType.Equals(TEXT("asset"), ESearchCase::IgnoreCase);
     };
+
+    bool bHasRenderableRoute = false;
+    TArray<FString> PreflightIssues;
+    const bool bSingleSourceForPreflight = Spec.Sources.Num() == 1;
+    for (const FFeedRouteSpec& Route : Spec.Routes)
+    {
+        if (!Route.bEnabled)
+        {
+            continue;
+        }
+
+        FString RouteDestinationId = Route.DestinationId;
+        if (RouteDestinationId.IsEmpty() && bSingleDestination)
+        {
+            RouteDestinationId = DestinationSpec.Id;
+        }
+        if (RouteDestinationId != DestinationSpec.Id && RouteDestinationId != DestinationSpec.SurfaceId)
+        {
+            continue;
+        }
+
+        FString RouteSourceId = Route.SourceId;
+        if (RouteSourceId.IsEmpty() && bSingleSourceForPreflight)
+        {
+            for (const TPair<FString, FFeedSourceSpec>& Pair : Spec.Sources)
+            {
+                RouteSourceId = Pair.Key;
+                break;
+            }
+        }
+        if (RouteSourceId.IsEmpty())
+        {
+            PreflightIssues.Add(FString::Printf(TEXT("Route '%s' has no source"), *Route.Id));
+            continue;
+        }
+
+        const FFeedSourceSpec* SourceSpec = Spec.Sources.Find(RouteSourceId);
+        const FRshipRenderContextState* SourceContext = ResolveContextForRoute(SourceSpec, RouteSourceId);
+        if (SourceContext && SourceContext->ResolvedTexture)
+        {
+            bHasRenderableRoute = true;
+            break;
+        }
+
+        PreflightIssues.Add(FString::Printf(TEXT("Route '%s' source '%s' texture unavailable"), *Route.Id, *RouteSourceId));
+    }
+
+    if (!bHasRenderableRoute)
+    {
+        if (UTexture* DirectFallbackTexture = ResolveDirectFeedFallbackTexture())
+        {
+            FeedCompositeTargets.Remove(CompositeKey);
+            FeedCompositeStaticSignatures.Remove(CompositeKey);
+            return DirectFallbackTexture;
+        }
+
+        OutError = PreflightIssues.Num() > 0
+            ? FString::Join(PreflightIssues, TEXT("; "))
+            : TEXT("No valid feed routes for this destination");
+        FeedCompositeTargets.Remove(CompositeKey);
+        FeedCompositeStaticSignatures.Remove(CompositeKey);
+        return nullptr;
+    }
 
     uint32 CompositeSignature = HashCombineFast(GetTypeHash(DestinationWidth), GetTypeHash(DestinationHeight));
     CompositeSignature = HashCombineFast(CompositeSignature, GetTypeHash(MappingState.Id));
     CompositeSignature = HashCombineFast(CompositeSignature, GetTypeHash(SurfaceState.Id));
-    CompositeSignature = HashCombineFast(CompositeSignature, GetTypeHash(static_cast<uint32>(RuntimeStateRevision)));
-    CompositeSignature = HashCombineFast(CompositeSignature, GetTypeHash(static_cast<uint32>(RuntimeStateRevision >> 32)));
     bool bHasDynamicRouteSource = false;
     int32 SignatureRouteCount = 0;
 
@@ -5691,34 +6252,7 @@ UTexture* URshipContentMappingManager::BuildFeedCompositeTextureForSurface(
 
     if (SignatureRouteCount == 0)
     {
-        const FRshipRenderContextState* FallbackContextForSignature = nullptr;
-        if (!MappingState.ContextId.IsEmpty())
-        {
-            FallbackContextForSignature = RenderContexts.Find(MappingState.ContextId);
-        }
-        if ((!FallbackContextForSignature || !FallbackContextForSignature->ResolvedTexture))
-        {
-            for (const TPair<FString, FRshipRenderContextState>& Pair : RenderContexts)
-            {
-                if (Pair.Value.bEnabled && Pair.Value.ResolvedTexture)
-                {
-                    FallbackContextForSignature = &Pair.Value;
-                    break;
-                }
-            }
-        }
-        if (FallbackContextForSignature && FallbackContextForSignature->ResolvedTexture)
-        {
-            CompositeSignature = HashCombineFast(CompositeSignature, PointerHash(FallbackContextForSignature->ResolvedTexture));
-            if (IsDynamicRouteSource(FallbackContextForSignature, FallbackContextForSignature->ResolvedTexture))
-            {
-                bHasDynamicRouteSource = true;
-            }
-        }
-        else
-        {
-            CompositeSignature = HashCombineFast(CompositeSignature, 0x8AC69E17u);
-        }
+        CompositeSignature = HashCombineFast(CompositeSignature, 0x8AC69E17u);
     }
 
     // Fast path: one full-frame opaque route can use the source texture directly.
@@ -5792,6 +6326,27 @@ UTexture* URshipContentMappingManager::BuildFeedCompositeTextureForSurface(
         }
     }
 
+    const bool bNeedsNewRT = !CompositeRT
+        || !IsValid(CompositeRT)
+        || CompositeRT->SizeX != DestinationWidth
+        || CompositeRT->SizeY != DestinationHeight;
+    if (bNeedsNewRT)
+    {
+        CompositeRT = NewObject<UTextureRenderTarget2D>(this);
+        if (!CompositeRT)
+        {
+            OutError = TEXT("Failed to allocate feed composite render target");
+            return nullptr;
+        }
+        CompositeRT->RenderTargetFormat = ETextureRenderTargetFormat::RTF_RGBA8;
+        CompositeRT->AddressX = TA_Clamp;
+        CompositeRT->AddressY = TA_Clamp;
+        CompositeRT->ClearColor = FLinearColor::Black;
+        CompositeRT->InitCustomFormat(DestinationWidth, DestinationHeight, PF_B8G8R8A8, false);
+        CompositeRT->UpdateResourceImmediate(true);
+        FeedCompositeTargets.Add(CompositeKey, CompositeRT);
+    }
+
     if (!bHasDynamicRouteSource)
     {
         if (const uint32* CachedSignature = FeedCompositeStaticSignatures.Find(CompositeKey))
@@ -5812,30 +6367,7 @@ UTexture* URshipContentMappingManager::BuildFeedCompositeTextureForSurface(
 
     if (!Canvas)
     {
-        const FRshipRenderContextState* BypassContext = nullptr;
-        if (!MappingState.ContextId.IsEmpty())
-        {
-            BypassContext = RenderContexts.Find(MappingState.ContextId);
-        }
-        if (!BypassContext || !BypassContext->ResolvedTexture)
-        {
-            for (const TPair<FString, FRshipRenderContextState>& Pair : RenderContexts)
-            {
-                if (Pair.Value.bEnabled && Pair.Value.ResolvedTexture)
-                {
-                    BypassContext = &Pair.Value;
-                    break;
-                }
-            }
-        }
         UKismetRenderingLibrary::EndDrawCanvasToRenderTarget(World, DrawContext);
-        if (BypassContext && BypassContext->ResolvedTexture)
-        {
-            UE_LOG(LogRshipExec, Warning, TEXT("Feed composite canvas unavailable map=%s surf=%s; bypassing to source texture"),
-                *MappingState.Id, *SurfaceState.Id);
-            FeedCompositeStaticSignatures.Remove(CompositeKey);
-            return BypassContext->ResolvedTexture;
-        }
         OutError = TEXT("Feed composite canvas unavailable");
         if (!bHasDynamicRouteSource)
         {
@@ -5933,68 +6465,25 @@ UTexture* URshipContentMappingManager::BuildFeedCompositeTextureForSurface(
         }
     }
 
-    if (DrawnRouteCount == 0 && Canvas)
-    {
-        const FRshipRenderContextState* FallbackContext = nullptr;
-        if (!MappingState.ContextId.IsEmpty())
-        {
-            FallbackContext = RenderContexts.Find(MappingState.ContextId);
-        }
-        if ((!FallbackContext || !FallbackContext->ResolvedTexture))
-        {
-            for (const TPair<FString, FRshipRenderContextState>& Pair : RenderContexts)
-            {
-                if (Pair.Value.bEnabled && Pair.Value.ResolvedTexture)
-                {
-                    FallbackContext = &Pair.Value;
-                    break;
-                }
-            }
-        }
-        if ((!FallbackContext || !FallbackContext->ResolvedTexture))
-        {
-            for (const TPair<FString, FRshipRenderContextState>& Pair : RenderContexts)
-            {
-                if (Pair.Value.ResolvedTexture)
-                {
-                    FallbackContext = &Pair.Value;
-                    break;
-                }
-            }
-        }
-
-        if (FallbackContext && FallbackContext->ResolvedTexture)
-        {
-            Canvas->K2_DrawTexture(
-                FallbackContext->ResolvedTexture,
-                FVector2D(0.0f, 0.0f),
-                FVector2D(static_cast<float>(DestinationWidth), static_cast<float>(DestinationHeight)),
-                FVector2D::ZeroVector,
-                FVector2D(1.0f, 1.0f),
-                FLinearColor::White,
-                BLEND_Opaque,
-                0.0f,
-                FVector2D::ZeroVector);
-            ++DrawnRouteCount;
-            RouteIssues.Add(TEXT("No valid feed routes; using fallback full-frame source"));
-        }
-    }
-
     UKismetRenderingLibrary::EndDrawCanvasToRenderTarget(World, DrawContext);
+
+    if (DrawnRouteCount == 0)
+    {
+        if (UTexture* DirectFallbackTexture = ResolveDirectFeedFallbackTexture())
+        {
+            FeedCompositeTargets.Remove(CompositeKey);
+            FeedCompositeStaticSignatures.Remove(CompositeKey);
+            return DirectFallbackTexture;
+        }
+
+        RouteIssues.Add(TEXT("No valid feed routes for this destination"));
+    }
 
     if (RouteIssues.Num() > 0)
     {
-        if (DrawnRouteCount > 0)
-        {
-            UE_LOG(LogRshipExec, Verbose, TEXT("Feed composite recovered map=%s surf=%s: %s"),
-                *MappingState.Id, *SurfaceState.Id, *FString::Join(RouteIssues, TEXT("; ")));
-        }
-        else
-        {
-            OutError = FString::Join(RouteIssues, TEXT("; "));
-            UE_LOG(LogRshipExec, Warning, TEXT("Feed composite issues map=%s surf=%s: %s"),
-                *MappingState.Id, *SurfaceState.Id, *OutError);
-        }
+        OutError = FString::Join(RouteIssues, TEXT("; "));
+        UE_LOG(LogRshipExec, Warning, TEXT("Feed composite issues map=%s surf=%s: %s"),
+            *MappingState.Id, *SurfaceState.Id, *OutError);
     }
 
     if (!bHasDynamicRouteSource)
@@ -6011,10 +6500,17 @@ UTexture* URshipContentMappingManager::BuildFeedCompositeTextureForSurface(
 
 void URshipContentMappingManager::RebuildMappings()
 {
+    UWorld* PreferredWorld = GetBestWorld();
     for (auto& Pair : MappingSurfaces)
     {
         RestoreSurfaceMaterials(Pair.Value);
-        ResolveMappingSurface(Pair.Value);
+        UMeshComponent* Mesh = Pair.Value.MeshComponent.Get();
+        const bool bNeedsResolve = !IsMeshReadyForMaterialMutation(Mesh)
+            || (PreferredWorld && Mesh && Mesh->GetWorld() != PreferredWorld);
+        if (bNeedsResolve)
+        {
+            ResolveMappingSurface(Pair.Value);
+        }
     }
 
     if (!bMappingsArmed)
@@ -6055,6 +6551,17 @@ void URshipContentMappingManager::RebuildMappings()
         return;
     }
 
+    if (IsRuntimeBlocked())
+    {
+        for (auto& Pair : RenderContexts)
+        {
+            NormalizeRenderContextState(Pair.Value);
+            EmitContextState(Pair.Value);
+        }
+        ApplyRuntimeHealthToStates(/*bEmitChanges=*/true);
+        return;
+    }
+
     for (auto& Pair : RenderContexts)
     {
         NormalizeRenderContextState(Pair.Value);
@@ -6069,6 +6576,7 @@ void URshipContentMappingManager::RebuildMappings()
     {
         FRshipContentMappingState& MappingState = MappingPair.Value;
         MappingState.LastError.Empty();
+        const uint32 MappingConfigHash = MappingState.Config.IsValid() ? HashJsonPayload(MappingState.Config) : 0;
 
         const bool bFeedV2 = IsFeedV2Mapping(MappingState);
 
@@ -6112,7 +6620,7 @@ void URshipContentMappingManager::RebuildMappings()
             FRshipMappingSurfaceState* SurfaceState = MappingSurfaces.Find(SurfaceId);
             if (SurfaceState && SurfaceState->bEnabled)
             {
-                ApplyMappingToSurface(MappingState, *SurfaceState, ContextState);
+                ApplyMappingToSurface(MappingState, *SurfaceState, ContextState, MappingConfigHash);
                 if (!SurfaceState->LastError.IsEmpty())
                 {
                     if (MappingState.LastError.IsEmpty())
@@ -6193,41 +6701,70 @@ void URshipContentMappingManager::RestoreSurfaceMaterials(FRshipMappingSurfaceSt
 void URshipContentMappingManager::ApplyMappingToSurface(
     const FRshipContentMappingState& MappingState,
     FRshipMappingSurfaceState& SurfaceState,
-    const FRshipRenderContextState* ContextState)
+    const FRshipRenderContextState* ContextState,
+    uint32 MappingConfigHash,
+    double* OutApplyMs,
+    int32* OutMaterialBindingsUpdated,
+    int32* OutMaterialBindingsSkipped)
 {
+    const double ApplyStartSeconds = OutApplyMs ? FPlatformTime::Seconds() : 0.0;
+    auto FinishApplyTiming = [&]()
+    {
+        if (OutApplyMs)
+        {
+            *OutApplyMs += (FPlatformTime::Seconds() - ApplyStartSeconds) * 1000.0;
+        }
+    };
+
+    SurfaceState.LastError.Empty();
+
     UMeshComponent* Mesh = SurfaceState.MeshComponent.Get();
     if (!IsMeshReadyForMaterialMutation(Mesh))
     {
         SurfaceState.LastError = TEXT("Mesh component not resolved");
+        FinishApplyTiming();
         return;
     }
 
-    if (!ContentMappingMaterial)
+    RunRuntimePreflight(/*bForceMaterialResolve=*/false);
+    const bool bAllowSurfaceFallback = CVarRshipContentMappingAllowSurfaceMaterialFallback.GetValueOnGameThread() > 0;
+    UMaterialInterface* BaseMaterial = (ContentMappingMaterial && bMaterialContractValid)
+        ? ContentMappingMaterial
+        : nullptr;
+    bool bUsingSurfaceFallback = false;
+
+    if (!BaseMaterial)
     {
-        BuildFallbackMaterial();
+        FString FallbackMaterialError;
+        if (bAllowSurfaceFallback)
+        {
+            BaseMaterial = ResolveSurfaceFallbackMaterial(SurfaceState, Mesh, FallbackMaterialError);
+        }
+
+        if (!BaseMaterial)
+        {
+            if (IsRuntimeBlocked())
+            {
+                SurfaceState.LastError = BuildRuntimeBlockedError(RuntimeHealthReason);
+            }
+            else
+            {
+                SurfaceState.LastError = FallbackMaterialError.IsEmpty()
+                    ? TEXT("No compatible mapping material available")
+                    : FallbackMaterialError;
+            }
+            FinishApplyTiming();
+            return;
+        }
+
+        bUsingSurfaceFallback = true;
     }
 
-    EnsureMaterialContract();
-    if (!bMaterialContractValid)
+    if (bUsingSurfaceFallback)
     {
-        BuildFallbackMaterial();
-        EnsureMaterialContract();
+        UE_LOG(LogRshipExec, VeryVerbose, TEXT("ApplyMappingToSurface[%s]: using surface fallback material '%s'"),
+            *SurfaceState.Id, *BaseMaterial->GetName());
     }
-
-    if (!ContentMappingMaterial)
-    {
-        SurfaceState.LastError = TEXT("Content mapping material unavailable");
-        return;
-    }
-    if (!bMaterialContractValid)
-    {
-        SurfaceState.LastError = MaterialContractError.IsEmpty()
-            ? TEXT("Content mapping material contract invalid")
-            : MaterialContractError;
-        return;
-    }
-
-    UMaterialInterface* BaseMaterial = ContentMappingMaterial;
 
     const int32 SlotCount = Mesh->GetNumMaterials();
     if (SlotCount <= 0)
@@ -6235,28 +6772,52 @@ void URshipContentMappingManager::ApplyMappingToSurface(
         SurfaceState.LastError = TEXT("Mesh has no material slots");
         UE_LOG(LogRshipExec, Warning, TEXT("ApplyMappingToSurface[%s]: mesh '%s' has no material slots"),
             *SurfaceState.Id, *Mesh->GetName());
+        FinishApplyTiming();
         return;
     }
 
     const bool bUseFeedV2 = IsFeedV2Mapping(MappingState);
     FString FeedCompositeError;
     UTexture* FeedCompositeTexture = nullptr;
+    UTexture* EffectiveTexture = ContextState ? ContextState->ResolvedTexture : nullptr;
     if (bUseFeedV2)
     {
         FeedCompositeTexture = BuildFeedCompositeTextureForSurface(MappingState, SurfaceState, FeedCompositeError);
-
+        EffectiveTexture = FeedCompositeTexture;
+        if (!EffectiveTexture && ContextState && ContextState->ResolvedTexture)
+        {
+            // Feed can still fall back to the mapping context when route composition fails.
+            EffectiveTexture = ContextState->ResolvedTexture;
+        }
         if (!FeedCompositeError.IsEmpty())
         {
-            SurfaceState.LastError = FeedCompositeError;
+            UE_LOG(LogRshipExec, Warning, TEXT("Feed composite fallback map=%s surf=%s reason=%s"),
+                *MappingState.Id, *SurfaceState.Id, *FeedCompositeError);
         }
     }
 
-    const bool bHasTexture = (FeedCompositeTexture != nullptr) || (ContextState && ContextState->ResolvedTexture);
-    if (bUseFeedV2 && !bHasTexture)
+    const bool bHasTexture = EffectiveTexture != nullptr;
+    if (!bHasTexture)
     {
-        SurfaceState.LastError = FeedCompositeError.IsEmpty()
-            ? TEXT("No feed source texture available")
-            : FeedCompositeError;
+        SurfaceState.LastError = bUseFeedV2
+            ? (FeedCompositeError.IsEmpty() ? TEXT("No feed source texture available") : FeedCompositeError)
+            : TEXT("Render context has no texture");
+        static double LastMissingTextureWarningTimeSeconds = 0.0;
+        const double NowSeconds = FPlatformTime::Seconds();
+        if ((NowSeconds - LastMissingTextureWarningTimeSeconds) >= 1.0)
+        {
+            LastMissingTextureWarningTimeSeconds = NowSeconds;
+            UE_LOG(LogRshipExec, Warning,
+                TEXT("Mapping texture missing map=%s surf=%s ctx=%s feed=%d ctxErr='%s' surfErr='%s'"),
+                *MappingState.Id,
+                *SurfaceState.Id,
+                ContextState ? *ContextState->Id : TEXT("<none>"),
+                bUseFeedV2 ? 1 : 0,
+                ContextState ? *ContextState->LastError : TEXT(""),
+                *SurfaceState.LastError);
+        }
+        FinishApplyTiming();
+        return;
     }
     UE_LOG(LogRshipExec, VeryVerbose, TEXT("ApplyMappingToSurface map=%s surf=%s mesh=%s slots=%d hasContext=%d hasTexture=%d"),
         *MappingState.Id,
@@ -6274,19 +6835,17 @@ void URshipContentMappingManager::ApplyMappingToSurface(
     BaseBindingHash = HashCombineFast(BaseBindingHash, GetTypeHash(SurfaceState.UVChannel));
     BaseBindingHash = HashCombineFast(BaseBindingHash, GetTypeHash(bUseFeedV2));
     BaseBindingHash = HashCombineFast(BaseBindingHash, GetTypeHash(bCoveragePreviewEnabled));
-    BaseBindingHash = HashCombineFast(BaseBindingHash, GetTypeHash(static_cast<uint32>(RuntimeStateRevision)));
-    BaseBindingHash = HashCombineFast(BaseBindingHash, GetTypeHash(static_cast<uint32>(RuntimeStateRevision >> 32)));
     if (MappingState.Config.IsValid())
     {
-        BaseBindingHash = HashCombineFast(BaseBindingHash, PointerHash(MappingState.Config.Get()));
+        BaseBindingHash = HashCombineFast(BaseBindingHash, MappingConfigHash);
     }
     if (FeedCompositeTexture)
     {
         BaseBindingHash = HashCombineFast(BaseBindingHash, PointerHash(FeedCompositeTexture));
     }
-    if (ContextState && ContextState->ResolvedTexture)
+    if (EffectiveTexture)
     {
-        BaseBindingHash = HashCombineFast(BaseBindingHash, PointerHash(ContextState->ResolvedTexture));
+        BaseBindingHash = HashCombineFast(BaseBindingHash, PointerHash(EffectiveTexture));
     }
     if (ContextState && ContextState->ResolvedDepthTexture)
     {
@@ -6310,31 +6869,63 @@ void URshipContentMappingManager::ApplyMappingToSurface(
         if (UMaterialInstanceDynamic** Existing = SurfaceState.MaterialInstances.Find(SlotIndex))
         {
             MID = *Existing;
+            if (!MID
+                || !IsValid(MID)
+                || MID->HasAnyFlags(RF_BeginDestroyed | RF_FinishDestroyed)
+                || MID->IsUnreachable()
+                || MID->GetOuter() != Mesh)
+            {
+                SurfaceState.MaterialInstances.Remove(SlotIndex);
+                SurfaceState.MaterialBindingHashes.Remove(SlotIndex);
+                MID = nullptr;
+            }
         }
 
+        bool bMaterialRebound = false;
         if (!MID)
         {
             MID = UMaterialInstanceDynamic::Create(BaseMaterial, Mesh);
             SurfaceState.MaterialInstances.Add(SlotIndex, MID);
             Mesh->SetMaterial(SlotIndex, MID);
+            bMaterialRebound = true;
+        }
+
+        // Keep mapping MID ownership resilient against external material rebinds
+        // (PIE BeginPlay scripts, sequencer tracks, blueprint overrides, etc.).
+        if (Mesh->GetMaterial(SlotIndex) != MID)
+        {
+            Mesh->SetMaterial(SlotIndex, MID);
+            bMaterialRebound = true;
         }
 
         const uint32 SlotBindingHash = HashCombineFast(BaseBindingHash, GetTypeHash(SlotIndex));
         if (const uint32* ExistingHash = SurfaceState.MaterialBindingHashes.Find(SlotIndex))
         {
-            if (*ExistingHash == SlotBindingHash)
+            if (*ExistingHash == SlotBindingHash && !bMaterialRebound)
             {
+                if (OutMaterialBindingsSkipped)
+                {
+                    ++(*OutMaterialBindingsSkipped);
+                }
                 continue;
             }
         }
 
-        ApplyMaterialParameters(MID, MappingState, SurfaceState, ContextState, bUseFeedV2, nullptr);
-        if (FeedCompositeTexture)
+        ApplyMaterialParameters(MID, MappingState, SurfaceState, ContextState, bUseFeedV2);
+        if (bUseFeedV2)
         {
-            MID->SetTextureParameterValue(ParamContextTexture, FeedCompositeTexture);
+            MID->SetTextureParameterValue(ParamContextTexture, EffectiveTexture);
+            MID->SetTextureParameterValue(ParamContextTextureAliasSlateUI, EffectiveTexture);
+            MID->SetTextureParameterValue(ParamContextTextureAliasTexture, EffectiveTexture);
         }
         SurfaceState.MaterialBindingHashes.Add(SlotIndex, SlotBindingHash);
+        if (OutMaterialBindingsUpdated)
+        {
+            ++(*OutMaterialBindingsUpdated);
+        }
     }
+
+    FinishApplyTiming();
 }
 
 void URshipContentMappingManager::ApplyMaterialParameters(
@@ -6342,8 +6933,7 @@ void URshipContentMappingManager::ApplyMaterialParameters(
     const FRshipContentMappingState& MappingState,
     const FRshipMappingSurfaceState& SurfaceState,
     const FRshipRenderContextState* ContextState,
-    bool bUseFeedV2,
-    const FFeedSingleRtBinding* FeedBinding)
+    bool bUseFeedV2)
 {
     if (!MID)
     {
@@ -6369,42 +6959,27 @@ void URshipContentMappingManager::ApplyMaterialParameters(
     }
 
     UTexture* ResolvedContextTexture = nullptr;
-    if (FeedBinding && FeedBinding->bValid && FeedBinding->Texture)
-    {
-        ResolvedContextTexture = FeedBinding->Texture;
-    }
-    else if (ContextState && ContextState->ResolvedTexture)
+    if (ContextState && ContextState->ResolvedTexture)
     {
         ResolvedContextTexture = ContextState->ResolvedTexture;
     }
 
-    if (ResolvedContextTexture)
-    {
-        MID->SetTextureParameterValue(ParamContextTexture, ResolvedContextTexture);
-    }
-    else
-    {
-        MID->SetTextureParameterValue(ParamContextTexture, GetDefaultPreviewTexture());
-    }
+    MID->SetTextureParameterValue(ParamContextTexture, ResolvedContextTexture);
+    MID->SetTextureParameterValue(ParamContextTextureAliasSlateUI, ResolvedContextTexture);
+    MID->SetTextureParameterValue(ParamContextTextureAliasTexture, ResolvedContextTexture);
 
     UTexture* ResolvedDepthTexture = nullptr;
-    if (FeedBinding && FeedBinding->bValid && FeedBinding->DepthTexture)
-    {
-        ResolvedDepthTexture = FeedBinding->DepthTexture;
-    }
-    else if (ContextState && ContextState->ResolvedDepthTexture)
+    if (ContextState && ContextState->ResolvedDepthTexture)
     {
         ResolvedDepthTexture = ContextState->ResolvedDepthTexture;
     }
-
-    if (ResolvedDepthTexture)
-    {
-        MID->SetTextureParameterValue(ParamContextDepthTexture, ResolvedDepthTexture);
-    }
     else
     {
-        MID->SetTextureParameterValue(ParamContextDepthTexture, GetDefaultPreviewTexture());
+        // Keep depth-driven materials stable when depth capture is disabled.
+        ResolvedDepthTexture = ResolvedContextTexture;
     }
+
+    MID->SetTextureParameterValue(ParamContextDepthTexture, ResolvedDepthTexture);
 
     const bool bIsUvMapping = MappingState.Type == TEXT("surface-uv")
         || MappingState.Type.Equals(TEXT("direct"), ESearchCase::IgnoreCase)
@@ -6461,7 +7036,6 @@ void URshipContentMappingManager::ApplyMaterialParameters(
         float PivotU = 0.5f;
         float PivotV = 0.5f;
         bool bFeedMode = false;
-        bool bFoundFeedRect = false;
         float FeedU = 0.0f;
         float FeedV = 0.0f;
         float FeedW = 1.0f;
@@ -6494,83 +7068,6 @@ void URshipContentMappingManager::ApplyMaterialParameters(
 
             const FString UvMode = GetStringField(MappingState.Config, TEXT("uvMode"), TEXT(""));
             if (!bUseFeedV2 && UvMode.Equals(TEXT("feed"), ESearchCase::IgnoreCase))
-            {
-                bFeedMode = true;
-            }
-
-            auto ReadFeedRect = [this](const TSharedPtr<FJsonObject>& RectObj, float& OutU, float& OutV, float& OutW, float& OutH)
-            {
-                if (!RectObj.IsValid())
-                {
-                    return false;
-                }
-                OutU = GetNumberField(RectObj, TEXT("u"), OutU);
-                OutV = GetNumberField(RectObj, TEXT("v"), OutV);
-                OutW = GetNumberField(RectObj, TEXT("width"), OutW);
-                OutH = GetNumberField(RectObj, TEXT("height"), OutH);
-                return true;
-            };
-
-            if (!bUseFeedV2 && MappingState.Config->HasTypedField<EJson::Array>(TEXT("feedRects")))
-            {
-                const TArray<TSharedPtr<FJsonValue>> FeedRects = MappingState.Config->GetArrayField(TEXT("feedRects"));
-                for (const TSharedPtr<FJsonValue>& Value : FeedRects)
-                {
-                    if (!Value.IsValid() || Value->Type != EJson::Object)
-                    {
-                        continue;
-                    }
-                    TSharedPtr<FJsonObject> RectObj = Value->AsObject();
-                    if (!RectObj.IsValid() || !RectObj->HasTypedField<EJson::String>(TEXT("surfaceId")))
-                    {
-                        continue;
-                    }
-                    const FString SurfaceId = RectObj->GetStringField(TEXT("surfaceId"));
-                    if (SurfaceId == SurfaceState.Id)
-                    {
-                        if (ReadFeedRect(RectObj, FeedU, FeedV, FeedW, FeedH))
-                        {
-                            bFeedMode = true;
-                            bFoundFeedRect = true;
-                        }
-                        break;
-                    }
-                }
-            }
-
-            if (!bUseFeedV2 && !bFoundFeedRect && MappingState.Config->HasTypedField<EJson::Object>(TEXT("feedRect")))
-            {
-                TSharedPtr<FJsonObject> RectObj = MappingState.Config->GetObjectField(TEXT("feedRect"));
-                if (ReadFeedRect(RectObj, FeedU, FeedV, FeedW, FeedH))
-                {
-                    bFeedMode = true;
-                    bFoundFeedRect = true;
-                }
-            }
-        }
-
-        if (FeedBinding && FeedBinding->bValid && FeedBinding->bHasSourceRect)
-        {
-            FeedU = FeedBinding->SourceU;
-            FeedV = FeedBinding->SourceV;
-            FeedW = FeedBinding->SourceW;
-            FeedH = FeedBinding->SourceH;
-            bFoundFeedRect = true;
-
-            if (FeedBinding->bHasDestinationRect)
-            {
-                const float SafeDestW = FMath::Max(0.0001f, FeedBinding->DestinationW);
-                const float SafeDestH = FMath::Max(0.0001f, FeedBinding->DestinationH);
-                ScaleU = FeedW / SafeDestW;
-                ScaleV = FeedH / SafeDestH;
-                OffsetU = FeedU - (FeedBinding->DestinationU * ScaleU);
-                OffsetV = FeedV - (FeedBinding->DestinationV * ScaleV);
-                Rotation = 0.0f;
-                PivotU = 0.5f;
-                PivotV = 0.5f;
-                bFeedMode = false;
-            }
-            else
             {
                 bFeedMode = true;
             }
@@ -6755,6 +7252,7 @@ void URshipContentMappingManager::ApplyMaterialParameters(
 	        }
 
         MID->SetScalarParameterValue(ParamProjectionType, ProjectionTypeIndex);
+        MID->SetScalarParameterValue(ParamRadialFlag, 0.0f);
 
         float CameraPlateFit = 0.0f; // 0=contain,1=cover,2=stretch
         float CameraPlateAnchorU = 0.5f;
@@ -6768,6 +7266,13 @@ void URshipContentMappingManager::ApplyMaterialParameters(
         float DepthBias = 0.0f;
         float DepthNearParam = 0.0f;
         float DepthFarParam = 1.0f;
+        MID->SetVectorParameterValue(ParamCylinderParams, FLinearColor(0.0f, 0.0f, 1.0f, 500.0f));
+        MID->SetVectorParameterValue(ParamCylinderExtent, FLinearColor(1000.0f, 0.0f, 360.0f, 0.0f));
+        MID->SetVectorParameterValue(ParamSphereParams, FLinearColor(Position.X, Position.Y, Position.Z, 500.0f));
+        MID->SetVectorParameterValue(ParamSphereArc, FLinearColor(360.0f, 180.0f, 0.0f, 0.0f));
+        MID->SetVectorParameterValue(ParamParallelSize, FLinearColor(1000.0f, 1000.0f, 0.0f, 0.0f));
+        MID->SetVectorParameterValue(ParamMeshEyepoint, FLinearColor(Position.X, Position.Y, Position.Z, 0.0f));
+        MID->SetVectorParameterValue(ParamFisheyeParams, FLinearColor(180.0f, 0.0f, 0.0f, 0.0f));
 
         if (MappingState.Config.IsValid())
         {
@@ -7288,6 +7793,13 @@ void URshipContentMappingManager::RegisterMappingTarget(const FRshipContentMappi
 
 void URshipContentMappingManager::DeleteTargetForPath(const FString& TargetPath)
 {
+    if (TargetPath.IsEmpty())
+    {
+        return;
+    }
+
+    ClearEmitterCacheForTarget(TargetPath);
+
     if (!Subsystem)
     {
         return;
@@ -7314,6 +7826,38 @@ FString URshipContentMappingManager::BuildMappingTargetId(const FString& Mapping
     return FString::Printf(TEXT("/content-mapping/mapping/%s"), *MappingId);
 }
 
+bool URshipContentMappingManager::PulseEmitterIfChanged(
+    const FString& TargetId,
+    const FString& EmitterName,
+    const TSharedPtr<FJsonObject>& Payload,
+    TMap<FString, uint32>& CacheStore)
+{
+    if (!Subsystem || TargetId.IsEmpty() || EmitterName.IsEmpty() || !Payload.IsValid())
+    {
+        return false;
+    }
+
+    const FString CacheKey = TargetId + TEXT(":") + EmitterName;
+    const uint32 PayloadHash = HashJsonPayload(Payload);
+    if (const uint32* ExistingHash = CacheStore.Find(CacheKey))
+    {
+        if (*ExistingHash == PayloadHash)
+        {
+            return false;
+        }
+    }
+
+    CacheStore.Add(CacheKey, PayloadHash);
+    Subsystem->PulseEmitter(TargetId, EmitterName, Payload);
+    return true;
+}
+
+void URshipContentMappingManager::ClearEmitterCacheForTarget(const FString& TargetId)
+{
+    LastEmittedStateHashes.Remove(TargetId + TEXT(":state"));
+    LastEmittedStatusHashes.Remove(TargetId + TEXT(":status"));
+}
+
 void URshipContentMappingManager::EmitContextState(const FRshipRenderContextState& ContextState)
 {
     if (!Subsystem)
@@ -7322,13 +7866,20 @@ void URshipContentMappingManager::EmitContextState(const FRshipRenderContextStat
     }
 
     const FString TargetId = BuildContextTargetId(ContextState.Id);
-    Subsystem->PulseEmitter(TargetId, TEXT("state"), BuildRenderContextJson(ContextState));
+    TSharedPtr<FJsonObject> StatePayload = BuildRenderContextJson(ContextState);
+    StatePayload->RemoveField(TEXT("hash"));
+    PulseEmitterIfChanged(TargetId, TEXT("state"), StatePayload, LastEmittedStateHashes);
 
     TSharedPtr<FJsonObject> StatusPayload = MakeShared<FJsonObject>();
-    StatusPayload->SetStringField(TEXT("status"), ContextState.bEnabled ? TEXT("enabled") : TEXT("disabled"));
+    StatusPayload->SetStringField(TEXT("status"), GetTargetStatusForEnabledFlag(ContextState.bEnabled));
+    StatusPayload->SetStringField(TEXT("runtimeHealth"), GetRuntimeHealthStatusToken());
     if (!ContextState.LastError.IsEmpty())
     {
         StatusPayload->SetStringField(TEXT("lastError"), ContextState.LastError);
+    }
+    if (!RuntimeHealthReason.IsEmpty())
+    {
+        StatusPayload->SetStringField(TEXT("runtimeReason"), RuntimeHealthReason);
     }
     if (!ContextState.CameraId.IsEmpty())
     {
@@ -7339,7 +7890,7 @@ void URshipContentMappingManager::EmitContextState(const FRshipRenderContextStat
         StatusPayload->SetStringField(TEXT("assetId"), ContextState.AssetId);
     }
     StatusPayload->SetBoolField(TEXT("hasTexture"), ContextState.ResolvedTexture != nullptr);
-    Subsystem->PulseEmitter(TargetId, TEXT("status"), StatusPayload);
+    PulseEmitterIfChanged(TargetId, TEXT("status"), StatusPayload, LastEmittedStatusHashes);
 }
 
 void URshipContentMappingManager::EmitSurfaceState(const FRshipMappingSurfaceState& SurfaceState)
@@ -7350,8 +7901,10 @@ void URshipContentMappingManager::EmitSurfaceState(const FRshipMappingSurfaceSta
     }
 
     const FString TargetId = BuildSurfaceTargetId(SurfaceState.Id);
-    Subsystem->PulseEmitter(TargetId, TEXT("state"), BuildMappingSurfaceJson(SurfaceState));
-    EmitStatus(TargetId, SurfaceState.bEnabled ? TEXT("enabled") : TEXT("disabled"), SurfaceState.LastError);
+    TSharedPtr<FJsonObject> StatePayload = BuildMappingSurfaceJson(SurfaceState);
+    StatePayload->RemoveField(TEXT("hash"));
+    PulseEmitterIfChanged(TargetId, TEXT("state"), StatePayload, LastEmittedStateHashes);
+    EmitStatus(TargetId, GetTargetStatusForEnabledFlag(SurfaceState.bEnabled), SurfaceState.LastError);
 }
 
 void URshipContentMappingManager::EmitMappingState(const FRshipContentMappingState& MappingState)
@@ -7362,8 +7915,10 @@ void URshipContentMappingManager::EmitMappingState(const FRshipContentMappingSta
     }
 
     const FString TargetId = BuildMappingTargetId(MappingState.Id);
-    Subsystem->PulseEmitter(TargetId, TEXT("state"), BuildMappingJson(MappingState));
-    EmitStatus(TargetId, MappingState.bEnabled ? TEXT("enabled") : TEXT("disabled"), MappingState.LastError);
+    TSharedPtr<FJsonObject> StatePayload = BuildMappingJson(MappingState);
+    StatePayload->RemoveField(TEXT("hash"));
+    PulseEmitterIfChanged(TargetId, TEXT("state"), StatePayload, LastEmittedStateHashes);
+    EmitStatus(TargetId, GetTargetStatusForEnabledFlag(MappingState.bEnabled), MappingState.LastError);
 }
 
 void URshipContentMappingManager::EmitStatus(const FString& TargetId, const FString& Status, const FString& LastError)
@@ -7375,11 +7930,16 @@ void URshipContentMappingManager::EmitStatus(const FString& TargetId, const FStr
 
     TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
     Payload->SetStringField(TEXT("status"), Status);
+    Payload->SetStringField(TEXT("runtimeHealth"), GetRuntimeHealthStatusToken());
     if (!LastError.IsEmpty())
     {
         Payload->SetStringField(TEXT("lastError"), LastError);
     }
-    Subsystem->PulseEmitter(TargetId, TEXT("status"), Payload);
+    if (!RuntimeHealthReason.IsEmpty())
+    {
+        Payload->SetStringField(TEXT("runtimeReason"), RuntimeHealthReason);
+    }
+    PulseEmitterIfChanged(TargetId, TEXT("status"), Payload, LastEmittedStatusHashes);
 }
 
 TSharedPtr<FJsonObject> URshipContentMappingManager::BuildRenderContextJson(const FRshipRenderContextState& ContextState) const
@@ -7467,8 +8027,6 @@ TSharedPtr<FJsonObject> URshipContentMappingManager::BuildMappingJson(const FRsh
             const FString UvMode = GetStringField(MappingState.Config, TEXT("uvMode"), TEXT(""));
             bFeedMode = UvMode.Equals(TEXT("feed"), ESearchCase::IgnoreCase)
                 || UvMode.Equals(TEXT("surface-feed"), ESearchCase::IgnoreCase)
-                || MappingState.Config->HasTypedField<EJson::Object>(TEXT("feedRect"))
-                || MappingState.Config->HasTypedField<EJson::Array>(TEXT("feedRects"))
                 || MappingState.Config->HasTypedField<EJson::Object>(TEXT("feedV2"));
         }
         SerializedType = bFeedMode ? TEXT("feed") : TEXT("direct");
@@ -7623,7 +8181,7 @@ bool URshipContentMappingManager::HandleMappingAction(const FString& MappingId, 
     bool bHandled = true;
     auto CloneObject = [](const TSharedPtr<FJsonObject>& InObj) -> TSharedPtr<FJsonObject>
     {
-        return InObj.IsValid() ? MakeShared<FJsonObject>(*InObj) : MakeShared<FJsonObject>();
+        return DeepCloneJsonObject(InObj);
     };
     auto EnsureConfig = [&]() -> TSharedPtr<FJsonObject>
     {
@@ -7744,7 +8302,7 @@ bool URshipContentMappingManager::HandleMappingAction(const FString& MappingId, 
         MappingState->Type = TEXT("surface-projection");
         if (Data->HasTypedField<EJson::Object>(TEXT("config")))
         {
-            MappingState->Config = Data->GetObjectField(TEXT("config"));
+            MappingState->Config = CloneObject(Data->GetObjectField(TEXT("config")));
         }
         else
         {
@@ -7752,14 +8310,21 @@ bool URshipContentMappingManager::HandleMappingAction(const FString& MappingId, 
             {
                 MappingState->Config = MakeShared<FJsonObject>();
             }
-            MappingState->Config->SetStringField(TEXT("projectionType"), GetStringField(Data, TEXT("projectionType")));
+            if (Data->HasTypedField<EJson::String>(TEXT("projectionType")))
+            {
+                MappingState->Config->SetStringField(TEXT("projectionType"), GetStringField(Data, TEXT("projectionType")));
+            }
             if (Data->HasTypedField<EJson::Object>(TEXT("projectorPosition")))
             {
-                MappingState->Config->SetObjectField(TEXT("projectorPosition"), Data->GetObjectField(TEXT("projectorPosition")));
+                MappingState->Config->SetObjectField(TEXT("projectorPosition"), CloneObject(Data->GetObjectField(TEXT("projectorPosition"))));
             }
             if (Data->HasTypedField<EJson::Object>(TEXT("projectorRotation")))
             {
-                MappingState->Config->SetObjectField(TEXT("projectorRotation"), Data->GetObjectField(TEXT("projectorRotation")));
+                MappingState->Config->SetObjectField(TEXT("projectorRotation"), CloneObject(Data->GetObjectField(TEXT("projectorRotation"))));
+            }
+            if (Data->HasTypedField<EJson::Object>(TEXT("eyepoint")))
+            {
+                MappingState->Config->SetObjectField(TEXT("eyepoint"), CloneObject(Data->GetObjectField(TEXT("eyepoint"))));
             }
             if (Data->HasTypedField<EJson::Number>(TEXT("fov")))
             {
@@ -7779,19 +8344,19 @@ bool URshipContentMappingManager::HandleMappingAction(const FString& MappingId, 
             }
             if (Data->HasTypedField<EJson::Object>(TEXT("cylindrical")))
             {
-                MappingState->Config->SetObjectField(TEXT("cylindrical"), Data->GetObjectField(TEXT("cylindrical")));
+                MappingState->Config->SetObjectField(TEXT("cylindrical"), CloneObject(Data->GetObjectField(TEXT("cylindrical"))));
             }
             if (Data->HasTypedField<EJson::Object>(TEXT("cameraPlate")))
             {
-                MappingState->Config->SetObjectField(TEXT("cameraPlate"), Data->GetObjectField(TEXT("cameraPlate")));
+                MappingState->Config->SetObjectField(TEXT("cameraPlate"), CloneObject(Data->GetObjectField(TEXT("cameraPlate"))));
             }
             if (Data->HasTypedField<EJson::Object>(TEXT("spatial")))
             {
-                MappingState->Config->SetObjectField(TEXT("spatial"), Data->GetObjectField(TEXT("spatial")));
+                MappingState->Config->SetObjectField(TEXT("spatial"), CloneObject(Data->GetObjectField(TEXT("spatial"))));
             }
             if (Data->HasTypedField<EJson::Object>(TEXT("depthMap")))
             {
-                MappingState->Config->SetObjectField(TEXT("depthMap"), Data->GetObjectField(TEXT("depthMap")));
+                MappingState->Config->SetObjectField(TEXT("depthMap"), CloneObject(Data->GetObjectField(TEXT("depthMap"))));
             }
             if (Data->HasTypedField<EJson::Number>(TEXT("depthScale")))
             {
@@ -7811,11 +8376,11 @@ bool URshipContentMappingManager::HandleMappingAction(const FString& MappingId, 
             }
             if (Data->HasTypedField<EJson::Object>(TEXT("customProjectionMatrix")))
             {
-                MappingState->Config->SetObjectField(TEXT("customProjectionMatrix"), Data->GetObjectField(TEXT("customProjectionMatrix")));
+                MappingState->Config->SetObjectField(TEXT("customProjectionMatrix"), CloneObject(Data->GetObjectField(TEXT("customProjectionMatrix"))));
             }
             if (Data->HasTypedField<EJson::Object>(TEXT("matrix")))
             {
-                MappingState->Config->SetObjectField(TEXT("customProjectionMatrix"), Data->GetObjectField(TEXT("matrix")));
+                MappingState->Config->SetObjectField(TEXT("customProjectionMatrix"), CloneObject(Data->GetObjectField(TEXT("matrix"))));
             }
         }
     }
@@ -7826,9 +8391,11 @@ bool URshipContentMappingManager::HandleMappingAction(const FString& MappingId, 
         {
             MappingState->Config = MakeShared<FJsonObject>();
         }
+        const FString ExistingUvMode = GetStringField(MappingState->Config, TEXT("uvMode"), TEXT("direct"));
+        MappingState->Config->SetStringField(TEXT("uvMode"), NormalizeUvModeToken(GetStringField(Data, TEXT("uvMode"), ExistingUvMode), ExistingUvMode));
         if (Data->HasTypedField<EJson::Object>(TEXT("uvTransform")))
         {
-            MappingState->Config->SetObjectField(TEXT("uvTransform"), Data->GetObjectField(TEXT("uvTransform")));
+            MappingState->Config->SetObjectField(TEXT("uvTransform"), CloneObject(Data->GetObjectField(TEXT("uvTransform"))));
         }
     }
     else if (ActionName == TEXT("setType"))
@@ -7885,10 +8452,6 @@ bool URshipContentMappingManager::HandleMappingAction(const FString& MappingId, 
             if (Data->HasTypedField<EJson::Array>(TEXT("routes")))
             {
                 FeedV2->SetArrayField(TEXT("routes"), Data->GetArrayField(TEXT("routes")));
-            }
-            else if (Data->HasTypedField<EJson::Array>(TEXT("links")))
-            {
-                FeedV2->SetArrayField(TEXT("routes"), Data->GetArrayField(TEXT("links")));
             }
         }
 
@@ -8034,6 +8597,7 @@ bool URshipContentMappingManager::HandleMappingAction(const FString& MappingId, 
         {
             NormalizeMappingState(*MappingState);
         }
+        TrackPendingMappingUpsert(*MappingState);
     }
 
     if (bHandled && Subsystem)
@@ -8186,50 +8750,13 @@ bool URshipContentMappingManager::ValidateMaterialContract(UMaterialInterface* M
         }
     }
 
-    static const FName RequiredScalars[] =
-    {
-        ParamMappingMode,
-        ParamProjectionType,
-        ParamUVRotation,
-        ParamUVScaleU,
-        ParamUVScaleV,
-        ParamUVOffsetU,
-        ParamUVOffsetV,
-        ParamOpacity,
-        ParamMappingIntensity,
-        ParamUVChannel,
-        ParamDebugCoverage,
-        ParamRadialFlag,
-        ParamContentMode,
-        ParamBorderExpansion
-    };
-
-    static const FName RequiredVectors[] =
-    {
-        ParamProjectorRow0, ParamProjectorRow1, ParamProjectorRow2, ParamProjectorRow3,
-        ParamUVTransform,
-        ParamPreviewTint,
-        ParamDebugUnmappedColor,
-        ParamDebugMappedColor,
-        ParamCylinderParams,
-        ParamCylinderExtent,
-        ParamSphereParams,
-        ParamSphereArc,
-        ParamParallelSize,
-        ParamMaskAngle,
-        ParamFisheyeParams,
-        ParamMeshEyepoint,
-        ParamCameraPlateParams,
-        ParamSpatialParams0,
-        ParamSpatialParams1,
-        ParamDepthMapParams
-    };
-
-    static const FName RequiredTextures[] =
-    {
-        ParamContextTexture,
-        ParamContextDepthTexture
-    };
+    // Minimal runtime contract:
+    // - A context texture slot is mandatory for any live picture.
+    // - Prefer RshipContextTexture; accept known aliases for engine fallback materials.
+    // - Other mapping/projection parameters are optional; missing params simply
+    //   degrade features on simplified materials instead of blacking out output.
+    static const FName RequiredScalars[] = {};
+    static const FName RequiredVectors[] = {};
 
     TArray<FString> Missing;
     auto AppendMissing = [&Missing](const TCHAR* Category, const FName& Name)
@@ -8251,12 +8778,17 @@ bool URshipContentMappingManager::ValidateMaterialContract(UMaterialInterface* M
             AppendMissing(TEXT("vector"), Name);
         }
     }
-    for (const FName& Name : RequiredTextures)
+    const bool bHasContextTexture =
+        TextureParams.Contains(ParamContextTexture)
+        || TextureParams.Contains(ParamContextTextureAliasSlateUI)
+        || TextureParams.Contains(ParamContextTextureAliasTexture);
+    if (!bHasContextTexture)
     {
-        if (!TextureParams.Contains(Name))
-        {
-            AppendMissing(TEXT("texture"), Name);
-        }
+        AppendMissing(TEXT("texture"), ParamContextTexture);
+        Missing.Add(FString::Printf(
+            TEXT("texture_aliases:%s|%s"),
+            *ParamContextTextureAliasSlateUI.ToString(),
+            *ParamContextTextureAliasTexture.ToString()));
     }
 
     if (Missing.Num() > 0)
@@ -8269,6 +8801,357 @@ bool URshipContentMappingManager::ValidateMaterialContract(UMaterialInterface* M
     }
 
     return true;
+}
+
+ERshipContentMappingRuntimeHealth URshipContentMappingManager::GetRuntimeHealth() const
+{
+    return RuntimeHealth;
+}
+
+FString URshipContentMappingManager::GetRuntimeHealthReason() const
+{
+    return RuntimeHealthReason;
+}
+
+UMaterialInterface* URshipContentMappingManager::ResolveSurfaceFallbackMaterial(
+    const FRshipMappingSurfaceState& SurfaceState,
+    UMeshComponent* Mesh,
+    FString& OutError) const
+{
+    OutError.Empty();
+    if (!Mesh || !IsValid(Mesh))
+    {
+        OutError = TEXT("Mesh component not resolved");
+        return nullptr;
+    }
+
+    const int32 SlotCount = Mesh->GetNumMaterials();
+    if (SlotCount <= 0)
+    {
+        OutError = TEXT("Mesh has no material slots");
+        return nullptr;
+    }
+
+    TArray<int32> CandidateSlots = SurfaceState.MaterialSlots;
+    if (CandidateSlots.Num() == 0)
+    {
+        CandidateSlots.Reserve(SlotCount);
+        for (int32 SlotIndex = 0; SlotIndex < SlotCount; ++SlotIndex)
+        {
+            CandidateSlots.Add(SlotIndex);
+        }
+    }
+
+    FString LastContractError;
+    auto TryCandidate = [&](UMaterialInterface* Candidate) -> UMaterialInterface*
+    {
+        if (!Candidate || !IsValid(Candidate))
+        {
+            return nullptr;
+        }
+
+        FString ContractError;
+        if (ValidateMaterialContract(Candidate, ContractError))
+        {
+            return Candidate;
+        }
+
+        if (!ContractError.IsEmpty())
+        {
+            LastContractError = ContractError;
+        }
+        return nullptr;
+    };
+
+    for (const int32 SlotIndex : CandidateSlots)
+    {
+        if (SlotIndex < 0 || SlotIndex >= SlotCount)
+        {
+            continue;
+        }
+
+        if (const TWeakObjectPtr<UMaterialInterface>* Original = SurfaceState.OriginalMaterials.Find(SlotIndex))
+        {
+            if (UMaterialInterface* OriginalMaterial = TryCandidate(Original->Get()))
+            {
+                return OriginalMaterial;
+            }
+        }
+
+        if (UMaterialInterface* SlotMaterial = TryCandidate(Mesh->GetMaterial(SlotIndex)))
+        {
+            return SlotMaterial;
+        }
+    }
+
+    OutError = LastContractError.IsEmpty()
+        ? TEXT("No compatible fallback surface material (requires context texture parameter)")
+        : LastContractError;
+    return nullptr;
+}
+
+bool URshipContentMappingManager::ResolveContentMappingMaterial()
+{
+    UMaterialInterface* PreviousMaterial = ContentMappingMaterial;
+
+    if (ContentMappingMaterial && IsValid(ContentMappingMaterial))
+    {
+        return true;
+    }
+
+    ContentMappingMaterial = nullptr;
+    const URshipSettings* Settings = GetDefault<URshipSettings>();
+    if (Settings && !Settings->ContentMappingMaterialPath.IsEmpty())
+    {
+        const FString OverridePath = Settings->ContentMappingMaterialPath.TrimStartAndEnd();
+        const bool bLegacyEngineFallbackOverride =
+            OverridePath.Equals(TEXT("/Engine/EngineMaterials/Widget3DPassThrough_Opaque.Widget3DPassThrough_Opaque"), ESearchCase::IgnoreCase)
+            || OverridePath.Equals(TEXT("/Engine/EngineMaterials/Widget3DPassThrough_Translucent.Widget3DPassThrough_Translucent"), ESearchCase::IgnoreCase)
+            || OverridePath.Equals(TEXT("/Engine/EngineMaterials/Widget3DPassThrough_Opaque_OneSided.Widget3DPassThrough_Opaque_OneSided"), ESearchCase::IgnoreCase)
+            || OverridePath.Equals(TEXT("/Engine/EngineMaterials/Widget3DPassThrough_Translucent_OneSided.Widget3DPassThrough_Translucent_OneSided"), ESearchCase::IgnoreCase);
+        if (!bLegacyEngineFallbackOverride)
+        {
+            ContentMappingMaterial = TryLoadMaterialPath(OverridePath);
+        }
+    }
+
+    if (!ContentMappingMaterial)
+    {
+        static const TCHAR* RuntimeMaterialCandidates[] =
+        {
+            TEXT("/RshipMapping/Materials/MI_RshipContentMapping.MI_RshipContentMapping"),
+            TEXT("/RshipMapping/Materials/M_RshipContentMapping.M_RshipContentMapping"),
+            TEXT("/RshipExec/Materials/MI_RshipContentMapping.MI_RshipContentMapping"),
+            TEXT("/RshipExec/Materials/M_RshipContentMapping.M_RshipContentMapping"),
+            TEXT("/Engine/EngineMaterials/Widget3DPassThrough_Opaque.Widget3DPassThrough_Opaque"),
+            TEXT("/Engine/EngineMaterials/Widget3DPassThrough_Translucent.Widget3DPassThrough_Translucent"),
+            TEXT("/Engine/EngineMaterials/Widget3DPassThrough_Opaque_OneSided.Widget3DPassThrough_Opaque_OneSided"),
+            TEXT("/Engine/EngineMaterials/Widget3DPassThrough_Translucent_OneSided.Widget3DPassThrough_Translucent_OneSided")
+        };
+
+        for (const TCHAR* CandidatePath : RuntimeMaterialCandidates)
+        {
+            if (UMaterialInterface* Candidate = TryLoadMaterialPath(CandidatePath))
+            {
+                ContentMappingMaterial = Candidate;
+                break;
+            }
+        }
+    }
+
+    if (PreviousMaterial != ContentMappingMaterial)
+    {
+        bMaterialContractChecked = false;
+        LastContractMaterial = nullptr;
+        MaterialContractError.Empty();
+    }
+
+    return ContentMappingMaterial != nullptr;
+}
+
+void URshipContentMappingManager::RunRuntimePreflight(bool bForceMaterialResolve)
+{
+    const double NowSeconds = FPlatformTime::Seconds();
+    const bool bMaterialMissing = !ContentMappingMaterial || !IsValid(ContentMappingMaterial);
+    const bool bRetryReady = NextMaterialResolveAttemptSeconds <= 0.0 || NowSeconds >= NextMaterialResolveAttemptSeconds;
+
+    if (bForceMaterialResolve || (bMaterialMissing && bRetryReady))
+    {
+        ResolveContentMappingMaterial();
+        if (!ContentMappingMaterial)
+        {
+            NextMaterialResolveAttemptSeconds = NowSeconds + 1.0;
+        }
+        else
+        {
+            NextMaterialResolveAttemptSeconds = 0.0;
+        }
+    }
+
+    EnsureMaterialContract();
+    const bool bAllowSurfaceFallback = CVarRshipContentMappingAllowSurfaceMaterialFallback.GetValueOnGameThread() > 0;
+    if (!ContentMappingMaterial)
+    {
+        if (bAllowSurfaceFallback)
+        {
+            SetRuntimeHealth(
+                ERshipContentMappingRuntimeHealth::Degraded,
+                TEXT("Canonical content mapping material unavailable; using compatible surface material fallback where possible."));
+        }
+        else
+        {
+            SetRuntimeHealth(
+                ERshipContentMappingRuntimeHealth::Blocked,
+                TEXT("Content mapping material unavailable. Set ContentMappingMaterialPath or provide MI_RshipContentMapping."));
+        }
+        return;
+    }
+    if (!bMaterialContractValid)
+    {
+        if (bAllowSurfaceFallback)
+        {
+            SetRuntimeHealth(
+                ERshipContentMappingRuntimeHealth::Degraded,
+                TEXT("Canonical content mapping material contract invalid; using compatible surface material fallback where possible."));
+        }
+        else
+        {
+            SetRuntimeHealth(
+                ERshipContentMappingRuntimeHealth::Blocked,
+                MaterialContractError.IsEmpty()
+                    ? TEXT("Content mapping material contract invalid")
+                    : MaterialContractError);
+        }
+        return;
+    }
+
+    SetRuntimeHealth(ERshipContentMappingRuntimeHealth::Ready, FString());
+}
+
+void URshipContentMappingManager::SetRuntimeHealth(
+    ERshipContentMappingRuntimeHealth NewHealth,
+    const FString& NewReason)
+{
+    const FString SanitizedReason = NewReason.TrimStartAndEnd();
+    const bool bChanged = RuntimeHealth != NewHealth
+        || !RuntimeHealthReason.Equals(SanitizedReason, ESearchCase::CaseSensitive);
+    if (!bChanged)
+    {
+        return;
+    }
+
+    const FString PreviousToken = RuntimeHealthToToken(RuntimeHealth);
+    RuntimeHealth = NewHealth;
+    RuntimeHealthReason = SanitizedReason;
+
+    UE_LOG(LogRshipExec, Warning, TEXT("ContentMapping runtime health changed %s -> %s (%s)"),
+        *PreviousToken,
+        *GetRuntimeHealthStatusToken(),
+        RuntimeHealthReason.IsEmpty() ? TEXT("no reason") : *RuntimeHealthReason);
+
+    ApplyRuntimeHealthToStates(/*bEmitChanges=*/true);
+}
+
+bool URshipContentMappingManager::IsRuntimeBlocked() const
+{
+    return RuntimeHealth == ERshipContentMappingRuntimeHealth::Blocked;
+}
+
+FString URshipContentMappingManager::GetRuntimeHealthStatusToken() const
+{
+    return RuntimeHealthToToken(RuntimeHealth);
+}
+
+FString URshipContentMappingManager::GetTargetStatusForEnabledFlag(bool bEnabled) const
+{
+    if (!bEnabled)
+    {
+        return TEXT("disabled");
+    }
+    if (RuntimeHealth == ERshipContentMappingRuntimeHealth::Blocked)
+    {
+        return TEXT("blocked");
+    }
+    if (RuntimeHealth == ERshipContentMappingRuntimeHealth::Degraded)
+    {
+        return TEXT("degraded");
+    }
+    return TEXT("enabled");
+}
+
+void URshipContentMappingManager::ApplyRuntimeHealthToStates(bool bEmitChanges)
+{
+    if (RuntimeHealth == ERshipContentMappingRuntimeHealth::Blocked)
+    {
+        const FString RuntimeError = BuildRuntimeBlockedError(RuntimeHealthReason);
+        if (bEmitChanges)
+        {
+            for (const auto& Pair : RenderContexts)
+            {
+                EmitContextState(Pair.Value);
+            }
+        }
+        for (auto& Pair : MappingSurfaces)
+        {
+            FRshipMappingSurfaceState& SurfaceState = Pair.Value;
+            if (!SurfaceState.bEnabled)
+            {
+                continue;
+            }
+
+            RestoreSurfaceMaterials(SurfaceState);
+            SurfaceState.LastError = RuntimeError;
+            if (bEmitChanges)
+            {
+                EmitSurfaceState(SurfaceState);
+            }
+        }
+
+        for (auto& Pair : Mappings)
+        {
+            FRshipContentMappingState& MappingState = Pair.Value;
+            if (!MappingState.bEnabled)
+            {
+                continue;
+            }
+
+            MappingState.LastError = RuntimeError;
+            if (bEmitChanges)
+            {
+                EmitMappingState(MappingState);
+            }
+        }
+        return;
+    }
+
+    for (auto& Pair : MappingSurfaces)
+    {
+        FRshipMappingSurfaceState& SurfaceState = Pair.Value;
+        if (IsRuntimeBlockedError(SurfaceState.LastError))
+        {
+            SurfaceState.LastError.Empty();
+            if (bEmitChanges)
+            {
+                EmitSurfaceState(SurfaceState);
+            }
+        }
+    }
+
+    for (auto& Pair : Mappings)
+    {
+        FRshipContentMappingState& MappingState = Pair.Value;
+        if (IsRuntimeBlockedError(MappingState.LastError))
+        {
+            MappingState.LastError.Empty();
+            if (bEmitChanges)
+            {
+                EmitMappingState(MappingState);
+            }
+        }
+    }
+
+    if (bEmitChanges)
+    {
+        for (const auto& Pair : RenderContexts)
+        {
+            EmitContextState(Pair.Value);
+        }
+    }
+}
+
+FString URshipContentMappingManager::BuildRuntimeBlockedError(const FString& Reason)
+{
+    const FString SanitizedReason = Reason.TrimStartAndEnd();
+    if (SanitizedReason.IsEmpty())
+    {
+        return FString::Printf(TEXT("%s%s"), RuntimeBlockedErrorPrefix, TEXT("runtime preflight failed"));
+    }
+    return FString::Printf(TEXT("%s%s"), RuntimeBlockedErrorPrefix, *SanitizedReason);
+}
+
+bool URshipContentMappingManager::IsRuntimeBlockedError(const FString& ErrorText)
+{
+    return ErrorText.StartsWith(RuntimeBlockedErrorPrefix, ESearchCase::CaseSensitive);
 }
 
 void URshipContentMappingManager::EnsureMaterialContract()
@@ -8287,379 +9170,6 @@ void URshipContentMappingManager::EnsureMaterialContract()
     }
 }
 
-void URshipContentMappingManager::BuildFallbackMaterial()
-{
-#if WITH_EDITOR
-    UMaterial* Mat = NewObject<UMaterial>(GetTransientPackage(), NAME_None, RF_Transient);
-    if (!Mat)
-    {
-        UE_LOG(LogRshipExec, Warning, TEXT("Failed to create transient fallback mapping material"));
-        return;
-    }
-
-    Mat->MaterialDomain = EMaterialDomain::MD_Surface;
-    Mat->BlendMode = BLEND_Opaque;
-    Mat->TwoSided = true;
-    Mat->SetShadingModel(MSM_Unlit);
-
-    auto AddExpression = [Mat](UMaterialExpression* Expression) -> UMaterialExpression*
-    {
-        Mat->GetExpressionCollection().AddExpression(Expression);
-        return Expression;
-    };
-
-    auto MakeScalarParam = [Mat, &AddExpression](const FName& Name, float DefaultValue) -> UMaterialExpressionScalarParameter*
-    {
-        UMaterialExpressionScalarParameter* Parameter = NewObject<UMaterialExpressionScalarParameter>(Mat);
-        Parameter->ParameterName = Name;
-        Parameter->DefaultValue = DefaultValue;
-        AddExpression(Parameter);
-        return Parameter;
-    };
-
-    auto MakeVectorParam = [Mat, &AddExpression](const FName& Name, const FLinearColor& DefaultValue) -> UMaterialExpressionVectorParameter*
-    {
-        UMaterialExpressionVectorParameter* Parameter = NewObject<UMaterialExpressionVectorParameter>(Mat);
-        Parameter->ParameterName = Name;
-        Parameter->DefaultValue = DefaultValue;
-        AddExpression(Parameter);
-        return Parameter;
-    };
-
-    auto MakeTextureParam = [Mat, &AddExpression](const FName& Name) -> UMaterialExpressionTextureSampleParameter2D*
-    {
-        UMaterialExpressionTextureSampleParameter2D* Parameter = NewObject<UMaterialExpressionTextureSampleParameter2D>(Mat);
-        Parameter->ParameterName = Name;
-        Parameter->SamplerType = SAMPLERTYPE_Color;
-        Parameter->Texture = LoadObject<UTexture2D>(nullptr, TEXT("/Engine/EngineResources/DefaultTexture.DefaultTexture"));
-        AddExpression(Parameter);
-        return Parameter;
-    };
-
-    // Material vector parameter alpha is unreliable on some shader paths (Metal can lower it
-    // to float3). Build a float4 by appending a constant default alpha to avoid ComponentMask
-    // compile failures.
-    auto MakeVector4Input = [Mat, &AddExpression](UMaterialExpressionVectorParameter* VectorParam) -> UMaterialExpression*
-    {
-        if (!VectorParam)
-        {
-            return nullptr;
-        }
-
-        UMaterialExpressionConstant* AlphaDefault = NewObject<UMaterialExpressionConstant>(Mat);
-        AlphaDefault->R = VectorParam->DefaultValue.A;
-        AddExpression(AlphaDefault);
-
-        UMaterialExpressionAppendVector* Append = NewObject<UMaterialExpressionAppendVector>(Mat);
-        Append->A.Expression = VectorParam;
-        Append->B.Expression = AlphaDefault;
-        AddExpression(Append);
-        return Append;
-    };
-
-    auto AddCustomInput = [](UMaterialExpressionCustom* Custom, const TCHAR* Name, UMaterialExpression* Source)
-    {
-        FCustomInput& Input = Custom->Inputs.AddDefaulted_GetRef();
-        Input.InputName = Name;
-        Input.Input.Expression = Source;
-    };
-
-    UMaterialExpressionTextureCoordinate* TexCoord = NewObject<UMaterialExpressionTextureCoordinate>(Mat);
-    TexCoord->CoordinateIndex = 0;
-    AddExpression(TexCoord);
-
-    UMaterialExpressionWorldPosition* WorldPosition = NewObject<UMaterialExpressionWorldPosition>(Mat);
-    AddExpression(WorldPosition);
-
-    UMaterialExpressionTextureSampleParameter2D* ContextTextureParam = MakeTextureParam(ParamContextTexture);
-    UMaterialExpressionTextureSampleParameter2D* DepthTextureParam = MakeTextureParam(ParamContextDepthTexture);
-
-    UMaterialExpressionScalarParameter* MappingModeParam = MakeScalarParam(ParamMappingMode, 0.0f);
-    UMaterialExpressionScalarParameter* ProjectionTypeParam = MakeScalarParam(ParamProjectionType, 0.0f);
-    UMaterialExpressionScalarParameter* UVRotationParam = MakeScalarParam(ParamUVRotation, 0.0f);
-    UMaterialExpressionScalarParameter* UVScaleUParam = MakeScalarParam(ParamUVScaleU, 1.0f);
-    UMaterialExpressionScalarParameter* UVScaleVParam = MakeScalarParam(ParamUVScaleV, 1.0f);
-    UMaterialExpressionScalarParameter* UVOffsetUParam = MakeScalarParam(ParamUVOffsetU, 0.0f);
-    UMaterialExpressionScalarParameter* UVOffsetVParam = MakeScalarParam(ParamUVOffsetV, 0.0f);
-    UMaterialExpressionScalarParameter* OpacityParam = MakeScalarParam(ParamOpacity, 1.0f);
-    UMaterialExpressionScalarParameter* MappingIntensityParam = MakeScalarParam(ParamMappingIntensity, 1.0f);
-    UMaterialExpressionScalarParameter* UVChannelParam = MakeScalarParam(ParamUVChannel, 0.0f);
-    UMaterialExpressionScalarParameter* DebugCoverageParam = MakeScalarParam(ParamDebugCoverage, 0.0f);
-    UMaterialExpressionScalarParameter* RadialFlagParam = MakeScalarParam(ParamRadialFlag, 0.0f);
-    UMaterialExpressionScalarParameter* ContentModeParam = MakeScalarParam(ParamContentMode, 0.0f);
-    UMaterialExpressionScalarParameter* BorderExpansionParam = MakeScalarParam(ParamBorderExpansion, 0.0f);
-
-    UMaterialExpressionVectorParameter* ProjectorRow0Param = MakeVectorParam(ParamProjectorRow0, FLinearColor(1.0f, 0.0f, 0.0f, 0.0f));
-    UMaterialExpressionVectorParameter* ProjectorRow1Param = MakeVectorParam(ParamProjectorRow1, FLinearColor(0.0f, 1.0f, 0.0f, 0.0f));
-    UMaterialExpressionVectorParameter* ProjectorRow2Param = MakeVectorParam(ParamProjectorRow2, FLinearColor(0.0f, 0.0f, 1.0f, 0.0f));
-    UMaterialExpressionVectorParameter* ProjectorRow3Param = MakeVectorParam(ParamProjectorRow3, FLinearColor(0.0f, 0.0f, 0.0f, 1.0f));
-    UMaterialExpressionVectorParameter* UVTransformParam = MakeVectorParam(ParamUVTransform, FLinearColor(1.0f, 1.0f, 0.0f, 0.0f));
-    UMaterialExpressionVectorParameter* PreviewTintParam = MakeVectorParam(ParamPreviewTint, FLinearColor::White);
-    UMaterialExpressionVectorParameter* DebugUnmappedColorParam = MakeVectorParam(ParamDebugUnmappedColor, FLinearColor(1.0f, 0.0f, 0.0f, 1.0f));
-    UMaterialExpressionVectorParameter* DebugMappedColorParam = MakeVectorParam(ParamDebugMappedColor, FLinearColor::White);
-    UMaterialExpressionVectorParameter* CylinderParamsParam = MakeVectorParam(ParamCylinderParams, FLinearColor(0.0f, 0.0f, 1.0f, 500.0f));
-    UMaterialExpressionVectorParameter* CylinderExtentParam = MakeVectorParam(ParamCylinderExtent, FLinearColor(1000.0f, 0.0f, 360.0f, 0.0f));
-    UMaterialExpressionVectorParameter* SphereParamsParam = MakeVectorParam(ParamSphereParams, FLinearColor(0.0f, 0.0f, 0.0f, 500.0f));
-    UMaterialExpressionVectorParameter* SphereArcParam = MakeVectorParam(ParamSphereArc, FLinearColor(360.0f, 180.0f, 0.0f, 0.0f));
-    UMaterialExpressionVectorParameter* ParallelSizeParam = MakeVectorParam(ParamParallelSize, FLinearColor(1000.0f, 1000.0f, 0.0f, 0.0f));
-    UMaterialExpressionVectorParameter* MaskAngleParam = MakeVectorParam(ParamMaskAngle, FLinearColor(0.0f, 360.0f, 0.0f, 0.0f));
-    UMaterialExpressionVectorParameter* FisheyeParamsParam = MakeVectorParam(ParamFisheyeParams, FLinearColor(180.0f, 0.0f, 0.0f, 0.0f));
-    UMaterialExpressionVectorParameter* MeshEyepointParam = MakeVectorParam(ParamMeshEyepoint, FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
-    UMaterialExpressionVectorParameter* CameraPlateParamsParam = MakeVectorParam(ParamCameraPlateParams, FLinearColor(0.0f, 0.5f, 0.5f, 0.0f));
-    UMaterialExpressionVectorParameter* SpatialParams0Param = MakeVectorParam(ParamSpatialParams0, FLinearColor(1.0f, 1.0f, 0.0f, 0.0f));
-    UMaterialExpressionVectorParameter* SpatialParams1Param = MakeVectorParam(ParamSpatialParams1, FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
-    UMaterialExpressionVectorParameter* DepthMapParamsParam = MakeVectorParam(ParamDepthMapParams, FLinearColor(1.0f, 0.0f, 0.0f, 1.0f));
-
-    UMaterialExpression* ProjectorRow0Input = MakeVector4Input(ProjectorRow0Param);
-    UMaterialExpression* ProjectorRow1Input = MakeVector4Input(ProjectorRow1Param);
-    UMaterialExpression* ProjectorRow2Input = MakeVector4Input(ProjectorRow2Param);
-    UMaterialExpression* ProjectorRow3Input = MakeVector4Input(ProjectorRow3Param);
-    UMaterialExpression* UVTransformInput = MakeVector4Input(UVTransformParam);
-    UMaterialExpression* CameraPlateParamsInput = MakeVector4Input(CameraPlateParamsParam);
-    UMaterialExpression* SpatialParams0Input = MakeVector4Input(SpatialParams0Param);
-    UMaterialExpression* DepthMapParamsInput = MakeVector4Input(DepthMapParamsParam);
-
-    UMaterialExpressionCustom* ResolveUvCustom = NewObject<UMaterialExpressionCustom>(Mat);
-    ResolveUvCustom->OutputType = CMOT_Float2;
-    ResolveUvCustom->Code = TEXT(R"UVHLSL(
-const float PI = 3.14159265f;
-float2 uv = TexCoord0;
-const float2 uvScale = float2(max(0.0001f, UVScaleU), max(0.0001f, UVScaleV));
-uv = uv * uvScale + float2(UVOffsetU, UVOffsetV);
-
-const float2 pivot = UVTransform.zw;
-const float rotationRad = UVRotation * (PI / 180.0f);
-const float s = sin(rotationRad);
-const float c = cos(rotationRad);
-const float2 centered = uv - pivot;
-uv = float2((centered.x * c) - (centered.y * s), (centered.x * s) + (centered.y * c)) + pivot;
-uv = (uv - 0.5f) * max(UVTransform.xy, float2(0.0001f, 0.0001f)) + 0.5f;
-uv += UVChannel * 0.0f;
-
-if (MappingMode > 0.5f)
-{
-    const float4 p = float4(WorldPos.xyz, 1.0f);
-    const float4 clip = float4(dot(ProjectorRow0, p), dot(ProjectorRow1, p), dot(ProjectorRow2, p), dot(ProjectorRow3, p));
-    const float invW = (abs(clip.w) > 0.0001f) ? (1.0f / clip.w) : 0.0f;
-    uv = (clip.xy * invW * 0.5f) + 0.5f;
-
-    // Perspective mode in this pipeline is equirectangular from projector position.
-    if (ProjectionType < 0.5f)
-    {
-        const float3 dir = normalize(WorldPos.xyz - SpatialParams1.xyz);
-        uv = float2((atan2(dir.y, dir.x) / (2.0f * PI)) + 0.5f, acos(clamp(dir.z, -1.0f, 1.0f)) / PI);
-    }
-    else if (ProjectionType > 0.5f && ProjectionType < 1.5f)
-    {
-        float3 axis = CylinderParams.xyz;
-        axis = (dot(axis, axis) > 0.0001f) ? normalize(axis) : float3(0.0f, 0.0f, 1.0f);
-        const float3 rel = WorldPos.xyz - SpatialParams1.xyz;
-        const float start = radians(CylinderExtent.y);
-        const float end = radians(CylinderExtent.z);
-        const float span = max(0.0001f, end - start);
-        const float angle = atan2(rel.y, rel.x);
-        const float height = max(1.0f, CylinderExtent.x);
-        const float v = (dot(rel, axis) + (height * 0.5f)) / height;
-        uv = float2((angle - start) / span, v);
-    }
-    else if (ProjectionType > 2.5f && ProjectionType < 3.5f)
-    {
-        float3 dir = normalize(WorldPos.xyz - SphereParams.xyz);
-        uv = float2((atan2(dir.y, dir.x) / (2.0f * PI)) + 0.5f, acos(clamp(dir.z, -1.0f, 1.0f)) / PI);
-        uv.x *= max(0.0001f, SphereArc.x / 360.0f);
-        uv.y *= max(0.0001f, SphereArc.y / 180.0f);
-    }
-    else if (ProjectionType > 3.5f && ProjectionType < 4.5f)
-    {
-        const float2 size = max(ParallelSize.xy, float2(1.0f, 1.0f));
-        uv = ((WorldPos.xy - SpatialParams1.xy) / size) + 0.5f;
-    }
-    else if ((ProjectionType > 4.5f && ProjectionType < 5.5f) || RadialFlag > 0.5f)
-    {
-        const float2 radial = (WorldPos.xy - SpatialParams1.xy) * 0.001f;
-        uv = frac((radial + 1.0f) * 0.5f);
-    }
-    else if (ProjectionType > 5.5f && ProjectionType < 6.5f)
-    {
-        // Mesh mode uses eyepoint-driven clip projection (rays from eyepoint through mesh surface).
-        // Keep mesh UVs as a deterministic fallback for degenerate clip space.
-        if (abs(clip.w) <= 0.0001f)
-        {
-            uv = TexCoord0;
-        }
-    }
-    else if (ProjectionType > 6.5f && ProjectionType < 7.5f)
-    {
-        const float3 dir = normalize(WorldPos.xyz - SpatialParams1.xyz);
-        const float theta = acos(clamp(dir.z, -1.0f, 1.0f));
-        const float radius = theta / radians(max(1.0f, FisheyeParams.x));
-        const float phi = atan2(dir.y, dir.x);
-        uv = float2(cos(phi), sin(phi)) * (radius * 0.5f) + 0.5f;
-    }
-    else if (ProjectionType > 8.5f && ProjectionType < 9.5f)
-    {
-        const float2 anchor = saturate(CameraPlateParams.yz);
-        float2 fromAnchor = uv - anchor;
-        if (CameraPlateParams.x < 0.5f)
-        {
-            fromAnchor *= 0.85f;
-        }
-        else if (CameraPlateParams.x < 1.5f)
-        {
-            fromAnchor *= 1.15f;
-        }
-        uv = fromAnchor + anchor;
-        if (CameraPlateParams.w > 0.5f)
-        {
-            uv.y = 1.0f - uv.y;
-        }
-    }
-    else if (ProjectionType > 9.5f && ProjectionType < 10.5f)
-    {
-        uv = (uv * SpatialParams0.xy) + SpatialParams0.zw;
-    }
-    else if (ProjectionType > 10.5f && ProjectionType < 11.5f)
-    {
-        uv += float2(DepthMapParams.y, DepthMapParams.x) * (WorldPos.z * 0.0001f);
-    }
-}
-
-const float border = BorderExpansion * 0.001f;
-uv = (uv - 0.5f) * (1.0f + (border * 2.0f)) + 0.5f;
-
-if (MaskAngle.z > 0.5f)
-{
-    const float2 radial = uv - 0.5f;
-    float angleDeg = degrees(atan2(radial.y, radial.x));
-    if (angleDeg < 0.0f)
-    {
-        angleDeg += 360.0f;
-    }
-
-    const float start = MaskAngle.x;
-    const float end = MaskAngle.y;
-    float inRange = 0.0f;
-    if (start <= end)
-    {
-        inRange = (angleDeg >= start && angleDeg <= end) ? 1.0f : 0.0f;
-    }
-    else
-    {
-        inRange = (angleDeg >= start || angleDeg <= end) ? 1.0f : 0.0f;
-    }
-
-    if (inRange < 0.5f)
-    {
-        uv = float2(-1.0f, -1.0f);
-    }
-}
-
-return uv;
-)UVHLSL");
-    AddExpression(ResolveUvCustom);
-
-    AddCustomInput(ResolveUvCustom, TEXT("TexCoord0"), TexCoord);
-    AddCustomInput(ResolveUvCustom, TEXT("WorldPos"), WorldPosition);
-    AddCustomInput(ResolveUvCustom, TEXT("MappingMode"), MappingModeParam);
-    AddCustomInput(ResolveUvCustom, TEXT("ProjectionType"), ProjectionTypeParam);
-    AddCustomInput(ResolveUvCustom, TEXT("UVTransform"), UVTransformInput ? UVTransformInput : UVTransformParam);
-    AddCustomInput(ResolveUvCustom, TEXT("UVRotation"), UVRotationParam);
-    AddCustomInput(ResolveUvCustom, TEXT("UVScaleU"), UVScaleUParam);
-    AddCustomInput(ResolveUvCustom, TEXT("UVScaleV"), UVScaleVParam);
-    AddCustomInput(ResolveUvCustom, TEXT("UVOffsetU"), UVOffsetUParam);
-    AddCustomInput(ResolveUvCustom, TEXT("UVOffsetV"), UVOffsetVParam);
-    AddCustomInput(ResolveUvCustom, TEXT("UVChannel"), UVChannelParam);
-    AddCustomInput(ResolveUvCustom, TEXT("ProjectorRow0"), ProjectorRow0Input ? ProjectorRow0Input : ProjectorRow0Param);
-    AddCustomInput(ResolveUvCustom, TEXT("ProjectorRow1"), ProjectorRow1Input ? ProjectorRow1Input : ProjectorRow1Param);
-    AddCustomInput(ResolveUvCustom, TEXT("ProjectorRow2"), ProjectorRow2Input ? ProjectorRow2Input : ProjectorRow2Param);
-    AddCustomInput(ResolveUvCustom, TEXT("ProjectorRow3"), ProjectorRow3Input ? ProjectorRow3Input : ProjectorRow3Param);
-    AddCustomInput(ResolveUvCustom, TEXT("CameraPlateParams"), CameraPlateParamsInput ? CameraPlateParamsInput : CameraPlateParamsParam);
-    AddCustomInput(ResolveUvCustom, TEXT("SpatialParams0"), SpatialParams0Input ? SpatialParams0Input : SpatialParams0Param);
-    AddCustomInput(ResolveUvCustom, TEXT("SpatialParams1"), SpatialParams1Param);
-    AddCustomInput(ResolveUvCustom, TEXT("DepthMapParams"), DepthMapParamsInput ? DepthMapParamsInput : DepthMapParamsParam);
-    AddCustomInput(ResolveUvCustom, TEXT("CylinderParams"), CylinderParamsParam);
-    AddCustomInput(ResolveUvCustom, TEXT("CylinderExtent"), CylinderExtentParam);
-    AddCustomInput(ResolveUvCustom, TEXT("SphereParams"), SphereParamsParam);
-    AddCustomInput(ResolveUvCustom, TEXT("SphereArc"), SphereArcParam);
-    AddCustomInput(ResolveUvCustom, TEXT("ParallelSize"), ParallelSizeParam);
-    AddCustomInput(ResolveUvCustom, TEXT("MaskAngle"), MaskAngleParam);
-    AddCustomInput(ResolveUvCustom, TEXT("FisheyeParams"), FisheyeParamsParam);
-    AddCustomInput(ResolveUvCustom, TEXT("MeshEyepoint"), MeshEyepointParam);
-    AddCustomInput(ResolveUvCustom, TEXT("RadialFlag"), RadialFlagParam);
-    AddCustomInput(ResolveUvCustom, TEXT("BorderExpansion"), BorderExpansionParam);
-
-    ContextTextureParam->Coordinates.Expression = ResolveUvCustom;
-    DepthTextureParam->Coordinates.Expression = ResolveUvCustom;
-
-    UMaterialExpressionCustom* ResolveColorCustom = NewObject<UMaterialExpressionCustom>(Mat);
-    ResolveColorCustom->OutputType = CMOT_Float3;
-    ResolveColorCustom->Code = TEXT(R"COLORHLSL(
-float mapped = (UV.x >= 0.0f && UV.x <= 1.0f && UV.y >= 0.0f && UV.y <= 1.0f) ? 1.0f : 0.0f;
-float3 color = ContextColor.rgb;
-
-if (ProjectionType > 10.5f && ProjectionType < 11.5f)
-{
-    const float depthValue = DepthColor.r;
-    const float depthNorm = saturate((depthValue * DepthMapParams.x + DepthMapParams.y - DepthMapParams.z) / max(0.0001f, DepthMapParams.w - DepthMapParams.z));
-    color = lerp(color, depthNorm.xxx, 0.5f);
-}
-
-if (DebugCoverage > 0.5f)
-{
-    color = lerp(DebugUnmappedColor.rgb, DebugMappedColor.rgb, mapped);
-}
-
-if (ContentMode > 2.5f)
-{
-    color = floor(saturate(color) * 255.0f) / 255.0f;
-}
-
-color *= PreviewTint.rgb;
-color *= saturate(MappingIntensity * Opacity);
-return color;
-)COLORHLSL");
-    AddExpression(ResolveColorCustom);
-
-    AddCustomInput(ResolveColorCustom, TEXT("ContextColor"), ContextTextureParam);
-    AddCustomInput(ResolveColorCustom, TEXT("DepthColor"), DepthTextureParam);
-    AddCustomInput(ResolveColorCustom, TEXT("UV"), ResolveUvCustom);
-    AddCustomInput(ResolveColorCustom, TEXT("ProjectionType"), ProjectionTypeParam);
-    AddCustomInput(ResolveColorCustom, TEXT("DepthMapParams"), DepthMapParamsInput ? DepthMapParamsInput : DepthMapParamsParam);
-    AddCustomInput(ResolveColorCustom, TEXT("DebugCoverage"), DebugCoverageParam);
-    AddCustomInput(ResolveColorCustom, TEXT("DebugUnmappedColor"), DebugUnmappedColorParam);
-    AddCustomInput(ResolveColorCustom, TEXT("DebugMappedColor"), DebugMappedColorParam);
-    AddCustomInput(ResolveColorCustom, TEXT("PreviewTint"), PreviewTintParam);
-    AddCustomInput(ResolveColorCustom, TEXT("MappingIntensity"), MappingIntensityParam);
-    AddCustomInput(ResolveColorCustom, TEXT("Opacity"), OpacityParam);
-    AddCustomInput(ResolveColorCustom, TEXT("ContentMode"), ContentModeParam);
-
-    Mat->GetEditorOnlyData()->EmissiveColor.Expression = ResolveColorCustom;
-    Mat->GetEditorOnlyData()->EmissiveColor.OutputIndex = 0;
-    Mat->GetEditorOnlyData()->BaseColor.Expression = ResolveColorCustom;
-    Mat->GetEditorOnlyData()->BaseColor.OutputIndex = 0;
-
-    // Keep this parameter live even though fallback is opaque.
-    UMaterialExpressionMultiply* OpacityMultiply = NewObject<UMaterialExpressionMultiply>(Mat);
-    OpacityMultiply->A.Expression = OpacityParam;
-    OpacityMultiply->B.Expression = MappingIntensityParam;
-    AddExpression(OpacityMultiply);
-    Mat->GetEditorOnlyData()->Opacity.Expression = OpacityMultiply;
-    Mat->GetEditorOnlyData()->Opacity.OutputIndex = 0;
-
-    Mat->PreEditChange(nullptr);
-    Mat->PostEditChange();
-
-    ContentMappingMaterial = Mat;
-    bMaterialContractChecked = false;
-    LastContractMaterial = nullptr;
-    UE_LOG(LogRshipExec, Log, TEXT("ContentMapping material rebuilt (deterministic contract fallback)"));
-#else
-    ContentMappingMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/EngineMaterials/DefaultMaterial.DefaultMaterial"));
-    bMaterialContractChecked = false;
-    LastContractMaterial = nullptr;
-    UE_LOG(LogRshipExec, Warning, TEXT("ContentMapping fallback material authoring is editor-only; using DefaultMaterial at runtime."));
-#endif
-}
 FString URshipContentMappingManager::GetAssetCacheDirectory() const
 {
     return FPaths::ProjectSavedDir() / TEXT("Rship/AssetCache");

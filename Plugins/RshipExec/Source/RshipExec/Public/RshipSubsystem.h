@@ -228,9 +228,9 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     // Not a UPROPERTY because UHT requires full UCLASS definition which is only available when PCG plugin is enabled
     URshipPCGManager* PCGManager;
 
-    // Content mapping manager for render contexts and projection mappings (lazy initialized)
-    UPROPERTY()
-    URshipContentMappingManager* ContentMappingManager;
+    // Content mapping manager instance owned via runtime module reflection.
+    UPROPERTY(Transient)
+    UObject* ContentMappingManager;
 
     // Display management manager for deterministic monitor topology and pixel routing (lazy initialized)
     UPROPERTY()
@@ -535,9 +535,21 @@ public:
      *  Not exposed to Blueprint because UHT requires full UCLASS definition. */
     URshipSpatialAudioManager* GetSpatialAudioManager();
 
-    /** Get the Content Mapping manager for render contexts and surface mappings */
+    /** Get the Content Mapping manager object from the RshipMapping runtime module */
     UFUNCTION(BlueprintCallable, Category = "Rship|ContentMapping")
-    URshipContentMappingManager* GetContentMappingManager();
+    UObject* GetContentMappingManager();
+
+    /** Get current content-mapping debug overlay state */
+    UFUNCTION(BlueprintCallable, Category = "Rship|ContentMapping")
+    bool IsContentMappingDebugOverlayEnabled();
+
+    /** Enable/disable content-mapping debug overlay */
+    UFUNCTION(BlueprintCallable, Category = "Rship|ContentMapping")
+    void SetContentMappingDebugOverlayEnabled(bool bEnabled);
+
+    /** Return current content-mapping render contexts as JSON for non-mapping modules */
+    UFUNCTION(BlueprintCallable, Category = "Rship|ContentMapping")
+    FString GetContentMappingRenderContextsJson();
 
     /** Get the Display manager for deterministic monitor topology and pixel routing */
     UFUNCTION(BlueprintCallable, Category = "Rship|Display")

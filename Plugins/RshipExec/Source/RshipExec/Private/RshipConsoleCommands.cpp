@@ -12,7 +12,6 @@
 #include "RshipSequencerSync.h"
 #include "RshipMaterialBinding.h"
 #include "RshipDMXOutput.h"
-#include "RshipContentMappingManager.h"
 #include "RshipDisplayManager.h"
 #include "RshipSettings.h"
 #include "Logs.h"
@@ -784,15 +783,14 @@ static FAutoConsoleCommand CmdRshipContentMappingDebug(
         URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
         if (!Subsystem) return;
 
-        URshipContentMappingManager* Manager = Subsystem->GetContentMappingManager();
-        if (!Manager)
+        if (!Subsystem->GetContentMappingManager())
         {
             UE_LOG(LogRshipExec, Warning, TEXT("ContentMappingManager not available"));
             return;
         }
 
-        const bool bEnabled = !Manager->IsDebugOverlayEnabled();
-        Manager->SetDebugOverlayEnabled(bEnabled);
+        const bool bEnabled = !Subsystem->IsContentMappingDebugOverlayEnabled();
+        Subsystem->SetContentMappingDebugOverlayEnabled(bEnabled);
         UE_LOG(LogRshipExec, Log, TEXT("Content mapping debug overlay: %s"), bEnabled ? TEXT("ON") : TEXT("OFF"));
     })
 );

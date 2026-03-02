@@ -198,7 +198,7 @@ public:
     FString ContentMappingCachePath;
 
     UPROPERTY(EditAnywhere, config, Category = "Content Mapping", meta = (DisplayName = "Content Mapping Material Path",
-        ToolTip = "Optional override for the content mapping material instance asset path."))
+        ToolTip = "Optional override for the content mapping material instance asset path. Leave empty to use runtime defaults."))
     FString ContentMappingMaterialPath;
 
     UPROPERTY(EditAnywhere, config, Category = "Content Mapping", meta = (DisplayName = "Spawn Debug Actors (Editor Only)"))

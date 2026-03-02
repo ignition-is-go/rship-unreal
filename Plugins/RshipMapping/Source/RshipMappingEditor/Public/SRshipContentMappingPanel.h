@@ -240,6 +240,17 @@ private:
 	TSharedPtr<SSpinBox<float>> MapMeshEyeXInput;
 	TSharedPtr<SSpinBox<float>> MapMeshEyeYInput;
 	TSharedPtr<SSpinBox<float>> MapMeshEyeZInput;
+	TSharedPtr<class SEditableTextBox> MapCameraPlateFitInput;
+	TSharedPtr<class SEditableTextBox> MapCameraPlateAnchorInput;
+	TSharedPtr<class SCheckBox> MapCameraPlateFlipVInput;
+	TSharedPtr<SSpinBox<float>> MapSpatialScaleUInput;
+	TSharedPtr<SSpinBox<float>> MapSpatialScaleVInput;
+	TSharedPtr<SSpinBox<float>> MapSpatialOffsetUInput;
+	TSharedPtr<SSpinBox<float>> MapSpatialOffsetVInput;
+	TSharedPtr<SSpinBox<float>> MapDepthScaleInput;
+	TSharedPtr<SSpinBox<float>> MapDepthBiasInput;
+	TSharedPtr<SSpinBox<float>> MapDepthNearInput;
+	TSharedPtr<SSpinBox<float>> MapDepthFarInput;
 	TSharedPtr<class SEditableTextBox> MapContentModeInput;
 	TSharedPtr<SSpinBox<float>> MapMaskStartInput;
 	TSharedPtr<SSpinBox<float>> MapMaskEndInput;

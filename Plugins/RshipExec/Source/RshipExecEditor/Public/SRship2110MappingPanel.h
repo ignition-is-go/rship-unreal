@@ -8,7 +8,6 @@
 
 class URship2110Subsystem;
 class URshipSubsystem;
-class URshipContentMappingManager;
 class URshipSettings;
 class SEditableTextBox;
 
@@ -104,7 +103,6 @@ private:
 	// Subsystem helpers
 	URship2110Subsystem* Get2110Subsystem() const;
 	URshipSubsystem* GetRshipSubsystem() const;
-	URshipContentMappingManager* GetContentMappingManager() const;
 	bool IsContentMappingAvailable() const;
 	bool Is2110RuntimeAvailable() const;
 	FText FormatStreamNotReadyText() const;

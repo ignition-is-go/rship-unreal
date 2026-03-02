@@ -1,5 +1,5 @@
 #!/bin/bash
-# Package RshipExec plugin for distribution
+# Package Rocketship plugins for distribution
 # Usage: ./scripts/package-plugin.sh [ue-version] [output-dir]
 #
 # Examples:
@@ -10,7 +10,8 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-PLUGIN_DIR="$REPO_ROOT/Plugins/RshipExec"
+PLUGIN_EXEC_DIR="$REPO_ROOT/Plugins/RshipExec"
+PLUGIN_MAPPING_DIR="$REPO_ROOT/Plugins/RshipMapping"
 
 UE_VERSION_REQUEST="${1:-}"
 OUTPUT_DIR="${2:-$REPO_ROOT/dist}"
@@ -93,49 +94,86 @@ if [ ! -f "$UAT" ]; then
     exit 1
 fi
 
-# Verify plugin exists
-if [ ! -f "$PLUGIN_DIR/RshipExec.uplugin" ]; then
-    echo "Error: RshipExec.uplugin not found at $PLUGIN_DIR"
+# Verify plugins exist
+if [ ! -f "$PLUGIN_EXEC_DIR/RshipExec.uplugin" ]; then
+    echo "Error: RshipExec.uplugin not found at $PLUGIN_EXEC_DIR"
     exit 1
+fi
+if [ ! -f "$PLUGIN_MAPPING_DIR/RshipMapping.uplugin" ]; then
+    echo "Error: RshipMapping.uplugin not found at $PLUGIN_MAPPING_DIR"
+    exit 1
+fi
+
+# Verify content-mapping runtime readiness before packaging.
+if [ -x "$SCRIPT_DIR/verify-content-mapping-readiness.sh" ]; then
+    "$SCRIPT_DIR/verify-content-mapping-readiness.sh"
 fi
 
 # Create output directory
 mkdir -p "$OUTPUT_DIR"
 OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
-OUTPUT_PATH="$OUTPUT_DIR/RshipExec-$UE_VERSION-$PLATFORM"
+EXEC_OUTPUT_PATH="$OUTPUT_DIR/RshipExec-$UE_VERSION-$PLATFORM"
+MAPPING_OUTPUT_PATH="$OUTPUT_DIR/RshipMapping-$UE_VERSION-$PLATFORM"
+BUNDLE_OUTPUT_PATH="$OUTPUT_DIR/RshipPlugins-$UE_VERSION-$PLATFORM"
 
 echo "=========================================="
-echo "Packaging RshipExec Plugin"
+echo "Packaging Rocketship Plugins"
 echo "=========================================="
 echo "UE Version:  $UE_VERSION"
 echo "Platform:    $PLATFORM"
-echo "Plugin:      $PLUGIN_DIR"
-echo "Output:      $OUTPUT_PATH"
+echo "RshipExec:   $PLUGIN_EXEC_DIR"
+echo "RshipMapping:$PLUGIN_MAPPING_DIR"
+echo "Output:      $BUNDLE_OUTPUT_PATH"
 echo "=========================================="
 
-# Run UAT BuildPlugin command
+# Run UAT BuildPlugin command for RshipExec.
 "$UAT" BuildPlugin \
-    -Plugin="$PLUGIN_DIR/RshipExec.uplugin" \
-    -Package="$OUTPUT_PATH" \
+    -Plugin="$PLUGIN_EXEC_DIR/RshipExec.uplugin" \
+    -Package="$EXEC_OUTPUT_PATH" \
     -TargetPlatforms="$PLATFORM" \
     -Rocket \
     -VS2022
 
+# Run UAT BuildPlugin command for RshipMapping.
+"$UAT" BuildPlugin \
+    -Plugin="$PLUGIN_MAPPING_DIR/RshipMapping.uplugin" \
+    -Package="$MAPPING_OUTPUT_PATH" \
+    -TargetPlatforms="$PLATFORM" \
+    -Rocket \
+    -VS2022
+
+# Build one-click project install bundle: drop this folder into <Project>/Plugins.
+rm -rf "$BUNDLE_OUTPUT_PATH"
+mkdir -p "$BUNDLE_OUTPUT_PATH/Plugins"
+cp -R "$EXEC_OUTPUT_PATH" "$BUNDLE_OUTPUT_PATH/Plugins/RshipExec"
+cp -R "$MAPPING_OUTPUT_PATH" "$BUNDLE_OUTPUT_PATH/Plugins/RshipMapping"
+
 echo ""
 echo "=========================================="
-echo "Plugin packaged successfully!"
-echo "Output: $OUTPUT_PATH"
+echo "Plugins packaged successfully!"
+echo "Exec Output:    $EXEC_OUTPUT_PATH"
+echo "Mapping Output: $MAPPING_OUTPUT_PATH"
+echo "Bundle Output:  $BUNDLE_OUTPUT_PATH"
 echo "=========================================="
 
 # Create zip archive
 if command -v zip &> /dev/null; then
     cd "$OUTPUT_DIR"
-    ZIP_NAME="RshipExec-$UE_VERSION-$PLATFORM.zip"
-    rm -f "$ZIP_NAME"
+    EXEC_ZIP_NAME="RshipExec-$UE_VERSION-$PLATFORM.zip"
+    MAPPING_ZIP_NAME="RshipMapping-$UE_VERSION-$PLATFORM.zip"
+    BUNDLE_ZIP_NAME="RshipPlugins-$UE_VERSION-$PLATFORM.zip"
+    rm -f "$EXEC_ZIP_NAME" "$MAPPING_ZIP_NAME" "$BUNDLE_ZIP_NAME"
+
     if [ -d "RshipExec-$UE_VERSION-$PLATFORM" ]; then
-        zip -r "$ZIP_NAME" "RshipExec-$UE_VERSION-$PLATFORM"
-        echo "Created: $OUTPUT_DIR/$ZIP_NAME"
-    else
-        echo "Warning: package directory not found for zip: $OUTPUT_PATH"
+        zip -r "$EXEC_ZIP_NAME" "RshipExec-$UE_VERSION-$PLATFORM"
+        echo "Created: $OUTPUT_DIR/$EXEC_ZIP_NAME"
+    fi
+    if [ -d "RshipMapping-$UE_VERSION-$PLATFORM" ]; then
+        zip -r "$MAPPING_ZIP_NAME" "RshipMapping-$UE_VERSION-$PLATFORM"
+        echo "Created: $OUTPUT_DIR/$MAPPING_ZIP_NAME"
+    fi
+    if [ -d "RshipPlugins-$UE_VERSION-$PLATFORM" ]; then
+        zip -r "$BUNDLE_ZIP_NAME" "RshipPlugins-$UE_VERSION-$PLATFORM"
+        echo "Created: $OUTPUT_DIR/$BUNDLE_ZIP_NAME"
     fi
 fi

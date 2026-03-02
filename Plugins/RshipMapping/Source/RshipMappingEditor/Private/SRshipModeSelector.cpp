@@ -6,6 +6,31 @@
 
 #define LOCTEXT_NAMESPACE "SRshipModeSelector"
 
+namespace
+{
+	FString NormalizeModeToken(const FString& InMode)
+	{
+		const FString Mode = InMode.TrimStartAndEnd().ToLower();
+		if (Mode.IsEmpty()) return TEXT("direct");
+		if (Mode == TEXT("surface-feed")) return TEXT("feed");
+		if (Mode == TEXT("surface-uv")) return TEXT("direct");
+		if (Mode == TEXT("surface-projection")) return TEXT("perspective");
+		if (Mode == TEXT("custom matrix") || Mode == TEXT("matrix")) return TEXT("custom-matrix");
+		if (Mode == TEXT("camera plate") || Mode == TEXT("cameraplate")) return TEXT("camera-plate");
+		if (Mode == TEXT("depth map") || Mode == TEXT("depthmap")) return TEXT("depth-map");
+		if (Mode == TEXT("orthographic") || Mode == TEXT("ortho") || Mode == TEXT("planar")) return TEXT("parallel");
+		if (Mode == TEXT("projection") || Mode == TEXT("projector")) return TEXT("perspective");
+		if (Mode == TEXT("mesh-projection")
+			|| Mode == TEXT("mesh projection")
+			|| Mode == TEXT("mesh-camera")
+			|| Mode == TEXT("mesh camera")
+			|| Mode == TEXT("ndisplay")
+			|| Mode == TEXT("n-display")
+			|| Mode == TEXT("displaycluster")) return TEXT("mesh");
+		return Mode;
+	}
+}
+
 void SRshipModeSelector::BuildModeItems()
 {
 	ModeItems =
@@ -47,7 +72,7 @@ FText SRshipModeSelector::GetModeLabel(const FString& Mode) const
 	{
 		return *Found;
 	}
-	return LOCTEXT("MapModeUnknownLabel", "Perspective");
+	return FText::FromString(Mode.IsEmpty() ? TEXT("Direct") : Mode);
 }
 
 TSharedPtr<FString> SRshipModeSelector::FindItemForMode(const FString& Mode) const
@@ -105,7 +130,7 @@ void SRshipModeSelector::Construct(const FArguments& InArgs)
 
 void SRshipModeSelector::SetSelectedMode(const FString& InMode)
 {
-	const FString NormalizedMode = InMode.IsEmpty() ? TEXT("direct") : InMode;
+	const FString NormalizedMode = NormalizeModeToken(InMode);
 	SelectedMode = NormalizedMode;
 	SelectedModeItem = FindItemForMode(SelectedMode);
 	if (!SelectedModeItem.IsValid() && ModeItems.Num() > 0)

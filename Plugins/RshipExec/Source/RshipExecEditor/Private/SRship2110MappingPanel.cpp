@@ -3,7 +3,6 @@
 #include "SRship2110MappingPanel.h"
 
 #include "RshipSubsystem.h"
-#include "RshipContentMappingManager.h"
 #include "RshipSettings.h"
 
 #if RSHIP_EDITOR_HAS_2110
@@ -23,8 +22,11 @@
 #include "Widgets/Views/SListView.h"
 #include "Widgets/Input/SEditableTextBox.h"
 
+#include "Dom/JsonObject.h"
+#include "Dom/JsonValue.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
 #include "Engine/Engine.h"
-#include "Engine/TextureRenderTarget2D.h"
 #include "Misc/DefaultValueHelper.h"
 
 #define LOCTEXT_NAMESPACE "SRship2110MappingPanel"
@@ -184,7 +186,11 @@ bool SRship2110MappingPanel::IsContentMappingAvailable() const
 		return false;
 	}
 
-	return GetContentMappingManager() != nullptr;
+	if (URshipSubsystem* Subsystem = GetRshipSubsystem())
+	{
+		return Subsystem->GetContentMappingManager() != nullptr;
+	}
+	return false;
 }
 
 void SRship2110MappingPanel::RefreshSubsystemState()
@@ -305,15 +311,6 @@ URship2110Subsystem* SRship2110MappingPanel::Get2110Subsystem() const
 URshipSubsystem* SRship2110MappingPanel::GetRshipSubsystem() const
 {
 	return GEngine ? GEngine->GetEngineSubsystem<URshipSubsystem>() : nullptr;
-}
-
-URshipContentMappingManager* SRship2110MappingPanel::GetContentMappingManager() const
-{
-	if (URshipSubsystem* Subsystem = GetRshipSubsystem())
-	{
-		return Subsystem->GetContentMappingManager();
-	}
-	return nullptr;
 }
 
 void SRship2110MappingPanel::RefreshStreams()
@@ -505,8 +502,8 @@ void SRship2110MappingPanel::RefreshContexts()
 		return;
 	}
 
-	URshipContentMappingManager* MappingManager = GetContentMappingManager();
-	if (!MappingManager)
+	URshipSubsystem* Subsystem = GetRshipSubsystem();
+	if (!Subsystem)
 	{
 		if (ContextListView.IsValid())
 		{
@@ -515,21 +512,71 @@ void SRship2110MappingPanel::RefreshContexts()
 		return;
 	}
 
-	const TArray<FRshipRenderContextState> ContextStates = MappingManager->GetRenderContexts();
-	for (const FRshipRenderContextState& Context : ContextStates)
+	const FString ContextsJson = Subsystem->GetContentMappingRenderContextsJson();
+	if (ContextsJson.IsEmpty())
 	{
+		if (ContextListView.IsValid())
+		{
+			ContextListView->RequestListRefresh();
+		}
+		return;
+	}
+
+	TSharedPtr<FJsonObject> RootObject;
+	const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(ContextsJson);
+	if (!FJsonSerializer::Deserialize(Reader, RootObject) || !RootObject.IsValid())
+	{
+		if (ContextListView.IsValid())
+		{
+			ContextListView->RequestListRefresh();
+		}
+		return;
+	}
+
+	const TArray<TSharedPtr<FJsonValue>>* ContextValues = nullptr;
+	if (!RootObject->TryGetArrayField(TEXT("contexts"), ContextValues) || !ContextValues)
+	{
+		if (ContextListView.IsValid())
+		{
+			ContextListView->RequestListRefresh();
+		}
+		return;
+	}
+
+	for (const TSharedPtr<FJsonValue>& ContextValue : *ContextValues)
+	{
+		if (!ContextValue.IsValid() || ContextValue->Type != EJson::Object)
+		{
+			continue;
+		}
+		const TSharedPtr<FJsonObject> Context = ContextValue->AsObject();
+		if (!Context.IsValid())
+		{
+			continue;
+		}
+
 		TSharedPtr<FRship2110RenderContextItem> Item = MakeShared<FRship2110RenderContextItem>();
-		Item->ContextId = Context.Id;
-		Item->Name = Context.Name;
-		Item->SourceType = Context.SourceType;
-		Item->Resolution = FString::Printf(TEXT("%dx%d"), Context.Width, Context.Height);
-		Item->Width = Context.Width;
-		Item->Height = Context.Height;
-		Item->CameraId = Context.CameraId;
-		Item->bEnabled = Context.bEnabled;
-		Item->bHasRenderTarget = Cast<UTextureRenderTarget2D>(Context.ResolvedTexture) != nullptr;
-		Item->LastError = Context.LastError;
-		Item->BoundStreamCount = BoundContextCounts.FindRef(Context.Id);
+		Context->TryGetStringField(TEXT("id"), Item->ContextId);
+		Context->TryGetStringField(TEXT("name"), Item->Name);
+		Context->TryGetStringField(TEXT("sourceType"), Item->SourceType);
+		Context->TryGetStringField(TEXT("cameraId"), Item->CameraId);
+		Context->TryGetStringField(TEXT("lastError"), Item->LastError);
+
+		double WidthValue = 0.0;
+		double HeightValue = 0.0;
+		if (Context->TryGetNumberField(TEXT("width"), WidthValue))
+		{
+			Item->Width = FMath::RoundToInt(WidthValue);
+		}
+		if (Context->TryGetNumberField(TEXT("height"), HeightValue))
+		{
+			Item->Height = FMath::RoundToInt(HeightValue);
+		}
+		Context->TryGetBoolField(TEXT("enabled"), Item->bEnabled);
+		Context->TryGetBoolField(TEXT("hasRenderTarget"), Item->bHasRenderTarget);
+
+		Item->Resolution = FString::Printf(TEXT("%dx%d"), Item->Width, Item->Height);
+		Item->BoundStreamCount = BoundContextCounts.FindRef(Item->ContextId);
 		Item->bBound = Item->BoundStreamCount > 0;
 		ContextItems.Add(Item);
 	}
