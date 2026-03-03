@@ -42,6 +42,19 @@ struct FRshipPendingExecTargetAction
     TArray<FString> TxIds;
 };
 
+struct FRshipPendingBatchActionItem
+{
+    FString TargetId;
+    FString ActionId;
+    TSharedPtr<FJsonObject> Data;
+};
+
+struct FRshipPendingBatchTargetAction
+{
+    FString TxId;
+    TArray<FRshipPendingBatchActionItem> Actions;
+};
+
 /**
  * Main subsystem for managing Rocketship WebSocket connection and message routing.
  * Uses rate limiting and message queuing to prevent overwhelming the server.
@@ -88,6 +101,7 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     // Components that had successful Take() calls this frame; flushed once per tick.
     TSet<TWeakObjectPtr<URshipActorRegistrationComponent>> PendingOnDataReceivedComponents;
     TMap<FString, FRshipPendingExecTargetAction> PendingExecTargetActions;
+    TArray<FRshipPendingBatchTargetAction> PendingBatchTargetActions;
 
     struct FManagedTargetSnapshot
     {
@@ -138,6 +152,7 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     void OnConnectionTimeout();
     void FlushPendingOnDataReceived();
     void EnqueueExecTargetAction(const FString& TargetId, const FString& ActionId, const TSharedRef<FJsonObject>& Data, const FString& TxId);
+    void EnqueueBatchTargetAction(const FString& TxId, TArray<FRshipPendingBatchActionItem>&& Actions);
     void ProcessPendingExecTargetActions();
     void QueueCommandResponse(const FString& TxId, bool bOk, const FString& CommandId, const FString& ErrorMessage = TEXT(""));
 

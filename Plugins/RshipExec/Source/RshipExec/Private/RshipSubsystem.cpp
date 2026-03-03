@@ -851,6 +851,26 @@ void URshipSubsystem::EnqueueExecTargetAction(const FString& TargetId, const FSt
     Pending.TxIds.Add(TxId);
 }
 
+void URshipSubsystem::EnqueueBatchTargetAction(const FString& TxId, TArray<FRshipPendingBatchActionItem>&& Actions)
+{
+    if (TxId.IsEmpty())
+    {
+        UE_LOG(LogRshipExec, Error, TEXT("BatchTargetAction enqueue failed: missing tx id."));
+        return;
+    }
+
+    if (Actions.Num() == 0)
+    {
+        UE_LOG(LogRshipExec, Error, TEXT("BatchTargetAction enqueue failed: no actions for tx '%s'."), *TxId);
+        return;
+    }
+
+    FRshipPendingBatchTargetAction Pending;
+    Pending.TxId = TxId;
+    Pending.Actions = MoveTemp(Actions);
+    PendingBatchTargetActions.Add(MoveTemp(Pending));
+}
+
 void URshipSubsystem::QueueCommandResponse(const FString& TxId, bool bOk, const FString& CommandId, const FString& ErrorMessage)
 {
     if (bOk)
@@ -883,15 +903,19 @@ void URshipSubsystem::QueueCommandResponse(const FString& TxId, bool bOk, const 
 
 void URshipSubsystem::ProcessPendingExecTargetActions()
 {
-    if (PendingExecTargetActions.Num() == 0)
+    const bool bHasSingleActions = PendingExecTargetActions.Num() > 0;
+    const bool bHasBatchActions = PendingBatchTargetActions.Num() > 0;
+    if (!bHasSingleActions && !bHasBatchActions)
     {
         return;
     }
 
-    TMap<FString, FRshipPendingExecTargetAction> PendingBatch = MoveTemp(PendingExecTargetActions);
+    TMap<FString, FRshipPendingExecTargetAction> PendingSingleBatch = MoveTemp(PendingExecTargetActions);
     PendingExecTargetActions.Reset();
+    TArray<FRshipPendingBatchTargetAction> PendingBatchCommands = MoveTemp(PendingBatchTargetActions);
+    PendingBatchTargetActions.Reset();
 
-    for (TPair<FString, FRshipPendingExecTargetAction>& Pair : PendingBatch)
+    for (TPair<FString, FRshipPendingExecTargetAction>& Pair : PendingSingleBatch)
     {
         FRshipPendingExecTargetAction& Pending = Pair.Value;
         if (!Pending.Data.IsValid())
@@ -907,6 +931,63 @@ void URshipSubsystem::ProcessPendingExecTargetActions()
         for (const FString& TxId : Pending.TxIds)
         {
             QueueCommandResponse(TxId, bResult, TEXT("ExecTargetAction"), TEXT("Action was not handled by any target"));
+        }
+    }
+
+    for (FRshipPendingBatchTargetAction& PendingBatchCommand : PendingBatchCommands)
+    {
+        if (PendingBatchCommand.TxId.IsEmpty())
+        {
+            UE_LOG(LogRshipExec, Error, TEXT("BatchTargetAction processing skipped: empty tx id."));
+            continue;
+        }
+
+        if (PendingBatchCommand.Actions.Num() == 0)
+        {
+            QueueCommandResponse(PendingBatchCommand.TxId, false, TEXT("BatchTargetAction"), TEXT("BatchTargetAction has no actions"));
+            continue;
+        }
+
+        bool bAllSucceeded = true;
+        int32 FailedIndex = INDEX_NONE;
+        FString FailedReason;
+
+        for (int32 ActionIndex = 0; ActionIndex < PendingBatchCommand.Actions.Num(); ++ActionIndex)
+        {
+            FRshipPendingBatchActionItem& ActionItem = PendingBatchCommand.Actions[ActionIndex];
+            if (!ActionItem.Data.IsValid())
+            {
+                bAllSucceeded = false;
+                FailedIndex = ActionIndex;
+                FailedReason = TEXT("Action payload missing");
+                UE_LOG(LogRshipExec, Error, TEXT("BatchTargetAction tx=%s failed at index=%d: payload missing."),
+                    *PendingBatchCommand.TxId, ActionIndex);
+                break;
+            }
+
+            const bool bResult = ExecuteTargetAction(ActionItem.TargetId, ActionItem.ActionId, ActionItem.Data.ToSharedRef());
+            if (!bResult)
+            {
+                bAllSucceeded = false;
+                FailedIndex = ActionIndex;
+                FailedReason = FString::Printf(TEXT("Action was not handled by any target (index=%d target=%s action=%s)"),
+                    ActionIndex, *ActionItem.TargetId, *ActionItem.ActionId);
+                UE_LOG(LogRshipExec, Error, TEXT("BatchTargetAction tx=%s failed at index=%d target=%s action=%s."),
+                    *PendingBatchCommand.TxId, ActionIndex, *ActionItem.TargetId, *ActionItem.ActionId);
+                break;
+            }
+        }
+
+        if (bAllSucceeded)
+        {
+            QueueCommandResponse(PendingBatchCommand.TxId, true, TEXT("BatchTargetAction"));
+        }
+        else
+        {
+            const FString ErrorMessage = FailedIndex == INDEX_NONE
+                ? TEXT("BatchTargetAction failed")
+                : FString::Printf(TEXT("BatchTargetAction failed at index %d: %s"), FailedIndex, *FailedReason);
+            QueueCommandResponse(PendingBatchCommand.TxId, false, TEXT("BatchTargetAction"), ErrorMessage);
         }
     }
 }
@@ -1032,6 +1113,93 @@ void URshipSubsystem::ProcessMessage(const FString &message)
             FString targetId = execAction->GetStringField(TEXT("targetId"));
 
             EnqueueExecTargetAction(targetId, actionId, execData, txId);
+        }
+        else if (commandId == "BatchTargetAction")
+        {
+            const TArray<TSharedPtr<FJsonValue>>* ActionsArray = nullptr;
+            if (!command->TryGetArrayField(TEXT("actions"), ActionsArray) || ActionsArray == nullptr)
+            {
+                UE_LOG(LogRshipExec, Error, TEXT("BatchTargetAction rejected: missing 'actions' array."));
+                QueueCommandResponse(txId, false, TEXT("BatchTargetAction"), TEXT("Missing actions array"));
+                return;
+            }
+
+            TArray<FRshipPendingBatchActionItem> ParsedActions;
+            ParsedActions.Reserve(ActionsArray->Num());
+
+            bool bParseFailed = false;
+            FString ParseError = TEXT("Invalid actions payload");
+
+            for (int32 ActionIndex = 0; ActionIndex < ActionsArray->Num(); ++ActionIndex)
+            {
+                const TSharedPtr<FJsonValue>& ActionValue = (*ActionsArray)[ActionIndex];
+                if (!ActionValue.IsValid() || ActionValue->Type != EJson::Object)
+                {
+                    bParseFailed = true;
+                    ParseError = FString::Printf(TEXT("Action at index %d is not an object"), ActionIndex);
+                    break;
+                }
+
+                TSharedPtr<FJsonObject> ActionObj = ActionValue->AsObject();
+                if (!ActionObj.IsValid())
+                {
+                    bParseFailed = true;
+                    ParseError = FString::Printf(TEXT("Action at index %d is null"), ActionIndex);
+                    break;
+                }
+
+                const TSharedPtr<FJsonObject>* ExecActionPtr = nullptr;
+                const TSharedPtr<FJsonObject>* ExecDataPtr = nullptr;
+                if (!ActionObj->TryGetObjectField(TEXT("action"), ExecActionPtr) || ExecActionPtr == nullptr || !ExecActionPtr->IsValid())
+                {
+                    bParseFailed = true;
+                    ParseError = FString::Printf(TEXT("Action at index %d missing object field 'action'"), ActionIndex);
+                    break;
+                }
+                if (!ActionObj->TryGetObjectField(TEXT("data"), ExecDataPtr) || ExecDataPtr == nullptr || !ExecDataPtr->IsValid())
+                {
+                    bParseFailed = true;
+                    ParseError = FString::Printf(TEXT("Action at index %d missing object field 'data'"), ActionIndex);
+                    break;
+                }
+
+                FString ActionId;
+                FString TargetId;
+                if (!(*ExecActionPtr)->TryGetStringField(TEXT("id"), ActionId) || ActionId.IsEmpty())
+                {
+                    bParseFailed = true;
+                    ParseError = FString::Printf(TEXT("Action at index %d missing string field 'action.id'"), ActionIndex);
+                    break;
+                }
+                if (!(*ExecActionPtr)->TryGetStringField(TEXT("targetId"), TargetId) || TargetId.IsEmpty())
+                {
+                    bParseFailed = true;
+                    ParseError = FString::Printf(TEXT("Action at index %d missing string field 'action.targetId'"), ActionIndex);
+                    break;
+                }
+
+                FRshipPendingBatchActionItem Parsed;
+                Parsed.TargetId = TargetId;
+                Parsed.ActionId = ActionId;
+                Parsed.Data = *ExecDataPtr;
+                ParsedActions.Add(MoveTemp(Parsed));
+            }
+
+            if (bParseFailed)
+            {
+                UE_LOG(LogRshipExec, Error, TEXT("BatchTargetAction rejected: %s (tx=%s)."), *ParseError, *txId);
+                QueueCommandResponse(txId, false, TEXT("BatchTargetAction"), ParseError);
+                return;
+            }
+
+            if (ParsedActions.Num() == 0)
+            {
+                UE_LOG(LogRshipExec, Error, TEXT("BatchTargetAction rejected: empty actions list (tx=%s)."), *txId);
+                QueueCommandResponse(txId, false, TEXT("BatchTargetAction"), TEXT("BatchTargetAction has no actions"));
+                return;
+            }
+
+            EnqueueBatchTargetAction(txId, MoveTemp(ParsedActions));
         }
 
         obj.Reset();
