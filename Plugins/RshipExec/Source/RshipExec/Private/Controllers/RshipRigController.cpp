@@ -7,7 +7,6 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Animation/AnimInstance.h"
 #include "Rigs/RigHierarchy.h"
-#include "Rigs/RigHierarchyController.h"
 #include "Rigs/RigHierarchyElements.h"
 
 namespace
@@ -28,6 +27,50 @@ FString MakeTargetSegmentFromBoneName(const FName& BoneName)
 	Segment.ReplaceInline(TEXT("."), TEXT("_"));
 	return Segment;
 }
+
+FTransform BlendTransforms(const FTransform& From, const FTransform& To, const float Alpha)
+{
+	const float ClampedAlpha = FMath::Clamp(Alpha, 0.0f, 1.0f);
+	FTransform Result;
+	Result.SetTranslation(FMath::Lerp(From.GetTranslation(), To.GetTranslation(), ClampedAlpha));
+	Result.SetScale3D(FMath::Lerp(From.GetScale3D(), To.GetScale3D(), ClampedAlpha));
+	Result.SetRotation(FQuat::Slerp(From.GetRotation(), To.GetRotation(), ClampedAlpha).GetNormalized());
+	return Result;
+}
+
+FTransform ComposeDesiredGlobalTransform(
+	URigHierarchy* Hierarchy,
+	const FRigElementKey& Key,
+	const ERshipRigTransformChoice LocationChoice,
+	const ERshipRigTransformChoice RotationChoice)
+{
+	const FTransform InitialGlobal = Hierarchy->GetGlobalTransform(Key, true);
+	const FTransform CurrentGlobal = Hierarchy->GetGlobalTransform(Key, false);
+
+	FTransform DesiredGlobal = CurrentGlobal;
+	if (LocationChoice == ERshipRigTransformChoice::Initial)
+	{
+		DesiredGlobal.SetTranslation(InitialGlobal.GetTranslation());
+	}
+	if (RotationChoice == ERshipRigTransformChoice::Initial)
+	{
+		DesiredGlobal.SetRotation(InitialGlobal.GetRotation());
+	}
+	return DesiredGlobal;
+}
+}
+
+URshipRigController::URshipRigController()
+{
+	PrimaryComponentTick.bCanEverTick = true;
+	PrimaryComponentTick.bStartWithTickEnabled = true;
+	bTickInEditor = true;
+}
+
+void URshipRigController::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
+{
+	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+	ApplyActiveAttachments(DeltaTime);
 }
 
 void URshipRigController::OnBeforeRegisterRshipTargets()
@@ -161,7 +204,8 @@ void URshipRigBoneActionProxy::AttachToBone(FString ParentBoneName,
 	ERshipRigTransformChoice ParentLocation,
 	ERshipRigTransformChoice ParentRotation,
 	ERshipRigTransformChoice ChildLocation,
-	ERshipRigTransformChoice ChildRotation)
+	ERshipRigTransformChoice ChildRotation,
+	float BlendSeconds)
 {
 	if (!Controller)
 	{
@@ -169,7 +213,7 @@ void URshipRigBoneActionProxy::AttachToBone(FString ParentBoneName,
 		return;
 	}
 
-	Controller->AttachBoneToParent(BoneName, FName(*ParentBoneName), ParentLocation, ParentRotation, ChildLocation, ChildRotation);
+	Controller->AttachBoneToParent(BoneName, FName(*ParentBoneName), ParentLocation, ParentRotation, ChildLocation, ChildRotation, BlendSeconds);
 }
 
 void URshipRigBoneActionProxy::ResetToInitialWorld()
@@ -385,7 +429,8 @@ void URshipRigController::AttachBoneToParent(const FName& BoneName, const FName&
 	ERshipRigTransformChoice ParentLocation,
 	ERshipRigTransformChoice ParentRotation,
 	ERshipRigTransformChoice ChildLocation,
-	ERshipRigTransformChoice ChildRotation)
+	ERshipRigTransformChoice ChildRotation,
+	float BlendSeconds)
 {
 	if (ParentBoneName.IsNone())
 	{
@@ -416,115 +461,46 @@ void URshipRigController::AttachBoneToParent(const FName& BoneName, const FName&
 		return;
 	}
 
-	URigHierarchyController* Controller = Hierarchy->GetController(true);
-	if (!Controller)
+	const FTransform ParentDesiredGlobal = ComposeDesiredGlobalTransform(Hierarchy, ParentKey, ParentLocation, ParentRotation);
+	const FTransform ChildDesiredGlobal = ComposeDesiredGlobalTransform(Hierarchy, ChildKey, ChildLocation, ChildRotation);
+
+	const float EffectiveBlendSeconds = FMath::Max(BlendSeconds, 0.0f);
+
+	FRshipRigAttachTarget NewTarget;
+	NewTarget.ParentBone = ParentKey.Name;
+	NewTarget.LocalOffset = ChildDesiredGlobal.GetRelativeTransform(ParentDesiredGlobal);
+
+	FRshipRigAttachState& State = BoneAttachStates.FindOrAdd(BoneName);
+	if (!State.Active.ParentBone.IsNone() && State.Active.ParentBone != ParentKey.Name)
 	{
-		return;
-	}
+		State.BlendFrom = State.Active;
+		State.BlendTo = NewTarget;
+		State.BlendAlpha = 0.0f;
+		State.BlendDuration = FMath::Max(EffectiveBlendSeconds, 0.0f);
+		State.bBlendActive = State.BlendDuration > KINDA_SMALL_NUMBER;
 
-	// Ensure a clean reattach by removing existing parents first.
-	if (!Controller->RemoveAllParents(ChildKey, true, false, false))
-	{
-		UE_LOG(LogRshipExec, Error, TEXT("AttachBoneToParent failed: could not remove existing parents (child=%s)."),
-			*BoneName.ToString());
-		return;
-	}
-
-	if (!Controller->SetParent(ChildKey, ParentKey, true, false, false))
-	{
-		UE_LOG(LogRshipExec, Error, TEXT("AttachBoneToParent failed: SetParent returned false (child=%s parent=%s)."),
-			*BoneName.ToString(),
-			*ParentKey.Name.ToString());
-		return;
-	}
-
-	Hierarchy->EnsureCacheValidity();
-
-	const bool bUseInitialParent =
-		ParentLocation == ERshipRigTransformChoice::Initial ||
-		ParentRotation == ERshipRigTransformChoice::Initial;
-	const bool bUseInitialChild =
-		ChildLocation == ERshipRigTransformChoice::Initial ||
-		ChildRotation == ERshipRigTransformChoice::Initial;
-
-	if (bUseInitialParent || bUseInitialChild)
-	{
-		const FTransform ParentInitialGlobal = Hierarchy->GetGlobalTransform(ParentKey, true);
-		const FTransform ParentCurrentGlobal = Hierarchy->GetGlobalTransform(ParentKey, false);
-		const FTransform ChildInitialGlobal = Hierarchy->GetGlobalTransform(ChildKey, true);
-		const FTransform ChildCurrentGlobal = Hierarchy->GetGlobalTransform(ChildKey, false);
-
-		FTransform ParentDesiredGlobal = ParentCurrentGlobal;
-		if (ParentLocation == ERshipRigTransformChoice::Initial)
+		if (!State.bBlendActive)
 		{
-			ParentDesiredGlobal.SetTranslation(ParentInitialGlobal.GetTranslation());
-		}
-		if (ParentRotation == ERshipRigTransformChoice::Initial)
-		{
-			ParentDesiredGlobal.SetRotation(ParentInitialGlobal.GetRotation());
-		}
-
-		FTransform ChildDesiredGlobal = ChildCurrentGlobal;
-		if (ChildLocation == ERshipRigTransformChoice::Initial)
-		{
-			ChildDesiredGlobal.SetTranslation(ChildInitialGlobal.GetTranslation());
-		}
-		if (ChildRotation == ERshipRigTransformChoice::Initial)
-		{
-			ChildDesiredGlobal.SetRotation(ChildInitialGlobal.GetRotation());
-		}
-
-		const FTransform DesiredRelative = ChildDesiredGlobal.GetRelativeTransform(ParentDesiredGlobal);
-
-		FTransform LocalTransform = Hierarchy->GetLocalTransform(ChildKey);
-		if (ChildRotation == ERshipRigTransformChoice::Initial || ParentRotation == ERshipRigTransformChoice::Initial)
-		{
-			LocalTransform.SetRotation(DesiredRelative.GetRotation());
-		}
-		if (ChildLocation == ERshipRigTransformChoice::Initial || ParentLocation == ERshipRigTransformChoice::Initial)
-		{
-			LocalTransform.SetTranslation(DesiredRelative.GetTranslation());
-		}
-
-		if (UControlRigComponent* RigComponent = ResolveControlRigComponent())
-		{
-			RigComponent->SetBoneTransform(BoneName, LocalTransform, EControlRigComponentSpace::LocalSpace, 1.f, true);
-		}
-		else
-		{
-			Hierarchy->SetLocalTransform(ChildKey, LocalTransform, false, true, false);
+			State.Active = NewTarget;
 		}
 	}
-
-	const TArray<FRigElementKey> ParentKeys = Hierarchy->GetParents(ChildKey);
-	FString ParentList;
-	for (int32 Index = 0; Index < ParentKeys.Num(); ++Index)
+	else
 	{
-		if (Index > 0)
-		{
-			ParentList.Append(TEXT(", "));
-		}
-		ParentList.Append(ParentKeys[Index].ToString());
+		State.Active = NewTarget;
+		State.bBlendActive = false;
 	}
 
-	const TArray<FRigElementKey> Children = Hierarchy->GetChildren(ParentKey, false);
-
-	UE_LOG(LogRshipExec, Log, TEXT("AttachBoneToParent set parent: child=%s parent=%s (parentCount=%d childrenOfParent=%d parents=[%s])"),
+	UE_LOG(LogRshipExec, Log,
+		TEXT("AttachBoneToParent set constraint: child=%s parent=%s blend=%.3fs parentLoc=%s parentRot=%s childLoc=%s childRot=%s"),
 		*BoneName.ToString(),
 		*ParentKey.Name.ToString(),
-		ParentKeys.Num(),
-		Children.Num(),
-		*ParentList);
+		EffectiveBlendSeconds,
+		ParentLocation == ERshipRigTransformChoice::Initial ? TEXT("Initial") : TEXT("Current"),
+		ParentRotation == ERshipRigTransformChoice::Initial ? TEXT("Initial") : TEXT("Current"),
+		ChildLocation == ERshipRigTransformChoice::Initial ? TEXT("Initial") : TEXT("Current"),
+		ChildRotation == ERshipRigTransformChoice::Initial ? TEXT("Initial") : TEXT("Current"));
 
-	if (UControlRigComponent* RigComponent = ResolveControlRigComponent())
-	{
-		if (RigComponent->CanExecute())
-		{
-			RigComponent->Update(0.f);
-			UE_LOG(LogRshipExec, Log, TEXT("AttachBoneToParent forced ControlRigComponent update (rig=%s)."),
-				*GetNameSafe(RigComponent->GetControlRig()));
-		}
-	}
+	ApplyActiveAttachments(0.0f);
 }
 
 void URshipRigController::ResetBoneToInitialWorld(const FName& BoneName)
@@ -669,4 +645,113 @@ URigHierarchy* URshipRigController::ResolveRigHierarchy()
 	}
 
 	return Hierarchy;
+}
+
+void URshipRigController::ApplyActiveAttachments(float DeltaTime)
+{
+	if (BoneAttachStates.Num() == 0)
+	{
+		return;
+	}
+
+	UControlRigComponent* RigComponent = ResolveControlRigComponent();
+	URigHierarchy* Hierarchy = ResolveRigHierarchy();
+	if (!Hierarchy)
+	{
+		return;
+	}
+
+	TArray<FName> ChildrenToRemove;
+	ChildrenToRemove.Reserve(BoneAttachStates.Num());
+
+	for (TPair<FName, FRshipRigAttachState>& Pair : BoneAttachStates)
+	{
+		const FName ChildBone = Pair.Key;
+		FRshipRigAttachState& State = Pair.Value;
+
+		const FRigElementKey ChildKey(ChildBone, ERigElementType::Bone);
+		if (!Hierarchy->Contains(ChildKey))
+		{
+			UE_LOG(LogRshipExec, Error, TEXT("Attach solver dropped child '%s': bone no longer exists."), *ChildBone.ToString());
+			ChildrenToRemove.Add(ChildBone);
+			continue;
+		}
+
+		auto EvaluateTarget = [Hierarchy](const FRshipRigAttachTarget& Target, FTransform& OutChildGlobal) -> bool
+		{
+			if (Target.ParentBone.IsNone())
+			{
+				return false;
+			}
+
+			const FRigElementKey ParentKey(Target.ParentBone, ERigElementType::Bone);
+			if (!Hierarchy->Contains(ParentKey))
+			{
+				return false;
+			}
+
+			const FTransform ParentGlobal = Hierarchy->GetGlobalTransform(ParentKey, false);
+			OutChildGlobal = Target.LocalOffset * ParentGlobal;
+			return true;
+		};
+
+		FTransform DesiredGlobal = FTransform::Identity;
+		if (State.bBlendActive)
+		{
+			FTransform FromGlobal = FTransform::Identity;
+			FTransform ToGlobal = FTransform::Identity;
+
+			if (!EvaluateTarget(State.BlendFrom, FromGlobal) || !EvaluateTarget(State.BlendTo, ToGlobal))
+			{
+				UE_LOG(LogRshipExec, Error, TEXT("Attach solver dropped blend for child '%s': source parent missing."), *ChildBone.ToString());
+				ChildrenToRemove.Add(ChildBone);
+				continue;
+			}
+
+			if (State.BlendDuration <= KINDA_SMALL_NUMBER)
+			{
+				State.BlendAlpha = 1.0f;
+			}
+			else
+			{
+				State.BlendAlpha = FMath::Clamp(State.BlendAlpha + (DeltaTime / State.BlendDuration), 0.0f, 1.0f);
+			}
+
+			DesiredGlobal = BlendTransforms(FromGlobal, ToGlobal, State.BlendAlpha);
+
+			if (State.BlendAlpha >= 1.0f - KINDA_SMALL_NUMBER)
+			{
+				State.Active = State.BlendTo;
+				State.bBlendActive = false;
+			}
+		}
+		else
+		{
+			if (!EvaluateTarget(State.Active, DesiredGlobal))
+			{
+				UE_LOG(LogRshipExec, Error, TEXT("Attach solver dropped child '%s': active parent missing."), *ChildBone.ToString());
+				ChildrenToRemove.Add(ChildBone);
+				continue;
+			}
+		}
+
+		if (RigComponent)
+		{
+			RigComponent->SetBoneTransform(ChildBone, DesiredGlobal, EControlRigComponentSpace::RigSpace, 1.f, true);
+		}
+		else
+		{
+			Hierarchy->SetGlobalTransform(ChildKey, DesiredGlobal, false, true, false);
+		}
+	}
+
+	for (const FName Child : ChildrenToRemove)
+	{
+		BoneAttachStates.Remove(Child);
+	}
+
+	if (RigComponent && RigComponent->CanExecute())
+	{
+		RigComponent->Update(0.0f);
+	}
 }
