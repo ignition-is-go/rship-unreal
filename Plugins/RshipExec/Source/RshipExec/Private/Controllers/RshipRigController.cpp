@@ -227,6 +227,17 @@ void URshipRigBoneActionProxy::ResetToInitialWorld()
 	Controller->ResetBoneToInitialWorld(BoneName);
 }
 
+void URshipRigBoneActionProxy::RemoveConstraints(float BlendSeconds)
+{
+	if (!Controller)
+	{
+		UE_LOG(LogRshipExec, Error, TEXT("RemoveConstraints ignored: rig controller is invalid for bone '%s'."), *BoneName.ToString());
+		return;
+	}
+
+	Controller->RemoveBoneConstraints(BoneName, BlendSeconds);
+}
+
 void URshipRigController::RegisterOrRefreshTarget()
 {
 	FRshipTargetProxy ParentTarget = ResolveParentTarget();
@@ -303,7 +314,8 @@ void URshipRigController::RegisterOrRefreshTarget()
 		ControlTarget
 			.AddAction(Proxy, GET_FUNCTION_NAME_CHECKED(URshipRigBoneActionProxy, RotateInSocket), TEXT("RotateInSocket"))
 			.AddAction(Proxy, GET_FUNCTION_NAME_CHECKED(URshipRigBoneActionProxy, AttachToBone), TEXT("AttachToBone"))
-			.AddAction(Proxy, GET_FUNCTION_NAME_CHECKED(URshipRigBoneActionProxy, ResetToInitialWorld), TEXT("ResetToInitialWorld"));
+			.AddAction(Proxy, GET_FUNCTION_NAME_CHECKED(URshipRigBoneActionProxy, ResetToInitialWorld), TEXT("ResetToInitialWorld"))
+			.AddAction(Proxy, GET_FUNCTION_NAME_CHECKED(URshipRigBoneActionProxy, RemoveConstraints), TEXT("RemoveConstraints"));
 	}
 
 	const TArray<FRigBoneElement*> Bones = Hierarchy->GetElementsOfType<FRigBoneElement>();
@@ -340,7 +352,8 @@ void URshipRigController::RegisterOrRefreshTarget()
 		BoneTarget
 			.AddAction(Proxy, GET_FUNCTION_NAME_CHECKED(URshipRigBoneActionProxy, RotateInSocket), TEXT("RotateInSocket"))
 			.AddAction(Proxy, GET_FUNCTION_NAME_CHECKED(URshipRigBoneActionProxy, AttachToBone), TEXT("AttachToBone"))
-			.AddAction(Proxy, GET_FUNCTION_NAME_CHECKED(URshipRigBoneActionProxy, ResetToInitialWorld), TEXT("ResetToInitialWorld"));
+			.AddAction(Proxy, GET_FUNCTION_NAME_CHECKED(URshipRigBoneActionProxy, ResetToInitialWorld), TEXT("ResetToInitialWorld"))
+			.AddAction(Proxy, GET_FUNCTION_NAME_CHECKED(URshipRigBoneActionProxy, RemoveConstraints), TEXT("RemoveConstraints"));
 	}
 }
 
@@ -467,6 +480,7 @@ void URshipRigController::AttachBoneToParent(const FName& BoneName, const FName&
 	const float EffectiveBlendSeconds = FMath::Max(BlendSeconds, 0.0f);
 
 	FRshipRigAttachTarget NewTarget;
+	NewTarget.Mode = FRshipRigAttachTarget::EMode::ParentRelative;
 	NewTarget.ParentBone = ParentKey.Name;
 	NewTarget.LocalOffset = ChildDesiredGlobal.GetRelativeTransform(ParentDesiredGlobal);
 
@@ -501,6 +515,98 @@ void URshipRigController::AttachBoneToParent(const FName& BoneName, const FName&
 		ChildRotation == ERshipRigTransformChoice::Initial ? TEXT("Initial") : TEXT("Current"));
 
 	ApplyActiveAttachments(0.0f);
+}
+
+void URshipRigController::RemoveBoneConstraints(const FName& BoneName, float BlendSeconds)
+{
+	FRshipRigAttachState* ExistingState = BoneAttachStates.Find(BoneName);
+	if (!ExistingState)
+	{
+		return;
+	}
+
+	const float EffectiveBlendSeconds = FMath::Max(BlendSeconds, 0.0f);
+	if (EffectiveBlendSeconds <= KINDA_SMALL_NUMBER)
+	{
+		BoneAttachStates.Remove(BoneName);
+		return;
+	}
+
+	URigHierarchy* Hierarchy = ResolveRigHierarchy();
+	if (!Hierarchy)
+	{
+		return;
+	}
+
+	const FRigElementKey ChildKey(BoneName, ERigElementType::Bone);
+	if (!Hierarchy->Contains(ChildKey))
+	{
+		BoneAttachStates.Remove(BoneName);
+		return;
+	}
+
+	auto EvaluateTargetAtRemoval = [Hierarchy, ChildKey](const FRshipRigAttachTarget& Target, FTransform& OutChildGlobal) -> bool
+	{
+		if (Target.Mode == FRshipRigAttachTarget::EMode::WorldSpace)
+		{
+			OutChildGlobal = Target.WorldTransform;
+			return true;
+		}
+
+		if (Target.Mode == FRshipRigAttachTarget::EMode::UnconstrainedPose)
+		{
+			OutChildGlobal = Hierarchy->GetGlobalTransform(ChildKey, false);
+			return true;
+		}
+
+		if (Target.ParentBone.IsNone())
+		{
+			return false;
+		}
+
+		const FRigElementKey ParentKey(Target.ParentBone, ERigElementType::Bone);
+		if (!Hierarchy->Contains(ParentKey))
+		{
+			return false;
+		}
+
+		const FTransform ParentGlobal = Hierarchy->GetGlobalTransform(ParentKey, false);
+		OutChildGlobal = Target.LocalOffset * ParentGlobal;
+		return true;
+	};
+
+	FTransform CurrentConstrainedGlobal = Hierarchy->GetGlobalTransform(ChildKey, false);
+	if (ExistingState->bBlendActive)
+	{
+		FTransform FromGlobal = FTransform::Identity;
+		FTransform ToGlobal = FTransform::Identity;
+		if (EvaluateTargetAtRemoval(ExistingState->BlendFrom, FromGlobal) && EvaluateTargetAtRemoval(ExistingState->BlendTo, ToGlobal))
+		{
+			CurrentConstrainedGlobal = BlendTransforms(FromGlobal, ToGlobal, ExistingState->BlendAlpha);
+		}
+	}
+	else
+	{
+		FTransform ActiveGlobal = FTransform::Identity;
+		if (EvaluateTargetAtRemoval(ExistingState->Active, ActiveGlobal))
+		{
+			CurrentConstrainedGlobal = ActiveGlobal;
+		}
+	}
+
+	FRshipRigAttachTarget BlendFromTarget;
+	BlendFromTarget.Mode = FRshipRigAttachTarget::EMode::WorldSpace;
+	BlendFromTarget.WorldTransform = CurrentConstrainedGlobal;
+
+	FRshipRigAttachTarget BlendToTarget;
+	BlendToTarget.Mode = FRshipRigAttachTarget::EMode::UnconstrainedPose;
+
+	ExistingState->BlendFrom = BlendFromTarget;
+	ExistingState->BlendTo = BlendToTarget;
+	ExistingState->BlendAlpha = 0.0f;
+	ExistingState->BlendDuration = EffectiveBlendSeconds;
+	ExistingState->bBlendActive = true;
+	ExistingState->Active = BlendToTarget;
 }
 
 void URshipRigController::ResetBoneToInitialWorld(const FName& BoneName)
@@ -677,8 +783,20 @@ void URshipRigController::ApplyActiveAttachments(float DeltaTime)
 			continue;
 		}
 
-		auto EvaluateTarget = [Hierarchy](const FRshipRigAttachTarget& Target, FTransform& OutChildGlobal) -> bool
+		auto EvaluateTarget = [Hierarchy, ChildKey](const FRshipRigAttachTarget& Target, FTransform& OutChildGlobal) -> bool
 		{
+			if (Target.Mode == FRshipRigAttachTarget::EMode::WorldSpace)
+			{
+				OutChildGlobal = Target.WorldTransform;
+				return true;
+			}
+
+			if (Target.Mode == FRshipRigAttachTarget::EMode::UnconstrainedPose)
+			{
+				OutChildGlobal = Hierarchy->GetGlobalTransform(ChildKey, false);
+				return true;
+			}
+
 			if (Target.ParentBone.IsNone())
 			{
 				return false;
@@ -721,8 +839,15 @@ void URshipRigController::ApplyActiveAttachments(float DeltaTime)
 
 			if (State.BlendAlpha >= 1.0f - KINDA_SMALL_NUMBER)
 			{
-				State.Active = State.BlendTo;
-				State.bBlendActive = false;
+				if (State.BlendTo.Mode == FRshipRigAttachTarget::EMode::UnconstrainedPose)
+				{
+					ChildrenToRemove.Add(ChildBone);
+				}
+				else
+				{
+					State.Active = State.BlendTo;
+					State.bBlendActive = false;
+				}
 			}
 		}
 		else

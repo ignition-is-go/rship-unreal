@@ -39,6 +39,9 @@ public:
 	UFUNCTION()
 	void ResetToInitialWorld();
 
+	UFUNCTION()
+	void RemoveConstraints(float BlendSeconds = -1.0f);
+
 private:
 	UPROPERTY()
 	TObjectPtr<class URshipRigController> Controller;
@@ -73,6 +76,7 @@ private:
 		ERshipRigTransformChoice ChildLocation,
 		ERshipRigTransformChoice ChildRotation,
 		float BlendSeconds);
+	void RemoveBoneConstraints(const FName& BoneName, float BlendSeconds);
 	void ResetBoneToInitialWorld(const FName& BoneName);
 	FName ResolveBoneNameFromInput(const FString& BoneIdentifier, URigHierarchy* Hierarchy) const;
 	UControlRigComponent* ResolveControlRigComponent();
@@ -82,8 +86,17 @@ private:
 
 	struct FRshipRigAttachTarget
 	{
+		enum class EMode : uint8
+		{
+			ParentRelative,
+			WorldSpace,
+			UnconstrainedPose
+		};
+
+		EMode Mode = EMode::ParentRelative;
 		FName ParentBone;
 		FTransform LocalOffset = FTransform::Identity;
+		FTransform WorldTransform = FTransform::Identity;
 	};
 
 	struct FRshipRigAttachState
