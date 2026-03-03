@@ -253,9 +253,12 @@ public:
     bool DeleteMapping(const FString& Id);
 
 #if WITH_DEV_AUTOMATION_TESTS
-    bool ValidateMaterialContractForTest(UMaterialInterface* Material, FString& OutError) const
+    bool ValidateMaterialContractForTest(
+        UMaterialInterface* Material,
+        FString& OutError,
+        bool bRequireProjectionContract = false) const
     {
-        return ValidateMaterialContract(Material, OutError);
+        return ValidateMaterialContract(Material, OutError, bRequireProjectionContract);
     }
 
     void ApplyMaterialParametersForTest(
@@ -271,6 +274,16 @@ public:
     {
         return BuildRenderContextJson(ContextState);
     }
+
+    int32 GetLastTickAppliedSurfacesForTest() const
+    {
+        return LastTickAppliedSurfaces;
+    }
+
+    int32 GetLastTickActiveContextsForTest() const
+    {
+        return LastTickActiveContexts;
+    }
 #endif
 
 private:
@@ -278,10 +291,12 @@ private:
     {
         uint32 SetupHash = 0;
         bool bHasAppliedTransform = false;
+        bool bHasIssuedExplicitCapture = false;
         FTransform LastAppliedTransform = FTransform::Identity;
         float LastAppliedFov = -1.0f;
         double NextResolveRetryTimeSeconds = 0.0;
         double NextMissingSourceWarningTimeSeconds = 0.0;
+        double NextExplicitCaptureTimeSeconds = 0.0;
     };
 
     struct FMappingRequiredContexts
@@ -299,6 +314,8 @@ private:
 
     UPROPERTY(Transient)
     UMaterialInterface* ContentMappingMaterial = nullptr;
+    UPROPERTY(Transient)
+    TMap<FString, TObjectPtr<UMaterialInterface>> ContentMappingMaterialsByProfile;
 
     TMap<FString, FRshipRenderContextState> RenderContexts;
     TMap<FString, FRshipMappingSurfaceState> MappingSurfaces;
@@ -358,6 +375,7 @@ private:
     TMap<FString, uint32> LastEmittedStatusHashes;
 
     void MarkMappingsDirty();
+    void SyncRuntimeAfterMutation(bool bRequireRebuild);
     void ArmMappings();
     void MarkCacheDirty();
     bool HasAnyEnabledMappings() const;
@@ -451,14 +469,25 @@ private:
     void OnAssetDownloaded(const FString& AssetId, const FString& LocalPath);
     void OnAssetDownloadFailed(const FString& AssetId, const FString& ErrorMessage);
     UTexture2D* LoadTextureFromFile(const FString& LocalPath) const;
-    bool ValidateMaterialContract(UMaterialInterface* Material, FString& OutError) const;
-    void EnsureMaterialContract();
+    bool ValidateMaterialContract(
+        UMaterialInterface* Material,
+        FString& OutError,
+        bool bRequireProjectionContract = false) const;
+    bool ValidateMaterialContractForProfile(
+        UMaterialInterface* Material,
+        const FString& ProfileToken,
+        FString& OutError) const;
+    void EnsureMaterialContract(bool bRequireProjectionContract);
     UMaterialInterface* ResolveSurfaceFallbackMaterial(
         const FRshipMappingSurfaceState& SurfaceState,
         UMeshComponent* Mesh,
         FString& OutError) const;
-    bool ResolveContentMappingMaterial();
+    bool ResolveContentMappingMaterial(bool bRequireProjectionContract);
+    bool ResolveMaterialForProfile(const FString& ProfileToken, UMaterialInterface*& OutMaterial, FString& OutError);
+    bool ResolveMaterialForMapping(const FRshipContentMappingState& MappingState, UMaterialInterface*& OutMaterial, FString& OutError);
+    FString GetMappingMaterialProfileToken(const FRshipContentMappingState& MappingState) const;
     void RunRuntimePreflight(bool bForceMaterialResolve);
+    bool DisableOverlappingEnabledMappings(const FString& PreferredMappingId);
     void SetRuntimeHealth(ERshipContentMappingRuntimeHealth NewHealth, const FString& NewReason);
     bool IsRuntimeBlocked() const;
     FString GetRuntimeHealthStatusToken() const;

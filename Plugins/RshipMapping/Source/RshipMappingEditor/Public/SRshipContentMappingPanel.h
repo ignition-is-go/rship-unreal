@@ -117,6 +117,7 @@ private:
 	void EnsureFeedSourcesBoundToContext(const FString& DefaultContextId);
 	void EnsureFeedDestinationsBoundToSurfaces(const TArray<FString>& MappingSurfaceIds);
 	void EnsureFeedRoutesForDestinations(const TArray<FString>& MappingSurfaceIds);
+	bool ApplyModeToLiveMapping(const FString& Mode);
 	bool ApplyCurrentFormToSelectedMapping(bool bCreateIfMissing);
 	uint32 ComputeMappingFormLiveHash() const;
 
@@ -336,4 +337,6 @@ private:
 	uint32 LastLiveMappingFormHash = 0;
 	bool bHasLiveMappingFormHash = false;
 	bool bSuspendLiveMappingSync = false;
+	bool bHasInitializedDefaultMappingSelection = false;
+	bool bNewMappingDraftActive = false;
 };

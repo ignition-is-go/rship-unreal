@@ -79,6 +79,28 @@ namespace
 		return Subsystem ? Cast<URshipContentMappingManager>(Subsystem->GetContentMappingManager()) : nullptr;
 	}
 
+	bool ResolveLatestMappingState(
+		URshipContentMappingManager* Manager,
+		const FString& MappingId,
+		FRshipContentMappingState& OutState)
+	{
+		if (!Manager || MappingId.IsEmpty())
+		{
+			return false;
+		}
+
+		for (const FRshipContentMappingState& ExistingMapping : Manager->GetMappings())
+		{
+			if (ExistingMapping.Id == MappingId)
+			{
+				OutState = ExistingMapping;
+				return true;
+			}
+		}
+
+		return false;
+	}
+
 	TSharedPtr<FJsonObject> DeepCloneJsonObject(const TSharedPtr<FJsonObject>& InObject)
 	{
 		if (!InObject.IsValid())
@@ -182,6 +204,20 @@ namespace
 		if (InValue.Equals(MapModeSpatial, ESearchCase::IgnoreCase)) return MapModeSpatial;
 		if (InValue.Equals(MapModeDepthMap, ESearchCase::IgnoreCase) || InValue.Equals(TEXT("depth map"), ESearchCase::IgnoreCase) || InValue.Equals(TEXT("depthmap"), ESearchCase::IgnoreCase)) return MapModeDepthMap;
 		return DefaultValue;
+	}
+
+	bool HasAnyMappingSurfaceTokens(const FString& RawSurfaceList)
+	{
+		TArray<FString> Parts;
+		RawSurfaceList.ParseIntoArray(Parts, TEXT(","), true);
+		for (FString& Part : Parts)
+		{
+			if (!Part.TrimStartAndEnd().IsEmpty())
+			{
+				return true;
+			}
+		}
+		return false;
 	}
 
 	FString GetUvModeFromConfig(const TSharedPtr<FJsonObject>& Config)
@@ -714,6 +750,7 @@ void SRshipContentMappingPanel::Construct(const FArguments& InArgs)
 	];
 
 	ResetForms();
+	bNewMappingDraftActive = false;
 	ApplyStoredQuickCreateDefaults();
 	RefreshStatus();
 }
@@ -1729,6 +1766,11 @@ void SRshipContentMappingPanel::SetSelectedMappingId(const FString& NewSelectedM
 		bHasLiveMappingFormHash = false;
 	}
 	SelectedMappingId = NewSelectedMappingId;
+	if (!SelectedMappingId.IsEmpty())
+	{
+		bNewMappingDraftActive = false;
+		bHasInitializedDefaultMappingSelection = true;
+	}
 }
 
 void SRshipContentMappingPanel::ClearSelectedMappingId()
@@ -4125,24 +4167,27 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildContextForm()
 
 			+ SVerticalBox::Slot().AutoHeight().Padding(0,2)
 			[
-				SAssignNew(MapModeSelector, SRshipModeSelector)
-					.OnModeSelected_Lambda([this](const FString& Mode)
-					{
-						MapMode = Mode;
-						bShowProjectionPrecisionControls = false;
-						if (!IsProjectionMode(Mode))
+					SAssignNew(MapModeSelector, SRshipModeSelector)
+						.OnModeSelected_Lambda([this](const FString& Mode)
 						{
-							StopProjectionEdit();
-						}
-						RebuildFeedRectList();
-						if (MappingCanvas.IsValid())
-						{
-							MappingCanvas->SetDisplayMode(Mode);
-						}
-						RefreshMappingCanvasFeedRects();
-						ApplyCurrentFormToSelectedMapping(false);
-					})
-			]
+							MapMode = Mode;
+							bShowProjectionPrecisionControls = false;
+							if (!IsProjectionMode(Mode))
+							{
+								StopProjectionEdit();
+							}
+							RebuildFeedRectList();
+							if (MappingCanvas.IsValid())
+							{
+								MappingCanvas->SetDisplayMode(Mode);
+							}
+							RefreshMappingCanvasFeedRects();
+							if (!ApplyModeToLiveMapping(Mode))
+							{
+								ApplyCurrentFormToSelectedMapping(false);
+							}
+						})
+				]
 
 				+ SVerticalBox::Slot().AutoHeight().Padding(0,4,0,2)
 				[
@@ -6176,17 +6221,27 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildMappingForm()
 				+ SHorizontalBox::Slot().FillWidth(1.0f)
 				[
 					SAssignNew(MapSurfacesInput, SEditableTextBox)
-					.OnTextCommitted_Lambda([this](const FText&, ETextCommit::Type)
+					.OnTextCommitted_Lambda([this](const FText& NewText, ETextCommit::Type)
 					{
 						RebuildFeedRectList();
-						ApplyCurrentFormToSelectedMapping(false);
+						const bool bCreateIfMissing = !bSuspendLiveMappingSync
+							&& bNewMappingDraftActive
+							&& SelectedMappingId.IsEmpty()
+							&& MapModeSelector.IsValid()
+							&& HasAnyMappingSurfaceTokens(NewText.ToString());
+						ApplyCurrentFormToSelectedMapping(bCreateIfMissing);
 					})
-					.OnTextChanged_Lambda([this](const FText&)
+					.OnTextChanged_Lambda([this](const FText& NewText)
 					{
 						RebuildFeedRectList();
-						ApplyCurrentFormToSelectedMapping(false);
+						const bool bCreateIfMissing = !bSuspendLiveMappingSync
+							&& bNewMappingDraftActive
+							&& SelectedMappingId.IsEmpty()
+							&& MapModeSelector.IsValid()
+							&& HasAnyMappingSurfaceTokens(NewText.ToString());
+						ApplyCurrentFormToSelectedMapping(bCreateIfMissing);
 					})
-				]
+					]
 				+ SHorizontalBox::Slot().AutoWidth().Padding(6,0,0,0)
 				[
 					SNew(SComboButton)
@@ -6256,11 +6311,12 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildMappingForm()
 						SNew(SButton)
 						.Text(LOCTEXT("MapReset", "New Mapping"))
 						.OnClicked_Lambda([this]()
-						{
-							ClearSelectedMappingId();
-							ResetForms();
-							return FReply::Handled();
-						})
+							{
+								bNewMappingDraftActive = true;
+								ClearSelectedMappingId();
+								ResetForms();
+								return FReply::Handled();
+							})
 				]
 			]
 		];
@@ -6423,6 +6479,8 @@ void SRshipContentMappingPanel::PopulateSurfaceForm(const FRshipMappingSurfaceSt
 void SRshipContentMappingPanel::PopulateMappingForm(const FRshipContentMappingState& State)
 {
 	bSuspendLiveMappingSync = true;
+	bNewMappingDraftActive = false;
+	bHasInitializedDefaultMappingSelection = true;
 	SetSelectedMappingId(State.Id);
 	if (MapNameInput.IsValid()) MapNameInput->SetText(FText::FromString(State.Name));
 	if (MapProjectInput.IsValid()) MapProjectInput->SetText(FText::FromString(State.ProjectId));
@@ -8091,6 +8149,110 @@ void SRshipContentMappingPanel::RebuildFeedV2Lists()
 	RefreshFeedV2Canvases();
 }
 
+bool SRshipContentMappingPanel::ApplyModeToLiveMapping(const FString& Mode)
+{
+	if (!GEngine)
+	{
+		return false;
+	}
+
+	URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+	if (!Subsystem)
+	{
+		return false;
+	}
+
+	URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
+	if (!Manager)
+	{
+		return false;
+	}
+
+	FRshipContentMappingState Updated;
+	if (!ResolveLatestMappingState(Manager, SelectedMappingId, Updated))
+	{
+		if (bNewMappingDraftActive)
+		{
+			return false;
+		}
+
+		const TArray<FRshipContentMappingState> ExistingMappings = Manager->GetMappings();
+		if (ExistingMappings.Num() == 0)
+		{
+			return false;
+		}
+
+		int32 PreferredIndex = INDEX_NONE;
+		for (int32 Index = 0; Index < ExistingMappings.Num(); ++Index)
+		{
+			if (ExistingMappings[Index].bEnabled)
+			{
+				PreferredIndex = Index;
+				break;
+			}
+		}
+		if (PreferredIndex == INDEX_NONE)
+		{
+			PreferredIndex = 0;
+		}
+		if (!ExistingMappings.IsValidIndex(PreferredIndex))
+		{
+			return false;
+		}
+
+		Updated = ExistingMappings[PreferredIndex];
+		SetSelectedMappingId(Updated.Id);
+		SelectedMappingRows.Empty();
+		SelectedMappingRows.Add(Updated.Id);
+	}
+
+	const FString RequestedMode = NormalizeMapMode(Mode, MapModeDirect);
+	const FString ExistingMode = NormalizeMapMode(GetMappingModeFromState(Updated), MapModeDirect);
+	if (RequestedMode.Equals(ExistingMode, ESearchCase::IgnoreCase))
+	{
+		Updated.bEnabled = true;
+		if (!Manager->UpdateMapping(Updated))
+		{
+			return false;
+		}
+
+		PopulateMappingForm(Updated);
+		Manager->Tick(0.0f);
+		RefreshStatus();
+		return true;
+	}
+
+	// Mode changes are handled as convert-and-swap (new mapping + old disabled)
+	// so mode behavior never depends on in-place mutation ordering.
+	FRshipContentMappingState Converted = Updated;
+	Converted.Id.Reset();
+	ApplyModeToMappingState(Converted, RequestedMode);
+	Converted.bEnabled = true;
+	const FString NewId = Manager->CreateMapping(Converted);
+	if (NewId.IsEmpty())
+	{
+		return false;
+	}
+
+	if (Updated.bEnabled)
+	{
+		FRshipContentMappingState DisabledOriginal = Updated;
+		DisabledOriginal.bEnabled = false;
+		Manager->UpdateMapping(DisabledOriginal);
+	}
+
+	FRshipContentMappingState NewState = Converted;
+	NewState.Id = NewId;
+	ResolveLatestMappingState(Manager, NewId, NewState);
+	SetSelectedMappingId(NewId);
+	SelectedMappingRows.Empty();
+	SelectedMappingRows.Add(NewId);
+	PopulateMappingForm(NewState);
+	Manager->Tick(0.0f);
+	RefreshStatus();
+	return true;
+}
+
 bool SRshipContentMappingPanel::ApplyCurrentFormToSelectedMapping(bool bCreateIfMissing)
 {
 	if (!GEngine)
@@ -8109,16 +8271,29 @@ bool SRshipContentMappingPanel::ApplyCurrentFormToSelectedMapping(bool bCreateIf
 	{
 		return false;
 	}
+
+	bool bEffectiveCreateIfMissing = bCreateIfMissing;
+	if (!bEffectiveCreateIfMissing
+		&& !bSuspendLiveMappingSync
+		&& bNewMappingDraftActive
+		&& SelectedMappingId.IsEmpty()
+		&& MapModeSelector.IsValid()
+		&& HasAnyMappingSurfaceTokens(MapSurfacesInput.IsValid() ? MapSurfacesInput->GetText().ToString() : FString()))
+	{
+		// Any live update path should be able to materialize a draft once it has screens.
+		bEffectiveCreateIfMissing = true;
+	}
+
 	// Programmatic form population/reset can fire value-change delegates.
 	// Suppress implicit writes while live sync is suspended.
-	if (bSuspendLiveMappingSync && !bCreateIfMissing)
+	if (bSuspendLiveMappingSync && !bEffectiveCreateIfMissing)
 	{
 		return false;
 	}
 
 	FRshipContentMappingState State;
 	State.Id = SelectedMappingId;
-	if (State.Id.IsEmpty() && !bCreateIfMissing)
+	if (State.Id.IsEmpty() && !bEffectiveCreateIfMissing)
 	{
 		return false;
 	}
@@ -8131,7 +8306,7 @@ bool SRshipContentMappingPanel::ApplyCurrentFormToSelectedMapping(bool bCreateIf
 		});
 		if (!bHasExistingMapping)
 		{
-			if (!bCreateIfMissing)
+			if (!bEffectiveCreateIfMissing)
 			{
 				SelectedMappingRows.Remove(State.Id);
 				ClearSelectedMappingId();
@@ -8406,8 +8581,51 @@ bool SRshipContentMappingPanel::ApplyCurrentFormToSelectedMapping(bool bCreateIf
 	}
 	else
 	{
-		bSaved = Manager->UpdateMapping(State);
-		if (!bSaved && bCreateIfMissing)
+		const TArray<FRshipContentMappingState> ExistingMappings = Manager->GetMappings();
+		const FRshipContentMappingState* ExistingState = ExistingMappings.FindByPredicate([&State](const FRshipContentMappingState& Existing)
+		{
+			return Existing.Id == State.Id;
+		});
+		const FString ExistingMode = ExistingState
+			? NormalizeMapMode(GetMappingModeFromState(*ExistingState), MapModeDirect)
+			: NormalizedMode;
+		const bool bModeChanged = ExistingState
+			&& !ExistingMode.Equals(NormalizedMode, ESearchCase::IgnoreCase);
+
+		if (bModeChanged)
+		{
+			// Preserve immutable mode semantics in the authoring flow by converting
+			// to a new mapping ID instead of mutating type in-place.
+			const FString PreviousMappingId = State.Id;
+			State.Id.Reset();
+			const FString NewId = Manager->CreateMapping(State);
+			if (NewId.IsEmpty())
+			{
+				return false;
+			}
+
+			if (ExistingState && ExistingState->bEnabled)
+			{
+				FRshipContentMappingState DisabledOriginal = *ExistingState;
+				DisabledOriginal.bEnabled = false;
+				Manager->UpdateMapping(DisabledOriginal);
+			}
+
+			SelectedMappingRows.Remove(PreviousMappingId);
+			bSaved = true;
+			State.Id = NewId;
+			SetSelectedMappingId(NewId);
+			SelectedMappingRows.Empty();
+			SelectedMappingRows.Add(NewId);
+			bHasLiveMappingFormHash = false;
+			RefreshStatus();
+		}
+		else
+		{
+			bSaved = Manager->UpdateMapping(State);
+		}
+
+		if (!bSaved && bEffectiveCreateIfMissing)
 		{
 			State.Id.Reset();
 			const FString NewId = Manager->CreateMapping(State);
@@ -8869,6 +9087,12 @@ void SRshipContentMappingPanel::RefreshStatus()
 		return A.Id < B.Id;
 	});
 
+	if (SortedMappings.Num() == 0)
+	{
+		bHasInitializedDefaultMappingSelection = false;
+		bNewMappingDraftActive = false;
+	}
+
 	TSet<FString> ValidContextIds;
 	for (const FRshipRenderContextState& Context : SortedContexts)
 	{
@@ -8912,6 +9136,29 @@ void SRshipContentMappingPanel::RefreshStatus()
 		CloseMappingEditorWindow();
 		LastPreviewMappingId.Reset();
 		ClearSelectedMappingId();
+		bHasInitializedDefaultMappingSelection = false;
+		bNewMappingDraftActive = false;
+	}
+	if (SelectedMappingId.IsEmpty() && SortedMappings.Num() > 0 && !bNewMappingDraftActive)
+	{
+		int32 PreferredIndex = INDEX_NONE;
+		for (int32 Index = 0; Index < SortedMappings.Num(); ++Index)
+		{
+			if (SortedMappings[Index].bEnabled)
+			{
+				PreferredIndex = Index;
+				break;
+			}
+		}
+		if (PreferredIndex == INDEX_NONE)
+		{
+			PreferredIndex = 0;
+		}
+		if (SortedMappings.IsValidIndex(PreferredIndex))
+		{
+			PopulateMappingForm(SortedMappings[PreferredIndex]);
+			bHasInitializedDefaultMappingSelection = true;
+		}
 	}
 		for (auto It = ExpandedMappingConfigRows.CreateIterator(); It; ++It)
 		{
@@ -10439,22 +10686,31 @@ void SRshipContentMappingPanel::RefreshStatus()
 												GetMappingModeOptionLabel(CandidateMode),
 												FText::GetEmpty(),
 												FSlateIcon(),
-												FUIAction(FExecuteAction::CreateLambda([this, Mapping, CandidateMode]()
-												{
-													if (!GEngine) return;
-													URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
-													if (!Subsystem) return;
-													URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
-													if (!Manager) return;
+													FUIAction(FExecuteAction::CreateLambda([this, Mapping, CandidateMode]()
+													{
+														if (!GEngine) return;
+														URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+														if (!Subsystem) return;
+														URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
+														if (!Manager) return;
 
-														FRshipContentMappingState Updated = Mapping;
+														FRshipContentMappingState Updated;
+														if (!ResolveLatestMappingState(Manager, Mapping.Id, Updated))
+														{
+															return;
+														}
+
 														ApplyModeToMappingState(Updated, CandidateMode);
 														if (Manager->UpdateMapping(Updated))
 														{
+															if (SelectedMappingId == Updated.Id)
+															{
+																PopulateMappingForm(Updated);
+															}
 															Manager->Tick(0.0f);
 															RefreshStatus();
 														}
-													})));
+														})));
 										}
 										return MenuBuilder.MakeWidget();
 									})
@@ -10504,8 +10760,12 @@ void SRshipContentMappingPanel::RefreshStatus()
 													return;
 												}
 
-												FRshipContentMappingState Updated = Mapping;
-												const FString SourceToken = NewText.ToString().TrimStartAndEnd();
+													FRshipContentMappingState Updated;
+													if (!ResolveLatestMappingState(Manager, Mapping.Id, Updated))
+													{
+														return;
+													}
+													const FString SourceToken = NewText.ToString().TrimStartAndEnd();
 												if (SourceToken.IsEmpty())
 												{
 													Updated.ContextId.Reset();
@@ -10532,14 +10792,14 @@ void SRshipContentMappingPanel::RefreshStatus()
 															{
 																continue;
 															}
-															if (!Mapping.ProjectId.IsEmpty() && Context.ProjectId != Mapping.ProjectId)
-															{
-																continue;
-															}
-															if (Mapping.ProjectId.IsEmpty() && !Context.ProjectId.IsEmpty())
-															{
-																continue;
-															}
+																if (!Updated.ProjectId.IsEmpty() && Context.ProjectId != Updated.ProjectId)
+																{
+																	continue;
+																}
+																if (Updated.ProjectId.IsEmpty() && !Context.ProjectId.IsEmpty())
+																{
+																	continue;
+																}
 															ContextIdForCamera = Context.Id;
 															break;
 														}
@@ -10548,7 +10808,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 														{
 															FRshipRenderContextState NewCtx;
 															NewCtx.Name = CameraIdToLabel.Contains(*CameraId) ? CameraIdToLabel[*CameraId] : TEXT("Camera Input");
-															NewCtx.ProjectId = Mapping.ProjectId;
+																NewCtx.ProjectId = Updated.ProjectId;
 															NewCtx.SourceType = TEXT("camera");
 															NewCtx.CameraId = *CameraId;
 															NewCtx.Width = 1920;
@@ -10575,14 +10835,14 @@ void SRshipContentMappingPanel::RefreshStatus()
 															{
 																continue;
 															}
-															if (!Mapping.ProjectId.IsEmpty() && Context.ProjectId != Mapping.ProjectId)
-															{
-																continue;
-															}
-															if (Mapping.ProjectId.IsEmpty() && !Context.ProjectId.IsEmpty())
-															{
-																continue;
-															}
+																if (!Updated.ProjectId.IsEmpty() && Context.ProjectId != Updated.ProjectId)
+																{
+																	continue;
+																}
+																if (Updated.ProjectId.IsEmpty() && !Context.ProjectId.IsEmpty())
+																{
+																	continue;
+																}
 															ContextIdForAsset = Context.Id;
 															break;
 														}
@@ -10591,7 +10851,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 														{
 															FRshipRenderContextState NewCtx;
 															NewCtx.Name = AssetIdToLabel.Contains(*AssetId) ? AssetIdToLabel[*AssetId] : TEXT("Asset Input");
-															NewCtx.ProjectId = Mapping.ProjectId;
+																NewCtx.ProjectId = Updated.ProjectId;
 															NewCtx.SourceType = TEXT("asset-store");
 															NewCtx.AssetId = *AssetId;
 															NewCtx.Width = 1920;
@@ -10635,14 +10895,18 @@ void SRshipContentMappingPanel::RefreshStatus()
 														URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
 														if (!Manager) return;
 
-															FRshipContentMappingState Updated = Mapping;
+															FRshipContentMappingState Updated;
+															if (!ResolveLatestMappingState(Manager, Mapping.Id, Updated))
+															{
+																return;
+															}
 															Updated.ContextId.Reset();
 															if (Manager->UpdateMapping(Updated))
 															{
 																Manager->Tick(0.0f);
 																RefreshStatus();
 															}
-														})));
+															})));
 												MenuBuilder.AddSeparator();
 
 												if (ContextOptions.Num() == 0 && CameraOptions.Num() == 0 && AssetOptions.Num() == 0)
@@ -10675,7 +10939,11 @@ void SRshipContentMappingPanel::RefreshStatus()
 																URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
 																if (!Manager) return;
 
-																	FRshipContentMappingState Updated = Mapping;
+																	FRshipContentMappingState Updated;
+																	if (!ResolveLatestMappingState(Manager, Mapping.Id, Updated))
+																	{
+																		return;
+																	}
 																	Updated.ContextId = ContextId;
 																	EnsureContextDefaultsForMapping(Manager, Updated.ContextId);
 																	if (Manager->UpdateMapping(Updated))
@@ -10683,7 +10951,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 																		Manager->Tick(0.0f);
 																		RefreshStatus();
 																	}
-																})));
+																	})));
 													}
 												}
 
@@ -10708,16 +10976,22 @@ void SRshipContentMappingPanel::RefreshStatus()
 															FText::FromString(FString::Printf(TEXT("Camera: %s"), *CameraLabel)),
 															FText::GetEmpty(),
 															FSlateIcon(),
-															FUIAction(FExecuteAction::CreateLambda([this, Mapping, CameraId, CameraLabel]()
-															{
-																if (!GEngine) return;
-																URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
-																if (!Subsystem) return;
-																URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
-																if (!Manager) return;
+																FUIAction(FExecuteAction::CreateLambda([this, Mapping, CameraId, CameraLabel]()
+																{
+																	if (!GEngine) return;
+																	URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+																	if (!Subsystem) return;
+																	URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
+																	if (!Manager) return;
 
-																FString ContextIdForCamera;
-																const TArray<FRshipRenderContextState> ExistingContexts = Manager->GetRenderContexts();
+																	FRshipContentMappingState Updated;
+																	if (!ResolveLatestMappingState(Manager, Mapping.Id, Updated))
+																	{
+																		return;
+																	}
+
+																	FString ContextIdForCamera;
+																	const TArray<FRshipRenderContextState> ExistingContexts = Manager->GetRenderContexts();
 																for (const FRshipRenderContextState& Context : ExistingContexts)
 																{
 																	const FString ContextSourceType = Context.SourceType.IsEmpty() ? TEXT("camera") : Context.SourceType;
@@ -10729,14 +11003,14 @@ void SRshipContentMappingPanel::RefreshStatus()
 																	{
 																		continue;
 																	}
-																	if (!Mapping.ProjectId.IsEmpty() && Context.ProjectId != Mapping.ProjectId)
-																	{
-																		continue;
-																	}
-																	if (Mapping.ProjectId.IsEmpty() && !Context.ProjectId.IsEmpty())
-																	{
-																		continue;
-																	}
+																		if (!Updated.ProjectId.IsEmpty() && Context.ProjectId != Updated.ProjectId)
+																		{
+																			continue;
+																		}
+																		if (Updated.ProjectId.IsEmpty() && !Context.ProjectId.IsEmpty())
+																		{
+																			continue;
+																		}
 																	ContextIdForCamera = Context.Id;
 																	break;
 																}
@@ -10745,7 +11019,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 																{
 																	FRshipRenderContextState NewCtx;
 																	NewCtx.Name = CameraLabel;
-																	NewCtx.ProjectId = Mapping.ProjectId;
+																		NewCtx.ProjectId = Updated.ProjectId;
 																	NewCtx.SourceType = TEXT("camera");
 																	NewCtx.CameraId = CameraId;
 																	NewCtx.Width = 1920;
@@ -10755,7 +11029,6 @@ void SRshipContentMappingPanel::RefreshStatus()
 																	ContextIdForCamera = Manager->CreateRenderContext(NewCtx);
 																}
 
-																	FRshipContentMappingState Updated = Mapping;
 																	Updated.ContextId = ContextIdForCamera;
 																	EnsureContextDefaultsForMapping(Manager, Updated.ContextId);
 																	if (Manager->UpdateMapping(Updated))
@@ -10763,7 +11036,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 																		Manager->Tick(0.0f);
 																		RefreshStatus();
 																	}
-																})));
+																	})));
 													}
 												}
 
@@ -10783,16 +11056,22 @@ void SRshipContentMappingPanel::RefreshStatus()
 															FText::FromString(FString::Printf(TEXT("Asset: %s"), *AssetLabel)),
 															FText::GetEmpty(),
 															FSlateIcon(),
-															FUIAction(FExecuteAction::CreateLambda([this, Mapping, AssetId, AssetLabel]()
-															{
-																if (!GEngine) return;
-																URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
-																if (!Subsystem) return;
-																URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
-																if (!Manager) return;
+																FUIAction(FExecuteAction::CreateLambda([this, Mapping, AssetId, AssetLabel]()
+																{
+																	if (!GEngine) return;
+																	URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+																	if (!Subsystem) return;
+																	URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
+																	if (!Manager) return;
 
-																FString ContextIdForAsset;
-																const TArray<FRshipRenderContextState> ExistingContexts = Manager->GetRenderContexts();
+																	FRshipContentMappingState Updated;
+																	if (!ResolveLatestMappingState(Manager, Mapping.Id, Updated))
+																	{
+																		return;
+																	}
+
+																	FString ContextIdForAsset;
+																	const TArray<FRshipRenderContextState> ExistingContexts = Manager->GetRenderContexts();
 																for (const FRshipRenderContextState& Context : ExistingContexts)
 																{
 																	const FString ContextSourceType = Context.SourceType.IsEmpty() ? TEXT("camera") : Context.SourceType;
@@ -10804,14 +11083,14 @@ void SRshipContentMappingPanel::RefreshStatus()
 																	{
 																		continue;
 																	}
-																	if (!Mapping.ProjectId.IsEmpty() && Context.ProjectId != Mapping.ProjectId)
-																	{
-																		continue;
-																	}
-																	if (Mapping.ProjectId.IsEmpty() && !Context.ProjectId.IsEmpty())
-																	{
-																		continue;
-																	}
+																		if (!Updated.ProjectId.IsEmpty() && Context.ProjectId != Updated.ProjectId)
+																		{
+																			continue;
+																		}
+																		if (Updated.ProjectId.IsEmpty() && !Context.ProjectId.IsEmpty())
+																		{
+																			continue;
+																		}
 																	ContextIdForAsset = Context.Id;
 																	break;
 																}
@@ -10820,7 +11099,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 																{
 																	FRshipRenderContextState NewCtx;
 																	NewCtx.Name = AssetLabel;
-																	NewCtx.ProjectId = Mapping.ProjectId;
+																		NewCtx.ProjectId = Updated.ProjectId;
 																	NewCtx.SourceType = TEXT("asset-store");
 																	NewCtx.AssetId = AssetId;
 																	NewCtx.Width = 1920;
@@ -10830,7 +11109,6 @@ void SRshipContentMappingPanel::RefreshStatus()
 																	ContextIdForAsset = Manager->CreateRenderContext(NewCtx);
 																}
 
-																	FRshipContentMappingState Updated = Mapping;
 																	Updated.ContextId = ContextIdForAsset;
 																	EnsureContextDefaultsForMapping(Manager, Updated.ContextId);
 																	if (Manager->UpdateMapping(Updated))
@@ -10838,7 +11116,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 																		Manager->Tick(0.0f);
 																		RefreshStatus();
 																	}
-																})));
+																	})));
 													}
 												}
 												return MenuBuilder.MakeWidget();
@@ -10859,11 +11137,11 @@ void SRshipContentMappingPanel::RefreshStatus()
 												.Text(LOCTEXT("MapRowSourceUseSelected", "Use Selected"))
 												.Font(CompactMappingButtonFont)
 											]
-											.OnClicked_Lambda([this, Mapping, MappingMode]()
-											{
-												if (!GEngine)
+												.OnClicked_Lambda([this, Mapping]()
 												{
-													return FReply::Handled();
+													if (!GEngine)
+													{
+														return FReply::Handled();
 												}
 
 												URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
@@ -10871,11 +11149,17 @@ void SRshipContentMappingPanel::RefreshStatus()
 												{
 													return FReply::Handled();
 												}
-												URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
-												if (!Manager)
-												{
-													return FReply::Handled();
-												}
+													URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
+													if (!Manager)
+													{
+														return FReply::Handled();
+													}
+
+													FRshipContentMappingState Updated;
+													if (!ResolveLatestMappingState(Manager, Mapping.Id, Updated))
+													{
+														return FReply::Handled();
+													}
 
 #if WITH_EDITOR
 												if (!GEditor)
@@ -10907,8 +11191,9 @@ void SRshipContentMappingPanel::RefreshStatus()
 													}
 
 													// Projection mappings can use selected mesh actors as source anchors.
-													if (IsProjectionMode(MappingMode) && ActorIsValidScreenCandidate(Actor))
-													{
+														const FString CurrentMappingMode = GetMappingModeFromState(Updated);
+														if (IsProjectionMode(CurrentMappingMode) && ActorIsValidScreenCandidate(Actor))
+														{
 														SelectedSourceId = ResolveTargetIdForActor(Actor);
 														if (SelectedSourceId.IsEmpty())
 														{
@@ -10941,14 +11226,14 @@ void SRshipContentMappingPanel::RefreshStatus()
 													{
 														continue;
 													}
-													if (!Mapping.ProjectId.IsEmpty() && Context.ProjectId != Mapping.ProjectId)
-													{
-														continue;
-													}
-													if (Mapping.ProjectId.IsEmpty() && !Context.ProjectId.IsEmpty())
-													{
-														continue;
-													}
+														if (!Updated.ProjectId.IsEmpty() && Context.ProjectId != Updated.ProjectId)
+														{
+															continue;
+														}
+														if (Updated.ProjectId.IsEmpty() && !Context.ProjectId.IsEmpty())
+														{
+															continue;
+														}
 													ContextIdForSelection = Context.Id;
 													break;
 												}
@@ -10957,7 +11242,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 												{
 													FRshipRenderContextState NewCtx;
 													NewCtx.Name = SelectedSourceLabel.IsEmpty() ? TEXT("Input Source") : SelectedSourceLabel;
-													NewCtx.ProjectId = Mapping.ProjectId;
+														NewCtx.ProjectId = Updated.ProjectId;
 													NewCtx.SourceType = TEXT("camera");
 													NewCtx.CameraId = SelectedSourceId;
 													NewCtx.Width = 1920;
@@ -10967,7 +11252,6 @@ void SRshipContentMappingPanel::RefreshStatus()
 													ContextIdForSelection = Manager->CreateRenderContext(NewCtx);
 												}
 
-													FRshipContentMappingState Updated = Mapping;
 													Updated.ContextId = ContextIdForSelection;
 													EnsureContextDefaultsForMapping(Manager, Updated.ContextId);
 													if (Manager->UpdateMapping(Updated))
@@ -10976,8 +11260,8 @@ void SRshipContentMappingPanel::RefreshStatus()
 														RefreshStatus();
 													}
 #endif
-													return FReply::Handled();
-											})
+														return FReply::Handled();
+												})
 										]
 										+ SHorizontalBox::Slot().AutoWidth().Padding(2, 0, 0, 0)
 										[
@@ -11540,13 +11824,17 @@ void SRshipContentMappingPanel::RefreshStatus()
 												return;
 											}
 
-												FRshipContentMappingState Updated = ExistingMapping;
-												Updated.bEnabled = bEnabled;
-												if (Manager->UpdateMapping(Updated))
-												{
-													Manager->Tick(0.0f);
-													RefreshStatus();
-												}
+													FRshipContentMappingState Updated = ExistingMapping;
+													Updated.bEnabled = bEnabled;
+													if (Manager->UpdateMapping(Updated))
+													{
+														if (SelectedMappingId == Updated.Id)
+														{
+															PopulateMappingForm(Updated);
+														}
+														Manager->Tick(0.0f);
+														RefreshStatus();
+													}
 												return;
 										}
 									})
@@ -11630,13 +11918,14 @@ void SRshipContentMappingPanel::RefreshStatus()
 													StopProjectionEdit();
 												}
 
-												if (Manager->DeleteMapping(MappingId))
-												{
-													if (bDeletingSelectedMapping)
+													if (Manager->DeleteMapping(MappingId))
 													{
-														ClearSelectedMappingId();
-														ResetForms();
-													}
+														if (bDeletingSelectedMapping)
+														{
+															bNewMappingDraftActive = true;
+															ClearSelectedMappingId();
+															ResetForms();
+														}
 													SelectedMappingRows.Remove(MappingId);
 													ExpandedMappingConfigRows.Remove(MappingId);
 													ExpandedProjectionPrecisionRows.Remove(MappingId);

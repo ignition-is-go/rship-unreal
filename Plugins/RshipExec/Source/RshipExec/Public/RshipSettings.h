@@ -201,6 +201,22 @@ public:
         ToolTip = "Optional override for the content mapping material instance asset path. Leave empty to use runtime defaults."))
     FString ContentMappingMaterialPath;
 
+    UPROPERTY(EditAnywhere, config, Category = "Content Mapping", meta = (DisplayName = "Projection Material Path",
+        ToolTip = "Optional override for the base projection material/profile used by perspective, cylindrical, spherical, parallel, radial, mesh, fisheye and custom-matrix modes."))
+    FString ContentMappingProjectionMaterialPath;
+
+    UPROPERTY(EditAnywhere, config, Category = "Content Mapping", meta = (DisplayName = "Camera Plate Material Path",
+        ToolTip = "Optional override for camera-plate mode material/profile."))
+    FString ContentMappingCameraPlateMaterialPath;
+
+    UPROPERTY(EditAnywhere, config, Category = "Content Mapping", meta = (DisplayName = "Spatial Material Path",
+        ToolTip = "Optional override for spatial mode material/profile."))
+    FString ContentMappingSpatialMaterialPath;
+
+    UPROPERTY(EditAnywhere, config, Category = "Content Mapping", meta = (DisplayName = "Depth Map Material Path",
+        ToolTip = "Optional override for depth-map mode material/profile."))
+    FString ContentMappingDepthMapMaterialPath;
+
     UPROPERTY(EditAnywhere, config, Category = "Content Mapping", meta = (DisplayName = "Spawn Debug Actors (Editor Only)"))
     bool bSpawnContentMappingDebugActors = false;
 
