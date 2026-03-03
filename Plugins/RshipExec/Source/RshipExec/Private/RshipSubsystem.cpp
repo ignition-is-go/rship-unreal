@@ -12,6 +12,7 @@
 #include "Util.h"
 #include "Logging/LogMacros.h"
 #include "Subsystems/SubsystemCollection.h"
+#include "Algo/Sort.h"
 #include "GameFramework/Actor.h"
 #include "UObject/FieldPath.h"
 #include "Misc/StructBuilder.h"
@@ -92,6 +93,10 @@ void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
         1.0f / 60.0f  // 60Hz tick rate
     );
     UE_LOG(LogRshipExec, Log, TEXT("Started subsystem ticker (60Hz)"));
+
+#if WITH_EDITOR
+    RegisterEditorDelegates();
+#endif
 }
 
 void URshipSubsystem::InitializeRateLimiter()
@@ -562,6 +567,127 @@ void URshipSubsystem::OnConnectionTimeout()
     }
 }
 
+#if WITH_EDITOR
+void URshipSubsystem::RegisterEditorDelegates()
+{
+    if (!GEditor)
+    {
+        return;
+    }
+
+    if (!BeginPIEHandle.IsValid())
+    {
+        BeginPIEHandle = FEditorDelegates::BeginPIE.AddUObject(this, &URshipSubsystem::HandleBeginPIE);
+    }
+    if (!EndPIEHandle.IsValid())
+    {
+        EndPIEHandle = FEditorDelegates::EndPIE.AddUObject(this, &URshipSubsystem::HandleEndPIE);
+    }
+    if (!MapChangedHandle.IsValid())
+    {
+        MapChangedHandle = FEditorDelegates::MapChange.AddUObject(this, &URshipSubsystem::HandleMapChanged);
+    }
+    if (!BlueprintCompiledHandle.IsValid())
+    {
+        BlueprintCompiledHandle = GEditor->OnBlueprintCompiled().AddUObject(this, &URshipSubsystem::HandleBlueprintCompiled);
+    }
+
+    UE_LOG(LogRshipExec, Log, TEXT("Registered editor delegates for target refresh."));
+}
+
+void URshipSubsystem::UnregisterEditorDelegates()
+{
+    if (!GEditor)
+    {
+        return;
+    }
+
+    if (BeginPIEHandle.IsValid())
+    {
+        FEditorDelegates::BeginPIE.Remove(BeginPIEHandle);
+        BeginPIEHandle.Reset();
+    }
+    if (EndPIEHandle.IsValid())
+    {
+        FEditorDelegates::EndPIE.Remove(EndPIEHandle);
+        EndPIEHandle.Reset();
+    }
+    if (MapChangedHandle.IsValid())
+    {
+        FEditorDelegates::MapChange.Remove(MapChangedHandle);
+        MapChangedHandle.Reset();
+    }
+    if (BlueprintCompiledHandle.IsValid())
+    {
+        GEditor->OnBlueprintCompiled().Remove(BlueprintCompiledHandle);
+        BlueprintCompiledHandle.Reset();
+    }
+}
+
+void URshipSubsystem::RefreshAllTargetComponents(const TCHAR* Reason)
+{
+    if (!TargetComponents)
+    {
+        UE_LOG(LogRshipExec, Error, TEXT("RefreshAllTargetComponents failed: TargetComponents not initialized (reason=%s)"), Reason);
+        return;
+    }
+
+    TSet<URshipActorRegistrationComponent*> UniqueComponents;
+    TArray<URshipActorRegistrationComponent*> ToRefresh;
+    int32 Removed = 0;
+
+    for (auto It = TargetComponents->CreateIterator(); It; ++It)
+    {
+        URshipActorRegistrationComponent* Component = It.Value();
+        if (!IsValid(Component))
+        {
+            It.RemoveCurrent();
+            ++Removed;
+            continue;
+        }
+        if (!UniqueComponents.Contains(Component))
+        {
+            UniqueComponents.Add(Component);
+            ToRefresh.Add(Component);
+        }
+    }
+
+    int32 Refreshed = 0;
+    for (URshipActorRegistrationComponent* Component : ToRefresh)
+    {
+        if (!IsValid(Component))
+        {
+            continue;
+        }
+        Component->Register();
+        ++Refreshed;
+    }
+
+    UE_LOG(LogRshipExec, Log, TEXT("RefreshAllTargetComponents: reason=%s refreshed=%d removed=%d tracked=%d"),
+        Reason, Refreshed, Removed, TargetComponents->Num());
+}
+
+void URshipSubsystem::HandleBeginPIE(bool bIsSimulating)
+{
+    RefreshAllTargetComponents(bIsSimulating ? TEXT("BeginSimulate") : TEXT("BeginPIE"));
+}
+
+void URshipSubsystem::HandleEndPIE(bool bIsSimulating)
+{
+    RefreshAllTargetComponents(bIsSimulating ? TEXT("EndSimulate") : TEXT("EndPIE"));
+}
+
+void URshipSubsystem::HandleMapChanged(uint32 MapChangeFlags)
+{
+    RefreshAllTargetComponents(TEXT("MapChanged"));
+}
+
+void URshipSubsystem::HandleBlueprintCompiled()
+{
+    RefreshAllTargetComponents(TEXT("BlueprintCompiled"));
+}
+#endif
+
 void URshipSubsystem::OnRateLimiterStatusChanged(bool bIsBackingOff, float BackoffSeconds)
 {
     if (bIsBackingOff)
@@ -1013,7 +1139,11 @@ bool URshipSubsystem::ExecuteTargetAction(const FString& TargetId, const FString
 
     if (!bFoundAny)
     {
-        UE_LOG(LogRshipExec, Warning, TEXT("Target not found: %s"), *TargetId);
+        UE_LOG(LogRshipExec, Error, TEXT("Target not found: %s (action=%s)"), *TargetId, *ActionId);
+    }
+    else if (!bResult)
+    {
+        UE_LOG(LogRshipExec, Error, TEXT("Target action failed: target=%s action=%s"), *TargetId, *ActionId);
     }
 
     return bResult;
@@ -1065,6 +1195,10 @@ void URshipSubsystem::Deinitialize()
     ManagedTargetSnapshots.Reset();
     RegisteredTargetsById.Reset();
 
+#if WITH_EDITOR
+    UnregisterEditorDelegates();
+#endif
+
     Super::Deinitialize();
 }
 
@@ -1109,6 +1243,10 @@ void URshipSubsystem::BeginDestroy()
         WebSocket.Reset();
     }
 
+#if WITH_EDITOR
+    UnregisterEditorDelegates();
+#endif
+
     Super::BeginDestroy();
 }
 
@@ -1145,6 +1283,10 @@ void URshipSubsystem::PrepareForHotReload()
         FTSTicker::GetCoreTicker().RemoveTicker(DeferredOnDataReceivedTickerHandle);
         DeferredOnDataReceivedTickerHandle.Reset();
     }
+
+#if WITH_EDITOR
+    UnregisterEditorDelegates();
+#endif
 
     // Close WebSocket - its callbacks also hold function pointers
     if (WebSocket.IsValid())
@@ -1211,19 +1353,39 @@ void URshipSubsystem::SendTarget(Target *target)
 
     TArray<FString> EmitterIds;
     TArray<FString> ActionIds;
+    TArray<TSharedPtr<FJsonObject>> BatchEvents;
+    BatchEvents.Reserve(target->GetActions().Num() + target->GetEmitters().Num() + 2);
 
     for (auto &Elem : target->GetActions())
     {
         UE_LOG(LogRshipExec, Log, TEXT("  Action: %s"), *Elem.Key);
         ActionIds.Add(Elem.Key);
-        SendAction(Elem.Value, target->GetId());
+
+        FRshipActionRecord Record;
+        Record.Id = Elem.Value.Id;
+        Record.Name = Elem.Value.Name;
+        Record.TargetId = target->GetId();
+        Record.ServiceId = ServiceId;
+        Record.Schema = Elem.Value.GetSchema();
+        Record.Hash = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower);
+
+        BatchEvents.Add(FRshipMykoTransport::MakeSet("Action", FRshipEntitySerializer::ToJson(Record), MachineId));
     }
 
     for (auto &Elem : target->GetEmitters())
     {
         UE_LOG(LogRshipExec, Log, TEXT("  Emitter: %s"), *Elem.Key);
         EmitterIds.Add(Elem.Key);
-        SendEmitter(Elem.Value, target->GetId());
+
+        FRshipEmitterRecord Record;
+        Record.Id = Elem.Value.Id;
+        Record.Name = Elem.Value.Name;
+        Record.TargetId = target->GetId();
+        Record.ServiceId = ServiceId;
+        Record.Schema = Elem.Value.GetSchema();
+        Record.Hash = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower);
+
+        BatchEvents.Add(FRshipMykoTransport::MakeSet("Emitter", FRshipEntitySerializer::ToJson(Record), MachineId));
     }
 
     const URshipSettings *Settings = GetDefault<URshipSettings>();
@@ -1253,8 +1415,8 @@ void URshipSubsystem::SendTarget(Target *target)
 
     TSharedPtr<FJsonObject> TargetJson = FRshipEntitySerializer::ToJson(TargetRecord);
 
-    // Target registration - HIGH priority, coalesce by target ID
-    SetItem("Target", TargetJson, ERshipMessagePriority::High, target->GetId());
+    // Target registration - batched with actions/emitters/status
+    BatchEvents.Add(FRshipMykoTransport::MakeSet("Target", TargetJson, MachineId));
 
     FRshipTargetStatusRecord TargetStatusRecord;
     TargetStatusRecord.TargetId = target->GetId();
@@ -1262,7 +1424,16 @@ void URshipSubsystem::SendTarget(Target *target)
     TargetStatusRecord.Status = TEXT("online");
     TargetStatusRecord.Id = target->GetId();
     TargetStatusRecord.Hash = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower);
-    SetItem("TargetStatus", FRshipEntitySerializer::ToJson(TargetStatusRecord), ERshipMessagePriority::High, target->GetId() + ":status");
+    BatchEvents.Add(FRshipMykoTransport::MakeSet("TargetStatus", FRshipEntitySerializer::ToJson(TargetStatusRecord), MachineId));
+
+    if (RegistrationBatchDepth > 0)
+    {
+        PendingRegistrationEvents.Append(BatchEvents);
+    }
+    else
+    {
+        QueueEventBatch(BatchEvents, ERshipMessagePriority::High, ERshipMessageType::Registration, target->GetId());
+    }
 }
 
 void URshipSubsystem::DeleteTarget(Target* target)
@@ -1318,6 +1489,186 @@ void URshipSubsystem::SendEmitter(const FRshipEmitterProxy& emitter, FString tar
 
     // Emitter registration - HIGH priority, coalesce by emitter ID
     SetItem("Emitter", FRshipEntitySerializer::ToJson(Record), ERshipMessagePriority::High, emitter.Id);
+}
+
+void URshipSubsystem::QueueEventBatch(const TArray<TSharedPtr<FJsonObject>>& Events,
+                                      ERshipMessagePriority Priority,
+                                      ERshipMessageType Type,
+                                      const FString& CoalesceKey)
+{
+    if (Events.Num() == 0)
+    {
+        return;
+    }
+
+    TArray<TSharedPtr<FJsonValue>> PayloadArray;
+    PayloadArray.Reserve(Events.Num());
+
+    for (const TSharedPtr<FJsonObject>& EventEnvelope : Events)
+    {
+        if (!EventEnvelope.IsValid())
+        {
+            continue;
+        }
+
+        TSharedPtr<FJsonObject> EventData;
+        if (!FRshipMykoTransport::TryGetMykoEventData(EventEnvelope, EventData))
+        {
+            UE_LOG(LogRshipExec, Error, TEXT("QueueEventBatch received non-Myko payload; dropping from batch."));
+            continue;
+        }
+
+        PayloadArray.Add(MakeShareable(new FJsonValueObject(EventData)));
+    }
+
+    if (PayloadArray.Num() == 0)
+    {
+        UE_LOG(LogRshipExec, Error, TEXT("QueueEventBatch produced empty payload."));
+        return;
+    }
+
+    TSharedPtr<FJsonObject> BatchWrapper = MakeShareable(new FJsonObject);
+    BatchWrapper->SetStringField(TEXT("event"), RshipMykoEventNames::EventBatch);
+    BatchWrapper->SetArrayField(TEXT("data"), PayloadArray);
+
+    QueueMessage(BatchWrapper, Priority, Type, CoalesceKey);
+}
+
+void URshipSubsystem::BeginRegistrationBatch()
+{
+    ++RegistrationBatchDepth;
+}
+
+void URshipSubsystem::EndRegistrationBatch()
+{
+    if (RegistrationBatchDepth <= 0)
+    {
+        RegistrationBatchDepth = 0;
+        return;
+    }
+
+    --RegistrationBatchDepth;
+    if (RegistrationBatchDepth > 0)
+    {
+        return;
+    }
+
+    if (PendingRegistrationEvents.Num() == 0)
+    {
+        return;
+    }
+
+    struct FTargetEvent
+    {
+        int32 Depth = 0;
+        TSharedPtr<FJsonObject> Data;
+    };
+
+    TArray<FTargetEvent> TargetEvents;
+    TArray<TSharedPtr<FJsonObject>> ActionEvents;
+    TArray<TSharedPtr<FJsonObject>> EmitterEvents;
+    TArray<TSharedPtr<FJsonObject>> StatusEvents;
+    TArray<TSharedPtr<FJsonObject>> OtherEvents;
+
+    TargetEvents.Reserve(PendingRegistrationEvents.Num());
+
+    for (const TSharedPtr<FJsonObject>& Envelope : PendingRegistrationEvents)
+    {
+        if (!Envelope.IsValid())
+        {
+            continue;
+        }
+
+        TSharedPtr<FJsonObject> EventData;
+        if (!FRshipMykoTransport::TryGetMykoEventData(Envelope, EventData))
+        {
+            continue;
+        }
+
+        FString ItemType;
+        if (!EventData->TryGetStringField(TEXT("itemType"), ItemType))
+        {
+            OtherEvents.Add(EventData);
+            continue;
+        }
+
+        if (ItemType == TEXT("Target"))
+        {
+            int32 Depth = 0;
+            const TSharedPtr<FJsonObject>* ItemPtr = nullptr;
+            if (EventData->TryGetObjectField(TEXT("item"), ItemPtr) && ItemPtr && ItemPtr->IsValid())
+            {
+                const TArray<TSharedPtr<FJsonValue>>* ParentIds = nullptr;
+                if ((*ItemPtr)->TryGetArrayField(TEXT("parentTargetIds"), ParentIds) && ParentIds)
+                {
+                    Depth = ParentIds->Num();
+                }
+            }
+            TargetEvents.Add({ Depth, EventData });
+        }
+        else if (ItemType == TEXT("Action"))
+        {
+            ActionEvents.Add(EventData);
+        }
+        else if (ItemType == TEXT("Emitter"))
+        {
+            EmitterEvents.Add(EventData);
+        }
+        else if (ItemType == TEXT("TargetStatus"))
+        {
+            StatusEvents.Add(EventData);
+        }
+        else
+        {
+            OtherEvents.Add(EventData);
+        }
+    }
+
+    Algo::StableSort(TargetEvents, [](const FTargetEvent& A, const FTargetEvent& B)
+    {
+        return A.Depth < B.Depth;
+    });
+
+    TArray<TSharedPtr<FJsonValue>> PayloadArray;
+    PayloadArray.Reserve(TargetEvents.Num() + ActionEvents.Num() + EmitterEvents.Num() + StatusEvents.Num() + OtherEvents.Num());
+
+    for (const FTargetEvent& Event : TargetEvents)
+    {
+        if (Event.Data.IsValid())
+        {
+            PayloadArray.Add(MakeShareable(new FJsonValueObject(Event.Data)));
+        }
+    }
+    for (const TSharedPtr<FJsonObject>& Event : ActionEvents)
+    {
+        PayloadArray.Add(MakeShareable(new FJsonValueObject(Event)));
+    }
+    for (const TSharedPtr<FJsonObject>& Event : EmitterEvents)
+    {
+        PayloadArray.Add(MakeShareable(new FJsonValueObject(Event)));
+    }
+    for (const TSharedPtr<FJsonObject>& Event : StatusEvents)
+    {
+        PayloadArray.Add(MakeShareable(new FJsonValueObject(Event)));
+    }
+    for (const TSharedPtr<FJsonObject>& Event : OtherEvents)
+    {
+        PayloadArray.Add(MakeShareable(new FJsonValueObject(Event)));
+    }
+
+    PendingRegistrationEvents.Reset();
+
+    if (PayloadArray.Num() == 0)
+    {
+        UE_LOG(LogRshipExec, Error, TEXT("EndRegistrationBatch produced empty payload."));
+        return;
+    }
+
+    TSharedPtr<FJsonObject> BatchWrapper = MakeShareable(new FJsonObject);
+    BatchWrapper->SetStringField(TEXT("event"), RshipMykoEventNames::EventBatch);
+    BatchWrapper->SetArrayField(TEXT("data"), PayloadArray);
+
+    QueueMessage(BatchWrapper, ERshipMessagePriority::High, ERshipMessageType::Registration, TEXT(""));
 }
 
 void URshipSubsystem::SendTargetStatus(Target *target, bool online)
@@ -1721,8 +2072,30 @@ bool URshipSubsystem::RegisterFunctionActionForTarget(const FString& FullTargetI
     const FString FullActionId = FullTargetId + TEXT(":") + FinalName;
 
     Target* TargetRef = *TargetPtr;
-    if (TargetRef->GetActions().Contains(FullActionId))
+    if (const FRshipActionProxy* ExistingAction = TargetRef->GetActions().Find(FullActionId))
     {
+        UObject* ExistingOwner = ExistingAction->GetOwnerObject();
+        const bool bExistingOwnerValid = IsValid(ExistingOwner);
+        if (!bExistingOwnerValid || ExistingOwner != Owner)
+        {
+            if (!bExistingOwnerValid)
+            {
+                UE_LOG(LogRshipExec, Error,
+                    TEXT("RegisterFunctionActionForTarget replacing stale action '%s' (invalid owner)."),
+                    *FullActionId);
+            }
+            else
+            {
+                UE_LOG(LogRshipExec, Warning,
+                    TEXT("RegisterFunctionActionForTarget replacing action '%s' owned by '%s' with new owner '%s'."),
+                    *FullActionId,
+                    *GetNameSafe(ExistingOwner),
+                    *GetNameSafe(Owner));
+            }
+            TargetRef->AddAction(FRshipActionProxy::FromFunction(FullActionId, FinalName, Func, Owner));
+            return true;
+        }
+
         UE_LOG(LogRshipExec, Verbose, TEXT("RegisterFunctionActionForTarget skipped duplicate action '%s'"), *FullActionId);
         return false;
     }
@@ -1760,8 +2133,30 @@ bool URshipSubsystem::RegisterPropertyActionForTarget(const FString& FullTargetI
     const FString FullActionId = FullTargetId + TEXT(":") + FinalName;
 
     Target* TargetRef = *TargetPtr;
-    if (TargetRef->GetActions().Contains(FullActionId))
+    if (const FRshipActionProxy* ExistingAction = TargetRef->GetActions().Find(FullActionId))
     {
+        UObject* ExistingOwner = ExistingAction->GetOwnerObject();
+        const bool bExistingOwnerValid = IsValid(ExistingOwner);
+        if (!bExistingOwnerValid || ExistingOwner != Owner)
+        {
+            if (!bExistingOwnerValid)
+            {
+                UE_LOG(LogRshipExec, Error,
+                    TEXT("RegisterPropertyActionForTarget replacing stale action '%s' (invalid owner)."),
+                    *FullActionId);
+            }
+            else
+            {
+                UE_LOG(LogRshipExec, Warning,
+                    TEXT("RegisterPropertyActionForTarget replacing action '%s' owned by '%s' with new owner '%s'."),
+                    *FullActionId,
+                    *GetNameSafe(ExistingOwner),
+                    *GetNameSafe(Owner));
+            }
+            TargetRef->AddAction(FRshipActionProxy::FromProperty(FullActionId, FinalName, Prop, Owner));
+            return true;
+        }
+
         UE_LOG(LogRshipExec, Verbose, TEXT("RegisterPropertyActionForTarget skipped duplicate action '%s'"), *FullActionId);
         return false;
     }

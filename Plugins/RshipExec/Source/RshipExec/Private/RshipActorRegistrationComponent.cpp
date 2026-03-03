@@ -140,6 +140,8 @@ void URshipActorRegistrationComponent::Register()
 		return;
 	}
 
+	Subsystem->BeginRegistrationBatch();
+
 	FString OutlinerName = Parent->GetName();
 #if WITH_EDITOR
 	OutlinerName = Parent->GetActorLabel();
@@ -160,6 +162,8 @@ void URshipActorRegistrationComponent::Register()
 	Subsystem->RegisterTargetComponent(this);
 
 	RebindSiblingContributors();
+
+	Subsystem->EndRegistrationBatch();
 
 	UE_LOG(LogRshipExec, Log, TEXT("Component Registered: %s (actions=%d emitters=%d)"), *Parent->GetName(), TargetData->GetActions().Num(), TargetData->GetEmitters().Num());
 }

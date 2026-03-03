@@ -366,6 +366,33 @@ int32 FRshipRateLimiter::ProcessQueue()
         // Batching logic
         if (Config.bEnableBatching)
         {
+            // Pulses should never be batched; flush current batch and send directly.
+            if (Msg.Type == ERshipMessageType::EmitterPulse)
+            {
+                if (CurrentBatch.Num() > 0)
+                {
+                    FlushBatch();
+                }
+
+                ConsumeMessageToken();
+                ConsumeBytesTokens(Msg.EstimatedBytes);
+
+                FString JsonString = SerializeMessage(Msg.Payload);
+                if (!JsonString.IsEmpty() && OnMessageReadyToSend.IsBound())
+                {
+                    OnMessageReadyToSend.Execute(JsonString);
+                    MessagesSent++;
+
+                    int32 BytesSent = JsonString.Len();
+                    RecentSendTimes.Add(Now);
+                    RecentSendBytes.Add(BytesSent);
+                }
+
+                QueueBytesEstimate -= Msg.EstimatedBytes;
+                MessageQueue.RemoveAt(0);
+                continue;
+            }
+
             // Only Myko ws:m:event envelopes can be packed into ws:m:event-batch.
             if (!FRshipMykoTransport::IsMykoEventEnvelope(Msg.Payload))
             {
@@ -1003,10 +1030,13 @@ FString FRshipRateLimiter::SerializeBatch(const TArray<FRshipQueuedMessage>& Bat
         return FString();
     }
 
-    // If only one message, send it directly without batch wrapper
+    // If only one message, send it directly for pulses; otherwise wrap in event-batch.
     if (Batch.Num() == 1)
     {
-        return SerializeMessage(Batch[0].Payload);
+        if (Batch[0].Type == ERshipMessageType::EmitterPulse)
+        {
+            return SerializeMessage(Batch[0].Payload);
+        }
     }
 
         // Create typed Myko event-batch wrapper.

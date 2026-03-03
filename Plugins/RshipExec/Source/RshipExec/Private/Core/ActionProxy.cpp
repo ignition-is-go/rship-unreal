@@ -42,16 +42,26 @@ TSharedPtr<FJsonObject> FRshipActionProxy::GetSchema() const
 
 bool FRshipActionProxy::Take(AActor* Actor, const TSharedRef<FJsonObject>& Data) const
 {
-	if (!Owner)
+	UObject* OwnerObject = Owner.Get();
+	if (!OwnerObject)
 	{
+		UE_LOG(LogRshipExec, Error, TEXT("Action '%s' failed: owner is invalid or destroyed."), *Id);
 		return false;
 	}
 
 	if (Property)
 	{
 		const FString ArgList = BuildArgStringFromJson(*Props, Data, false);
-		void* PropAddress = Property->ContainerPtrToValuePtr<void>(Owner);
-		const TCHAR* Result = Property->ImportText_Direct(*ArgList, PropAddress, Owner, 0);
+		void* PropAddress = Property->ContainerPtrToValuePtr<void>(OwnerObject);
+		const TCHAR* Result = Property->ImportText_Direct(*ArgList, PropAddress, OwnerObject, 0);
+		if (Result != nullptr && FCString::Strlen(Result) > 0)
+		{
+			UE_LOG(LogRshipExec, Error, TEXT("Action '%s' failed to import property '%s' on '%s'. Parse error: %s"),
+				*Id,
+				*Property->GetName(),
+				*GetNameSafe(OwnerObject),
+				Result);
+		}
 		return Result == nullptr || FCString::Strlen(Result) == 0;
 	}
 
@@ -68,5 +78,13 @@ bool FRshipActionProxy::Take(AActor* Actor, const TSharedRef<FJsonObject>& Data)
 
 	FOutputDeviceNull Out;
 	TCHAR* OutStr = Args.GetCharArray().GetData();
-	return Owner->CallFunctionByNameWithArguments(OutStr, *GLog, nullptr, true);
+	const bool bCalled = OwnerObject->CallFunctionByNameWithArguments(OutStr, *GLog, nullptr, true);
+	if (!bCalled)
+	{
+		UE_LOG(LogRshipExec, Error, TEXT("Action '%s' failed to invoke function '%s' on '%s'."),
+			*Id,
+			*FunctionName,
+			*GetNameSafe(OwnerObject));
+	}
+	return bCalled;
 }

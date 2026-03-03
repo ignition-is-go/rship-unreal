@@ -1,5 +1,6 @@
 #include "Util.h"
 #include "Logs.h"
+#include "Dom/JsonValue.h"
 
 TSharedPtr<FJsonObject> ParseJSON(const FString &JsonString)
 {
@@ -184,6 +185,35 @@ FString UnrealToJsonSchemaTypeLookup(FString unrealType)
 static TSharedPtr<FJsonObject> RshipPropToSchemaObject(const SchemaNode &prop)
 {
     TSharedPtr<FJsonObject> propObj = MakeShareable(new FJsonObject());
+
+    if (prop.EnumValues.Num() > 0)
+    {
+        propObj->SetStringField("type", "string");
+
+        TArray<TSharedPtr<FJsonValue>> EnumArray;
+        EnumArray.Reserve(prop.EnumValues.Num());
+
+        TArray<TSharedPtr<FJsonValue>> OneOfArray;
+        OneOfArray.Reserve(prop.EnumValues.Num());
+
+        for (const FString &Value : prop.EnumValues)
+        {
+            EnumArray.Add(MakeShared<FJsonValueString>(Value));
+
+            TSharedPtr<FJsonObject> OneOfObj = MakeShared<FJsonObject>();
+            OneOfObj->SetStringField("type", "string");
+            OneOfObj->SetStringField("const", Value);
+            OneOfObj->SetStringField("title", Value);
+            OneOfArray.Add(MakeShared<FJsonValueObject>(OneOfObj));
+        }
+
+        // Keep enum for standard JSON schema consumers, and oneOf for rship dropdowns.
+        propObj->SetArrayField("enum", EnumArray);
+        propObj->SetArrayField("oneOf", OneOfArray);
+
+        UE_LOG(LogRshipExec, Verbose, TEXT("Added enum %s with %d options."), *prop.Name, prop.EnumValues.Num());
+        return propObj;
+    }
 
     // Primitive Unreal property classes map directly.
     const FString jsonType = UnrealToJsonSchemaTypeLookup(prop.Type);

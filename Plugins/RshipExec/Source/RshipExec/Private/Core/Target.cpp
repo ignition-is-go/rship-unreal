@@ -131,7 +131,32 @@ bool Target::TakeAction(AActor* actor, FString actionId, const TSharedRef<FJsonO
 	}
 
 	const FRshipActionProxy& TakenAction = *ActionPtr;
-	const bool bTaken = TakenAction.Take(actor, data);
+	UObject* OwnerObject = TakenAction.GetOwnerObject();
+	if (!IsValid(OwnerObject))
+	{
+		UE_LOG(LogRshipExec, Error, TEXT("Action '%s' failed: owner is invalid or destroyed."), *actionId);
+
+		// Targeted refresh: re-register only this component to rebuild actions.
+		if (URshipActorRegistrationComponent* TargetComponent = BoundTargetComponent.Get())
+		{
+			if (IsValid(TargetComponent))
+			{
+				TargetComponent->Register();
+				ActionPtr = actions.Find(actionId);
+			}
+		}
+
+		if (!ActionPtr || !IsValid(ActionPtr->GetOwnerObject()))
+		{
+			return false;
+		}
+	}
+
+	const bool bTaken = ActionPtr->Take(actor, data);
+	if (!bTaken)
+	{
+		UE_LOG(LogRshipExec, Error, TEXT("Action '%s' failed on target '%s'."), *actionId, *id);
+	}
 
 	if (GEngine)
 	{

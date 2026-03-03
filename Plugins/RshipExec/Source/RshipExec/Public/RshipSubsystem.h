@@ -118,6 +118,10 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     void SendAction(const FRshipActionProxy& action, FString targetId);
     void SendEmitter(const FRshipEmitterProxy& emitter, FString targetId);
     void SendTargetStatus(Target* target, bool online);
+    void QueueEventBatch(const TArray<TSharedPtr<FJsonObject>>& Events,
+                         ERshipMessagePriority Priority,
+                         ERshipMessageType Type,
+                         const FString& CoalesceKey);
     void ProcessMessage(const FString& message);
 
     // Queue a message through rate limiter (preferred method)
@@ -153,6 +157,25 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
 
     // Schedule reconnection with backoff
     void ScheduleReconnect();
+
+    // Registration batching state
+    int32 RegistrationBatchDepth = 0;
+    TArray<TSharedPtr<FJsonObject>> PendingRegistrationEvents;
+
+#if WITH_EDITOR
+    void RegisterEditorDelegates();
+    void UnregisterEditorDelegates();
+    void RefreshAllTargetComponents(const TCHAR* Reason);
+    void HandleBeginPIE(bool bIsSimulating);
+    void HandleEndPIE(bool bIsSimulating);
+    void HandleMapChanged(uint32 MapChangeFlags);
+    void HandleBlueprintCompiled();
+
+    FDelegateHandle BeginPIEHandle;
+    FDelegateHandle EndPIEHandle;
+    FDelegateHandle MapChangedHandle;
+    FDelegateHandle BlueprintCompiledHandle;
+#endif
 
 public:
     virtual void Initialize(FSubsystemCollectionBase &Collection) override;
@@ -294,6 +317,10 @@ public:
     // Reset statistics (useful for testing)
     UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
     void ResetRateLimiterStats();
+
+    // Registration batching (for multi-target component registration)
+    void BeginRegistrationBatch();
+    void EndRegistrationBatch();
 
     // Legacy compatibility - direct send (use sparingly, bypasses queue)
     void SendJson(TSharedPtr<FJsonObject> Payload);
