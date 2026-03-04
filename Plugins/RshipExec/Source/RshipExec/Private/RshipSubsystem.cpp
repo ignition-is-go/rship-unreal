@@ -2373,6 +2373,31 @@ bool URshipSubsystem::RegisterEmitterForTarget(const FString& FullTargetId, UObj
     return true;
 }
 
+void URshipSubsystem::GetManagedTargetsSnapshot(TArray<FRshipManagedTargetView>& OutTargets) const
+{
+    OutTargets.Reset();
+    OutTargets.Reserve(ManagedTargetSnapshots.Num());
+
+    for (const TPair<Target*, FManagedTargetSnapshot>& Pair : ManagedTargetSnapshots)
+    {
+        Target* ManagedTarget = Pair.Key;
+        if (!ManagedTarget)
+        {
+            continue;
+        }
+
+        FRshipManagedTargetView View;
+        View.Id = Pair.Value.Id;
+        View.Name = Pair.Value.Name;
+        View.ParentTargetIds = Pair.Value.ParentTargetIds;
+        View.ActionCount = ManagedTarget->GetActions().Num();
+        View.EmitterCount = ManagedTarget->GetEmitters().Num();
+        View.BoundTargetComponent = Pair.Value.BoundTargetComponent;
+        View.bBoundToComponent = Pair.Value.bBoundToComponent;
+        OutTargets.Add(MoveTemp(View));
+    }
+}
+
 void URshipSubsystem::SendInstanceInfo()
 {
     UE_LOG(LogRshipExec, Log, TEXT("SendInstanceInfo: MachineId=%s, ServiceId=%s, InstanceId=%s, ClusterId=%s, ClientId=%s"),

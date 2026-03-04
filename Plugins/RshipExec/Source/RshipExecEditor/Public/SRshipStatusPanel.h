@@ -6,7 +6,7 @@
 #include "Core/ActionProxy.h"
 #include "Widgets/SCompoundWidget.h"
 #include "Widgets/DeclarativeSyntaxSupport.h"
-#include "Widgets/Views/SListView.h"
+#include "Widgets/Views/STreeView.h"
 #include "Widgets/Input/SCheckBox.h"
 
 class URshipSubsystem;
@@ -21,12 +21,15 @@ class ISinglePropertyView;
 /** Row data for the target list */
 struct FRshipTargetListItem
 {
+    FString FullTargetId;
     FString TargetId;
     FString DisplayName;
     FString TargetType;
     bool bIsOnline;
     int32 EmitterCount;
     int32 ActionCount;
+    TArray<FString> ParentTargetIds;
+    TArray<TSharedPtr<FRshipTargetListItem>> Children;
     TWeakObjectPtr<URshipActorRegistrationComponent> Component;
 
     FRshipTargetListItem()
@@ -103,6 +106,8 @@ private:
 
     // Target list
     TSharedRef<ITableRow> GenerateTargetRow(TSharedPtr<FRshipTargetListItem> Item, const TSharedRef<STableViewBase>& OwnerTable);
+    void GetTargetChildren(TSharedPtr<FRshipTargetListItem> Item, TArray<TSharedPtr<FRshipTargetListItem>>& OutChildren) const;
+    void OnTargetExpansionChanged(TSharedPtr<FRshipTargetListItem> Item, bool bIsExpanded);
     void OnTargetSelectionChanged(TSharedPtr<FRshipTargetListItem> Item, ESelectInfo::Type SelectInfo);
 
     // Editor selection sync
@@ -131,10 +136,12 @@ private:
 
     // Data
     TArray<TSharedPtr<FRshipTargetListItem>> TargetItems;
-    TSharedPtr<SListView<TSharedPtr<FRshipTargetListItem>>> TargetListView;
+    TArray<TSharedPtr<FRshipTargetListItem>> RootTargetItems;
+    TSharedPtr<STreeView<TSharedPtr<FRshipTargetListItem>>> TargetListView;
     TWeakObjectPtr<URshipActorRegistrationComponent> SelectedTargetComponent;
     TWeakObjectPtr<AActor> SelectedTargetOwner;
     FString SelectedTargetId;
+    TMap<FString, bool> TargetExpansionState;
     TArray<TSharedPtr<FRshipActionEntryState>> ActionEntries;
     TSharedPtr<SVerticalBox> ActionsListBox;
     TMap<FString, bool> ActionExpansionState;
@@ -178,6 +185,7 @@ class SRshipTargetRow : public SMultiColumnTableRow<TSharedPtr<FRshipTargetListI
 public:
     SLATE_BEGIN_ARGS(SRshipTargetRow) {}
         SLATE_ARGUMENT(TSharedPtr<FRshipTargetListItem>, Item)
+        SLATE_ARGUMENT(bool, bAllowTargetIdEdit)
     SLATE_END_ARGS()
 
     void Construct(const FArguments& InArgs, const TSharedRef<STableViewBase>& InOwnerTableView);
@@ -188,5 +196,6 @@ private:
     void OnTargetIdCommitted(const FText& NewText, ETextCommit::Type CommitType);
 
     TSharedPtr<FRshipTargetListItem> Item;
+    bool bAllowTargetIdEdit = false;
 };
 

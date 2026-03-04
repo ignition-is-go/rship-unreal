@@ -34,6 +34,17 @@ enum class ERshipConnectionState : uint8
     BackingOff
 };
 
+struct FRshipManagedTargetView
+{
+    FString Id;
+    FString Name;
+    TArray<FString> ParentTargetIds;
+    int32 ActionCount = 0;
+    int32 EmitterCount = 0;
+    TWeakObjectPtr<URshipActorRegistrationComponent> BoundTargetComponent;
+    bool bBoundToComponent = false;
+};
+
 struct FRshipPendingExecTargetAction
 {
     FString TargetId;
@@ -250,6 +261,7 @@ public:
     bool RegisterFunctionActionForTarget(const FString& FullTargetId, UObject* Owner, const FName& FunctionName, const FString& ExposedActionName = TEXT(""));
     bool RegisterPropertyActionForTarget(const FString& FullTargetId, UObject* Owner, const FName& PropertyName, const FString& ExposedActionName = TEXT(""));
     bool RegisterEmitterForTarget(const FString& FullTargetId, UObject* Owner, const FName& DelegateName, const FString& ExposedEmitterName = TEXT(""));
+    void GetManagedTargetsSnapshot(TArray<FRshipManagedTargetView>& OutTargets) const;
 
     // Target component registry - keyed by full target ID for O(1) lookups
     // Key format: "ServiceId:TargetName"
