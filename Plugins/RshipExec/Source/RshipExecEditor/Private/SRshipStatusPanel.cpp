@@ -386,13 +386,6 @@ TSharedRef<SWidget> SRshipStatusPanel::BuildTargetsSection()
                 SNullWidget::NullWidget
             ]
 
-            + SHorizontalBox::Slot()
-            .AutoWidth()
-            [
-                SNew(SButton)
-                .Text(LOCTEXT("RefreshButton", "Refresh"))
-                .OnClicked(this, &SRshipStatusPanel::OnRefreshTargetsClicked)
-            ]
         ]
 
         // Target list
