@@ -42,6 +42,8 @@ TSharedPtr<FJsonObject> FRshipActionProxy::GetSchema() const
 
 bool FRshipActionProxy::Take(AActor* Actor, const TSharedRef<FJsonObject>& Data) const
 {
+	(void)Actor;
+
 	UObject* OwnerObject = Owner.Get();
 	if (!OwnerObject)
 	{
@@ -66,10 +68,7 @@ bool FRshipActionProxy::Take(AActor* Actor, const TSharedRef<FJsonObject>& Data)
 	}
 
 	const FString ArgList = BuildArgStringFromJson(*Props, Data, true);
-	FString Args;
-	Args.Append(TEXT("\""));
-	Args.Append(FunctionName);
-	Args.Append(TEXT("\""));
+	FString Args = FunctionName;
 	if (!ArgList.IsEmpty())
 	{
 		Args.Append(TEXT(" "));
@@ -78,7 +77,7 @@ bool FRshipActionProxy::Take(AActor* Actor, const TSharedRef<FJsonObject>& Data)
 
 	FOutputDeviceNull Out;
 	TCHAR* OutStr = Args.GetCharArray().GetData();
-	const bool bCalled = OwnerObject->CallFunctionByNameWithArguments(OutStr, *GLog, nullptr, true);
+	const bool bCalled = OwnerObject->CallFunctionByNameWithArguments(OutStr, Out, nullptr, true);
 	if (!bCalled)
 	{
 		UE_LOG(LogRshipExec, Error, TEXT("Action '%s' failed to invoke function '%s' on '%s'."),
