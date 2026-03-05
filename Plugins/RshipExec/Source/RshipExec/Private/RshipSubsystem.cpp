@@ -875,6 +875,8 @@ void URshipSubsystem::QueueCommandResponse(const FString& TxId, bool bOk, const 
 {
     if (bOk)
     {
+        UE_LOG(LogRshipExec, Verbose, TEXT("Command success: commandId=%s tx=%s"), *CommandId, *TxId);
+
         TSharedPtr<FJsonObject> ResponseData = MakeShareable(new FJsonObject);
         ResponseData->SetStringField(TEXT("tx"), TxId);
         TSharedPtr<FJsonObject> CommandResponse = MakeShareable(new FJsonObject);
@@ -888,6 +890,11 @@ void URshipSubsystem::QueueCommandResponse(const FString& TxId, bool bOk, const 
         QueueMessage(Response, ERshipMessagePriority::Critical, ERshipMessageType::CommandResponse);
         return;
     }
+
+    UE_LOG(LogRshipExec, Error, TEXT("Command failure: commandId=%s tx=%s error=%s"),
+        *CommandId,
+        *TxId,
+        ErrorMessage.IsEmpty() ? TEXT("Action was not handled by any target") : *ErrorMessage);
 
     TSharedPtr<FJsonObject> ResponseData = MakeShareable(new FJsonObject);
     ResponseData->SetStringField(TEXT("tx"), TxId);
@@ -1089,38 +1096,90 @@ void URshipSubsystem::ProcessMessage(const FString &message)
 
     if (type == "ws:m:command")
     {
-        TSharedRef<FJsonObject> data = obj->GetObjectField(TEXT("data")).ToSharedRef();
-
-        FString commandId = data->GetStringField(TEXT("commandId"));
-        TSharedRef<FJsonObject> command = data->GetObjectField(TEXT("command")).ToSharedRef();
-
-        FString txId = command->GetStringField(TEXT("tx"));
-
-                if (commandId == "SetClientId")
+        const TSharedPtr<FJsonObject>* DataPtr = nullptr;
+        if (!obj->TryGetObjectField(TEXT("data"), DataPtr) || DataPtr == nullptr || !DataPtr->IsValid())
         {
-            ClientId = command->GetStringField(TEXT("clientId"));
+            UE_LOG(LogRshipExec, Error, TEXT("Command rejected: missing object field 'data'."));
+            return;
+        }
+
+        const TSharedPtr<FJsonObject>& DataObj = *DataPtr;
+        FString CommandId;
+        if (!DataObj->TryGetStringField(TEXT("commandId"), CommandId) || CommandId.IsEmpty())
+        {
+            UE_LOG(LogRshipExec, Error, TEXT("Command rejected: missing string field 'data.commandId'."));
+            return;
+        }
+
+        const TSharedPtr<FJsonObject>* CommandPtr = nullptr;
+        if (!DataObj->TryGetObjectField(TEXT("command"), CommandPtr) || CommandPtr == nullptr || !CommandPtr->IsValid())
+        {
+            UE_LOG(LogRshipExec, Error, TEXT("Command '%s' rejected: missing object field 'data.command'."), *CommandId);
+            return;
+        }
+
+        const TSharedPtr<FJsonObject>& CommandObj = *CommandPtr;
+        FString TxId;
+        CommandObj->TryGetStringField(TEXT("tx"), TxId);
+        if (TxId.IsEmpty())
+        {
+            UE_LOG(LogRshipExec, Warning, TEXT("Command '%s' missing tx id; response correlation may fail."), *CommandId);
+        }
+
+        UE_LOG(LogRshipExec, Verbose, TEXT("Received command: commandId=%s tx=%s"), *CommandId, *TxId);
+
+        if (CommandId == "SetClientId")
+        {
+            FString NewClientId;
+            if (!CommandObj->TryGetStringField(TEXT("clientId"), NewClientId) || NewClientId.IsEmpty())
+            {
+                QueueCommandResponse(TxId, false, CommandId, TEXT("Missing clientId"));
+                return;
+            }
+
+            ClientId = NewClientId;
             UE_LOG(LogRshipExec, Warning, TEXT("Received ClientId %s"), *ClientId);
             SendAll();
             return;
         }
 
-        if (commandId == "ExecTargetAction")
+        if (CommandId == "ExecTargetAction")
         {
-            TSharedRef<FJsonObject> execAction = command->GetObjectField(TEXT("action")).ToSharedRef();
-            TSharedRef<FJsonObject> execData = command->GetObjectField(TEXT("data")).ToSharedRef();
+            const TSharedPtr<FJsonObject>* ExecActionPtr = nullptr;
+            const TSharedPtr<FJsonObject>* ExecDataPtr = nullptr;
+            if (!CommandObj->TryGetObjectField(TEXT("action"), ExecActionPtr) || ExecActionPtr == nullptr || !ExecActionPtr->IsValid())
+            {
+                QueueCommandResponse(TxId, false, CommandId, TEXT("Missing action object"));
+                return;
+            }
+            if (!CommandObj->TryGetObjectField(TEXT("data"), ExecDataPtr) || ExecDataPtr == nullptr || !ExecDataPtr->IsValid())
+            {
+                QueueCommandResponse(TxId, false, CommandId, TEXT("Missing data object"));
+                return;
+            }
 
-            FString actionId = execAction->GetStringField(TEXT("id"));
-            FString targetId = execAction->GetStringField(TEXT("targetId"));
+            FString ActionId;
+            FString TargetId;
+            if (!(*ExecActionPtr)->TryGetStringField(TEXT("id"), ActionId) || ActionId.IsEmpty())
+            {
+                QueueCommandResponse(TxId, false, CommandId, TEXT("Missing action.id"));
+                return;
+            }
+            if (!(*ExecActionPtr)->TryGetStringField(TEXT("targetId"), TargetId) || TargetId.IsEmpty())
+            {
+                QueueCommandResponse(TxId, false, CommandId, TEXT("Missing action.targetId"));
+                return;
+            }
 
-            EnqueueExecTargetAction(targetId, actionId, execData, txId);
+            EnqueueExecTargetAction(TargetId, ActionId, (*ExecDataPtr).ToSharedRef(), TxId);
         }
-        else if (commandId == "BatchTargetAction")
+        else if (CommandId == "BatchTargetAction")
         {
             const TArray<TSharedPtr<FJsonValue>>* ActionsArray = nullptr;
-            if (!command->TryGetArrayField(TEXT("actions"), ActionsArray) || ActionsArray == nullptr)
+            if (!CommandObj->TryGetArrayField(TEXT("actions"), ActionsArray) || ActionsArray == nullptr)
             {
                 UE_LOG(LogRshipExec, Error, TEXT("BatchTargetAction rejected: missing 'actions' array."));
-                QueueCommandResponse(txId, false, TEXT("BatchTargetAction"), TEXT("Missing actions array"));
+                QueueCommandResponse(TxId, false, TEXT("BatchTargetAction"), TEXT("Missing actions array"));
                 return;
             }
 
@@ -1187,19 +1246,25 @@ void URshipSubsystem::ProcessMessage(const FString &message)
 
             if (bParseFailed)
             {
-                UE_LOG(LogRshipExec, Error, TEXT("BatchTargetAction rejected: %s (tx=%s)."), *ParseError, *txId);
-                QueueCommandResponse(txId, false, TEXT("BatchTargetAction"), ParseError);
+                UE_LOG(LogRshipExec, Error, TEXT("BatchTargetAction rejected: %s (tx=%s)."), *ParseError, *TxId);
+                QueueCommandResponse(TxId, false, TEXT("BatchTargetAction"), ParseError);
                 return;
             }
 
             if (ParsedActions.Num() == 0)
             {
-                UE_LOG(LogRshipExec, Error, TEXT("BatchTargetAction rejected: empty actions list (tx=%s)."), *txId);
-                QueueCommandResponse(txId, false, TEXT("BatchTargetAction"), TEXT("BatchTargetAction has no actions"));
+                UE_LOG(LogRshipExec, Error, TEXT("BatchTargetAction rejected: empty actions list (tx=%s)."), *TxId);
+                QueueCommandResponse(TxId, false, TEXT("BatchTargetAction"), TEXT("BatchTargetAction has no actions"));
                 return;
             }
 
-            EnqueueBatchTargetAction(txId, MoveTemp(ParsedActions));
+            EnqueueBatchTargetAction(TxId, MoveTemp(ParsedActions));
+        }
+        else
+        {
+            UE_LOG(LogRshipExec, Error, TEXT("Unsupported commandId '%s' (tx=%s)."), *CommandId, *TxId);
+            QueueCommandResponse(TxId, false, CommandId, FString::Printf(TEXT("Unsupported commandId '%s'"), *CommandId));
+            return;
         }
 
         obj.Reset();
