@@ -639,7 +639,25 @@ void URshipSubsystem::RefreshAllTargetComponents(const TCHAR* Reason)
     for (auto It = TargetComponents->CreateIterator(); It; ++It)
     {
         URshipActorRegistrationComponent* Component = It.Value();
-        if (!IsValid(Component))
+        bool bRemoveEntry = !IsValid(Component);
+#if WITH_EDITOR
+        if (!bRemoveEntry && GEditor && GEditor->PlayWorld == nullptr)
+        {
+            UWorld* ComponentWorld = Component->GetWorld();
+            const EWorldType::Type WorldType = ComponentWorld ? static_cast<EWorldType::Type>(ComponentWorld->WorldType.GetValue()) : EWorldType::None;
+            const bool bIsPlayWorld =
+                WorldType == EWorldType::PIE ||
+                WorldType == EWorldType::Game ||
+                WorldType == EWorldType::GamePreview ||
+                WorldType == EWorldType::GameRPC;
+
+            if (!ComponentWorld || bIsPlayWorld)
+            {
+                bRemoveEntry = true;
+            }
+        }
+#endif
+        if (bRemoveEntry)
         {
             It.RemoveCurrent();
             ++Removed;
@@ -675,6 +693,22 @@ void URshipSubsystem::HandleBeginPIE(bool bIsSimulating)
 void URshipSubsystem::HandleEndPIE(bool bIsSimulating)
 {
     RefreshAllTargetComponents(bIsSimulating ? TEXT("EndSimulate") : TEXT("EndPIE"));
+
+    const TWeakObjectPtr<URshipSubsystem> WeakThis(this);
+    FTSTicker::GetCoreTicker().AddTicker(
+        FTickerDelegate::CreateLambda([WeakThis, bIsSimulating](float)
+        {
+            URshipSubsystem* StrongThis = WeakThis.Get();
+            if (!IsValid(StrongThis))
+            {
+                return false;
+            }
+
+            StrongThis->RefreshAllTargetComponents(
+                bIsSimulating ? TEXT("EndSimulateDeferred") : TEXT("EndPIEDeferred"));
+            return false;
+        }),
+        0.0f);
 }
 
 void URshipSubsystem::HandleMapChanged(uint32 MapChangeFlags)
@@ -2354,7 +2388,7 @@ bool URshipSubsystem::RegisterFunctionActionForTarget(const FString& FullTargetI
         {
             if (!bExistingOwnerValid)
             {
-                UE_LOG(LogRshipExec, Error,
+                UE_LOG(LogRshipExec, Verbose,
                     TEXT("RegisterFunctionActionForTarget replacing stale action '%s' (invalid owner)."),
                     *FullActionId);
             }
@@ -2415,7 +2449,7 @@ bool URshipSubsystem::RegisterPropertyActionForTarget(const FString& FullTargetI
         {
             if (!bExistingOwnerValid)
             {
-                UE_LOG(LogRshipExec, Error,
+                UE_LOG(LogRshipExec, Verbose,
                     TEXT("RegisterPropertyActionForTarget replacing stale action '%s' (invalid owner)."),
                     *FullActionId);
             }

@@ -134,7 +134,7 @@ bool Target::TakeAction(AActor* actor, FString actionId, const TSharedRef<FJsonO
 	UObject* OwnerObject = TakenAction.GetOwnerObject();
 	if (!IsValid(OwnerObject))
 	{
-		UE_LOG(LogRshipExec, Error, TEXT("Action '%s' failed: owner is invalid or destroyed."), *actionId);
+		UE_LOG(LogRshipExec, Verbose, TEXT("Action '%s' owner invalid; attempting targeted refresh."), *actionId);
 
 		// Targeted refresh: re-register only this component to rebuild actions.
 		if (URshipActorRegistrationComponent* TargetComponent = BoundTargetComponent.Get())
@@ -148,6 +148,7 @@ bool Target::TakeAction(AActor* actor, FString actionId, const TSharedRef<FJsonO
 
 		if (!ActionPtr || !IsValid(ActionPtr->GetOwnerObject()))
 		{
+			UE_LOG(LogRshipExec, Error, TEXT("Action '%s' failed: no valid owner after refresh on target '%s'."), *actionId, *id);
 			return false;
 		}
 	}
