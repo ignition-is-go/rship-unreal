@@ -2057,30 +2057,42 @@ void URshipSubsystem::RegisterManagedTarget(Target* ManagedTarget)
         return;
     }
 
-    if (ManagedTargetSnapshots.Contains(ManagedTarget))
-    {
-        OnManagedTargetChanged(ManagedTarget);
-        return;
-    }
-
     const FString TargetId = ManagedTarget->GetId();
     PruneInvalidManagedTargetRefs(TargetId);
 
-    TArray<Target*> ExistingRefs;
-    RegisteredTargetsById.MultiFind(TargetId, ExistingRefs);
-    const int32 ExistingRefCount = ExistingRefs.Num();
+    bool bHasCurrentRef = false;
+    int32 RemovedStaleKeyRefs = 0;
+    for (auto It = RegisteredTargetsById.CreateIterator(); It; ++It)
+    {
+        if (It.Value() != ManagedTarget)
+        {
+            continue;
+        }
 
-    RegisteredTargetsById.Add(TargetId, ManagedTarget);
-    if (ExistingRefCount == 0)
-    {
-        SendTarget(ManagedTarget);
+        if (It.Key() == TargetId)
+        {
+            bHasCurrentRef = true;
+            continue;
+        }
+
+        It.RemoveCurrent();
+        ++RemovedStaleKeyRefs;
     }
-    else
+
+    if (!bHasCurrentRef)
     {
-        UE_LOG(LogRshipExec, Verbose, TEXT("RegisterManagedTarget: '%s' ref++ (count=%d), skipping duplicate online publish"),
-            *TargetId, ExistingRefCount + 1);
+        RegisteredTargetsById.Add(TargetId, ManagedTarget);
     }
+
     ManagedTargetSnapshots.Add(ManagedTarget, BuildManagedTargetSnapshot(ManagedTarget));
+
+    UE_LOG(LogRshipExec, Verbose, TEXT("RegisterManagedTarget: '%s' registered (addedRef=%s removedStaleRefs=%d)"),
+        *TargetId,
+        bHasCurrentRef ? TEXT("false") : TEXT("true"),
+        RemovedStaleKeyRefs);
+
+    // Always publish this registration so every proxy refreshes metadata/action bindings.
+    SendTarget(ManagedTarget);
     ProcessMessageQueue();
 }
 
@@ -2170,6 +2182,35 @@ void URshipSubsystem::OnManagedTargetChanged(Target* ManagedTarget)
         ExistingSnapshot->Id != ManagedTarget->GetId() ||
         ExistingSnapshot->Name != ManagedTarget->GetName() ||
         ExistingSnapshot->ParentTargetIds != ManagedTarget->GetParentTargetIds();
+
+    if (ExistingSnapshot->Id != ManagedTarget->GetId())
+    {
+        const FString NewTargetId = ManagedTarget->GetId();
+        PruneInvalidManagedTargetRefs(ExistingSnapshot->Id);
+        PruneInvalidManagedTargetRefs(NewTargetId);
+
+        bool bHasCurrentRef = false;
+        for (auto It = RegisteredTargetsById.CreateIterator(); It; ++It)
+        {
+            if (It.Value() != ManagedTarget)
+            {
+                continue;
+            }
+
+            if (It.Key() == NewTargetId)
+            {
+                bHasCurrentRef = true;
+                continue;
+            }
+
+            It.RemoveCurrent();
+        }
+
+        if (!bHasCurrentRef)
+        {
+            RegisteredTargetsById.Add(NewTargetId, ManagedTarget);
+        }
+    }
 
     if (bBindingsChanged || bIdentityChanged)
     {
