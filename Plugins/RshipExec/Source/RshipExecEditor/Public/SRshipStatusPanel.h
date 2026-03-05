@@ -6,7 +6,6 @@
 #include "Core/ActionProxy.h"
 #include "Widgets/SCompoundWidget.h"
 #include "Widgets/DeclarativeSyntaxSupport.h"
-#include "Widgets/Views/STreeView.h"
 #include "Widgets/Input/SCheckBox.h"
 
 class URshipSubsystem;
@@ -104,15 +103,14 @@ private:
     EVisibility GetRemoteOffBannerVisibility() const;
     bool IsRemoteControlsEnabled() const;
 
-    // Target list
-    TSharedRef<ITableRow> GenerateTargetRow(TSharedPtr<FRshipTargetListItem> Item, const TSharedRef<STableViewBase>& OwnerTable);
-    void GetTargetChildren(TSharedPtr<FRshipTargetListItem> Item, TArray<TSharedPtr<FRshipTargetListItem>>& OutChildren) const;
-    void OnTargetExpansionChanged(TSharedPtr<FRshipTargetListItem> Item, bool bIsExpanded);
     void OnTargetSelectionChanged(TSharedPtr<FRshipTargetListItem> Item, ESelectInfo::Type SelectInfo);
 
     // Editor selection sync
     void OnEditorSelectionChanged(UObject* Object);
     void SyncSelectionFromOutliner();
+    void TryApplyPendingTargetSelection();
+    TSharedPtr<FRshipTargetListItem> FindTargetItemByFullTargetId(const FString& FullTargetId) const;
+    TWeakObjectPtr<URshipActorRegistrationComponent> ResolveOwningComponentForTargetItem(TSharedPtr<FRshipTargetListItem> Item) const;
 
     // Build UI sections
     TSharedRef<SWidget> BuildConnectionSection();
@@ -137,11 +135,13 @@ private:
     // Data
     TArray<TSharedPtr<FRshipTargetListItem>> TargetItems;
     TArray<TSharedPtr<FRshipTargetListItem>> RootTargetItems;
-    TSharedPtr<STreeView<TSharedPtr<FRshipTargetListItem>>> TargetListView;
+    TSharedPtr<class ISceneOutliner> TargetSceneOutliner;
     TWeakObjectPtr<URshipActorRegistrationComponent> SelectedTargetComponent;
     TWeakObjectPtr<AActor> SelectedTargetOwner;
     FString SelectedTargetId;
-    TMap<FString, bool> TargetExpansionState;
+    FString PendingSelectionTargetId;
+    bool bSyncingToEditorSelection = false;
+    bool bSyncingFromEditorSelection = false;
     TArray<TSharedPtr<FRshipActionEntryState>> ActionEntries;
     TSharedPtr<SVerticalBox> ActionsListBox;
     TMap<FString, bool> ActionExpansionState;
@@ -175,27 +175,5 @@ private:
 
     // Editor selection delegate handle
     FDelegateHandle SelectionChangedHandle;
-};
-
-/**
- * Row widget for target list items
- */
-class SRshipTargetRow : public SMultiColumnTableRow<TSharedPtr<FRshipTargetListItem>>
-{
-public:
-    SLATE_BEGIN_ARGS(SRshipTargetRow) {}
-        SLATE_ARGUMENT(TSharedPtr<FRshipTargetListItem>, Item)
-        SLATE_ARGUMENT(bool, bAllowTargetIdEdit)
-    SLATE_END_ARGS()
-
-    void Construct(const FArguments& InArgs, const TSharedRef<STableViewBase>& InOwnerTableView);
-
-    virtual TSharedRef<SWidget> GenerateWidgetForColumn(const FName& ColumnName) override;
-
-private:
-    void OnTargetIdCommitted(const FText& NewText, ETextCommit::Type CommitType);
-
-    TSharedPtr<FRshipTargetListItem> Item;
-    bool bAllowTargetIdEdit = false;
 };
 

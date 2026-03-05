@@ -28,6 +28,17 @@ public:
     void UnregisterNDIPanel();
 
 private:
+    void RegisterActorContextMenu();
+    void AddRshipRegistrationToSelectedActors();
+    bool CanAddRshipRegistrationToSelectedActors() const;
+    void AddComponentClassToSelectedActors();
+    bool CanAddComponentClassToSelectedActors() const;
+    void RemoveComponentClassFromSelectedActors();
+    bool CanRemoveComponentClassFromSelectedActors() const;
+    bool HasEligibleSelectedActors(TSubclassOf<class UActorComponent> ComponentClass, bool bSkipIfAlreadyPresent = true) const;
+    int32 AddComponentToSelectedActors(TSubclassOf<class UActorComponent> ComponentClass, bool bSkipIfAlreadyPresent = true) const;
+    int32 RemoveComponentFromSelectedActors(TSubclassOf<class UActorComponent> ComponentClass) const;
+
     /** Handle for the status panel tab spawner */
     TSharedPtr<class FUICommandList> PluginCommands;
 

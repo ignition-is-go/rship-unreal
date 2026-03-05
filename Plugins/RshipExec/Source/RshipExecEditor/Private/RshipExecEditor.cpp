@@ -6,6 +6,8 @@
 #include "RshipStatusPanelStyle.h"
 #include "RshipStatusPanelCommands.h"
 #include "RshipSubsystem.h"
+#include "RshipActorRegistrationComponent.h"
+#include "RshipTargetIdOutlinerColumn.h"
 
 #include "LevelEditor.h"
 #include "ToolMenus.h"
@@ -14,6 +16,15 @@
 #include "Widgets/Docking/SDockTab.h"
 #include "Framework/Docking/TabManager.h"
 #include "Engine/Engine.h"
+#include "Editor.h"
+#include "ScopedTransaction.h"
+#include "Engine/Selection.h"
+#include "GameFramework/Actor.h"
+#include "Components/ActorComponent.h"
+#include "ClassViewerModule.h"
+#include "Kismet2/SClassPickerDialog.h"
+#include "SceneOutlinerModule.h"
+#include "SceneOutlinerPublicTypes.h"
 
 #define LOCTEXT_NAMESPACE "FRshipExecEditorModule"
 
@@ -29,6 +40,10 @@ void FRshipExecEditorModule::StartupModule()
 
     // Initialize commands
     FRshipStatusPanelCommands::Register();
+
+    FSceneOutlinerModule& SceneOutlinerModule = FModuleManager::LoadModuleChecked<FSceneOutlinerModule>("SceneOutliner");
+    SceneOutlinerModule.RegisterDefaultColumnType<FRshipTargetIdOutlinerColumn>(
+        FSceneOutlinerColumnInfo(ESceneOutlinerColumnVisibility::Invisible, 12, FCreateSceneOutlinerColumn(), true, TOptional<float>(), TAttribute<FText>(LOCTEXT("RshipTargetIdColumnDisplayName", "Rship Target ID"))));
 
     PluginCommands = MakeShareable(new FUICommandList);
 
@@ -55,6 +70,12 @@ void FRshipExecEditorModule::ShutdownModule()
     {
         FTSTicker::GetCoreTicker().RemoveTicker(ToolbarStatusTickerHandle);
         ToolbarStatusTickerHandle.Reset();
+    }
+
+    if (FModuleManager::Get().IsModuleLoaded("SceneOutliner"))
+    {
+        FSceneOutlinerModule& SceneOutlinerModule = FModuleManager::GetModuleChecked<FSceneOutlinerModule>("SceneOutliner");
+        SceneOutlinerModule.UnRegisterColumnType<FRshipTargetIdOutlinerColumn>();
     }
 
     FRshipStatusPanelCommands::Unregister();
@@ -206,8 +227,266 @@ void FRshipExecEditorModule::RegisterMenus()
             FGlobalTabmanager::Get()->TryInvokeTab(RshipStatusPanelTabName);
         }),
         FCanExecuteAction());
+
+    RegisterActorContextMenu();
+}
+
+void FRshipExecEditorModule::RegisterActorContextMenu()
+{
+    UToolMenu* Menu = UToolMenus::Get()->ExtendMenu("LevelEditor.ActorContextMenu");
+    if (!Menu)
+    {
+        return;
+    }
+
+    FToolMenuSection& Section = Menu->FindOrAddSection("RSHIP");
+    Section.Label = LOCTEXT("RshipActorContextSectionLabel", "RSHIP");
+
+    Section.AddMenuEntry(
+        "RshipAddRegistrationComponent",
+        LOCTEXT("RshipAddRegistrationComponentLabel", "Add Rship Actor Registration Component"),
+        LOCTEXT("RshipAddRegistrationComponentTooltip", "Add RshipActorRegistrationComponent to all selected actors."),
+        FSlateIcon(),
+        FUIAction(
+            FExecuteAction::CreateRaw(this, &FRshipExecEditorModule::AddRshipRegistrationToSelectedActors),
+            FCanExecuteAction::CreateRaw(this, &FRshipExecEditorModule::CanAddRshipRegistrationToSelectedActors))
+    );
+
+    Section.AddMenuEntry(
+        "RshipAddComponentByClass",
+        LOCTEXT("RshipAddComponentByClassLabel", "Add Component..."),
+        LOCTEXT("RshipAddComponentByClassTooltip", "Search for a component class and add it to all selected actors."),
+        FSlateIcon(),
+        FUIAction(
+            FExecuteAction::CreateRaw(this, &FRshipExecEditorModule::AddComponentClassToSelectedActors),
+            FCanExecuteAction::CreateRaw(this, &FRshipExecEditorModule::CanAddComponentClassToSelectedActors))
+    );
+
+    Section.AddMenuEntry(
+        "RshipRemoveComponentByClass",
+        LOCTEXT("RshipRemoveComponentByClassLabel", "Remove Component..."),
+        LOCTEXT("RshipRemoveComponentByClassTooltip", "Search for a component class and remove it from all selected actors."),
+        FSlateIcon(),
+        FUIAction(
+            FExecuteAction::CreateRaw(this, &FRshipExecEditorModule::RemoveComponentClassFromSelectedActors),
+            FCanExecuteAction::CreateRaw(this, &FRshipExecEditorModule::CanRemoveComponentClassFromSelectedActors))
+    );
+}
+
+void FRshipExecEditorModule::AddRshipRegistrationToSelectedActors()
+{
+    AddComponentToSelectedActors(URshipActorRegistrationComponent::StaticClass(), true);
+}
+
+bool FRshipExecEditorModule::CanAddRshipRegistrationToSelectedActors() const
+{
+    return HasEligibleSelectedActors(URshipActorRegistrationComponent::StaticClass(), true);
+}
+
+void FRshipExecEditorModule::AddComponentClassToSelectedActors()
+{
+    FClassViewerInitializationOptions Options;
+    Options.Mode = EClassViewerMode::ClassPicker;
+    Options.DisplayMode = EClassViewerDisplayMode::TreeView;
+    Options.bShowObjectRootClass = false;
+    Options.bShowNoneOption = false;
+    Options.NameTypeToDisplay = EClassViewerNameTypeToDisplay::Dynamic;
+
+    UClass* PickedClass = nullptr;
+    const bool bPicked = SClassPickerDialog::PickClass(
+        LOCTEXT("RshipPickComponentClassTitle", "Pick Component Class"),
+        Options,
+        PickedClass,
+        UActorComponent::StaticClass());
+
+    if (!bPicked || !PickedClass || !PickedClass->IsChildOf(UActorComponent::StaticClass()))
+    {
+        return;
+    }
+
+    AddComponentToSelectedActors(PickedClass, true);
+}
+
+bool FRshipExecEditorModule::CanAddComponentClassToSelectedActors() const
+{
+    return HasEligibleSelectedActors(UActorComponent::StaticClass(), false);
+}
+
+void FRshipExecEditorModule::RemoveComponentClassFromSelectedActors()
+{
+    FClassViewerInitializationOptions Options;
+    Options.Mode = EClassViewerMode::ClassPicker;
+    Options.DisplayMode = EClassViewerDisplayMode::TreeView;
+    Options.bShowObjectRootClass = false;
+    Options.bShowNoneOption = false;
+    Options.NameTypeToDisplay = EClassViewerNameTypeToDisplay::Dynamic;
+
+    UClass* PickedClass = nullptr;
+    const bool bPicked = SClassPickerDialog::PickClass(
+        LOCTEXT("RshipPickComponentClassToRemoveTitle", "Pick Component Class To Remove"),
+        Options,
+        PickedClass,
+        UActorComponent::StaticClass());
+
+    if (!bPicked || !PickedClass || !PickedClass->IsChildOf(UActorComponent::StaticClass()))
+    {
+        return;
+    }
+
+    RemoveComponentFromSelectedActors(PickedClass);
+}
+
+bool FRshipExecEditorModule::CanRemoveComponentClassFromSelectedActors() const
+{
+    return HasEligibleSelectedActors(UActorComponent::StaticClass(), false);
+}
+
+bool FRshipExecEditorModule::HasEligibleSelectedActors(TSubclassOf<UActorComponent> ComponentClass, bool bSkipIfAlreadyPresent) const
+{
+    if (!GEditor || !*ComponentClass)
+    {
+        return false;
+    }
+
+    USelection* Selection = GEditor->GetSelectedActors();
+    if (!Selection || Selection->Num() == 0)
+    {
+        return false;
+    }
+
+    for (FSelectionIterator It(*Selection); It; ++It)
+    {
+        AActor* Actor = Cast<AActor>(*It);
+        if (!IsValid(Actor) || Actor->IsTemplate())
+        {
+            continue;
+        }
+        if (bSkipIfAlreadyPresent && Actor->FindComponentByClass(ComponentClass))
+        {
+            continue;
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
+int32 FRshipExecEditorModule::AddComponentToSelectedActors(TSubclassOf<UActorComponent> ComponentClass, bool bSkipIfAlreadyPresent) const
+{
+    if (!HasEligibleSelectedActors(ComponentClass, bSkipIfAlreadyPresent) || !GEditor)
+    {
+        return 0;
+    }
+
+    USelection* Selection = GEditor->GetSelectedActors();
+    if (!Selection)
+    {
+        return 0;
+    }
+
+    const FScopedTransaction Transaction(LOCTEXT("AddComponentToSelectedActorsTx", "Add Component to Selected Actors"));
+    int32 AddedCount = 0;
+
+    for (FSelectionIterator It(*Selection); It; ++It)
+    {
+        AActor* Actor = Cast<AActor>(*It);
+        if (!IsValid(Actor) || Actor->IsTemplate())
+        {
+            continue;
+        }
+
+        if (bSkipIfAlreadyPresent && Actor->FindComponentByClass(ComponentClass))
+        {
+            continue;
+        }
+
+        Actor->Modify();
+
+        UActorComponent* NewComponent = NewObject<UActorComponent>(Actor, ComponentClass, NAME_None, RF_Transactional);
+        if (!NewComponent)
+        {
+            continue;
+        }
+
+        Actor->AddInstanceComponent(NewComponent);
+        NewComponent->OnComponentCreated();
+        NewComponent->RegisterComponent();
+        Actor->RerunConstructionScripts();
+        Actor->MarkPackageDirty();
+        ++AddedCount;
+    }
+
+    if (AddedCount > 0)
+    {
+        GEditor->NoteSelectionChange();
+        GEditor->RedrawLevelEditingViewports();
+    }
+
+    return AddedCount;
+}
+
+int32 FRshipExecEditorModule::RemoveComponentFromSelectedActors(TSubclassOf<UActorComponent> ComponentClass) const
+{
+    if (!GEditor || !*ComponentClass)
+    {
+        return 0;
+    }
+
+    USelection* Selection = GEditor->GetSelectedActors();
+    if (!Selection || Selection->Num() == 0)
+    {
+        return 0;
+    }
+
+    const FScopedTransaction Transaction(LOCTEXT("RemoveComponentFromSelectedActorsTx", "Remove Component from Selected Actors"));
+    int32 RemovedCount = 0;
+
+    for (FSelectionIterator It(*Selection); It; ++It)
+    {
+        AActor* Actor = Cast<AActor>(*It);
+        if (!IsValid(Actor) || Actor->IsTemplate())
+        {
+            continue;
+        }
+
+        TArray<UActorComponent*> ComponentsToRemove;
+        Actor->GetComponents(ComponentClass, ComponentsToRemove);
+        if (ComponentsToRemove.Num() == 0)
+        {
+            continue;
+        }
+
+        Actor->Modify();
+
+        for (UActorComponent* Component : ComponentsToRemove)
+        {
+            if (!IsValid(Component))
+            {
+                continue;
+            }
+
+            Component->Modify();
+            Actor->RemoveInstanceComponent(Component);
+            Component->DestroyComponent();
+            ++RemovedCount;
+        }
+
+        Actor->MarkPackageDirty();
+    }
+
+    if (RemovedCount > 0)
+    {
+        GEditor->NoteSelectionChange();
+        GEditor->RedrawLevelEditingViewports();
+    }
+
+    return RemovedCount;
 }
 
 #undef LOCTEXT_NAMESPACE
 
 IMPLEMENT_MODULE(FRshipExecEditorModule, RshipExecEditor)
+
+
+

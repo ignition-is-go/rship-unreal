@@ -5,6 +5,7 @@
 #include "RshipSubsystem.h"
 #include "RshipActorRegistrationComponent.h"
 #include "RshipSettings.h"
+#include "Misc/Crc.h"
 
 #if RSHIP_EDITOR_HAS_2110
 #include "Rship2110.h"  // For SMPTE 2110 status
@@ -22,9 +23,17 @@
 #include "Widgets/Text/STextBlock.h"
 #include "Widgets/Images/SImage.h"
 #include "Widgets/Views/SHeaderRow.h"
-#include "Widgets/Views/SExpanderArrow.h"
 #include "PropertyEditorModule.h"
 #include "ISinglePropertyView.h"
+#include "ISceneOutliner.h"
+#include "ISceneOutlinerMode.h"
+#include "ISceneOutlinerHierarchy.h"
+#include "ISceneOutlinerTreeItem.h"
+#include "ISceneOutlinerColumn.h"
+#include "SceneOutlinerModule.h"
+#include "SceneOutlinerPublicTypes.h"
+#include "SceneOutlinerFwd.h"
+#include "SSceneOutliner.h"
 #if __has_include("InstancedPropertyBagStructureDataProvider.h")
 #include "InstancedPropertyBagStructureDataProvider.h"
 #elif __has_include("InstancePropertyBagStructureDataProvider.h")
@@ -36,16 +45,283 @@
 #include "Styling/AppStyle.h"
 #include "EditorStyleSet.h"
 #include "ISettingsModule.h"
+#include "Modules/ModuleManager.h"
 #include "Engine/Engine.h"
 #include "SocketSubsystem.h"
 #include "IPAddress.h"
 #include "Editor.h"
 #include "Selection.h"
-#include "Widgets/Text/SInlineEditableTextBlock.h"
 #include "Dom/JsonObject.h"
 #include "Algo/Sort.h"
 
 #define LOCTEXT_NAMESPACE "SRshipStatusPanel"
+
+namespace RshipStatusOutliner
+{
+    static uint64 MakeStableItemId(const FString& FullTargetId)
+    {
+        // Two independent 32-bit hashes combined into a stable 64-bit tree item ID.
+        const uint32 H1 = GetTypeHash(FullTargetId);
+        const uint32 H2 = FCrc::StrCrc32(*FullTargetId);
+        return (static_cast<uint64>(H1) << 32) | static_cast<uint64>(H2);
+    }
+
+    struct FTargetTreeItem : ISceneOutlinerTreeItem
+    {
+        explicit FTargetTreeItem(const TSharedPtr<FRshipTargetListItem>& InItem)
+            : ISceneOutlinerTreeItem(Type)
+            , Item(InItem)
+            , StableId(Item.IsValid() ? MakeStableItemId(Item->FullTargetId) : 0)
+        {
+        }
+
+        static const FSceneOutlinerTreeItemType Type;
+
+        virtual bool IsValid() const override
+        {
+            return Item.IsValid();
+        }
+
+        virtual FSceneOutlinerTreeItemID GetID() const override
+        {
+            return FSceneOutlinerTreeItemID(StableId);
+        }
+
+        virtual FString GetDisplayString() const override
+        {
+            return Item.IsValid() ? Item->DisplayName : FString();
+        }
+
+        virtual bool CanInteract() const override
+        {
+            return true;
+        }
+
+        virtual TSharedRef<SWidget> GenerateLabelWidget(ISceneOutliner& Outliner, const STableRow<FSceneOutlinerTreeItemPtr>& InRow) override
+        {
+            return SNew(STextBlock)
+                .Text(Item.IsValid() ? FText::FromString(Item->DisplayName) : FText::GetEmpty())
+                .HighlightText(Outliner.GetFilterHighlightText());
+        }
+
+        TSharedPtr<FRshipTargetListItem> Item;
+
+    private:
+        const uint64 StableId;
+    };
+    const FSceneOutlinerTreeItemType FTargetTreeItem::Type(&ISceneOutlinerTreeItem::Type);
+
+    static const FRshipTargetListItem* GetTargetItem(const ISceneOutlinerTreeItem& Item)
+    {
+        const FTargetTreeItem* TargetItem = Item.CastTo<FTargetTreeItem>();
+        return (TargetItem && TargetItem->Item.IsValid()) ? TargetItem->Item.Get() : nullptr;
+    }
+
+    static TSharedPtr<FRshipTargetListItem> GetTargetItem(FSceneOutlinerTreeItemPtr Item)
+    {
+        if (!Item.IsValid())
+        {
+            return nullptr;
+        }
+
+        FTargetTreeItem* TargetItem = Item->CastTo<FTargetTreeItem>();
+        return TargetItem ? TargetItem->Item : nullptr;
+    }
+
+    class FTargetIdColumn : public ISceneOutlinerColumn
+    {
+    public:
+        explicit FTargetIdColumn(ISceneOutliner& Outliner)
+            : SceneOutlinerWeak(StaticCastSharedRef<ISceneOutliner>(Outliner.AsShared()))
+        {
+        }
+
+        static FName GetID()
+        {
+            static const FName Id(TEXT("RshipStatus.TargetId"));
+            return Id;
+        }
+
+        virtual FName GetColumnID() override { return GetID(); }
+
+        virtual SHeaderRow::FColumn::FArguments ConstructHeaderRowColumn() override
+        {
+            return SHeaderRow::Column(GetColumnID())
+                .DefaultLabel(LOCTEXT("StatusPanelTargetIdColumn", "TargetId"))
+                .FillWidth(0.5f);
+        }
+
+        virtual const TSharedRef<SWidget> ConstructRowWidget(FSceneOutlinerTreeItemRef TreeItem, const STableRow<FSceneOutlinerTreeItemPtr>& Row) override
+        {
+            const FRshipTargetListItem* Item = GetTargetItem(*TreeItem);
+            return SNew(STextBlock).Text(Item ? FText::FromString(Item->TargetId) : FText::GetEmpty());
+        }
+
+    private:
+        TWeakPtr<ISceneOutliner> SceneOutlinerWeak;
+    };
+
+    class FTypeColumn : public ISceneOutlinerColumn
+    {
+    public:
+        explicit FTypeColumn(ISceneOutliner& Outliner) {}
+        static FName GetID()
+        {
+            static const FName Id(TEXT("RshipStatus.Type"));
+            return Id;
+        }
+        virtual FName GetColumnID() override { return GetID(); }
+        virtual SHeaderRow::FColumn::FArguments ConstructHeaderRowColumn() override
+        {
+            return SHeaderRow::Column(GetColumnID()).DefaultLabel(LOCTEXT("StatusPanelTypeColumn", "Type")).FixedWidth(90.0f);
+        }
+        virtual const TSharedRef<SWidget> ConstructRowWidget(FSceneOutlinerTreeItemRef TreeItem, const STableRow<FSceneOutlinerTreeItemPtr>& Row) override
+        {
+            const FRshipTargetListItem* Item = GetTargetItem(*TreeItem);
+            return SNew(STextBlock).Text(Item ? FText::FromString(Item->TargetType) : FText::GetEmpty());
+        }
+    };
+
+    class FEmitterCountColumn : public ISceneOutlinerColumn
+    {
+    public:
+        explicit FEmitterCountColumn(ISceneOutliner& Outliner) {}
+        static FName GetID()
+        {
+            static const FName Id(TEXT("RshipStatus.Emitters"));
+            return Id;
+        }
+        virtual FName GetColumnID() override { return GetID(); }
+        virtual SHeaderRow::FColumn::FArguments ConstructHeaderRowColumn() override
+        {
+            return SHeaderRow::Column(GetColumnID()).DefaultLabel(LOCTEXT("StatusPanelEmittersColumn", "Emitters")).FixedWidth(70.0f);
+        }
+        virtual const TSharedRef<SWidget> ConstructRowWidget(FSceneOutlinerTreeItemRef TreeItem, const STableRow<FSceneOutlinerTreeItemPtr>& Row) override
+        {
+            const FRshipTargetListItem* Item = GetTargetItem(*TreeItem);
+            return SNew(STextBlock).Text(Item ? FText::AsNumber(Item->EmitterCount) : FText::GetEmpty());
+        }
+    };
+
+    class FActionCountColumn : public ISceneOutlinerColumn
+    {
+    public:
+        explicit FActionCountColumn(ISceneOutliner& Outliner) {}
+        static FName GetID()
+        {
+            static const FName Id(TEXT("RshipStatus.Actions"));
+            return Id;
+        }
+        virtual FName GetColumnID() override { return GetID(); }
+        virtual SHeaderRow::FColumn::FArguments ConstructHeaderRowColumn() override
+        {
+            return SHeaderRow::Column(GetColumnID()).DefaultLabel(LOCTEXT("StatusPanelActionsColumn", "Actions")).FixedWidth(70.0f);
+        }
+        virtual const TSharedRef<SWidget> ConstructRowWidget(FSceneOutlinerTreeItemRef TreeItem, const STableRow<FSceneOutlinerTreeItemPtr>& Row) override
+        {
+            const FRshipTargetListItem* Item = GetTargetItem(*TreeItem);
+            return SNew(STextBlock).Text(Item ? FText::AsNumber(Item->ActionCount) : FText::GetEmpty());
+        }
+    };
+
+    class FTargetHierarchy : public ISceneOutlinerHierarchy
+    {
+    public:
+        FTargetHierarchy(
+            ISceneOutlinerMode* InMode,
+            TFunction<const TArray<TSharedPtr<FRshipTargetListItem>>&()> InItemsProvider)
+            : ISceneOutlinerHierarchy(InMode)
+            , ItemsProvider(MoveTemp(InItemsProvider))
+        {
+        }
+
+        virtual void CreateItems(TArray<FSceneOutlinerTreeItemPtr>& OutItems) const override
+        {
+            for (const TSharedPtr<FRshipTargetListItem>& Item : ItemsProvider())
+            {
+                if (Item.IsValid())
+                {
+                    OutItems.Add(Mode->CreateItemFor<FTargetTreeItem>(Item, true));
+                }
+            }
+        }
+
+        virtual void CreateChildren(const FSceneOutlinerTreeItemPtr& Item, TArray<FSceneOutlinerTreeItemPtr>& OutChildren) const override
+        {
+        }
+
+        virtual FSceneOutlinerTreeItemPtr FindOrCreateParentItem(
+            const ISceneOutlinerTreeItem& Item,
+            const TMap<FSceneOutlinerTreeItemID, FSceneOutlinerTreeItemPtr>& Items,
+            bool bCreate = false) override
+        {
+            const FRshipTargetListItem* Child = GetTargetItem(Item);
+            if (!Child)
+            {
+                return nullptr;
+            }
+
+            for (const FString& ParentId : Child->ParentTargetIds)
+            {
+                for (const TPair<FSceneOutlinerTreeItemID, FSceneOutlinerTreeItemPtr>& Pair : Items)
+                {
+                    const FRshipTargetListItem* Candidate = GetTargetItem(*Pair.Value);
+                    if (Candidate && Candidate->FullTargetId == ParentId)
+                    {
+                        return Pair.Value;
+                    }
+                }
+            }
+
+            return nullptr;
+        }
+
+    private:
+        TFunction<const TArray<TSharedPtr<FRshipTargetListItem>>&()> ItemsProvider;
+    };
+
+    class FTargetMode : public ISceneOutlinerMode
+    {
+    public:
+        FTargetMode(
+            SSceneOutliner* InOutliner,
+            TFunction<const TArray<TSharedPtr<FRshipTargetListItem>>&()> InItemsProvider,
+            TFunction<void(TSharedPtr<FRshipTargetListItem>, ESelectInfo::Type)> InSelectionChanged)
+            : ISceneOutlinerMode(InOutliner)
+            , ItemsProvider(MoveTemp(InItemsProvider))
+            , SelectionChanged(MoveTemp(InSelectionChanged))
+        {
+        }
+
+        virtual void Rebuild() override
+        {
+            Hierarchy = CreateHierarchy();
+        }
+
+        virtual void OnItemSelectionChanged(
+            FSceneOutlinerTreeItemPtr Item,
+            ESelectInfo::Type SelectionType,
+            const FSceneOutlinerItemSelection& Selection) override
+        {
+            SelectionChanged(GetTargetItem(Item), SelectionType);
+        }
+
+        virtual bool IsInteractive() const override { return true; }
+        virtual bool SupportsKeyboardFocus() const override { return true; }
+        virtual ESelectionMode::Type GetSelectionMode() const override { return ESelectionMode::Single; }
+        virtual int32 GetTypeSortPriority(const ISceneOutlinerTreeItem& Item) const override { return 0; }
+
+    protected:
+        virtual TUniquePtr<ISceneOutlinerHierarchy> CreateHierarchy() override
+        {
+            return MakeUnique<FTargetHierarchy>(this, ItemsProvider);
+        }
+
+    private:
+        TFunction<const TArray<TSharedPtr<FRshipTargetListItem>>&()> ItemsProvider;
+        TFunction<void(TSharedPtr<FRshipTargetListItem>, ESelectInfo::Type)> SelectionChanged;
+    };
+}
 
 void SRshipStatusPanel::Construct(const FArguments& InArgs)
 {
@@ -146,6 +422,8 @@ SRshipStatusPanel::~SRshipStatusPanel()
 void SRshipStatusPanel::Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime)
 {
     SCompoundWidget::Tick(AllottedGeometry, InCurrentTime, InDeltaTime);
+
+    TryApplyPendingTargetSelection();
 
     RefreshTimer += InDeltaTime;
     if (RefreshTimer >= RefreshInterval)
@@ -362,6 +640,84 @@ TSharedRef<SWidget> SRshipStatusPanel::BuildConnectionSection()
 
 TSharedRef<SWidget> SRshipStatusPanel::BuildTargetsSection()
 {
+    if (!TargetSceneOutliner.IsValid())
+    {
+        FSceneOutlinerInitializationOptions InitOptions;
+        InitOptions.bShowHeaderRow = true;
+        InitOptions.bShowSearchBox = true;
+        InitOptions.bShowCreateNewFolder = false;
+        InitOptions.bCanSelectGeneratedColumns = true;
+        InitOptions.OutlinerIdentifier = TEXT("RshipStatusPanelTargets");
+        InitOptions.PrimaryColumnName = FSceneOutlinerBuiltInColumnTypes::Label();
+
+        InitOptions.ColumnMap.Add(
+            FSceneOutlinerBuiltInColumnTypes::Label(),
+            FSceneOutlinerColumnInfo(ESceneOutlinerColumnVisibility::Visible, 0));
+        InitOptions.ColumnMap.Add(
+            RshipStatusOutliner::FTargetIdColumn::GetID(),
+            FSceneOutlinerColumnInfo(
+                ESceneOutlinerColumnVisibility::Visible,
+                1,
+                FCreateSceneOutlinerColumn::CreateLambda([](ISceneOutliner& Outliner)
+                {
+                    return MakeShared<RshipStatusOutliner::FTargetIdColumn>(Outliner);
+                }),
+                true,
+                TOptional<float>(),
+                TAttribute<FText>(LOCTEXT("StatusPanelTargetIdColumnMenuLabel", "TargetId"))));
+        InitOptions.ColumnMap.Add(
+            RshipStatusOutliner::FTypeColumn::GetID(),
+            FSceneOutlinerColumnInfo(
+                ESceneOutlinerColumnVisibility::Visible,
+                2,
+                FCreateSceneOutlinerColumn::CreateLambda([](ISceneOutliner& Outliner)
+                {
+                    return MakeShared<RshipStatusOutliner::FTypeColumn>(Outliner);
+                }),
+                true,
+                TOptional<float>(),
+                TAttribute<FText>(LOCTEXT("StatusPanelTypeColumnMenuLabel", "Type"))));
+        InitOptions.ColumnMap.Add(
+            RshipStatusOutliner::FEmitterCountColumn::GetID(),
+            FSceneOutlinerColumnInfo(
+                ESceneOutlinerColumnVisibility::Visible,
+                3,
+                FCreateSceneOutlinerColumn::CreateLambda([](ISceneOutliner& Outliner)
+                {
+                    return MakeShared<RshipStatusOutliner::FEmitterCountColumn>(Outliner);
+                }),
+                true,
+                TOptional<float>(),
+                TAttribute<FText>(LOCTEXT("StatusPanelEmittersColumnMenuLabel", "Emitters"))));
+        InitOptions.ColumnMap.Add(
+            RshipStatusOutliner::FActionCountColumn::GetID(),
+            FSceneOutlinerColumnInfo(
+                ESceneOutlinerColumnVisibility::Visible,
+                4,
+                FCreateSceneOutlinerColumn::CreateLambda([](ISceneOutliner& Outliner)
+                {
+                    return MakeShared<RshipStatusOutliner::FActionCountColumn>(Outliner);
+                }),
+                true,
+                TOptional<float>(),
+                TAttribute<FText>(LOCTEXT("StatusPanelActionsColumnMenuLabel", "Actions"))));
+
+        InitOptions.ModeFactory = FCreateSceneOutlinerMode::CreateLambda(
+            [this](SSceneOutliner* OutlinerWidget)
+            {
+                return new RshipStatusOutliner::FTargetMode(
+                    OutlinerWidget,
+                    [this]() -> const TArray<TSharedPtr<FRshipTargetListItem>>& { return TargetItems; },
+                    [this](TSharedPtr<FRshipTargetListItem> SelectedItem, ESelectInfo::Type SelectInfo)
+                    {
+                        OnTargetSelectionChanged(SelectedItem, SelectInfo);
+                    });
+            });
+
+        FSceneOutlinerModule& SceneOutlinerModule = FModuleManager::LoadModuleChecked<FSceneOutlinerModule>("SceneOutliner");
+        TargetSceneOutliner = SceneOutlinerModule.CreateSceneOutliner(InitOptions);
+    }
+
     return SNew(SVerticalBox)
 
         // Header
@@ -396,36 +752,9 @@ TSharedRef<SWidget> SRshipStatusPanel::BuildTargetsSection()
             .BorderImage(FAppStyle::GetBrush("ToolPanel.GroupBorder"))
             .Padding(4.0f)
             [
-                SAssignNew(TargetListView, STreeView<TSharedPtr<FRshipTargetListItem>>)
-                .TreeItemsSource(&RootTargetItems)
-                .OnGenerateRow(this, &SRshipStatusPanel::GenerateTargetRow)
-                .OnGetChildren(this, &SRshipStatusPanel::GetTargetChildren)
-                .OnExpansionChanged(this, &SRshipStatusPanel::OnTargetExpansionChanged)
-                .OnSelectionChanged(this, &SRshipStatusPanel::OnTargetSelectionChanged)
-                .SelectionMode(ESelectionMode::Single)
-                .HeaderRow(
-                    SNew(SHeaderRow)
-                    + SHeaderRow::Column("Status")
-                    .DefaultLabel(LOCTEXT("StatusColumn", ""))
-                    .FixedWidth(24.0f)
-                    + SHeaderRow::Column("Name")
-                    .DefaultLabel(LOCTEXT("NameColumn", "Name"))
-                    .FillWidth(1.0f)
-                    + SHeaderRow::Column("TargetId")
-                    .DefaultLabel(LOCTEXT("TargetIdColumn", "Target ID"))
-                    .FillWidth(0.5f)
-                    + SHeaderRow::Column("Type")
-                    .DefaultLabel(LOCTEXT("TypeColumn", "Type"))
-                    .FixedWidth(80.0f)
-                    + SHeaderRow::Column("Emitters")
-                    .DefaultLabel(LOCTEXT("EmittersColumn", "E"))
-                    .FixedWidth(30.0f)
-                    .HAlignCell(HAlign_Center)
-                    + SHeaderRow::Column("Actions")
-                    .DefaultLabel(LOCTEXT("ActionsColumn", "A"))
-                    .FixedWidth(30.0f)
-                    .HAlignCell(HAlign_Center)
-                )
+                TargetSceneOutliner.IsValid()
+                    ? TargetSceneOutliner.ToSharedRef()
+                    : SNullWidget::NullWidget
             ]
         ]
 
@@ -589,29 +918,16 @@ void SRshipStatusPanel::RefreshTargetList()
     {
         TargetItems.Empty();
         RootTargetItems.Empty();
-        if (TargetListView.IsValid())
+        PendingSelectionTargetId.Empty();
+        if (TargetSceneOutliner.IsValid())
         {
-            TargetListView->RequestTreeRefresh();
+            TargetSceneOutliner->FullRefresh();
         }
         return;
     }
 
-    // Save currently selected component to restore after refresh
-    TWeakObjectPtr<URshipActorRegistrationComponent> SelectedComponent;
-    if (TargetListView.IsValid())
-    {
-        TArray<TSharedPtr<FRshipTargetListItem>> SelectedItems = TargetListView->GetSelectedItems();
-        if (SelectedItems.Num() > 0 && SelectedItems[0].IsValid())
-        {
-            SelectedComponent = SelectedItems[0]->Component;
-        }
-    }
-    // If list selection is temporarily cleared (e.g. after an action mutates editor state),
-    // keep using our last known selected component so selection is stable across refreshes.
-    if (!SelectedComponent.IsValid() && SelectedTargetComponent.IsValid())
-    {
-        SelectedComponent = SelectedTargetComponent;
-    }
+    // Preserve selection across refreshes.
+    TWeakObjectPtr<URshipActorRegistrationComponent> SelectedComponent = SelectedTargetComponent;
     // If the selected component instance was recreated, recover by owner actor.
     if (!SelectedComponent.IsValid() && SelectedTargetOwner.IsValid() && Subsystem->TargetComponents)
     {
@@ -794,108 +1110,157 @@ void SRshipStatusPanel::RefreshTargetList()
 
     SortItemsRecursive(NewRootItems);
 
-    if (TargetListView.IsValid())
+    TargetItems = MoveTemp(NewItems);
+    RootTargetItems = MoveTemp(NewRootItems);
+
+    TSharedPtr<FRshipTargetListItem> RestoredSelectionItem = nullptr;
+    if (SelectedComponent.IsValid())
     {
-        // Capture expansion state from the currently materialized rows before replacing item objects.
-        for (const TSharedPtr<FRshipTargetListItem>& ExistingItem : TargetItems)
+        for (const TSharedPtr<FRshipTargetListItem>& Item : TargetItems)
         {
-            if (ExistingItem.IsValid() && !ExistingItem->FullTargetId.IsEmpty())
+            if (Item.IsValid() && Item->Component.Get() == SelectedComponent.Get())
             {
-                TargetExpansionState.Add(ExistingItem->FullTargetId, TargetListView->IsItemExpanded(ExistingItem));
+                RestoredSelectionItem = Item;
+                break;
+            }
+        }
+    }
+    if (!RestoredSelectionItem.IsValid() && !SelectedTargetId.IsEmpty())
+    {
+        for (const TSharedPtr<FRshipTargetListItem>& Item : TargetItems)
+        {
+            if (Item.IsValid() && (Item->FullTargetId == SelectedTargetId || Item->TargetId == SelectedTargetId))
+            {
+                RestoredSelectionItem = Item;
+                SelectedComponent = Item->Component;
+                break;
             }
         }
     }
 
-    TargetItems = MoveTemp(NewItems);
-    RootTargetItems = MoveTemp(NewRootItems);
-
-    TSharedPtr<FRshipTargetListItem> RestoredSelectionItem;
-
-    if (TargetListView.IsValid())
+    if (TargetSceneOutliner.IsValid())
     {
-        TargetListView->RequestTreeRefresh();
-
-        // Re-apply persisted expand/collapse state to the new items.
-        for (const TSharedPtr<FRshipTargetListItem>& Item : TargetItems)
+        TargetSceneOutliner->FullRefresh();
+        if (RestoredSelectionItem.IsValid())
         {
-            if (!Item.IsValid() || Item->FullTargetId.IsEmpty() || Item->Children.Num() == 0)
-            {
-                continue;
-            }
-
-            const bool bExpanded = TargetExpansionState.Contains(Item->FullTargetId)
-                ? TargetExpansionState.FindRef(Item->FullTargetId)
-                : false;
-            TargetListView->SetItemExpansion(Item, bExpanded);
+            PendingSelectionTargetId = RestoredSelectionItem->FullTargetId;
+            TryApplyPendingTargetSelection();
         }
-
-        // Restore selection if the component still exists.
-        bool bSelectionRestored = false;
-        if (SelectedComponent.IsValid())
-        {
-            for (const auto& Item : TargetItems)
-            {
-                if (Item.IsValid() && Item->Component.Get() == SelectedComponent.Get())
-                {
-                    TargetListView->SetSelection(Item, ESelectInfo::Direct);
-                    TargetListView->RequestScrollIntoView(Item);
-                    RestoredSelectionItem = Item;
-                    bSelectionRestored = true;
-                    break;
-                }
-            }
-        }
-
-        // If component instance changed, restore by full target id.
-        if (!bSelectionRestored && !SelectedTargetId.IsEmpty())
-        {
-            for (const auto& Item : TargetItems)
-            {
-                if (Item.IsValid() && (Item->FullTargetId == SelectedTargetId || Item->TargetId == SelectedTargetId))
-                {
-                    TargetListView->SetSelection(Item, ESelectInfo::Direct);
-                    TargetListView->RequestScrollIntoView(Item);
-                    RestoredSelectionItem = Item;
-                    SelectedComponent = Item->Component;
-                    bSelectionRestored = true;
-                    break;
-                }
-            }
-        }
-
     }
 
     bool bShouldRefreshActions = false;
 
-    if (RestoredSelectionItem.IsValid() && RestoredSelectionItem->Component.IsValid())
+    if (RestoredSelectionItem.IsValid())
     {
-        SelectedComponent = RestoredSelectionItem->Component;
-        bShouldRefreshActions = (SelectedTargetComponent.Get() != SelectedComponent.Get());
-        SelectedTargetComponent = RestoredSelectionItem->Component;
-        SelectedTargetOwner = SelectedComponent->GetOwner();
+        const TWeakObjectPtr<URshipActorRegistrationComponent> ResolvedComponent = ResolveOwningComponentForTargetItem(RestoredSelectionItem);
+        const AActor* ResolvedOwner = ResolvedComponent.IsValid() ? ResolvedComponent->GetOwner() : nullptr;
+        bShouldRefreshActions =
+            SelectedTargetComponent.Get() != ResolvedComponent.Get() ||
+            SelectedTargetOwner.Get() != ResolvedOwner ||
+            SelectedTargetId != RestoredSelectionItem->FullTargetId;
+
+        SelectedTargetComponent = ResolvedComponent;
+        SelectedTargetOwner = const_cast<AActor*>(ResolvedOwner);
         SelectedTargetId = RestoredSelectionItem->FullTargetId;
     }
-    else if (RestoredSelectionItem.IsValid())
+    else if (!SelectedTargetId.IsEmpty() && !FindTargetItemByFullTargetId(SelectedTargetId).IsValid())
     {
         bShouldRefreshActions = SelectedTargetComponent.IsValid();
         SelectedTargetComponent.Reset();
         SelectedTargetOwner.Reset();
-        SelectedTargetId = RestoredSelectionItem->FullTargetId;
-    }
-    else if (!TargetItems.ContainsByPredicate([this](const TSharedPtr<FRshipTargetListItem>& Item)
-        {
-            return Item.IsValid() && Item->Component.Get() == SelectedTargetComponent.Get();
-        }))
-    {
-        bShouldRefreshActions = SelectedTargetComponent.IsValid();
-        SelectedTargetComponent.Reset();
-        // Keep owner fallback; do not clear SelectedTargetOwner here.
+        SelectedTargetId.Empty();
     }
 
     if (bShouldRefreshActions)
     {
         RefreshActionsSection();
     }
+}
+
+void SRshipStatusPanel::TryApplyPendingTargetSelection()
+{
+    if (!TargetSceneOutliner.IsValid() || PendingSelectionTargetId.IsEmpty())
+    {
+        return;
+    }
+
+    const FSceneOutlinerTreeItemID PendingId(RshipStatusOutliner::MakeStableItemId(PendingSelectionTargetId));
+    FSceneOutlinerTreeItemPtr PendingItem = TargetSceneOutliner->GetTreeItem(PendingId, true);
+    if (!PendingItem.IsValid())
+    {
+        return;
+    }
+
+    TargetSceneOutliner->SetSelection([&PendingId](ISceneOutlinerTreeItem& TreeItem)
+    {
+        return TreeItem.GetID() == PendingId;
+    });
+    TargetSceneOutliner->FrameItem(PendingId);
+
+    if (const TSharedPtr<FRshipTargetListItem> SelectedItem = FindTargetItemByFullTargetId(PendingSelectionTargetId))
+    {
+        OnTargetSelectionChanged(SelectedItem, ESelectInfo::Direct);
+    }
+
+    PendingSelectionTargetId.Empty();
+}
+
+TSharedPtr<FRshipTargetListItem> SRshipStatusPanel::FindTargetItemByFullTargetId(const FString& FullTargetId) const
+{
+    if (FullTargetId.IsEmpty())
+    {
+        return nullptr;
+    }
+
+    for (const TSharedPtr<FRshipTargetListItem>& Item : TargetItems)
+    {
+        if (Item.IsValid() && Item->FullTargetId == FullTargetId)
+        {
+            return Item;
+        }
+    }
+
+    return nullptr;
+}
+
+TWeakObjectPtr<URshipActorRegistrationComponent> SRshipStatusPanel::ResolveOwningComponentForTargetItem(TSharedPtr<FRshipTargetListItem> Item) const
+{
+    if (!Item.IsValid())
+    {
+        return nullptr;
+    }
+
+    if (Item->Component.IsValid())
+    {
+        return Item->Component;
+    }
+
+    TArray<FString> PendingParents = Item->ParentTargetIds;
+    TSet<FString> Visited;
+    while (PendingParents.Num() > 0)
+    {
+        const FString ParentId = PendingParents.Pop();
+        if (ParentId.IsEmpty() || Visited.Contains(ParentId))
+        {
+            continue;
+        }
+
+        Visited.Add(ParentId);
+        const TSharedPtr<FRshipTargetListItem> ParentItem = FindTargetItemByFullTargetId(ParentId);
+        if (!ParentItem.IsValid())
+        {
+            continue;
+        }
+
+        if (ParentItem->Component.IsValid())
+        {
+            return ParentItem->Component;
+        }
+
+        PendingParents.Append(ParentItem->ParentTargetIds);
+    }
+
+    return nullptr;
 }
 
 ECheckBoxState SRshipStatusPanel::GetRemoteToggleState() const
@@ -1087,77 +1452,63 @@ void SRshipStatusPanel::OnServerPortCommitted(const FText& NewText, ETextCommit:
     }
 }
 
-TSharedRef<ITableRow> SRshipStatusPanel::GenerateTargetRow(TSharedPtr<FRshipTargetListItem> Item, const TSharedRef<STableViewBase>& OwnerTable)
-{
-    return SNew(SRshipTargetRow, OwnerTable)
-        .Item(Item)
-        .bAllowTargetIdEdit(Item.IsValid() && Item->Component.IsValid());
-}
-
-void SRshipStatusPanel::GetTargetChildren(TSharedPtr<FRshipTargetListItem> Item, TArray<TSharedPtr<FRshipTargetListItem>>& OutChildren) const
-{
-    OutChildren.Reset();
-    if (Item.IsValid())
-    {
-        OutChildren.Append(Item->Children);
-    }
-}
-
-void SRshipStatusPanel::OnTargetExpansionChanged(TSharedPtr<FRshipTargetListItem> Item, bool bIsExpanded)
-{
-    if (!Item.IsValid() || Item->FullTargetId.IsEmpty())
-    {
-        return;
-    }
-
-    TargetExpansionState.Add(Item->FullTargetId, bIsExpanded);
-}
-
 void SRshipStatusPanel::OnTargetSelectionChanged(TSharedPtr<FRshipTargetListItem> Item, ESelectInfo::Type SelectInfo)
 {
-    // Don't respond to programmatic selection changes (prevents infinite loop)
-    if (SelectInfo == ESelectInfo::Direct)
-    {
-        return;
-    }
+    PendingSelectionTargetId.Empty();
 
-    if (Item.IsValid() && Item->Component.IsValid() && GEditor)
+    if (Item.IsValid())
     {
-        SelectedTargetComponent = Item->Component;
-        SelectedTargetOwner = Item->Component->GetOwner();
+        const FString PreviousTargetId = SelectedTargetId;
+        const TWeakObjectPtr<URshipActorRegistrationComponent> PreviousComponent = SelectedTargetComponent;
+        const TWeakObjectPtr<AActor> PreviousOwner = SelectedTargetOwner;
+
+        const TWeakObjectPtr<URshipActorRegistrationComponent> ResolvedComponent = ResolveOwningComponentForTargetItem(Item);
+        const AActor* ResolvedOwner = ResolvedComponent.IsValid() ? ResolvedComponent->GetOwner() : nullptr;
+        const bool bSelectionChanged =
+            PreviousComponent.Get() != ResolvedComponent.Get() ||
+            PreviousOwner.Get() != ResolvedOwner ||
+            PreviousTargetId != Item->FullTargetId;
+
         SelectedTargetId = Item->FullTargetId;
-        RefreshActionsSection();
+        SelectedTargetComponent = ResolvedComponent;
+        SelectedTargetOwner = const_cast<AActor*>(ResolvedOwner);
 
-        // Select the actor in the outliner
-        AActor* Owner = Item->Component->GetOwner();
-        if (Owner)
+        if (bSelectionChanged)
         {
+            RefreshActionsSection();
+        }
+
+        // Mirror panel selection to editor actor selection (for subtargets, use owning top-level actor).
+        if (!bSyncingFromEditorSelection && GEditor && SelectedTargetOwner.IsValid())
+        {
+            bSyncingToEditorSelection = true;
             GEditor->SelectNone(false, true, false);
-            GEditor->SelectActor(Owner, true, true, true);
+            GEditor->SelectActor(SelectedTargetOwner.Get(), true, true, true);
+            bSyncingToEditorSelection = false;
         }
     }
     else
     {
         SelectedTargetComponent.Reset();
         SelectedTargetOwner.Reset();
-        if (Item.IsValid())
-        {
-            SelectedTargetId = Item->FullTargetId;
-        }
-        // Keep SelectedTargetId so selection can recover across editor state transitions.
         RefreshActionsSection();
     }
 }
 
 void SRshipStatusPanel::OnEditorSelectionChanged(UObject* Object)
 {
+    if (bSyncingToEditorSelection)
+    {
+        return;
+    }
+
     // Sync our list selection when outliner selection changes
     SyncSelectionFromOutliner();
 }
 
 void SRshipStatusPanel::SyncSelectionFromOutliner()
 {
-    if (!GEditor || !TargetListView.IsValid())
+    if (!GEditor)
     {
         return;
     }
@@ -1189,43 +1540,10 @@ void SRshipStatusPanel::SyncSelectionFromOutliner()
         {
             if (Item.IsValid() && Item->Component.Get() == TargetComp)
             {
-                // Select this item in the list (Direct = programmatic, won't trigger OnTargetSelectionChanged loop)
-                TargetListView->SetSelection(Item, ESelectInfo::Direct);
-                TargetListView->RequestScrollIntoView(Item);
-                TSharedPtr<FRshipTargetListItem> ParentItem;
-                FRshipTargetListItem* Cursor = Item.Get();
-                while (Cursor)
-                {
-                    ParentItem.Reset();
-                    for (const TSharedPtr<FRshipTargetListItem>& Candidate : TargetItems)
-                    {
-                        if (!Candidate.IsValid())
-                        {
-                            continue;
-                        }
-
-                        if (Candidate->Children.ContainsByPredicate([Cursor](const TSharedPtr<FRshipTargetListItem>& Child)
-                            {
-                                return Child.IsValid() && Child.Get() == Cursor;
-                            }))
-                        {
-                            ParentItem = Candidate;
-                            break;
-                        }
-                    }
-
-                    if (!ParentItem.IsValid())
-                    {
-                        break;
-                    }
-
-                    TargetListView->SetItemExpansion(ParentItem, true);
-                    Cursor = ParentItem.Get();
-                }
-                SelectedTargetComponent = TargetComp;
-                SelectedTargetOwner = TargetComp->GetOwner();
-                SelectedTargetId = Item->FullTargetId;
-                RefreshActionsSection();
+                PendingSelectionTargetId = Item->FullTargetId;
+                bSyncingFromEditorSelection = true;
+                TryApplyPendingTargetSelection();
+                bSyncingFromEditorSelection = false;
                 return;
             }
         }
@@ -2104,104 +2422,6 @@ void SRshipStatusPanel::Update2110Status()
     }
 }
 #endif // RSHIP_EDITOR_HAS_2110
-
-// ============================================================================
-// SRshipTargetRow
-// ============================================================================
-
-void SRshipTargetRow::Construct(const FArguments& InArgs, const TSharedRef<STableViewBase>& InOwnerTableView)
-{
-    Item = InArgs._Item;
-    bAllowTargetIdEdit = InArgs._bAllowTargetIdEdit;
-
-    SMultiColumnTableRow<TSharedPtr<FRshipTargetListItem>>::Construct(
-        FSuperRowType::FArguments(),
-        InOwnerTableView
-    );
-}
-
-TSharedRef<SWidget> SRshipTargetRow::GenerateWidgetForColumn(const FName& ColumnName)
-{
-    if (!Item.IsValid())
-    {
-        return SNullWidget::NullWidget;
-    }
-
-    if (ColumnName == "Status")
-    {
-        return SNew(SBox)
-            .HAlign(HAlign_Center)
-            .VAlign(VAlign_Center)
-            [
-                SNew(SImage)
-                .Image(FRshipStatusPanelStyle::Get().GetBrush(
-                    Item->bIsOnline ? "Rship.Status.Connected" : "Rship.Status.Disconnected"))
-            ];
-    }
-    else if (ColumnName == "Name")
-    {
-        return SNew(SHorizontalBox)
-            + SHorizontalBox::Slot()
-            .AutoWidth()
-            .VAlign(VAlign_Center)
-            [
-                SNew(SExpanderArrow, SharedThis(this))
-            ]
-            + SHorizontalBox::Slot()
-            .FillWidth(1.0f)
-            .VAlign(VAlign_Center)
-            .Padding(2.0f, 0.0f, 0.0f, 0.0f)
-            [
-                SNew(STextBlock)
-                .Text(FText::FromString(Item->DisplayName))
-            ];
-    }
-    else if (ColumnName == "TargetId")
-    {
-        return SNew(SInlineEditableTextBlock)
-            .Text(FText::FromString(Item->TargetId))
-            .IsReadOnly(!bAllowTargetIdEdit)
-            .OnTextCommitted(this, &SRshipTargetRow::OnTargetIdCommitted);
-    }
-    else if (ColumnName == "Type")
-    {
-        return SNew(STextBlock)
-            .Text(FText::FromString(Item->TargetType));
-    }
-    else if (ColumnName == "Emitters")
-    {
-        return SNew(STextBlock)
-            .Text(FText::AsNumber(Item->EmitterCount))
-            .Justification(ETextJustify::Center);
-    }
-    else if (ColumnName == "Actions")
-    {
-        return SNew(STextBlock)
-            .Text(FText::AsNumber(Item->ActionCount))
-            .Justification(ETextJustify::Center);
-    }
-
-    return SNullWidget::NullWidget;
-}
-
-void SRshipTargetRow::OnTargetIdCommitted(const FText& NewText, ETextCommit::Type CommitType)
-{
-    // Only apply on Enter or focus lost, not on cancel
-    if (CommitType == ETextCommit::OnEnter || CommitType == ETextCommit::OnUserMovedFocus)
-    {
-        FString NewTargetId = NewText.ToString().TrimStartAndEnd();
-
-        if (!NewTargetId.IsEmpty() && Item.IsValid() && Item->Component.IsValid())
-        {
-            // Only update if the ID actually changed
-            if (NewTargetId != Item->TargetId)
-            {
-                Item->Component->SetTargetId(NewTargetId);
-                Item->TargetId = NewTargetId;
-            }
-        }
-    }
-}
 
 #undef LOCTEXT_NAMESPACE
 
