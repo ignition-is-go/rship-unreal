@@ -72,6 +72,49 @@ FString ExtractSyncDomainIdFromPayload(const FString& Payload)
 
     return FString();
 }
+
+bool TryNormalizeCaptureRectForRenderTarget(
+    const FIntRect& RequestedRect,
+    const UTextureRenderTarget2D* RenderTarget,
+    FIntRect& OutNormalizedRect)
+{
+    OutNormalizedRect = FIntRect();
+
+    if (!RenderTarget)
+    {
+        return false;
+    }
+
+    const int32 SourceWidth = FMath::Max(0, RenderTarget->SizeX);
+    const int32 SourceHeight = FMath::Max(0, RenderTarget->SizeY);
+    if (SourceWidth <= 0 || SourceHeight <= 0)
+    {
+        return false;
+    }
+
+    const int32 RequestedWidth = RequestedRect.Max.X - RequestedRect.Min.X;
+    const int32 RequestedHeight = RequestedRect.Max.Y - RequestedRect.Min.Y;
+    if (RequestedWidth <= 0 || RequestedHeight <= 0)
+    {
+        return false;
+    }
+
+    const int32 ClampedX = FMath::Clamp(RequestedRect.Min.X, 0, FMath::Max(0, SourceWidth - 1));
+    const int32 ClampedY = FMath::Clamp(RequestedRect.Min.Y, 0, FMath::Max(0, SourceHeight - 1));
+    const int32 ClampedWidth = FMath::Clamp(RequestedWidth, 1, SourceWidth - ClampedX);
+    const int32 ClampedHeight = FMath::Clamp(RequestedHeight, 1, SourceHeight - ClampedY);
+    if (ClampedWidth <= 0 || ClampedHeight <= 0)
+    {
+        return false;
+    }
+
+    OutNormalizedRect = FIntRect(
+        ClampedX,
+        ClampedY,
+        ClampedX + ClampedWidth,
+        ClampedY + ClampedHeight);
+    return true;
+}
 }
 
 void URship2110Subsystem::Initialize(FSubsystemCollectionBase& Collection)
@@ -406,13 +449,33 @@ bool URship2110Subsystem::BindVideoStreamToRenderContextWithRect(const FString& 
 
     Sender->SetRenderTarget(RenderTarget);
     FRship2110RenderContextBinding Binding;
-    Binding.RenderContextId = RenderContextId;
+    Binding.BindingSource = FRship2110RenderContextBinding::EBindingSource::RenderContext;
+    Binding.RenderContextId = RenderContextId.TrimStartAndEnd();
+    Binding.MappingId.Reset();
+    Binding.SurfaceId.Reset();
 
     if (CaptureRect.Area() > 0)
     {
+        FIntRect NormalizedCaptureRect;
+        if (!TryNormalizeCaptureRectForRenderTarget(CaptureRect, RenderTarget, NormalizedCaptureRect))
+        {
+            UE_LOG(
+                LogRship2110,
+                Warning,
+                TEXT("BindVideoStreamToRenderContextWithRect: Invalid capture rect (%d,%d)-(%d,%d) for context %s target %dx%d"),
+                CaptureRect.Min.X,
+                CaptureRect.Min.Y,
+                CaptureRect.Max.X,
+                CaptureRect.Max.Y,
+                *RenderContextId,
+                RenderTarget ? RenderTarget->SizeX : 0,
+                RenderTarget ? RenderTarget->SizeY : 0);
+            return false;
+        }
+
         Binding.bUseCaptureRect = true;
-        Binding.CaptureRect = CaptureRect;
-        Sender->SetCaptureRect(CaptureRect);
+        Binding.CaptureRect = NormalizedCaptureRect;
+        Sender->SetCaptureRect(NormalizedCaptureRect);
     }
     else
     {
@@ -429,6 +492,117 @@ bool URship2110Subsystem::BindVideoStreamToRenderContextWithRect(const FString& 
     return true;
 }
 
+bool URship2110Subsystem::BindVideoStreamToMappingOutput(const FString& StreamId, const FString& MappingId, const FString& SurfaceId)
+{
+    return BindVideoStreamToMappingOutputWithRect(StreamId, MappingId, SurfaceId, FIntRect());
+}
+
+bool URship2110Subsystem::BindVideoStreamToMappingOutputWithRect(
+    const FString& StreamId,
+    const FString& MappingId,
+    const FString& SurfaceId,
+    const FIntRect& CaptureRect)
+{
+    URship2110VideoSender* Sender = GetVideoSender(StreamId);
+    if (!Sender)
+    {
+        UE_LOG(LogRship2110, Warning, TEXT("BindVideoStreamToMappingOutputWithRect: Stream %s not found"), *StreamId);
+        return false;
+    }
+
+    const FString NormalizedMappingId = MappingId.TrimStartAndEnd();
+    const FString NormalizedSurfaceId = SurfaceId.TrimStartAndEnd();
+    if (NormalizedMappingId.IsEmpty())
+    {
+        UE_LOG(LogRship2110, Warning, TEXT("BindVideoStreamToMappingOutputWithRect: MappingId is empty"));
+        return false;
+    }
+
+    URshipSubsystem* RshipSubsystem = GetRshipSubsystem();
+    if (!RshipSubsystem)
+    {
+        UE_LOG(LogRship2110, Warning, TEXT("BindVideoStreamToMappingOutputWithRect: Rship subsystem unavailable"));
+        return false;
+    }
+
+    URshipContentMappingManager* MappingManager = Cast<URshipContentMappingManager>(RshipSubsystem->GetContentMappingManager());
+    if (!MappingManager)
+    {
+        UE_LOG(LogRship2110, Warning, TEXT("BindVideoStreamToMappingOutputWithRect: Content mapping manager unavailable"));
+        return false;
+    }
+
+    UTextureRenderTarget2D* RenderTarget = nullptr;
+    FString ResolveError;
+    if (!MappingManager->ResolveMappingOutputRenderTarget(
+            NormalizedMappingId,
+            NormalizedSurfaceId,
+            RenderTarget,
+            ResolveError))
+    {
+        UE_LOG(
+            LogRship2110,
+            Warning,
+            TEXT("BindVideoStreamToMappingOutputWithRect: mapping=%s surface=%s resolve failed (%s)"),
+            *NormalizedMappingId,
+            *NormalizedSurfaceId,
+            *ResolveError);
+        return false;
+    }
+
+    Sender->SetRenderTarget(RenderTarget);
+    FRship2110RenderContextBinding Binding;
+    Binding.BindingSource = FRship2110RenderContextBinding::EBindingSource::MappingOutput;
+    Binding.RenderContextId.Reset();
+    Binding.MappingId = NormalizedMappingId;
+    Binding.SurfaceId = NormalizedSurfaceId;
+
+    if (CaptureRect.Area() > 0)
+    {
+        FIntRect NormalizedCaptureRect;
+        if (!TryNormalizeCaptureRectForRenderTarget(CaptureRect, RenderTarget, NormalizedCaptureRect))
+        {
+            UE_LOG(
+                LogRship2110,
+                Warning,
+                TEXT("BindVideoStreamToMappingOutputWithRect: Invalid capture rect (%d,%d)-(%d,%d) for mapping %s/%s target %dx%d"),
+                CaptureRect.Min.X,
+                CaptureRect.Min.Y,
+                CaptureRect.Max.X,
+                CaptureRect.Max.Y,
+                *NormalizedMappingId,
+                *NormalizedSurfaceId,
+                RenderTarget ? RenderTarget->SizeX : 0,
+                RenderTarget ? RenderTarget->SizeY : 0);
+            return false;
+        }
+
+        Binding.bUseCaptureRect = true;
+        Binding.CaptureRect = NormalizedCaptureRect;
+        Sender->SetCaptureRect(NormalizedCaptureRect);
+    }
+    else
+    {
+        Binding.bUseCaptureRect = false;
+        Binding.CaptureRect = FIntRect();
+        Sender->ClearCaptureRect();
+    }
+
+    StreamToContextBinding.Add(StreamId, Binding);
+    if (!IsStreamOwnedByLocalNode(StreamId))
+    {
+        UE_LOG(
+            LogRship2110,
+            Verbose,
+            TEXT("Bound stream %s to mapping output %s/%s, but local node %s does not own this stream"),
+            *StreamId,
+            *NormalizedMappingId,
+            *NormalizedSurfaceId,
+            *LocalClusterNodeId);
+    }
+    return true;
+}
+
 bool URship2110Subsystem::UnbindVideoStreamFromRenderContext(const FString& StreamId)
 {
     return StreamToContextBinding.Remove(StreamId) > 0;
@@ -437,13 +611,17 @@ bool URship2110Subsystem::UnbindVideoStreamFromRenderContext(const FString& Stre
 FString URship2110Subsystem::GetBoundRenderContextForStream(const FString& StreamId) const
 {
     const FRship2110RenderContextBinding* Binding = StreamToContextBinding.Find(StreamId);
-    return Binding ? Binding->RenderContextId : FString();
+    if (!Binding || Binding->BindingSource != FRship2110RenderContextBinding::EBindingSource::RenderContext)
+    {
+        return FString();
+    }
+    return Binding->RenderContextId;
 }
 
 bool URship2110Subsystem::GetBoundRenderContextBinding(const FString& StreamId, FString& OutRenderContextId, FIntRect& OutCaptureRect, bool& bOutUseCaptureRect) const
 {
     const FRship2110RenderContextBinding* Binding = StreamToContextBinding.Find(StreamId);
-    if (!Binding)
+    if (!Binding || Binding->BindingSource != FRship2110RenderContextBinding::EBindingSource::RenderContext)
     {
         return false;
     }
@@ -452,6 +630,114 @@ bool URship2110Subsystem::GetBoundRenderContextBinding(const FString& StreamId, 
     OutCaptureRect = Binding->CaptureRect;
     bOutUseCaptureRect = Binding->bUseCaptureRect;
     return true;
+}
+
+bool URship2110Subsystem::GetBoundMappingOutputBinding(
+    const FString& StreamId,
+    FString& OutMappingId,
+    FString& OutSurfaceId,
+    FIntRect& OutCaptureRect,
+    bool& bOutUseCaptureRect) const
+{
+    const FRship2110RenderContextBinding* Binding = StreamToContextBinding.Find(StreamId);
+    if (!Binding || Binding->BindingSource != FRship2110RenderContextBinding::EBindingSource::MappingOutput)
+    {
+        return false;
+    }
+
+    OutMappingId = Binding->MappingId;
+    OutSurfaceId = Binding->SurfaceId;
+    OutCaptureRect = Binding->CaptureRect;
+    bOutUseCaptureRect = Binding->bUseCaptureRect;
+    return true;
+}
+
+bool URship2110Subsystem::RegisterContentMappingExternalTextureSource(
+    const FString& SourceId,
+    UTexture* Texture,
+    int32 Width,
+    int32 Height)
+{
+    URshipSubsystem* RshipSubsystem = GetRshipSubsystem();
+    if (!RshipSubsystem)
+    {
+        return false;
+    }
+
+    URshipContentMappingManager* MappingManager = Cast<URshipContentMappingManager>(RshipSubsystem->GetContentMappingManager());
+    if (!MappingManager)
+    {
+        return false;
+    }
+
+    return MappingManager->RegisterExternalTextureSource(SourceId, Texture, Width, Height);
+}
+
+bool URship2110Subsystem::UnregisterContentMappingExternalTextureSource(const FString& SourceId)
+{
+    URshipSubsystem* RshipSubsystem = GetRshipSubsystem();
+    if (!RshipSubsystem)
+    {
+        return false;
+    }
+
+    URshipContentMappingManager* MappingManager = Cast<URshipContentMappingManager>(RshipSubsystem->GetContentMappingManager());
+    if (!MappingManager)
+    {
+        return false;
+    }
+
+    return MappingManager->UnregisterExternalTextureSource(SourceId);
+}
+
+bool URship2110Subsystem::ConfigureRenderContextExternalTextureSource(
+    const FString& RenderContextId,
+    const FString& SourceId,
+    int32 Width,
+    int32 Height)
+{
+    const FString NormalizedContextId = RenderContextId.TrimStartAndEnd();
+    const FString NormalizedSourceId = SourceId.TrimStartAndEnd();
+    if (NormalizedContextId.IsEmpty() || NormalizedSourceId.IsEmpty())
+    {
+        return false;
+    }
+
+    URshipSubsystem* RshipSubsystem = GetRshipSubsystem();
+    if (!RshipSubsystem)
+    {
+        return false;
+    }
+
+    URshipContentMappingManager* MappingManager = Cast<URshipContentMappingManager>(RshipSubsystem->GetContentMappingManager());
+    if (!MappingManager)
+    {
+        return false;
+    }
+
+    TArray<FRshipRenderContextState> ContextStates = MappingManager->GetRenderContexts();
+    for (FRshipRenderContextState& ContextState : ContextStates)
+    {
+        if (ContextState.Id != NormalizedContextId)
+        {
+            continue;
+        }
+
+        ContextState.SourceType = TEXT("external-texture");
+        ContextState.ExternalSourceId = NormalizedSourceId;
+        if (Width > 0)
+        {
+            ContextState.Width = Width;
+        }
+        if (Height > 0)
+        {
+            ContextState.Height = Height;
+        }
+
+        return MappingManager->UpdateRenderContext(ContextState);
+    }
+
+    return false;
 }
 
 URship2110VideoSender* URship2110Subsystem::GetVideoSender(const FString& StreamId) const
@@ -510,28 +796,11 @@ void URship2110Subsystem::RefreshStreamRenderContextBindings()
         return;
     }
 
-    const TArray<FRshipRenderContextState> RenderContexts = MappingManager->GetRenderContexts();
-    if (RenderContexts.Num() == 0)
-    {
-        return;
-    }
-
-    TMap<FString, UTextureRenderTarget2D*> RenderContextTargets;
-    RenderContextTargets.Reserve(RenderContexts.Num());
-    for (const FRshipRenderContextState& ContextState : RenderContexts)
-    {
-        if (UTextureRenderTarget2D* RenderTarget = Cast<UTextureRenderTarget2D>(ContextState.ResolvedTexture))
-        {
-            RenderContextTargets.Add(ContextState.Id, RenderTarget);
-        }
-    }
-
     TArray<FString> ToUnbind;
-    for (const TPair<FString, FRship2110RenderContextBinding>& Binding : StreamToContextBinding)
+    for (TPair<FString, FRship2110RenderContextBinding>& Binding : StreamToContextBinding)
     {
         const FString& StreamId = Binding.Key;
-        const FString& RenderContextId = Binding.Value.RenderContextId;
-        const FRship2110RenderContextBinding& BoundContext = Binding.Value;
+        FRship2110RenderContextBinding& BoundContext = Binding.Value;
 
         URship2110VideoSender* Sender = GetVideoSender(StreamId);
         if (!Sender)
@@ -549,16 +818,44 @@ void URship2110Subsystem::RefreshStreamRenderContextBindings()
             continue;
         }
 
-        UTextureRenderTarget2D* const* FoundRenderTarget = RenderContextTargets.Find(RenderContextId);
-        if (!FoundRenderTarget || !*FoundRenderTarget)
+        UTextureRenderTarget2D* ResolvedRenderTarget = nullptr;
+        FString ResolveError;
+        if (!ResolveBindingRenderTarget(MappingManager, BoundContext, ResolvedRenderTarget, ResolveError))
         {
+            if (!ResolveError.IsEmpty())
+            {
+                UE_LOG(
+                    LogRship2110,
+                    VeryVerbose,
+                    TEXT("RefreshStreamRenderContextBindings: stream=%s resolve failed (%s)"),
+                    *StreamId,
+                    *ResolveError);
+            }
             continue;
         }
 
-        Sender->SetRenderTarget(*FoundRenderTarget);
+        FIntRect NormalizedCaptureRect = BoundContext.CaptureRect;
         if (BoundContext.bUseCaptureRect)
         {
-            Sender->SetCaptureRect(BoundContext.CaptureRect);
+            if (!TryNormalizeCaptureRectForRenderTarget(BoundContext.CaptureRect, ResolvedRenderTarget, NormalizedCaptureRect))
+            {
+                UE_LOG(
+                    LogRship2110,
+                    VeryVerbose,
+                    TEXT("RefreshStreamRenderContextBindings: stream=%s capture rect invalid for target %dx%d"),
+                    *StreamId,
+                    ResolvedRenderTarget ? ResolvedRenderTarget->SizeX : 0,
+                    ResolvedRenderTarget ? ResolvedRenderTarget->SizeY : 0);
+                continue;
+            }
+
+            BoundContext.CaptureRect = NormalizedCaptureRect;
+        }
+
+        Sender->SetRenderTarget(ResolvedRenderTarget);
+        if (BoundContext.bUseCaptureRect)
+        {
+            Sender->SetCaptureRect(NormalizedCaptureRect);
         }
         else
         {
@@ -572,6 +869,57 @@ void URship2110Subsystem::RefreshStreamRenderContextBindings()
         StreamToContextBinding.Remove(StreamId);
         UE_LOG(LogRship2110, Log, TEXT("Removed render context binding for missing stream %s"), *StreamId);
     }
+}
+
+bool URship2110Subsystem::ResolveBindingRenderTarget(
+    URshipContentMappingManager* MappingManager,
+    const FRship2110RenderContextBinding& Binding,
+    UTextureRenderTarget2D*& OutRenderTarget,
+    FString& OutError)
+{
+    OutRenderTarget = nullptr;
+    OutError.Reset();
+
+    if (!MappingManager)
+    {
+        OutError = TEXT("Content mapping manager unavailable");
+        return false;
+    }
+
+    if (Binding.BindingSource == FRship2110RenderContextBinding::EBindingSource::RenderContext)
+    {
+        if (!MappingManager->ResolveRenderContextRenderTarget(Binding.RenderContextId, OutRenderTarget))
+        {
+            OutError = FString::Printf(
+                TEXT("Context '%s' not found or has no render target"),
+                *Binding.RenderContextId);
+            return false;
+        }
+        return true;
+    }
+
+    if (Binding.BindingSource == FRship2110RenderContextBinding::EBindingSource::MappingOutput)
+    {
+        if (!MappingManager->ResolveMappingOutputRenderTarget(
+                Binding.MappingId,
+                Binding.SurfaceId,
+                OutRenderTarget,
+                OutError))
+        {
+            if (OutError.IsEmpty())
+            {
+                OutError = FString::Printf(
+                    TEXT("Mapping output '%s/%s' not available"),
+                    *Binding.MappingId,
+                    *Binding.SurfaceId);
+            }
+            return false;
+        }
+        return true;
+    }
+
+    OutError = TEXT("Unknown binding source");
+    return false;
 }
 
 bool URship2110Subsystem::ResolveRenderContextRenderTarget(const FString& ContextId, UTextureRenderTarget2D*& OutRenderTarget)
@@ -595,17 +943,7 @@ bool URship2110Subsystem::ResolveRenderContextRenderTarget(const FString& Contex
         return false;
     }
 
-    const TArray<FRshipRenderContextState> RenderContexts = MappingManager->GetRenderContexts();
-    for (const FRshipRenderContextState& ContextState : RenderContexts)
-    {
-        if (ContextState.Id == ContextId && ContextState.bEnabled)
-        {
-            OutRenderTarget = Cast<UTextureRenderTarget2D>(ContextState.ResolvedTexture);
-            return OutRenderTarget != nullptr;
-        }
-    }
-
-    return false;
+    return MappingManager->ResolveRenderContextRenderTarget(ContextId, OutRenderTarget);
 }
 
 bool URship2110Subsystem::ConnectIPMX(const FString& RegistryUrl)

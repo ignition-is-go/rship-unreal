@@ -15,6 +15,7 @@
 #include "CoreMinimal.h"
 #include "Subsystems/EngineSubsystem.h"
 #include "Tickable.h"
+#include "Kismet/BlueprintFunctionLibrary.h"
 #include "Rship2110Types.h"
 #include "Rship2110Subsystem.generated.h"
 
@@ -26,6 +27,8 @@ class URship2110VideoSender;
 class URship2110VideoCapture;
 class URship2110Settings;
 class URshipSubsystem;
+class URshipContentMappingManager;
+class UTexture;
 class UTextureRenderTarget2D;
 
 /**
@@ -204,7 +207,34 @@ public:
     bool BindVideoStreamToRenderContextWithRect(const FString& StreamId, const FString& RenderContextId, const FIntRect& CaptureRect);
 
     /**
-     * Remove any render context binding from a stream.
+     * Bind a video stream to a content mapping output texture (mapping + surface).
+     * Feed mappings resolve to feed composite RTs; non-feed mappings resolve to their
+     * backing render context RT.
+     * @param StreamId Stream ID to bind
+     * @param MappingId Mapping ID from content mapping
+     * @param SurfaceId Optional surface ID (required when mapping has multiple surfaces)
+     * @return true if binding was created
+     */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Streams")
+    bool BindVideoStreamToMappingOutput(const FString& StreamId, const FString& MappingId, const FString& SurfaceId);
+
+    /**
+     * Bind a video stream to a content mapping output texture with an explicit capture region.
+     * @param StreamId Stream ID to bind
+     * @param MappingId Mapping ID from content mapping
+     * @param SurfaceId Optional surface ID (required when mapping has multiple surfaces)
+     * @param CaptureRect Capture region in source render target pixels (min inclusive, max exclusive)
+     * @return true if binding was created
+     */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Streams")
+    bool BindVideoStreamToMappingOutputWithRect(
+        const FString& StreamId,
+        const FString& MappingId,
+        const FString& SurfaceId,
+        const FIntRect& CaptureRect);
+
+    /**
+     * Remove any stream binding (render-context or mapping-output) from a stream.
      * @param StreamId Stream ID to unbind
      * @return true if binding existed
      */
@@ -228,6 +258,36 @@ public:
      * @return true if stream is currently bound
      */
     bool GetBoundRenderContextBinding(const FString& StreamId, FString& OutRenderContextId, FIntRect& OutCaptureRect, bool& bOutUseCaptureRect) const;
+
+    /**
+     * Query mapping-output binding metadata for a stream.
+     * @return true if stream is currently bound to mapping output
+     */
+    bool GetBoundMappingOutputBinding(
+        const FString& StreamId,
+        FString& OutMappingId,
+        FString& OutSurfaceId,
+        FIntRect& OutCaptureRect,
+        bool& bOutUseCaptureRect) const;
+
+    /** Register a live external texture source for content mapping contexts (sourceType=external-texture). */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Mapping")
+    bool RegisterContentMappingExternalTextureSource(const FString& SourceId, UTexture* Texture, int32 Width = 0, int32 Height = 0);
+
+    /** Unregister a live external texture source for content mapping contexts. */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Mapping")
+    bool UnregisterContentMappingExternalTextureSource(const FString& SourceId);
+
+    /**
+     * Point an existing render context at an external texture source id.
+     * Context sourceType will be set to external-texture.
+     */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110|Mapping")
+    bool ConfigureRenderContextExternalTextureSource(
+        const FString& RenderContextId,
+        const FString& SourceId,
+        int32 Width = 0,
+        int32 Height = 0);
 
     // ========================================================================
     // QUICK ACCESS - IPMX
@@ -616,7 +676,16 @@ private:
 
     struct FRship2110RenderContextBinding
     {
+        enum class EBindingSource : uint8
+        {
+            RenderContext,
+            MappingOutput
+        };
+
+        EBindingSource BindingSource = EBindingSource::RenderContext;
         FString RenderContextId;
+        FString MappingId;
+        FString SurfaceId;
         FIntRect CaptureRect = FIntRect(0, 0, 0, 0);
         bool bUseCaptureRect = false;
     };
@@ -633,6 +702,11 @@ private:
     void InitializeVideoCapture();
     void InitializeClusterState();
     void RefreshStreamRenderContextBindings();
+    bool ResolveBindingRenderTarget(
+        URshipContentMappingManager* MappingManager,
+        const FRship2110RenderContextBinding& Binding,
+        UTextureRenderTarget2D*& OutRenderTarget,
+        FString& OutError);
     bool ResolveRenderContextRenderTarget(const FString& ContextId, UTextureRenderTarget2D*& OutRenderTarget);
     FString ResolveLocalClusterNodeId() const;
     void ProcessPendingClusterStates();

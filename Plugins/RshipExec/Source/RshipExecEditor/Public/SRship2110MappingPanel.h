@@ -26,6 +26,10 @@ struct FRship2110MappingStreamItem
 	FString Destination;
 	FString BoundContextId;
 	FString BoundContextName;
+	FString BoundMappingId;
+	FString BoundSurfaceId;
+	bool bBoundToMappingOutput = false;
+	bool bHasBinding = false;
 	bool bHasCaptureRect = false;
 	FIntRect BoundCaptureRect;
 	FString BoundCaptureText;
@@ -145,10 +149,13 @@ private:
 	TSharedPtr<FRship2110RenderContextItem> SelectedContext;
 	TSharedPtr<STextBlock> SelectedContextText;
 	TSharedPtr<STextBlock> SelectedContextDetailsText;
+	TSharedPtr<SEditableTextBox> MappingIdText;
+	TSharedPtr<SEditableTextBox> SurfaceIdText;
 	TSharedPtr<SEditableTextBox> CaptureXText;
 	TSharedPtr<SEditableTextBox> CaptureYText;
 	TSharedPtr<SEditableTextBox> CaptureWText;
 	TSharedPtr<SEditableTextBox> CaptureHText;
+	bool bBindToMappingOutput = false;
 
 	// Binding status/feedback
 	TSharedPtr<STextBlock> BindingStatusText;

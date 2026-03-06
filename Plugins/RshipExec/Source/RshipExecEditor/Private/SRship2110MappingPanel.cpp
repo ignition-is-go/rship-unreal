@@ -18,6 +18,7 @@
 #include "Widgets/Layout/SSeparator.h"
 #include "Widgets/Layout/SSpacer.h"
 #include "Widgets/Input/SButton.h"
+#include "Widgets/Input/SCheckBox.h"
 #include "Widgets/Text/STextBlock.h"
 #include "Widgets/Views/SListView.h"
 #include "Widgets/Input/SEditableTextBox.h"
@@ -439,6 +440,7 @@ void SRship2110MappingPanel::RefreshStreams()
 		if (Subsystem->GetBoundRenderContextBinding(StreamId, BoundContextId, BoundRect, bHasBoundRect))
 		{
 			Item->BoundContextId = BoundContextId;
+			Item->bHasBinding = true;
 			Item->bHasCaptureRect = bHasBoundRect && BoundRect.Area() > 0;
 			Item->BoundCaptureRect = BoundRect;
 			if (Item->bHasCaptureRect)
@@ -450,6 +452,30 @@ void SRship2110MappingPanel::RefreshStreams()
 			else
 			{
 				Item->BoundCaptureText = TEXT("full");
+			}
+		}
+		else
+		{
+			FString BoundMappingId;
+			FString BoundSurfaceId;
+			if (Subsystem->GetBoundMappingOutputBinding(StreamId, BoundMappingId, BoundSurfaceId, BoundRect, bHasBoundRect))
+			{
+				Item->BoundMappingId = BoundMappingId;
+				Item->BoundSurfaceId = BoundSurfaceId;
+				Item->bBoundToMappingOutput = true;
+				Item->bHasBinding = true;
+				Item->bHasCaptureRect = bHasBoundRect && BoundRect.Area() > 0;
+				Item->BoundCaptureRect = BoundRect;
+				if (Item->bHasCaptureRect)
+				{
+					const int32 BoundWidth = BoundRect.Max.X - BoundRect.Min.X;
+					const int32 BoundHeight = BoundRect.Max.Y - BoundRect.Min.Y;
+					Item->BoundCaptureText = FString::Printf(TEXT("x=%d y=%d %dx%d"), BoundRect.Min.X, BoundRect.Min.Y, BoundWidth, BoundHeight);
+				}
+				else
+				{
+					Item->BoundCaptureText = TEXT("full");
+				}
 			}
 		}
 
@@ -646,7 +672,7 @@ void SRship2110MappingPanel::UpdateSummaries()
 		int32 BoundStreams = 0;
 		for (const TSharedPtr<FRship2110MappingStreamItem>& Item : StreamItems)
 		{
-			if (!Item->BoundContextId.IsEmpty())
+			if (Item->bHasBinding)
 			{
 				++BoundStreams;
 			}
@@ -696,9 +722,30 @@ void SRship2110MappingPanel::UpdateSelectionDetails()
 			}
 			SelectedStreamBindingText->SetColorAndOpacity(FLinearColor::Green);
 		}
+		else if (SelectedStream->bBoundToMappingOutput)
+		{
+			const FString MappingLabel = SelectedStream->BoundSurfaceId.IsEmpty()
+				? FString::Printf(TEXT("%s/<auto-surface>"), *SelectedStream->BoundMappingId)
+				: FString::Printf(TEXT("%s/%s"), *SelectedStream->BoundMappingId, *SelectedStream->BoundSurfaceId);
+
+			if (SelectedStream->bHasCaptureRect)
+			{
+				SelectedStreamBindingText->SetText(FText::Format(
+					LOCTEXT("StreamBoundMappingWithCaptureFmt", "Bound to mapping output: {0} ({1})"),
+					FText::FromString(MappingLabel),
+					FText::FromString(SelectedStream->BoundCaptureText)));
+			}
+			else
+			{
+				SelectedStreamBindingText->SetText(FText::Format(
+					LOCTEXT("StreamBoundMappingFmt", "Bound to mapping output: {0}"),
+					FText::FromString(MappingLabel)));
+			}
+			SelectedStreamBindingText->SetColorAndOpacity(FLinearColor::Green);
+		}
 		else
 		{
-			SelectedStreamBindingText->SetText(LOCTEXT("StreamUnbound", "No context bound"));
+			SelectedStreamBindingText->SetText(LOCTEXT("StreamUnbound", "No binding"));
 			SelectedStreamBindingText->SetColorAndOpacity(FLinearColor::Yellow);
 		}
 	}
@@ -739,20 +786,41 @@ void SRship2110MappingPanel::UpdateSelectionDetails()
 			BindingStatusText->SetText(LOCTEXT("BindingRuntimeMissing", "Enable Rship2110 runtime before binding."));
 			BindingStatusText->SetColorAndOpacity(FLinearColor::Yellow);
 		}
-		else if (CanStart() || CanStop() || CanUnbind() || CanBind())
+		else if (!SelectedStream.IsValid())
 		{
-			BindingStatusText->SetText(LOCTEXT("BindingReady", "Select stream + context, then bind or control stream."));
-			BindingStatusText->SetColorAndOpacity(FLinearColor::Green);
+			BindingStatusText->SetText(LOCTEXT("BindingNoStream", "Select a stream from the stream list."));
+			BindingStatusText->SetColorAndOpacity(FLinearColor::Yellow);
 		}
-		else if (SelectedStream.IsValid())
+		else if (SelectedStream->bStreamMissing)
+		{
+			BindingStatusText->SetText(LOCTEXT("BindingStreamMissing", "Selected stream no longer exists."));
+			BindingStatusText->SetColorAndOpacity(FLinearColor::Red);
+		}
+		else if (bBindToMappingOutput)
+		{
+			const FString MappingId = MappingIdText.IsValid()
+				? MappingIdText->GetText().ToString().TrimStartAndEnd()
+				: FString();
+			if (MappingId.IsEmpty())
+			{
+				BindingStatusText->SetText(LOCTEXT("BindingNoMappingId", "Enter a mapping ID to bind mapping output."));
+				BindingStatusText->SetColorAndOpacity(FLinearColor::Yellow);
+			}
+			else
+			{
+				BindingStatusText->SetText(LOCTEXT("BindingReadyMapping", "Ready: bind selected stream to mapping output."));
+				BindingStatusText->SetColorAndOpacity(FLinearColor::Green);
+			}
+		}
+		else if (!SelectedContext.IsValid())
 		{
 			BindingStatusText->SetText(LOCTEXT("BindingNoContext", "Pick a render context to bind."));
 			BindingStatusText->SetColorAndOpacity(FLinearColor::Yellow);
 		}
 		else
 		{
-			BindingStatusText->SetText(LOCTEXT("BindingNoStream", "Select a stream from the stream list."));
-			BindingStatusText->SetColorAndOpacity(FLinearColor::Yellow);
+			BindingStatusText->SetText(LOCTEXT("BindingReadyContext", "Ready: bind selected stream to render context."));
+			BindingStatusText->SetColorAndOpacity(FLinearColor::Green);
 		}
 	}
 }
@@ -764,16 +832,36 @@ void SRship2110MappingPanel::UpdateBindingInputsFromSelection()
 		return;
 	}
 
-	if (!SelectedContext.IsValid())
+	if (MappingIdText.IsValid() && SurfaceIdText.IsValid() && SelectedStream.IsValid())
 	{
-		CaptureXText->SetText(FText::GetEmpty());
-		CaptureYText->SetText(FText::GetEmpty());
-		CaptureWText->SetText(FText::GetEmpty());
-		CaptureHText->SetText(FText::GetEmpty());
-		return;
+		if (SelectedStream->bBoundToMappingOutput)
+		{
+			bBindToMappingOutput = true;
+			MappingIdText->SetText(FText::FromString(SelectedStream->BoundMappingId));
+			SurfaceIdText->SetText(FText::FromString(SelectedStream->BoundSurfaceId));
+		}
+		else if (!SelectedStream->BoundContextId.IsEmpty())
+		{
+			bBindToMappingOutput = false;
+			for (const TSharedPtr<FRship2110RenderContextItem>& ContextItem : ContextItems)
+			{
+				if (ContextItem.IsValid() && ContextItem->ContextId == SelectedStream->BoundContextId)
+				{
+					SelectedContext = ContextItem;
+					if (ContextListView.IsValid())
+					{
+						ContextListView->SetItemSelection(ContextItem, true);
+					}
+					break;
+				}
+			}
+		}
 	}
 
-	const bool bHasMatchingBoundCapture = SelectedStream.IsValid() && SelectedStream->BoundContextId == SelectedContext->ContextId && SelectedStream->bHasCaptureRect;
+	const bool bHasMatchingBoundCapture = SelectedStream.IsValid()
+		&& SelectedStream->bHasCaptureRect
+		&& ((bBindToMappingOutput && SelectedStream->bBoundToMappingOutput)
+			|| (SelectedContext.IsValid() && SelectedStream->BoundContextId == SelectedContext->ContextId));
 	if (bHasMatchingBoundCapture)
 	{
 		CaptureXText->SetText(FText::AsNumber(SelectedStream->BoundCaptureRect.Min.X));
@@ -843,45 +931,127 @@ FReply SRship2110MappingPanel::OnBindClicked()
 #if RSHIP_EDITOR_HAS_2110
 	if (URship2110Subsystem* Subsystem = Get2110Subsystem())
 	{
-		FIntRect CropRect;
-		const bool bUseCrop = GetBindCaptureRect(CropRect) && SelectedContext.IsValid() && SelectedContext->Width > 0 && SelectedContext->Height > 0;
-		const int32 SourceWidth = SelectedContext.IsValid() ? SelectedContext->Width : 0;
-		const int32 SourceHeight = SelectedContext.IsValid() ? SelectedContext->Height : 0;
-		int32 FinalCaptureX = CropRect.Min.X;
-		int32 FinalCaptureY = CropRect.Min.Y;
-		int32 FinalCaptureWidth = CropRect.Max.X - CropRect.Min.X;
-		int32 FinalCaptureHeight = CropRect.Max.Y - CropRect.Min.Y;
-
+		FIntRect RequestedCropRect;
+		const bool bRequestedCrop = GetBindCaptureRect(RequestedCropRect);
+		const FString MappingId = MappingIdText.IsValid()
+			? MappingIdText->GetText().ToString().TrimStartAndEnd()
+			: FString();
+		const FString SurfaceId = SurfaceIdText.IsValid()
+			? SurfaceIdText->GetText().ToString().TrimStartAndEnd()
+			: FString();
 		bool bBound = false;
-		if (bUseCrop)
+		if (bBindToMappingOutput)
 		{
-			const int32 RequestedWidth = CropRect.Max.X - CropRect.Min.X;
-			const int32 RequestedHeight = CropRect.Max.Y - CropRect.Min.Y;
-			const int32 ClampedX = FMath::Clamp(CropRect.Min.X, 0, FMath::Max(0, SourceWidth - 1));
-			const int32 ClampedY = FMath::Clamp(CropRect.Min.Y, 0, FMath::Max(0, SourceHeight - 1));
-			const int32 ClampedWidth = FMath::Clamp(RequestedWidth, 1, SourceWidth - ClampedX);
-			const int32 ClampedHeight = FMath::Clamp(RequestedHeight, 1, SourceHeight - ClampedY);
+			if (MappingId.IsEmpty())
+			{
+				if (BindingStatusText.IsValid())
+				{
+					BindingStatusText->SetText(LOCTEXT("BindMappingMissingId", "Mapping output bind requires a mapping ID."));
+					BindingStatusText->SetColorAndOpacity(FLinearColor::Red);
+				}
+				RefreshPanel();
+				return FReply::Handled();
+			}
 
-			FinalCaptureX = ClampedX;
-			FinalCaptureY = ClampedY;
-			FinalCaptureWidth = ClampedWidth;
-			FinalCaptureHeight = ClampedHeight;
-
-			bBound = Subsystem->BindVideoStreamToRenderContextWithRect(
-				SelectedStream->StreamId,
-				SelectedContext->ContextId,
-				FIntRect(ClampedX, ClampedY, ClampedX + ClampedWidth, ClampedY + ClampedHeight));
+			bBound = bRequestedCrop
+				? Subsystem->BindVideoStreamToMappingOutputWithRect(SelectedStream->StreamId, MappingId, SurfaceId, RequestedCropRect)
+				: Subsystem->BindVideoStreamToMappingOutput(SelectedStream->StreamId, MappingId, SurfaceId);
 		}
 		else
 		{
-			bBound = Subsystem->BindVideoStreamToRenderContext(SelectedStream->StreamId, SelectedContext->ContextId);
+			if (!SelectedContext.IsValid())
+			{
+				if (BindingStatusText.IsValid())
+				{
+					BindingStatusText->SetText(LOCTEXT("BindContextMissing", "Context bind requires a selected context."));
+					BindingStatusText->SetColorAndOpacity(FLinearColor::Red);
+				}
+				RefreshPanel();
+				return FReply::Handled();
+			}
+
+			const bool bUseCrop = bRequestedCrop && SelectedContext->Width > 0 && SelectedContext->Height > 0;
+			if (bUseCrop)
+			{
+				const int32 SourceWidth = SelectedContext->Width;
+				const int32 SourceHeight = SelectedContext->Height;
+				const int32 RequestedWidth = RequestedCropRect.Max.X - RequestedCropRect.Min.X;
+				const int32 RequestedHeight = RequestedCropRect.Max.Y - RequestedCropRect.Min.Y;
+				const int32 ClampedX = FMath::Clamp(RequestedCropRect.Min.X, 0, FMath::Max(0, SourceWidth - 1));
+				const int32 ClampedY = FMath::Clamp(RequestedCropRect.Min.Y, 0, FMath::Max(0, SourceHeight - 1));
+				const int32 ClampedWidth = FMath::Clamp(RequestedWidth, 1, SourceWidth - ClampedX);
+				const int32 ClampedHeight = FMath::Clamp(RequestedHeight, 1, SourceHeight - ClampedY);
+
+				bBound = Subsystem->BindVideoStreamToRenderContextWithRect(
+					SelectedStream->StreamId,
+					SelectedContext->ContextId,
+					FIntRect(ClampedX, ClampedY, ClampedX + ClampedWidth, ClampedY + ClampedHeight));
+			}
+			else
+			{
+				bBound = Subsystem->BindVideoStreamToRenderContext(SelectedStream->StreamId, SelectedContext->ContextId);
+			}
 		}
 
 		if (bBound)
 		{
+			bool bHasBoundRect = false;
+			FIntRect BoundRect = FIntRect();
+			bool bUseBoundCrop = false;
+			if (bBindToMappingOutput)
+			{
+				FString BoundMappingId;
+				FString BoundSurfaceId;
+				bUseBoundCrop = Subsystem->GetBoundMappingOutputBinding(
+					SelectedStream->StreamId,
+					BoundMappingId,
+					BoundSurfaceId,
+					BoundRect,
+					bHasBoundRect);
+			}
+			else
+			{
+				FString BoundContextId;
+				bUseBoundCrop = Subsystem->GetBoundRenderContextBinding(
+					SelectedStream->StreamId,
+					BoundContextId,
+					BoundRect,
+					bHasBoundRect);
+			}
+			const bool bShowCapture = bUseBoundCrop && bHasBoundRect && BoundRect.Area() > 0;
+			const int32 FinalCaptureX = BoundRect.Min.X;
+			const int32 FinalCaptureY = BoundRect.Min.Y;
+			const int32 FinalCaptureWidth = BoundRect.Max.X - BoundRect.Min.X;
+			const int32 FinalCaptureHeight = BoundRect.Max.Y - BoundRect.Min.Y;
+
 			if (BindingStatusText.IsValid())
 			{
-				if (bUseCrop)
+				if (bBindToMappingOutput)
+				{
+					const FString MappingLabel = SurfaceId.IsEmpty()
+						? FString::Printf(TEXT("%s/<auto-surface>"), *MappingId)
+						: FString::Printf(TEXT("%s/%s"), *MappingId, *SurfaceId);
+
+					if (bShowCapture)
+					{
+						BindingStatusText->SetText(FText::Format(
+							LOCTEXT("BindMappingOkWithCapture", "Bound {0} -> {1} (x={2}, y={3}, {4}x{5})"),
+							FText::FromString(SelectedStream->StreamId),
+							FText::FromString(MappingLabel),
+							FText::AsNumber(FinalCaptureX),
+							FText::AsNumber(FinalCaptureY),
+							FText::AsNumber(FinalCaptureWidth),
+							FText::AsNumber(FinalCaptureHeight)));
+					}
+					else
+					{
+						BindingStatusText->SetText(FText::Format(
+							LOCTEXT("BindMappingOk", "Bound {0} -> {1}"),
+							FText::FromString(SelectedStream->StreamId),
+							FText::FromString(MappingLabel)));
+					}
+				}
+				else if (bShowCapture)
 				{
 					BindingStatusText->SetText(FText::Format(
 						LOCTEXT("BindOkWithCapture", "Bound {0} -> {1} (x={2}, y={3}, {4}x{5})"),
@@ -904,9 +1074,14 @@ FReply SRship2110MappingPanel::OnBindClicked()
 		}
 		else if (BindingStatusText.IsValid())
 		{
-			BindingStatusText->SetText(FText::Format(
-				LOCTEXT("BindFailed", "Failed to bind {0}. Check context render target availability."),
-				FText::FromString(SelectedStream->StreamId)));
+			const FText FailureText = bBindToMappingOutput
+				? FText::Format(
+					LOCTEXT("BindMappingFailed", "Failed to bind {0} to mapping output. Verify mapping/surface routing and runtime output."),
+					FText::FromString(SelectedStream->StreamId))
+				: FText::Format(
+					LOCTEXT("BindFailed", "Failed to bind {0}. Check context render target availability."),
+					FText::FromString(SelectedStream->StreamId));
+			BindingStatusText->SetText(FailureText);
 			BindingStatusText->SetColorAndOpacity(FLinearColor::Red);
 		}
 	}
@@ -1078,12 +1253,29 @@ FReply SRship2110MappingPanel::OnResetStatsClicked()
 
 bool SRship2110MappingPanel::CanBind() const
 {
-	return Is2110RuntimeAvailable() && IsContentMappingAvailable() && SelectedStream.IsValid() && SelectedContext.IsValid() && !SelectedStream->bStreamMissing;
+	if (!Is2110RuntimeAvailable() || !IsContentMappingAvailable() || !SelectedStream.IsValid() || SelectedStream->bStreamMissing)
+	{
+		return false;
+	}
+
+	if (bBindToMappingOutput)
+	{
+		if (!MappingIdText.IsValid())
+		{
+			return false;
+		}
+		return !MappingIdText->GetText().ToString().TrimStartAndEnd().IsEmpty();
+	}
+
+	return SelectedContext.IsValid();
 }
 
 bool SRship2110MappingPanel::CanUnbind() const
 {
-	return CanBind() && !SelectedStream->BoundContextId.IsEmpty();
+	return Is2110RuntimeAvailable()
+		&& SelectedStream.IsValid()
+		&& !SelectedStream->bStreamMissing
+		&& SelectedStream->bHasBinding;
 }
 
 bool SRship2110MappingPanel::CanStart() const
@@ -1325,7 +1517,7 @@ TSharedRef<SWidget> SRship2110MappingPanel::BuildStreamListSection()
 					]
 					+ SHorizontalBox::Slot().FillWidth(0.15f).Padding(0.0f, 0.0f, 6.0f, 0.0f)
 					[
-						SNew(STextBlock).Text(LOCTEXT("StreamBindColumn", "Bound Context"))
+						SNew(STextBlock).Text(LOCTEXT("StreamBindColumn", "Binding"))
 							.Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))
 					]
 					+ SHorizontalBox::Slot().FillWidth(0.10f)
@@ -1467,21 +1659,88 @@ TSharedRef<SWidget> SRship2110MappingPanel::BuildBindingSection()
 					]
 				]
 
-				+ SVerticalBox::Slot()
-				.AutoHeight()
-				.Padding(0.0f, 4.0f, 0.0f, 0.0f)
-				[
-					SNew(STextBlock)
-					.Text(LOCTEXT("CaptureRectHelp", "Capture Region (pixels, optional): x, y, width, height. Leave blank for full context."))
-				]
-
-				+ SVerticalBox::Slot()
-				.AutoHeight()
-				.Padding(0.0f, 4.0f, 0.0f, 0.0f)
-				[
-					SNew(SHorizontalBox)
-					+ SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 4.0f, 0.0f)
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(0.0f, 4.0f, 0.0f, 0.0f)
 					[
+						SNew(SHorizontalBox)
+						+ SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
+						[
+							SNew(STextBlock)
+							.Text(LOCTEXT("BindModeLabel", "Target Mode:"))
+						]
+						+ SHorizontalBox::Slot().AutoWidth()
+						[
+							SNew(SCheckBox)
+							.IsChecked_Lambda([this]()
+							{
+								return bBindToMappingOutput ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
+							})
+							.OnCheckStateChanged_Lambda([this](ECheckBoxState NewState)
+							{
+								bBindToMappingOutput = (NewState == ECheckBoxState::Checked);
+								UpdateBindingInputsFromSelection();
+								UpdateSelectionDetails();
+							})
+							[
+								SNew(STextBlock)
+								.Text(LOCTEXT("BindModeToggle", "Bind to mapping output (instead of context)"))
+							]
+						]
+					]
+
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(0.0f, 4.0f, 0.0f, 0.0f)
+					[
+						SNew(SHorizontalBox)
+						+ SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 6.0f, 0.0f)
+						[
+							SNew(STextBlock)
+							.Text(LOCTEXT("BindMappingIdLabel", "Mapping ID:"))
+						]
+						+ SHorizontalBox::Slot().FillWidth(0.55f).Padding(0.0f, 0.0f, 8.0f, 0.0f)
+						[
+							SAssignNew(MappingIdText, SEditableTextBox)
+							.HintText(LOCTEXT("BindMappingIdHint", "mapping-id"))
+							.IsEnabled_Lambda([this]() { return bBindToMappingOutput; })
+						]
+						+ SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 6.0f, 0.0f)
+						[
+							SNew(STextBlock)
+							.Text(LOCTEXT("BindSurfaceIdLabel", "Surface ID:"))
+						]
+						+ SHorizontalBox::Slot().FillWidth(0.45f)
+						[
+							SAssignNew(SurfaceIdText, SEditableTextBox)
+							.HintText(LOCTEXT("BindSurfaceIdHint", "optional (auto if single surface)"))
+							.IsEnabled_Lambda([this]() { return bBindToMappingOutput; })
+						]
+					]
+
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(0.0f, 2.0f, 0.0f, 0.0f)
+					[
+						SNew(STextBlock)
+						.Text(LOCTEXT("BindModeHelp", "Context mode uses selected context. Mapping mode uses mapping/surface IDs above."))
+					]
+
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(0.0f, 4.0f, 0.0f, 0.0f)
+					[
+						SNew(STextBlock)
+						.Text(LOCTEXT("CaptureRectHelp", "Capture Region (pixels, optional): x, y, width, height. Leave blank for full source render target."))
+					]
+
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(0.0f, 4.0f, 0.0f, 0.0f)
+					[
+						SNew(SHorizontalBox)
+						+ SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 4.0f, 0.0f)
+						[
 						SNew(STextBlock).Text(LOCTEXT("CaptureXLabel", "X:"))
 					]
 					+ SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
@@ -1523,13 +1782,18 @@ TSharedRef<SWidget> SRship2110MappingPanel::BuildBindingSection()
 				.Padding(0.0f, 8.0f, 0.0f, 0.0f)
 				[
 					SNew(SHorizontalBox)
-					+ SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 6.0f, 0.0f)
-					[
-						SNew(SButton)
-						.Text(LOCTEXT("BindButton", "Bind Stream -> Context"))
-						.OnClicked(this, &SRship2110MappingPanel::OnBindClicked)
-						.IsEnabled_Lambda([this]() { return CanBind(); })
-					]
+						+ SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 6.0f, 0.0f)
+						[
+							SNew(SButton)
+							.Text_Lambda([this]()
+							{
+								return bBindToMappingOutput
+									? LOCTEXT("BindButtonMapping", "Bind Stream -> Mapping Output")
+									: LOCTEXT("BindButtonContext", "Bind Stream -> Context");
+							})
+							.OnClicked(this, &SRship2110MappingPanel::OnBindClicked)
+							.IsEnabled_Lambda([this]() { return CanBind(); })
+						]
 					+ SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 6.0f, 0.0f)
 					[
 						SNew(SButton)
@@ -1560,15 +1824,15 @@ TSharedRef<SWidget> SRship2110MappingPanel::BuildBindingSection()
 					]
 				]
 
-				+ SVerticalBox::Slot()
-				.AutoHeight()
-				.Padding(0.0f, 8.0f, 0.0f, 0.0f)
-				[
-					SAssignNew(BindingStatusText, STextBlock)
-					.Text(LOCTEXT("BindingStatusInit", "Select stream and context to create a binding."))
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(0.0f, 8.0f, 0.0f, 0.0f)
+					[
+						SAssignNew(BindingStatusText, STextBlock)
+						.Text(LOCTEXT("BindingStatusInit", "Select a stream, pick context or mapping output mode, then bind."))
+					]
 				]
-			]
-		];
+			];
 }
 
 TSharedRef<SWidget> SRship2110MappingPanel::BuildSelectionDetailsSection()
@@ -1625,14 +1889,14 @@ TSharedRef<SWidget> SRship2110MappingPanel::BuildUserGuideSection()
 		.Padding(0.0f, 4.0f, 0.0f, 0.0f)
 		[
 			SNew(STextBlock)
-			.WrapTextAt(980.0f)
-			.ColorAndOpacity(FSlateColor::UseSubduedForeground())
-			.Text(LOCTEXT("GuideText",
-				"Bind a stream to a render context and run it live in the editor."
-				" The sender consumes the render context's resolved render target each frame and streams it over 2110."
-				" Keep stream format resolution/frame-rate aligned with the bound context output size."
-				" You can capture a cropped output by entering x,y,width,height; leave all empty for full context."))
-		]
+				.WrapTextAt(980.0f)
+				.ColorAndOpacity(FSlateColor::UseSubduedForeground())
+				.Text(LOCTEXT("GuideText",
+					"Bind a stream to either a render context or a mapping output and run it live in the editor."
+					" Context mode consumes the selected context render target; mapping mode resolves a mapping/surface output target."
+					" Keep stream format resolution/frame-rate aligned with the resolved output size."
+					" You can capture a cropped output by entering x,y,width,height; leave all empty for full output."))
+			]
 		+ SVerticalBox::Slot()
 		.AutoHeight()
 		.Padding(0.0f, 2.0f, 0.0f, 0.0f)
@@ -1655,6 +1919,14 @@ TSharedRef<ITableRow> SRship2110MappingPanel::OnGenerateStreamRow(TSharedPtr<FRs
 	}
 
 	const FNumberFormattingOptions BitrateNumberFormat = MakeBitrateNumberFormat();
+	const FString BindingLabel = !Item->BoundContextId.IsEmpty()
+		? Item->BoundContextId
+		: (Item->bBoundToMappingOutput
+			? (Item->BoundSurfaceId.IsEmpty()
+				? FString::Printf(TEXT("map:%s/<auto>"), *Item->BoundMappingId)
+				: FString::Printf(TEXT("map:%s/%s"), *Item->BoundMappingId, *Item->BoundSurfaceId))
+			: TEXT("unbound"));
+	const FLinearColor BindingColor = Item->bHasBinding ? FLinearColor::Green : FLinearColor::Yellow;
 
 	return SNew(STableRow<TSharedPtr<FRship2110MappingStreamItem>>, OwnerTable)
 		.Padding(2.0f)
@@ -1692,8 +1964,8 @@ TSharedRef<ITableRow> SRship2110MappingPanel::OnGenerateStreamRow(TSharedPtr<FRs
 			+ SHorizontalBox::Slot().FillWidth(0.15f).Padding(0.0f, 0.0f, 6.0f, 0.0f)
 			[
 				SNew(STextBlock)
-				.Text(FText::FromString(Item->BoundContextId.IsEmpty() ? TEXT("unbound") : Item->BoundContextId))
-				.ColorAndOpacity(Item->BoundContextId.IsEmpty() ? FLinearColor::Yellow : FLinearColor::Green)
+				.Text(FText::FromString(BindingLabel))
+				.ColorAndOpacity(BindingColor)
 			]
 				+ SHorizontalBox::Slot().FillWidth(0.10f)
 				[
