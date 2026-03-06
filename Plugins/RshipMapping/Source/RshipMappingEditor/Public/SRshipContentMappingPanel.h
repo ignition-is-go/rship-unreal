@@ -3,10 +3,14 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "RshipTexturePipelineAsset.h"
+#include "RshipTexturePipelineEdGraph.h"
 #include "Styling/SlateBrush.h"
+#include "UObject/StrongObjectPtr.h"
 #include "Widgets/SCompoundWidget.h"
 
 class AActor;
+class SGraphEditor;
 class SVerticalBox;
 class STextBlock;
 template<typename NumericType> class SSpinBox;
@@ -48,6 +52,8 @@ private:
 	TSharedRef<SWidget> BuildContextsSection();
 	TSharedRef<SWidget> BuildSurfacesSection();
 	TSharedRef<SWidget> BuildMappingsSection();
+	TSharedRef<SWidget> BuildSelectionDetailsSection();
+	TSharedRef<SWidget> BuildPipelineGraphSection();
 	TSharedRef<SWidget> BuildContextForm();
 	TSharedRef<SWidget> BuildSurfaceForm();
 	TSharedRef<SWidget> BuildMappingForm();
@@ -120,6 +126,17 @@ private:
 	bool ApplyModeToLiveMapping(const FString& Mode);
 	bool ApplyCurrentFormToSelectedMapping(bool bCreateIfMissing);
 	uint32 ComputeMappingFormLiveHash() const;
+	void EnsurePipelineDraftInitialized();
+	void SeedPipelineDraftFromSelection();
+	void RebuildPipelineEditorGraphFromDraft();
+	void RebuildPipelineDraftFromEditorGraph();
+	bool ValidateNodePipelineDraft(FString& OutDiagnostics);
+	bool CompileNodePipelineDraft(FString& OutPlanJson, FString& OutDiagnostics);
+	bool ApplyNodePipelineDraft(FString& OutDiagnostics);
+	bool RevertNodePipelineDraft(FString& OutDiagnostics);
+	bool RollbackNodePipelineApply(FString& OutDiagnostics);
+	URshipTexturePipelineAsset* ResolveOrCreateProjectPipelineAsset();
+	bool SaveProjectPipelineAsset(URshipTexturePipelineAsset* Asset) const;
 
 	struct FFeedRect
 	{
@@ -278,13 +295,14 @@ private:
 	// Graphical widgets
 	TSharedPtr<SRshipModeSelector> QuickModeSelector;
 	TSharedPtr<SRshipModeSelector> MapModeSelector;
+	TSharedPtr<SGraphEditor> PipelineGraphEditor;
 	TSharedPtr<SRshipMappingCanvas> MappingCanvas;
 	TSharedPtr<SRshipMappingCanvas> FeedSourceCanvas;
 	TSharedPtr<SRshipMappingCanvas> FeedDestinationCanvas;
 	TSharedPtr<SVerticalBox> FeedDestinationCanvasList;
 	TSharedPtr<SRshipAngleMaskWidget> AngleMaskWidget;
 	TSharedPtr<SRshipContentModeSelector> ContentModeSelector;
-	TSharedPtr<class SWindow> MappingEditorWindow;
+	TSharedPtr<STextBlock> PipelineDiagnosticsText;
 
 	TArray<TSharedPtr<FRshipIdOption>> TargetOptions;
 	TArray<TSharedPtr<FRshipIdOption>> CameraOptions;
@@ -299,6 +317,11 @@ private:
 	FString QuickMapMode = TEXT("direct");
 	FString MapMode = TEXT("direct");
 	bool bQuickAdvanced = false;
+	bool bUseNodePipelineWorkflow = true;
+	FString LastPipelinePlanJson;
+	FString LastPipelineDiagnosticsJson;
+	TStrongObjectPtr<URshipTexturePipelineAsset> ActivePipelineDraft;
+	TStrongObjectPtr<URshipTexturePipelineEdGraph> ActivePipelineGraph;
 
 	// Preview helpers
 	TSharedPtr<class SBorder> PreviewBorder;

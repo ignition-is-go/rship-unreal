@@ -5,9 +5,13 @@
 #include "SRshipMappingCanvas.h"
 #include "SRshipAngleMaskWidget.h"
 #include "SRshipContentModeSelector.h"
+#include "RshipTexturePipelineEdGraph.h"
+#include "RshipTexturePipelineEdGraphNode.h"
 #include "RshipSubsystem.h"
 #include "RshipContentMappingManager.h"
 
+#include "GraphEditor.h"
+#include "EdGraph/EdGraphPin.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SWidgetSwitcher.h"
 #include "Widgets/Layout/SSpacer.h"
@@ -17,6 +21,7 @@
 #include "Widgets/Layout/SGridPanel.h"
 #include "Widgets/Layout/SExpandableArea.h"
 #include "Widgets/Layout/SWrapBox.h"
+#include "Widgets/Layout/SSplitter.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SEditableTextBox.h"
 #include "Widgets/Input/SCheckBox.h"
@@ -24,8 +29,8 @@
 #include "Widgets/Input/SSpinBox.h"
 #include "Widgets/Text/STextBlock.h"
 #include "Widgets/Images/SImage.h"
-#include "Widgets/SWindow.h"
 #include "Dom/JsonObject.h"
+#include "JsonObjectConverter.h"
 #include "Serialization/JsonWriter.h"
 #include "Serialization/JsonSerializer.h"
 #include "Framework/MultiBox/MultiBoxBuilder.h"
@@ -49,6 +54,10 @@
 #include "RshipCameraActor.h"
 #include "HAL/PlatformApplicationMisc.h"
 #include "ScopedTransaction.h"
+#include "UObject/Package.h"
+#include "UObject/SavePackage.h"
+#include "Misc/PackageName.h"
+#include "AssetRegistry/AssetRegistryModule.h"
 
 #define LOCTEXT_NAMESPACE "SRshipContentMappingPanel"
 
@@ -67,6 +76,7 @@ namespace
 	const FString MapModeCameraPlate = TEXT("camera-plate");
 	const FString MapModeSpatial = TEXT("spatial");
 	const FString MapModeDepthMap = TEXT("depth-map");
+	const TCHAR* ProjectPipelineAssetObjectPath = TEXT("/Game/Rship/ContentMapping/TexturePipeline.TexturePipeline");
 	const FMargin CompactMappingButtonPadding(1.0f, 0.0f);
 	const FSlateFontInfo CompactMappingButtonFont = FCoreStyle::GetDefaultFontStyle("Regular", 8);
 	const FSlateFontInfo MappingListHeaderFont = FCoreStyle::GetDefaultFontStyle("Bold", 9);
@@ -741,10 +751,19 @@ void SRshipContentMappingPanel::Construct(const FArguments& InArgs)
 		.BorderImage(FAppStyle::GetBrush("ToolPanel.GroupBorder"))
 		.Padding(8.0f)
 		[
-			SNew(SVerticalBox)
-			+ SVerticalBox::Slot().FillHeight(1.0f)
+			SNew(SSplitter)
+			.Orientation(Orient_Horizontal)
+			+ SSplitter::Slot()
+			.Value(0.58f)
+			.MinSize(520.0f)
 			[
 				BuildMappingsSection()
+			]
+			+ SSplitter::Slot()
+			.Value(0.42f)
+			.MinSize(360.0f)
+			[
+				BuildSelectionDetailsSection()
 			]
 		]
 	];
@@ -1771,6 +1790,8 @@ void SRshipContentMappingPanel::SetSelectedMappingId(const FString& NewSelectedM
 		bNewMappingDraftActive = false;
 		bHasInitializedDefaultMappingSelection = true;
 	}
+	SeedPipelineDraftFromSelection();
+	RebuildPipelineEditorGraphFromDraft();
 }
 
 void SRshipContentMappingPanel::ClearSelectedMappingId()
@@ -1781,82 +1802,13 @@ void SRshipContentMappingPanel::ClearSelectedMappingId()
 	}
 	SelectedMappingId.Reset();
 	bHasLiveMappingFormHash = false;
+	SeedPipelineDraftFromSelection();
+	RebuildPipelineEditorGraphFromDraft();
 }
 
 void SRshipContentMappingPanel::OpenMappingEditorWindow(const FRshipContentMappingState& Mapping)
 {
-	if (!FSlateApplication::IsInitialized())
-	{
-		return;
-	}
-
-	if (!MappingEditorWindow.IsValid())
-	{
-		TSharedRef<SWindow> NewWindow = SNew(SWindow)
-			.Title(LOCTEXT("MappingEditorWindowTitle", "Mapping Edit Mode"))
-			.ClientSize(FVector2D(920.0f, 780.0f))
-			.SupportsMaximize(true)
-			.SupportsMinimize(false)
-			[
-				SNew(SBorder)
-				.Padding(8.0f)
-				[
-					SNew(SScrollBox)
-					+ SScrollBox::Slot()
-					[
-						SNew(SVerticalBox)
-						+ SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 8)
-						[
-							SNew(STextBlock)
-							.Text(LOCTEXT("MappingEditorWindowHint", "Edit mapping parameters here. List-row fields remain inline editable."))
-							.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
-						]
-						+ SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 8)
-						[
-							SAssignNew(PreviewBorder, SBorder)
-							.BorderImage(FAppStyle::GetBrush("ToolPanel.GroupBorder"))
-							.Padding(6.0f)
-							[
-								SNew(SVerticalBox)
-								+ SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 4)
-								[
-									SAssignNew(PreviewLabel, STextBlock)
-									.Text(LOCTEXT("MappingEditorPreviewDefault", "Preview unavailable"))
-									.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
-								]
-								+ SVerticalBox::Slot().AutoHeight()
-								[
-									SAssignNew(PreviewImage, SImage)
-									.Image(FAppStyle::GetBrush("WhiteBrush"))
-								]
-							]
-						]
-						+ SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 8)
-						[
-							BuildContextForm()
-						]
-						+ SVerticalBox::Slot().AutoHeight()
-						[
-							BuildMappingForm()
-						]
-					]
-				]
-			];
-
-		NewWindow->SetOnWindowClosed(FOnWindowClosed::CreateLambda([this](const TSharedRef<SWindow>&)
-		{
-			MappingEditorWindow.Reset();
-			StopProjectionEdit();
-		}));
-
-		MappingEditorWindow = NewWindow;
-		FSlateApplication::Get().AddWindow(NewWindow);
-	}
-	else
-	{
-		MappingEditorWindow->BringToFront();
-	}
-
+	// Editing is now docked inside the main nomad tab and follows mapping selection.
 	FRshipContentMappingState MappingToEdit = Mapping;
 	if (GEngine)
 	{
@@ -1878,6 +1830,11 @@ void SRshipContentMappingPanel::OpenMappingEditorWindow(const FRshipContentMappi
 	}
 
 	SetSelectedMappingId(MappingToEdit.Id);
+	if (!SelectedMappingRows.Contains(MappingToEdit.Id))
+	{
+		SelectedMappingRows.Empty();
+		SelectedMappingRows.Add(MappingToEdit.Id);
+	}
 	LastPreviewMappingId = MappingToEdit.Id;
 	PopulateMappingForm(MappingToEdit);
 	RefreshStatus();
@@ -1894,14 +1851,8 @@ void SRshipContentMappingPanel::OpenMappingEditorWindow(const FRshipContentMappi
 
 void SRshipContentMappingPanel::CloseMappingEditorWindow()
 {
-	if (MappingEditorWindow.IsValid())
-	{
-		if (FSlateApplication::IsInitialized())
-		{
-			MappingEditorWindow->RequestDestroyWindow();
-		}
-		MappingEditorWindow.Reset();
-	}
+	// Docked flow: nothing to destroy.
+	StopProjectionEdit();
 }
 
 void SRshipContentMappingPanel::SyncProjectionActorFromMapping(const FRshipContentMappingState& Mapping, const FRshipRenderContextState* ContextState)
@@ -4131,7 +4082,924 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildMappingsSection()
 			[
 				SAssignNew(MappingList, SVerticalBox)
 			]
+			];
+}
+
+TSharedRef<SWidget> SRshipContentMappingPanel::BuildSelectionDetailsSection()
+{
+	return SNew(SBorder)
+		.BorderImage(FAppStyle::GetBrush("ToolPanel.GroupBorder"))
+		.Padding(6.0f)
+		[
+			SNew(SScrollBox)
+			+ SScrollBox::Slot()
+			[
+				SNew(SVerticalBox)
+				+ SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 8)
+				[
+					SNew(STextBlock)
+					.Text_Lambda([this]()
+					{
+						if (SelectedMappingId.IsEmpty())
+						{
+							return LOCTEXT("MappingEditorNoSelection", "Select a mapping to edit");
+						}
+						return FText::Format(
+							LOCTEXT("MappingEditorSelectedFmt", "Editing Mapping: {0}"),
+							FText::FromString(SelectedMappingId));
+					})
+					.Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))
+				]
+				+ SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 8)
+				[
+					SAssignNew(PreviewBorder, SBorder)
+					.BorderImage(FAppStyle::GetBrush("ToolPanel.GroupBorder"))
+					.Padding(6.0f)
+					[
+						SNew(SVerticalBox)
+						+ SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 4)
+						[
+							SAssignNew(PreviewLabel, STextBlock)
+							.Text(LOCTEXT("MappingEditorPreviewDefaultDocked", "Preview unavailable"))
+							.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
+						]
+						+ SVerticalBox::Slot().AutoHeight()
+						[
+							SAssignNew(PreviewImage, SImage)
+							.Image(FAppStyle::GetBrush("WhiteBrush"))
+						]
+					]
+				]
+				+ SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 8)
+				[
+					BuildPipelineGraphSection()
+				]
+				+ SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 8)
+				[
+					BuildContextForm()
+				]
+				+ SVerticalBox::Slot().AutoHeight()
+				[
+					BuildMappingForm()
+				]
+			]
 		];
+}
+
+TSharedRef<SWidget> SRshipContentMappingPanel::BuildPipelineGraphSection()
+{
+	EnsurePipelineDraftInitialized();
+	RebuildPipelineEditorGraphFromDraft();
+
+	FGraphAppearanceInfo Appearance;
+	Appearance.CornerText = LOCTEXT("PipelineGraphCornerText", "Deterministic Texture Pipeline");
+
+	if (!PipelineGraphEditor.IsValid())
+	{
+		SAssignNew(PipelineGraphEditor, SGraphEditor)
+			.Appearance(Appearance)
+			.GraphToEdit(ActivePipelineGraph.Get())
+			.IsEditable(true);
+	}
+
+	return SNew(SBorder)
+		.BorderImage(FAppStyle::GetBrush("ToolPanel.GroupBorder"))
+		.Padding(8.0f)
+		[
+			SNew(SVerticalBox)
+			+ SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 4)
+			[
+				SNew(STextBlock)
+				.Text(LOCTEXT("PipelineSectionTitle", "Node Pipeline (Primary Workflow)"))
+				.Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))
+			]
+			+ SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 6)
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot().AutoWidth()
+				[
+					SNew(SCheckBox)
+					.IsChecked_Lambda([this]()
+					{
+						return bUseNodePipelineWorkflow ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
+					})
+					.OnCheckStateChanged_Lambda([this](ECheckBoxState NewState)
+					{
+						bUseNodePipelineWorkflow = (NewState == ECheckBoxState::Checked);
+					})
+					[
+						SNew(STextBlock)
+						.Text(LOCTEXT("PipelineWorkflowToggle", "Enable node pipeline workflow"))
+					]
+				]
+				+ SHorizontalBox::Slot().FillWidth(1.0f)
+				[
+					SNew(SSpacer)
+				]
+				+ SHorizontalBox::Slot().AutoWidth()
+				[
+					SNew(SButton)
+					.Text(LOCTEXT("PipelineSeedSelection", "Seed From Selection"))
+					.OnClicked_Lambda([this]()
+					{
+						SeedPipelineDraftFromSelection();
+						RebuildPipelineEditorGraphFromDraft();
+						LastPipelineDiagnosticsJson = TEXT("Draft graph seeded from current selection.");
+						if (PipelineDiagnosticsText.IsValid())
+						{
+							PipelineDiagnosticsText->SetText(FText::FromString(LastPipelineDiagnosticsJson));
+						}
+						return FReply::Handled();
+					})
+				]
+			]
+			+ SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 6)
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 6, 0)
+				[
+					SNew(SButton)
+					.Text(LOCTEXT("PipelineValidate", "Validate"))
+					.OnClicked_Lambda([this]()
+					{
+						FString Diagnostics;
+						ValidateNodePipelineDraft(Diagnostics);
+						LastPipelineDiagnosticsJson = Diagnostics;
+						if (PipelineDiagnosticsText.IsValid())
+						{
+							PipelineDiagnosticsText->SetText(FText::FromString(Diagnostics));
+						}
+						return FReply::Handled();
+					})
+				]
+				+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 6, 0)
+				[
+					SNew(SButton)
+					.Text(LOCTEXT("PipelineApply", "Apply"))
+					.OnClicked_Lambda([this]()
+					{
+						FString Diagnostics;
+						const bool bApplied = ApplyNodePipelineDraft(Diagnostics);
+						LastPipelineDiagnosticsJson = Diagnostics;
+						if (PipelineDiagnosticsText.IsValid())
+						{
+							PipelineDiagnosticsText->SetText(FText::FromString(
+								bApplied
+									? FString::Printf(TEXT("Apply succeeded.\n%s"), *Diagnostics)
+									: FString::Printf(TEXT("Apply failed.\n%s"), *Diagnostics)));
+						}
+						return FReply::Handled();
+					})
+				]
+				+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 6, 0)
+				[
+					SNew(SButton)
+					.Text(LOCTEXT("PipelineRevert", "Revert Draft"))
+					.OnClicked_Lambda([this]()
+					{
+						FString Diagnostics;
+						RevertNodePipelineDraft(Diagnostics);
+						LastPipelineDiagnosticsJson = Diagnostics;
+						if (PipelineDiagnosticsText.IsValid())
+						{
+							PipelineDiagnosticsText->SetText(FText::FromString(Diagnostics));
+						}
+						RefreshStatus();
+						return FReply::Handled();
+					})
+				]
+				+ SHorizontalBox::Slot().AutoWidth()
+				[
+					SNew(SButton)
+					.Text(LOCTEXT("PipelineShowDiagnostics", "Show Diagnostics"))
+					.OnClicked_Lambda([this]()
+					{
+						if (PipelineDiagnosticsText.IsValid())
+						{
+							PipelineDiagnosticsText->SetText(FText::FromString(LastPipelineDiagnosticsJson));
+						}
+						return FReply::Handled();
+					})
+				]
+			]
+			+ SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 6)
+			[
+				SAssignNew(PipelineDiagnosticsText, STextBlock)
+				.Text(LOCTEXT("PipelineDiagnosticsDefault", "No diagnostics yet. Use Validate to run DAG and contract checks."))
+				.AutoWrapText(true)
+				.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
+			]
+			+ SVerticalBox::Slot().AutoHeight()
+			[
+				SNew(SBox)
+				.HeightOverride(260.0f)
+				.Visibility_Lambda([this]()
+				{
+					return bUseNodePipelineWorkflow ? EVisibility::Visible : EVisibility::Collapsed;
+				})
+				[
+					PipelineGraphEditor.ToSharedRef()
+				]
+			]
+			+ SVerticalBox::Slot().AutoHeight().Padding(0, 4, 0, 0)
+			[
+				SNew(STextBlock)
+				.Text(LOCTEXT("PipelineLegacyHint", "Legacy form controls remain available below during rollout."))
+				.Font(FCoreStyle::GetDefaultFontStyle("Regular", 8))
+				.ColorAndOpacity(FLinearColor(0.7f, 0.7f, 0.7f, 1.0f))
+			]
+		];
+}
+
+void SRshipContentMappingPanel::EnsurePipelineDraftInitialized()
+{
+	if (!ActivePipelineDraft.IsValid())
+	{
+		if (URshipTexturePipelineAsset* ProjectAsset = ResolveOrCreateProjectPipelineAsset())
+		{
+			ActivePipelineDraft.Reset(ProjectAsset);
+		}
+		else
+		{
+			ActivePipelineDraft.Reset(NewObject<URshipTexturePipelineAsset>(GetTransientPackage()));
+			ActivePipelineDraft->AssetId = TEXT("editor-draft");
+			ActivePipelineDraft->Revision = 1;
+			ActivePipelineDraft->bStrictNoFallback = true;
+		}
+	}
+
+	if (!ActivePipelineGraph.IsValid())
+	{
+		ActivePipelineGraph.Reset(NewObject<URshipTexturePipelineEdGraph>(GetTransientPackage(), NAME_None, RF_Transactional));
+		ActivePipelineGraph->InitializeAsTexturePipelineGraph();
+	}
+
+	if (ActivePipelineDraft->Nodes.Num() == 0)
+	{
+		SeedPipelineDraftFromSelection();
+	}
+}
+
+void SRshipContentMappingPanel::SeedPipelineDraftFromSelection()
+{
+	if (!ActivePipelineDraft.IsValid())
+	{
+		if (URshipTexturePipelineAsset* ProjectAsset = ResolveOrCreateProjectPipelineAsset())
+		{
+			ActivePipelineDraft.Reset(ProjectAsset);
+		}
+		else
+		{
+			ActivePipelineDraft.Reset(NewObject<URshipTexturePipelineAsset>(GetTransientPackage()));
+			ActivePipelineDraft->AssetId = TEXT("editor-draft");
+			ActivePipelineDraft->Revision = 1;
+			ActivePipelineDraft->bStrictNoFallback = true;
+		}
+	}
+	if (!ActivePipelineGraph.IsValid())
+	{
+		ActivePipelineGraph.Reset(NewObject<URshipTexturePipelineEdGraph>(GetTransientPackage(), NAME_None, RF_Transactional));
+		ActivePipelineGraph->InitializeAsTexturePipelineGraph();
+	}
+
+	ActivePipelineDraft->Nodes.Reset();
+	ActivePipelineDraft->Edges.Reset();
+	ActivePipelineDraft->Revision = FMath::Max<int64>(1, ActivePipelineDraft->Revision + 1);
+
+	auto AddNode = [this](const FString& Id, ERshipPipelineNodeKind Kind, const FString& Label, float X, float Y) -> FRshipPipelineNode&
+	{
+		FRshipPipelineNode& Node = ActivePipelineDraft->Nodes.AddDefaulted_GetRef();
+		Node.Id = Id;
+		Node.Kind = Kind;
+		Node.Label = Label;
+		Node.Position = FVector2D(X, Y);
+		Node.Pins.Reset();
+		Node.Params.Reset();
+		return Node;
+	};
+
+	auto AddEdge = [this](const FString& Id, const FString& FromNode, const FString& ToNode)
+	{
+		FRshipPipelineEdge& Edge = ActivePipelineDraft->Edges.AddDefaulted_GetRef();
+		Edge.Id = Id;
+		Edge.FromNodeId = FromNode;
+		Edge.FromPinId = TEXT("Out");
+		Edge.ToNodeId = ToNode;
+		Edge.ToPinId = TEXT("In");
+	};
+
+	URshipContentMappingManager* Manager = nullptr;
+	if (GEngine)
+	{
+		if (URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>())
+		{
+			Manager = ResolveContentMappingManager(Subsystem);
+		}
+	}
+
+	const TArray<FRshipContentMappingState> Mappings = Manager ? Manager->GetMappings() : TArray<FRshipContentMappingState>();
+	const TArray<FRshipRenderContextState> Contexts = Manager ? Manager->GetRenderContexts() : TArray<FRshipRenderContextState>();
+	const TArray<FRshipMappingSurfaceState> Surfaces = Manager ? Manager->GetMappingSurfaces() : TArray<FRshipMappingSurfaceState>();
+
+	const FRshipContentMappingState* SelectedMapping = nullptr;
+	for (const FRshipContentMappingState& Mapping : Mappings)
+	{
+		if (Mapping.Id == SelectedMappingId)
+		{
+			SelectedMapping = &Mapping;
+			break;
+		}
+	}
+
+	if (!SelectedMapping)
+	{
+		FRshipPipelineNode& InputNode = AddNode(TEXT("input-1"), ERshipPipelineNodeKind::RenderContextInput, TEXT("Input"), -280.0f, 0.0f);
+		InputNode.Params.Add(TEXT("contextId"), TEXT("context-1"));
+		InputNode.Params.Add(TEXT("sourceType"), TEXT("camera"));
+		InputNode.Params.Add(TEXT("cameraId"), TEXT("camera-1"));
+
+		FRshipPipelineNode& ProjectionNode = AddNode(TEXT("projection-1"), ERshipPipelineNodeKind::Projection, TEXT("Projection"), 0.0f, 0.0f);
+		ProjectionNode.Params.Add(TEXT("projectionType"), TEXT("perspective"));
+
+		FRshipPipelineNode& OutputNode = AddNode(TEXT("output-1"), ERshipPipelineNodeKind::MappingSurfaceOutput, TEXT("Screen Output"), 280.0f, 0.0f);
+		OutputNode.Params.Add(TEXT("surfaceId"), TEXT("surface-1"));
+		OutputNode.Params.Add(TEXT("mappingId"), TEXT("mapping-1"));
+
+		AddEdge(TEXT("edge-1"), InputNode.Id, ProjectionNode.Id);
+		AddEdge(TEXT("edge-2"), ProjectionNode.Id, OutputNode.Id);
+		SaveProjectPipelineAsset(ActivePipelineDraft.Get());
+		return;
+	}
+
+	const FString InputNodeId = TEXT("input-selected");
+	FRshipPipelineNode& InputNode = AddNode(
+		InputNodeId,
+		ERshipPipelineNodeKind::RenderContextInput,
+		TEXT("Selected Input"),
+		-320.0f,
+		0.0f);
+
+	InputNode.Params.Add(TEXT("contextId"), SelectedMapping->ContextId);
+	for (const FRshipRenderContextState& Context : Contexts)
+	{
+		if (Context.Id != SelectedMapping->ContextId)
+		{
+			continue;
+		}
+		InputNode.Params.Add(TEXT("sourceType"), Context.SourceType);
+		InputNode.Params.Add(TEXT("cameraId"), Context.CameraId);
+		InputNode.Params.Add(TEXT("assetId"), Context.AssetId);
+		InputNode.Params.Add(TEXT("externalSourceId"), Context.ExternalSourceId);
+		InputNode.Params.Add(TEXT("width"), FString::FromInt(Context.Width));
+		InputNode.Params.Add(TEXT("height"), FString::FromInt(Context.Height));
+		break;
+	}
+
+	FString ProjectionType = TEXT("direct");
+	if (SelectedMapping->Type == TEXT("surface-projection"))
+	{
+		ProjectionType = TEXT("perspective");
+		if (SelectedMapping->Config.IsValid() && SelectedMapping->Config->HasTypedField<EJson::String>(TEXT("projectionType")))
+		{
+			ProjectionType = SelectedMapping->Config->GetStringField(TEXT("projectionType"));
+		}
+	}
+	else if (SelectedMapping->Config.IsValid()
+		&& SelectedMapping->Config->HasTypedField<EJson::String>(TEXT("uvMode"))
+		&& SelectedMapping->Config->GetStringField(TEXT("uvMode")).Equals(TEXT("feed"), ESearchCase::IgnoreCase))
+	{
+		ProjectionType = TEXT("feed");
+	}
+
+	const FString ProjectionNodeId = TEXT("projection-selected");
+	FRshipPipelineNode& ProjectionNode = AddNode(
+		ProjectionNodeId,
+		ERshipPipelineNodeKind::Projection,
+		TEXT("Selected Projection"),
+		0.0f,
+		0.0f);
+	ProjectionNode.Params.Add(TEXT("projectionType"), ProjectionType);
+
+	AddEdge(TEXT("edge-selected-input-proj"), InputNodeId, ProjectionNodeId);
+
+	int32 OutputIndex = 0;
+	for (const FString& SurfaceId : SelectedMapping->SurfaceIds)
+	{
+		const FString OutputNodeId = FString::Printf(TEXT("output-selected-%d"), OutputIndex);
+		FRshipPipelineNode& OutputNode = AddNode(
+			OutputNodeId,
+			ERshipPipelineNodeKind::MappingSurfaceOutput,
+			FString::Printf(TEXT("Screen %d"), OutputIndex + 1),
+			320.0f,
+			static_cast<float>(OutputIndex) * 180.0f);
+		OutputNode.Params.Add(TEXT("surfaceId"), SurfaceId);
+		OutputNode.Params.Add(TEXT("mappingId"), SelectedMapping->Id);
+		OutputNode.Params.Add(TEXT("opacity"), FString::SanitizeFloat(SelectedMapping->Opacity));
+		OutputNode.Params.Add(TEXT("enabled"), SelectedMapping->bEnabled ? TEXT("true") : TEXT("false"));
+
+		for (const FRshipMappingSurfaceState& Surface : Surfaces)
+		{
+			if (Surface.Id != SurfaceId)
+			{
+				continue;
+			}
+			OutputNode.Params.Add(TEXT("actorPath"), Surface.ActorPath);
+			OutputNode.Params.Add(TEXT("meshComponentName"), Surface.MeshComponentName);
+			break;
+		}
+
+		AddEdge(FString::Printf(TEXT("edge-selected-proj-%d"), OutputIndex), ProjectionNodeId, OutputNodeId);
+		++OutputIndex;
+	}
+
+	SaveProjectPipelineAsset(ActivePipelineDraft.Get());
+}
+
+void SRshipContentMappingPanel::RebuildPipelineEditorGraphFromDraft()
+{
+	EnsurePipelineDraftInitialized();
+	if (!ActivePipelineGraph.IsValid())
+	{
+		return;
+	}
+
+	while (ActivePipelineGraph->Nodes.Num() > 0)
+	{
+		UEdGraphNode* Node = ActivePipelineGraph->Nodes[0];
+		ActivePipelineGraph->RemoveNode(Node);
+	}
+
+	TMap<FString, URshipTexturePipelineEdGraphNode*> GraphNodesById;
+	for (const FRshipPipelineNode& DraftNode : ActivePipelineDraft->Nodes)
+	{
+		URshipTexturePipelineEdGraphNode* GraphNode = NewObject<URshipTexturePipelineEdGraphNode>(ActivePipelineGraph.Get(), NAME_None, RF_Transactional);
+		GraphNode->NodeId = DraftNode.Id;
+		GraphNode->NodeType = StaticEnum<ERshipPipelineNodeKind>()->GetNameStringByValue(static_cast<int64>(DraftNode.Kind));
+		GraphNode->DisplayLabel = DraftNode.Label.IsEmpty() ? DraftNode.Id : DraftNode.Label;
+		GraphNode->NodePosX = static_cast<int32>(DraftNode.Position.X);
+		GraphNode->NodePosY = static_cast<int32>(DraftNode.Position.Y);
+		GraphNode->CreateNewGuid();
+		GraphNode->AllocateDefaultPins();
+		ActivePipelineGraph->AddNode(GraphNode, false, false);
+		GraphNodesById.Add(DraftNode.Id, GraphNode);
+	}
+
+	for (const FRshipPipelineEdge& DraftEdge : ActivePipelineDraft->Edges)
+	{
+		URshipTexturePipelineEdGraphNode* const* FromNodePtr = GraphNodesById.Find(DraftEdge.FromNodeId);
+		URshipTexturePipelineEdGraphNode* const* ToNodePtr = GraphNodesById.Find(DraftEdge.ToNodeId);
+		if (!FromNodePtr || !ToNodePtr || !*FromNodePtr || !*ToNodePtr)
+		{
+			continue;
+		}
+
+		const FName OutPinName = DraftEdge.FromPinId.IsEmpty() ? FName(TEXT("Out")) : FName(*DraftEdge.FromPinId);
+		UEdGraphPin* OutPin = (*FromNodePtr)->FindPin(OutPinName);
+		if (!OutPin)
+		{
+			for (UEdGraphPin* Candidate : (*FromNodePtr)->Pins)
+			{
+				if (Candidate && Candidate->Direction == EGPD_Output)
+				{
+					OutPin = Candidate;
+					break;
+				}
+			}
+		}
+
+		const FName InPinName = DraftEdge.ToPinId.IsEmpty() ? FName(TEXT("In")) : FName(*DraftEdge.ToPinId);
+		UEdGraphPin* InPin = (*ToNodePtr)->FindPin(InPinName);
+		if (!InPin)
+		{
+			for (UEdGraphPin* Candidate : (*ToNodePtr)->Pins)
+			{
+				if (Candidate && Candidate->Direction == EGPD_Input)
+				{
+					InPin = Candidate;
+					break;
+				}
+			}
+		}
+
+		if (OutPin && InPin)
+		{
+			OutPin->MakeLinkTo(InPin);
+		}
+	}
+
+	if (PipelineGraphEditor.IsValid())
+	{
+		PipelineGraphEditor->NotifyGraphChanged();
+	}
+}
+
+void SRshipContentMappingPanel::RebuildPipelineDraftFromEditorGraph()
+{
+	EnsurePipelineDraftInitialized();
+	if (!ActivePipelineGraph.IsValid())
+	{
+		return;
+	}
+
+	TMap<FString, FRshipPipelineNode> ExistingDraftById;
+	for (const FRshipPipelineNode& Node : ActivePipelineDraft->Nodes)
+	{
+		ExistingDraftById.Add(Node.Id, Node);
+	}
+
+	ActivePipelineDraft->Nodes.Reset();
+	ActivePipelineDraft->Edges.Reset();
+
+	TSet<FString> SeenEdgeKeys;
+	for (UEdGraphNode* GraphNodeBase : ActivePipelineGraph->Nodes)
+	{
+		URshipTexturePipelineEdGraphNode* GraphNode = Cast<URshipTexturePipelineEdGraphNode>(GraphNodeBase);
+		if (!GraphNode)
+		{
+			continue;
+		}
+
+		FRshipPipelineNode DraftNode;
+		DraftNode.Id = GraphNode->NodeId.TrimStartAndEnd();
+		if (DraftNode.Id.IsEmpty())
+		{
+			DraftNode.Id = GraphNode->NodeGuid.ToString(EGuidFormats::DigitsWithHyphensLower);
+		}
+		DraftNode.Label = GraphNode->DisplayLabel;
+		DraftNode.Position = FVector2D(static_cast<float>(GraphNode->NodePosX), static_cast<float>(GraphNode->NodePosY));
+
+		if (const FRshipPipelineNode* Existing = ExistingDraftById.Find(DraftNode.Id))
+		{
+			DraftNode.Kind = Existing->Kind;
+			DraftNode.Params = Existing->Params;
+			DraftNode.Pins = Existing->Pins;
+		}
+		else
+		{
+			DraftNode.Kind = ERshipPipelineNodeKind::Projection;
+		}
+
+		ActivePipelineDraft->Nodes.Add(DraftNode);
+
+		for (UEdGraphPin* Pin : GraphNode->Pins)
+		{
+			if (!Pin || Pin->Direction != EGPD_Output)
+			{
+				continue;
+			}
+			for (UEdGraphPin* LinkedPin : Pin->LinkedTo)
+			{
+				if (!LinkedPin || !LinkedPin->GetOwningNode())
+				{
+					continue;
+				}
+				URshipTexturePipelineEdGraphNode* LinkedNode = Cast<URshipTexturePipelineEdGraphNode>(LinkedPin->GetOwningNode());
+				if (!LinkedNode)
+				{
+					continue;
+				}
+				const FString FromNodeId = DraftNode.Id;
+				const FString ToNodeId = LinkedNode->NodeId.TrimStartAndEnd();
+				if (FromNodeId.IsEmpty() || ToNodeId.IsEmpty())
+				{
+					continue;
+				}
+
+				const FString EdgeKey = FString::Printf(TEXT("%s|%s|%s|%s"), *FromNodeId, *Pin->PinName.ToString(), *ToNodeId, *LinkedPin->PinName.ToString());
+				if (SeenEdgeKeys.Contains(EdgeKey))
+				{
+					continue;
+				}
+				SeenEdgeKeys.Add(EdgeKey);
+
+				FRshipPipelineEdge& Edge = ActivePipelineDraft->Edges.AddDefaulted_GetRef();
+				Edge.Id = FString::Printf(TEXT("edge-%s"), *FGuid::NewGuid().ToString(EGuidFormats::Digits));
+				Edge.FromNodeId = FromNodeId;
+				Edge.FromPinId = Pin->PinName.ToString();
+				Edge.ToNodeId = ToNodeId;
+				Edge.ToPinId = LinkedPin->PinName.ToString();
+			}
+		}
+	}
+
+	ActivePipelineDraft->Revision = FMath::Max<int64>(1, ActivePipelineDraft->Revision + 1);
+	SaveProjectPipelineAsset(ActivePipelineDraft.Get());
+}
+
+URshipTexturePipelineAsset* SRshipContentMappingPanel::ResolveOrCreateProjectPipelineAsset()
+{
+#if WITH_EDITOR
+	URshipTexturePipelineAsset* ExistingAsset = LoadObject<URshipTexturePipelineAsset>(nullptr, ProjectPipelineAssetObjectPath);
+	if (ExistingAsset)
+	{
+		return ExistingAsset;
+	}
+
+	const FString ObjectPath(ProjectPipelineAssetObjectPath);
+	const FString PackagePath = FPackageName::ObjectPathToPackageName(ObjectPath);
+	if (!FPackageName::IsValidLongPackageName(PackagePath))
+	{
+		return nullptr;
+	}
+
+	UPackage* Package = CreatePackage(*PackagePath);
+	if (!Package)
+	{
+		return nullptr;
+	}
+
+	const FString AssetName = FPackageName::GetLongPackageAssetName(PackagePath);
+	URshipTexturePipelineAsset* NewAsset = NewObject<URshipTexturePipelineAsset>(
+		Package,
+		*AssetName,
+		RF_Public | RF_Standalone | RF_Transactional);
+	if (!NewAsset)
+	{
+		return nullptr;
+	}
+
+	NewAsset->AssetId = AssetName;
+	NewAsset->Revision = 1;
+	NewAsset->bStrictNoFallback = true;
+
+	FAssetRegistryModule::AssetCreated(NewAsset);
+	SaveProjectPipelineAsset(NewAsset);
+	return NewAsset;
+#else
+	return nullptr;
+#endif
+}
+
+bool SRshipContentMappingPanel::SaveProjectPipelineAsset(URshipTexturePipelineAsset* Asset) const
+{
+#if WITH_EDITOR
+	if (!Asset)
+	{
+		return false;
+	}
+
+	UPackage* Package = Asset->GetPackage();
+	if (!Package)
+	{
+		return false;
+	}
+
+	const FString PackageName = Package->GetName();
+	if (!FPackageName::IsValidLongPackageName(PackageName))
+	{
+		return false;
+	}
+
+	Asset->MarkPackageDirty();
+	Package->MarkPackageDirty();
+
+	const FString PackageFilename = FPackageName::LongPackageNameToFilename(
+		PackageName,
+		FPackageName::GetAssetPackageExtension());
+	FSavePackageArgs SaveArgs;
+	SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+	SaveArgs.SaveFlags = SAVE_None;
+	SaveArgs.Error = GWarn;
+	return UPackage::SavePackage(Package, Asset, *PackageFilename, SaveArgs);
+#else
+	return false;
+#endif
+}
+
+bool SRshipContentMappingPanel::ValidateNodePipelineDraft(FString& OutDiagnostics)
+{
+	OutDiagnostics.Reset();
+	if (!GEngine)
+	{
+		OutDiagnostics = TEXT("Engine unavailable.");
+		return false;
+	}
+
+	URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+	if (!Subsystem)
+	{
+		OutDiagnostics = TEXT("Subsystem unavailable.");
+		return false;
+	}
+
+	URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
+	if (!Manager)
+	{
+		OutDiagnostics = TEXT("Content mapping manager unavailable.");
+		return false;
+	}
+
+	RebuildPipelineDraftFromEditorGraph();
+
+	TArray<FRshipPipelineDiagnostic> Diagnostics;
+	const bool bValid = Manager->ValidatePipelineGraph(ActivePipelineDraft.Get(), Diagnostics);
+
+	FString Lines;
+	for (const FRshipPipelineDiagnostic& Diagnostic : Diagnostics)
+	{
+		const TCHAR* Severity = Diagnostic.Severity == ERshipPipelineDiagnosticSeverity::Error
+			? TEXT("ERROR")
+			: (Diagnostic.Severity == ERshipPipelineDiagnosticSeverity::Warning ? TEXT("WARN") : TEXT("INFO"));
+		const FString NodeSuffix = Diagnostic.NodeId.IsEmpty() ? TEXT("") : FString::Printf(TEXT(" [node=%s]"), *Diagnostic.NodeId);
+		if (!Lines.IsEmpty())
+		{
+			Lines += TEXT("\n");
+		}
+		Lines += FString::Printf(TEXT("%s %s%s"), Severity, *Diagnostic.Message, *NodeSuffix);
+	}
+	if (Lines.IsEmpty())
+	{
+		Lines = bValid ? TEXT("Pipeline graph is valid.") : TEXT("Pipeline graph invalid.");
+	}
+	OutDiagnostics = Lines;
+	return bValid;
+}
+
+bool SRshipContentMappingPanel::CompileNodePipelineDraft(FString& OutPlanJson, FString& OutDiagnostics)
+{
+	OutPlanJson.Reset();
+	OutDiagnostics.Reset();
+
+	if (!GEngine)
+	{
+		OutDiagnostics = TEXT("Engine unavailable.");
+		return false;
+	}
+
+	URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+	if (!Subsystem)
+	{
+		OutDiagnostics = TEXT("Subsystem unavailable.");
+		return false;
+	}
+
+	URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
+	if (!Manager)
+	{
+		OutDiagnostics = TEXT("Content mapping manager unavailable.");
+		return false;
+	}
+
+	RebuildPipelineDraftFromEditorGraph();
+
+	FRshipCompiledPipelinePlan Plan;
+	TArray<FRshipPipelineDiagnostic> Diagnostics;
+	const bool bCompiled = Manager->CompilePipelineGraph(ActivePipelineDraft.Get(), Plan, Diagnostics);
+	if (bCompiled)
+	{
+		FJsonObjectConverter::UStructToJsonObjectString(FRshipCompiledPipelinePlan::StaticStruct(), &Plan, OutPlanJson, 0, 0, 0, nullptr, false);
+	}
+
+	FString Lines;
+	for (const FRshipPipelineDiagnostic& Diagnostic : Diagnostics)
+	{
+		const TCHAR* Severity = Diagnostic.Severity == ERshipPipelineDiagnosticSeverity::Error
+			? TEXT("ERROR")
+			: (Diagnostic.Severity == ERshipPipelineDiagnosticSeverity::Warning ? TEXT("WARN") : TEXT("INFO"));
+		if (!Lines.IsEmpty())
+		{
+			Lines += TEXT("\n");
+		}
+		Lines += FString::Printf(TEXT("%s %s"), Severity, *Diagnostic.Message);
+	}
+	if (Lines.IsEmpty())
+	{
+		Lines = bCompiled ? TEXT("Compile succeeded.") : TEXT("Compile failed.");
+	}
+	OutDiagnostics = Lines;
+	return bCompiled;
+}
+
+bool SRshipContentMappingPanel::ApplyNodePipelineDraft(FString& OutDiagnostics)
+{
+	OutDiagnostics.Reset();
+	FString PlanJson;
+	FString CompileDiagnostics;
+	if (!CompileNodePipelineDraft(PlanJson, CompileDiagnostics))
+	{
+		OutDiagnostics = FString::Printf(TEXT("Compile failed.\n%s"), *CompileDiagnostics);
+		return false;
+	}
+
+	if (!GEngine)
+	{
+		OutDiagnostics = TEXT("Engine unavailable.");
+		return false;
+	}
+	URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+	if (!Subsystem)
+	{
+		OutDiagnostics = TEXT("Subsystem unavailable.");
+		return false;
+	}
+	URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
+	if (!Manager)
+	{
+		OutDiagnostics = TEXT("Content mapping manager unavailable.");
+		return false;
+	}
+
+	FRshipCompiledPipelinePlan Plan;
+	if (!FJsonObjectConverter::JsonObjectStringToUStruct(PlanJson, &Plan, 0, 0))
+	{
+		OutDiagnostics = TEXT("Compiled plan JSON parse failed.");
+		return false;
+	}
+
+	TArray<FRshipPipelineDiagnostic> Diagnostics;
+	const bool bApplied = Manager->ApplyCompiledPipelinePlan(Plan, Diagnostics);
+	LastPipelinePlanJson = PlanJson;
+
+	FString Lines = CompileDiagnostics;
+	for (const FRshipPipelineDiagnostic& Diagnostic : Diagnostics)
+	{
+		const TCHAR* Severity = Diagnostic.Severity == ERshipPipelineDiagnosticSeverity::Error
+			? TEXT("ERROR")
+			: (Diagnostic.Severity == ERshipPipelineDiagnosticSeverity::Warning ? TEXT("WARN") : TEXT("INFO"));
+		if (!Lines.IsEmpty())
+		{
+			Lines += TEXT("\n");
+		}
+		Lines += FString::Printf(TEXT("%s %s"), Severity, *Diagnostic.Message);
+	}
+
+	if (Lines.IsEmpty())
+	{
+		Lines = bApplied ? TEXT("Apply succeeded.") : TEXT("Apply failed.");
+	}
+	OutDiagnostics = Lines;
+	return bApplied;
+}
+
+bool SRshipContentMappingPanel::RevertNodePipelineDraft(FString& OutDiagnostics)
+{
+	OutDiagnostics.Reset();
+
+	URshipTexturePipelineAsset* ProjectAsset = ResolveOrCreateProjectPipelineAsset();
+	if (!ProjectAsset)
+	{
+		OutDiagnostics = TEXT("Project pipeline asset unavailable.");
+		return false;
+	}
+
+	URshipTexturePipelineAsset* ReloadedAsset = LoadObject<URshipTexturePipelineAsset>(nullptr, ProjectPipelineAssetObjectPath);
+	if (ReloadedAsset)
+	{
+		ActivePipelineDraft.Reset(ReloadedAsset);
+	}
+	else
+	{
+		ActivePipelineDraft.Reset(ProjectAsset);
+	}
+
+	RebuildPipelineEditorGraphFromDraft();
+	OutDiagnostics = TEXT("Pipeline draft reverted to project asset.");
+	return true;
+}
+
+bool SRshipContentMappingPanel::RollbackNodePipelineApply(FString& OutDiagnostics)
+{
+	OutDiagnostics.Reset();
+	if (!GEngine)
+	{
+		OutDiagnostics = TEXT("Engine unavailable.");
+		return false;
+	}
+
+	URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+	if (!Subsystem)
+	{
+		OutDiagnostics = TEXT("Subsystem unavailable.");
+		return false;
+	}
+
+	URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
+	if (!Manager)
+	{
+		OutDiagnostics = TEXT("Content mapping manager unavailable.");
+		return false;
+	}
+
+	TArray<FRshipPipelineDiagnostic> Diagnostics;
+	const bool bRolledBack = Manager->RollbackLastPipelineApply(Diagnostics);
+	FString Lines;
+	for (const FRshipPipelineDiagnostic& Diagnostic : Diagnostics)
+	{
+		const TCHAR* Severity = Diagnostic.Severity == ERshipPipelineDiagnosticSeverity::Error
+			? TEXT("ERROR")
+			: (Diagnostic.Severity == ERshipPipelineDiagnosticSeverity::Warning ? TEXT("WARN") : TEXT("INFO"));
+		if (!Lines.IsEmpty())
+		{
+			Lines += TEXT("\n");
+		}
+		Lines += FString::Printf(TEXT("%s %s"), Severity, *Diagnostic.Message);
+	}
+	if (Lines.IsEmpty())
+	{
+		Lines = bRolledBack ? TEXT("Rollback succeeded.") : TEXT("Rollback failed.");
+	}
+	OutDiagnostics = Lines;
+	return bRolledBack;
 }
 
 TSharedRef<SWidget> SRshipContentMappingPanel::BuildContextForm()
@@ -6439,6 +7307,8 @@ void SRshipContentMappingPanel::ResetForms()
 	if (ContentModeSelector.IsValid()) ContentModeSelector->SetSelectedMode(TEXT("stretch"));
 	bHasLiveMappingFormHash = false;
 	bSuspendLiveMappingSync = false;
+	SeedPipelineDraftFromSelection();
+	RebuildPipelineEditorGraphFromDraft();
 }
 
 void SRshipContentMappingPanel::PopulateContextForm(const FRshipRenderContextState& State)
@@ -8222,7 +9092,7 @@ bool SRshipContentMappingPanel::ApplyModeToLiveMapping(const FString& Mode)
 		return true;
 	}
 
-	// Mode changes are handled as convert-and-swap (new mapping + old disabled)
+	// Mode changes are handled as convert-and-swap (new mapping + old mapping removed)
 	// so mode behavior never depends on in-place mutation ordering.
 	FRshipContentMappingState Converted = Updated;
 	Converted.Id.Reset();
@@ -8234,7 +9104,8 @@ bool SRshipContentMappingPanel::ApplyModeToLiveMapping(const FString& Mode)
 		return false;
 	}
 
-	if (Updated.bEnabled)
+	const FString PreviousMappingId = Updated.Id;
+	if (!Manager->DeleteMapping(PreviousMappingId))
 	{
 		FRshipContentMappingState DisabledOriginal = Updated;
 		DisabledOriginal.bEnabled = false;
@@ -8604,11 +9475,14 @@ bool SRshipContentMappingPanel::ApplyCurrentFormToSelectedMapping(bool bCreateIf
 				return false;
 			}
 
-			if (ExistingState && ExistingState->bEnabled)
+			if (!Manager->DeleteMapping(PreviousMappingId))
 			{
-				FRshipContentMappingState DisabledOriginal = *ExistingState;
-				DisabledOriginal.bEnabled = false;
-				Manager->UpdateMapping(DisabledOriginal);
+				if (ExistingState && ExistingState->bEnabled)
+				{
+					FRshipContentMappingState DisabledOriginal = *ExistingState;
+					DisabledOriginal.bEnabled = false;
+					Manager->UpdateMapping(DisabledOriginal);
+				}
 			}
 
 			SelectedMappingRows.Remove(PreviousMappingId);
@@ -10694,22 +11568,62 @@ void SRshipContentMappingPanel::RefreshStatus()
 														URshipContentMappingManager* Manager = ResolveContentMappingManager(Subsystem);
 														if (!Manager) return;
 
-														FRshipContentMappingState Updated;
-														if (!ResolveLatestMappingState(Manager, Mapping.Id, Updated))
+														FRshipContentMappingState Existing;
+														if (!ResolveLatestMappingState(Manager, Mapping.Id, Existing))
 														{
 															return;
 														}
 
-														ApplyModeToMappingState(Updated, CandidateMode);
-														if (Manager->UpdateMapping(Updated))
+														const FString RequestedMode = NormalizeMapMode(CandidateMode, MapModeDirect);
+														const FString ExistingMode = NormalizeMapMode(GetMappingModeFromState(Existing), MapModeDirect);
+														if (RequestedMode.Equals(ExistingMode, ESearchCase::IgnoreCase))
 														{
-															if (SelectedMappingId == Updated.Id)
-															{
-																PopulateMappingForm(Updated);
-															}
 															Manager->Tick(0.0f);
 															RefreshStatus();
+															return;
 														}
+
+														FRshipContentMappingState Converted = Existing;
+														const FString PreviousMappingId = Existing.Id;
+														Converted.Id.Reset();
+														ApplyModeToMappingState(Converted, RequestedMode);
+														Converted.bEnabled = Existing.bEnabled;
+
+														const FString NewId = Manager->CreateMapping(Converted);
+														if (NewId.IsEmpty())
+														{
+															return;
+														}
+
+														if (!Manager->DeleteMapping(PreviousMappingId))
+														{
+															if (Existing.bEnabled)
+															{
+																FRshipContentMappingState DisabledOriginal = Existing;
+																DisabledOriginal.bEnabled = false;
+																Manager->UpdateMapping(DisabledOriginal);
+															}
+														}
+
+														if (SelectedMappingId.Equals(PreviousMappingId, ESearchCase::CaseSensitive))
+														{
+															SetSelectedMappingId(NewId);
+															SelectedMappingRows.Remove(PreviousMappingId);
+															SelectedMappingRows.Add(NewId);
+
+															FRshipContentMappingState NewState = Converted;
+															NewState.Id = NewId;
+															ResolveLatestMappingState(Manager, NewId, NewState);
+															PopulateMappingForm(NewState);
+														}
+														else if (SelectedMappingRows.Contains(PreviousMappingId))
+														{
+															SelectedMappingRows.Remove(PreviousMappingId);
+															SelectedMappingRows.Add(NewId);
+														}
+
+														Manager->Tick(0.0f);
+														RefreshStatus();
 														})));
 										}
 										return MenuBuilder.MakeWidget();
@@ -11853,7 +12767,7 @@ void SRshipContentMappingPanel::RefreshStatus()
 											.ContentPadding(CompactMappingButtonPadding)
 											[
 												SNew(STextBlock)
-												.Text(LOCTEXT("MapRowEdit", "Edit"))
+												.Text(LOCTEXT("MapRowSelect", "Select"))
 												.Font(CompactMappingButtonFont)
 											]
 											.OnClicked_Lambda([this, MappingId = Mapping.Id]()
