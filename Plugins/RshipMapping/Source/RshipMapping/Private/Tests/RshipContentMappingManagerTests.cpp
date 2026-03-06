@@ -6,11 +6,16 @@
 #include "Misc/AutomationTest.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
+#include "Serialization/JsonSerializer.h"
+#include "Serialization/JsonWriter.h"
 #include "Engine/Engine.h"
 #include "Engine/Texture2D.h"
 #include "Engine/TextureRenderTarget2D.h"
+#include "Engine/TextureRenderTarget.h"
+#include "TextureResource.h"
 #include "Components/MeshComponent.h"
 #include "Materials/Material.h"
+#include "MaterialDomain.h"
 #include "Materials/MaterialExpressionScalarParameter.h"
 #include "Materials/MaterialExpressionTextureSampleParameter2D.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -199,6 +204,51 @@ namespace
             return -1;
         }
         return FeedV2->GetArrayField(FieldName).Num();
+    }
+
+    bool ContainsPipelineDiagnosticCode(const TArray<FRshipPipelineDiagnostic>& Diagnostics, const FString& Code)
+    {
+        for (const FRshipPipelineDiagnostic& Diagnostic : Diagnostics)
+        {
+            if (Diagnostic.Code == Code)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    FString JsonToStringForTest(const TSharedPtr<FJsonObject>& JsonObject)
+    {
+        if (!JsonObject.IsValid())
+        {
+            return FString();
+        }
+
+        FString Serialized;
+        TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Serialized);
+        if (!FJsonSerializer::Serialize(JsonObject.ToSharedRef(), Writer))
+        {
+            return FString();
+        }
+        return Serialized;
+    }
+
+    TSharedPtr<FJsonObject> ParseJsonObjectForTest(const FString& JsonString)
+    {
+        if (JsonString.TrimStartAndEnd().IsEmpty())
+        {
+            return nullptr;
+        }
+
+        TSharedPtr<FJsonObject> Parsed = MakeShared<FJsonObject>();
+        TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonString);
+        if (!FJsonSerializer::Deserialize(Reader, Parsed) || !Parsed.IsValid())
+        {
+            return nullptr;
+        }
+
+        return Parsed;
     }
 
 #if WITH_EDITOR
@@ -740,12 +790,17 @@ namespace
             , bExpectPIEActive(bInExpectPIEActive)
             , TimeoutSeconds(FMath::Max(0.1f, InTimeoutSeconds))
             , StageLabel(InStageLabel)
-            , StartSeconds(FPlatformTime::Seconds())
         {
         }
 
         virtual bool Update() override
         {
+            if (!bTimerStarted)
+            {
+                StartSeconds = FPlatformTime::Seconds();
+                bTimerStarted = true;
+            }
+
             const bool bPIEActive = GEditor && GEditor->PlayWorld;
             if (bPIEActive == bExpectPIEActive)
             {
@@ -775,6 +830,7 @@ namespace
         bool bExpectPIEActive = false;
         float TimeoutSeconds = 0.0f;
         FString StageLabel;
+        bool bTimerStarted = false;
         double StartSeconds = 0.0;
     };
 
@@ -790,12 +846,17 @@ namespace
             , bRequirePIEWorld(bInRequirePIEWorld)
             , TimeoutSeconds(FMath::Max(0.1f, InTimeoutSeconds))
             , StageLabel(InStageLabel)
-            , StartSeconds(FPlatformTime::Seconds())
         {
         }
 
         virtual bool Update() override
         {
+            if (!bTimerStarted)
+            {
+                StartSeconds = FPlatformTime::Seconds();
+                bTimerStarted = true;
+            }
+
             FContentMappingE2ESnapshot Snapshot;
             FString Issue;
             if (CaptureContentMappingE2ESnapshot(bRequirePIEWorld, Snapshot, Issue))
@@ -836,6 +897,7 @@ namespace
         bool bRequirePIEWorld = false;
         float TimeoutSeconds = 0.0f;
         FString StageLabel;
+        bool bTimerStarted = false;
         double StartSeconds = 0.0;
     };
 
@@ -849,12 +911,17 @@ namespace
             : Test(InTest)
             , TimeoutSeconds(FMath::Max(0.1f, InTimeoutSeconds))
             , StageLabel(InStageLabel)
-            , StartSeconds(FPlatformTime::Seconds())
         {
         }
 
         virtual bool Update() override
         {
+            if (!bTimerStarted)
+            {
+                StartSeconds = FPlatformTime::Seconds();
+                bTimerStarted = true;
+            }
+
             FString ManagerIssue;
             URshipContentMappingManager* Manager = GetLiveContentMappingManager(ManagerIssue);
             if (!Manager)
@@ -1052,6 +1119,7 @@ namespace
         FAutomationTestBase* Test = nullptr;
         float TimeoutSeconds = 0.0f;
         FString StageLabel;
+        bool bTimerStarted = false;
         double StartSeconds = 0.0;
     };
 
@@ -1067,7 +1135,6 @@ namespace
             , bRequirePIEWorld(bInRequirePIEWorld)
             , PhaseTimeoutSeconds(FMath::Max(0.5f, InPhaseTimeoutSeconds))
             , StageLabel(InStageLabel)
-            , PhaseStartSeconds(FPlatformTime::Seconds())
         {
             TypeExpectations =
             {
@@ -1113,6 +1180,12 @@ namespace
 
         virtual bool Update() override
         {
+            if (!bPhaseTimerStarted)
+            {
+                PhaseStartSeconds = FPlatformTime::Seconds();
+                bPhaseTimerStarted = true;
+            }
+
             if (Phase == EPhase::Done)
             {
                 return true;
@@ -1195,72 +1268,16 @@ namespace
                     return false;
                 }
 
-                if (TempMappingId.IsEmpty())
-                {
-                    FRshipContentMappingState TempMapping;
-                    TempMapping.Name = FString::Printf(TEXT("E2E Lifecycle %s"), *StageLabel);
-                    TempMapping.Type = TEXT("direct");
-                    TempMapping.ContextId = TargetContextId;
-                    TempMapping.SurfaceIds = {TargetSurfaceId};
-                    TempMapping.Opacity = 1.0f;
-                    TempMapping.bEnabled = true;
-                    TempMapping.Config = MakeShared<FJsonObject>();
-                    TempMapping.Config->SetStringField(TEXT("uvMode"), TEXT("direct"));
-                    TempMapping.Config->SetObjectField(TEXT("uvTransform"), MakeShared<FJsonObject>());
-
-                    TempMappingId = Manager->CreateMapping(TempMapping);
-                    if (TempMappingId.IsEmpty())
-                    {
-                        if (!PhaseTimedOut())
-                        {
-                            return false;
-                        }
-                        EnterFailure(FString::Printf(TEXT("Failed to create lifecycle mapping at '%s'"), *StageLabel));
-                        return false;
-                    }
-                }
-
                 if (Test)
                 {
                     Test->AddInfo(FString::Printf(
-                        TEXT("Lifecycle setup at '%s': context=%s surface=%s mapping=%s"),
+                        TEXT("Lifecycle setup at '%s': context=%s surface=%s"),
                         *StageLabel,
                         *TargetContextId,
-                        *TargetSurfaceId,
-                        *TempMappingId));
+                        *TargetSurfaceId));
                 }
 
-                AdvancePhase(EPhase::WaitBaselineSignal);
-                return false;
-            }
-
-            case EPhase::WaitBaselineSignal:
-            {
-                FContentMappingSurfaceSample Sample;
-                if (TrySampleSurfaceMaterialState(Manager, TargetSurfaceId, bRequirePIEWorld, Sample) && Sample.bHasMappedSignal)
-                {
-                    if (Test)
-                    {
-                        Test->AddInfo(FString::Printf(
-                            TEXT("Lifecycle baseline active at '%s': mode=%.1f projection=%.1f intensity=%.3f"),
-                            *StageLabel,
-                            Sample.MappingMode,
-                            Sample.ProjectionType,
-                            Sample.MappingIntensity));
-                    }
-                    AdvancePhase(EPhase::ApplyType);
-                    return false;
-                }
-
-                if (!PhaseTimedOut())
-                {
-                    return false;
-                }
-
-                EnterFailure(FString::Printf(
-                    TEXT("Lifecycle baseline did not appear at '%s': %s"),
-                    *StageLabel,
-                    *Sample.Issue));
+                AdvancePhase(EPhase::ApplyType);
                 return false;
             }
 
@@ -1268,18 +1285,29 @@ namespace
             {
                 if (CurrentTypeIndex >= TypeExpectations.Num())
                 {
-                    AdvancePhase(EPhase::DisableMapping);
+                    AdvancePhase(EPhase::Cleanup);
                     return false;
                 }
 
                 const FTypeExpectation& Expected = TypeExpectations[CurrentTypeIndex];
-                if (!ApplyMappingUpdateSetType(Manager, TempMappingId, Expected.TypeToken))
+                TempMappingId = CreateMappingForType(Manager, Expected.TypeToken);
+                if (TempMappingId.IsEmpty())
                 {
                     EnterFailure(FString::Printf(
-                        TEXT("Failed to update mapping type='%s' at '%s'"),
+                        TEXT("Failed to create mapping for type='%s' at '%s'"),
                         *Expected.TypeToken,
                         *StageLabel));
                     return false;
+                }
+                CreatedMappingIds.AddUnique(TempMappingId);
+
+                if (Test)
+                {
+                    Test->AddInfo(FString::Printf(
+                        TEXT("Created lifecycle mapping '%s' for type='%s' at '%s'"),
+                        *TempMappingId,
+                        *Expected.TypeToken,
+                        *StageLabel));
                 }
 
                 AdvancePhase(EPhase::WaitTypeApplied);
@@ -1324,8 +1352,7 @@ namespace
                                 *StoredMapping.Type,
                                 *ObservedCanonicalMode));
                         }
-                        ++CurrentTypeIndex;
-                        AdvancePhase(EPhase::ApplyType);
+                        AdvancePhase(EPhase::DisableMapping);
                         return false;
                     }
                 }
@@ -1441,6 +1468,7 @@ namespace
 
             case EPhase::WaitMappingDeleted:
             {
+                const FTypeExpectation& Expected = TypeExpectations[CurrentTypeIndex];
                 FContentMappingSurfaceSample Sample;
                 FRshipContentMappingState Existing;
                 const bool bStillExists = CopyMappingById(Manager, TempMappingId, Existing);
@@ -1451,10 +1479,13 @@ namespace
                     if (Test)
                     {
                         Test->AddInfo(FString::Printf(
-                            TEXT("Mapping delete cleared surface at '%s'"),
-                            *StageLabel));
+                            TEXT("Mapping delete cleared surface at '%s' for type='%s'"),
+                            *StageLabel,
+                            *Expected.TypeToken));
                     }
-                    AdvancePhase(EPhase::Cleanup);
+                    TempMappingId.Reset();
+                    ++CurrentTypeIndex;
+                    AdvancePhase(EPhase::ApplyType);
                     return false;
                 }
 
@@ -1500,7 +1531,6 @@ namespace
         enum class EPhase : uint8
         {
             Setup,
-            WaitBaselineSignal,
             ApplyType,
             WaitTypeApplied,
             DisableMapping,
@@ -1534,24 +1564,25 @@ namespace
             AdvancePhase(EPhase::Cleanup);
         }
 
-        bool ApplyMappingUpdateSetType(
+        FString CreateMappingForType(
             URshipContentMappingManager* Manager,
-            const FString& MappingId,
             const FString& TypeToken) const
         {
-            if (!Manager || MappingId.IsEmpty())
+            if (!Manager || TypeToken.IsEmpty())
             {
-                return false;
+                return FString();
             }
 
             FRshipContentMappingState Mapping;
-            if (!CopyMappingById(Manager, MappingId, Mapping))
-            {
-                return false;
-            }
-
+            Mapping.Name = FString::Printf(TEXT("E2E Lifecycle %s %s"), *StageLabel, *TypeToken);
             Mapping.Type = TypeToken;
-            return Manager->UpdateMapping(Mapping);
+            Mapping.ContextId = TargetContextId;
+            Mapping.SurfaceIds = {TargetSurfaceId};
+            Mapping.Opacity = 1.0f;
+            Mapping.bEnabled = true;
+            Mapping.Config = MakeShared<FJsonObject>();
+
+            return Manager->CreateMapping(Mapping);
         }
 
         bool ApplyMappingUpdateSetEnabled(
@@ -1617,6 +1648,21 @@ namespace
             {
                 Manager->DeleteMapping(TempMappingId);
             }
+            TempMappingId.Reset();
+
+            for (const FString& CreatedId : CreatedMappingIds)
+            {
+                if (CreatedId.IsEmpty())
+                {
+                    continue;
+                }
+
+                FRshipContentMappingState CreatedMapping;
+                if (CopyMappingById(Manager, CreatedId, CreatedMapping))
+                {
+                    Manager->DeleteMapping(CreatedId);
+                }
+            }
 
             for (const FRshipContentMappingState& Original : OriginalMappings)
             {
@@ -1651,6 +1697,7 @@ namespace
         float PhaseTimeoutSeconds = 0.0f;
         FString StageLabel;
         EPhase Phase = EPhase::Setup;
+        bool bPhaseTimerStarted = false;
         double PhaseStartSeconds = 0.0;
         bool bRecordedFailure = false;
         bool bCapturedOriginalMappings = false;
@@ -1659,6 +1706,7 @@ namespace
         FString TargetContextId;
         FString TargetSurfaceId;
         FString TempMappingId;
+        TArray<FString> CreatedMappingIds;
         TArray<FRshipContentMappingState> OriginalMappings;
         TArray<FTypeExpectation> TypeExpectations;
         int32 CurrentTypeIndex = 0;
@@ -1856,6 +1904,354 @@ bool FRshipContentMappingDepthContextRoundTripTest::RunTest(const FString& Param
     TestEqual(TEXT("Round-tripped depth capture mode should remain SceneDepth"), RoundTripped->DepthCaptureMode, FString(TEXT("SceneDepth")));
     TestEqual(TEXT("Round-tripped depth asset id should remain set"), RoundTripped->DepthAssetId, FString(TEXT("depth-asset-id")));
     TestTrue(TEXT("Round-tripped depth capture enabled should remain true"), RoundTripped->bDepthCaptureEnabled);
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FRshipContentMappingUpdateRejectsModeChangeTest,
+    "Rship.ContentMapping.Mapping.ModeImmutable.UpdateRejectsModeChange",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FRshipContentMappingExternalSourceAliasAndActionTest,
+    "Rship.ContentMapping.Context.ExternalSourceAliasAndAction",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FRshipContentMappingExternalSourceAliasAndActionTest::RunTest(const FString& Parameters)
+{
+    URshipContentMappingManager* Manager = NewObject<URshipContentMappingManager>();
+    TestNotNull(TEXT("Manager should be created"), Manager);
+    if (!Manager)
+    {
+        return false;
+    }
+
+    FRshipRenderContextState ContextState;
+    ContextState.Name = TEXT("ExternalAliasContext");
+    ContextState.SourceType = TEXT("2110");
+    ContextState.ExternalSourceId = TEXT("stream-in-a");
+    ContextState.CameraId = TEXT("legacy-camera");
+    ContextState.AssetId = TEXT("legacy-asset");
+
+    const FString ContextId = Manager->CreateRenderContext(ContextState);
+    TestTrue(TEXT("CreateRenderContext should return an id"), !ContextId.IsEmpty());
+    if (ContextId.IsEmpty())
+    {
+        return false;
+    }
+
+    const TArray<FRshipRenderContextState> StoredContexts = Manager->GetRenderContexts();
+    const FRshipRenderContextState* Stored = FindContextById(StoredContexts, ContextId);
+    TestNotNull(TEXT("Stored context should exist"), Stored);
+    if (!Stored)
+    {
+        return false;
+    }
+
+    TestTrue(TEXT("Source type should normalize to external-texture"), Stored->SourceType == TEXT("external-texture"));
+    TestTrue(TEXT("External source id should be preserved"), Stored->ExternalSourceId == TEXT("stream-in-a"));
+    TestTrue(TEXT("CameraId should clear when using external-texture source"), Stored->CameraId.IsEmpty());
+    TestTrue(TEXT("AssetId should clear when using external-texture source"), Stored->AssetId.IsEmpty());
+
+    const FString TargetId = FString::Printf(TEXT("/content-mapping/context/%s"), *ContextId);
+
+    TSharedRef<FJsonObject> SetSourceTypeAction = MakeShared<FJsonObject>();
+    SetSourceTypeAction->SetStringField(TEXT("sourceType"), TEXT("media-profile"));
+    TestTrue(
+        TEXT("setSourceType action should accept external aliases"),
+        Manager->RouteAction(TargetId, TargetId + TEXT(":setSourceType"), SetSourceTypeAction));
+
+    TSharedRef<FJsonObject> SetExternalSourceAction = MakeShared<FJsonObject>();
+    SetExternalSourceAction->SetStringField(TEXT("sourceId"), TEXT("stream-in-b"));
+    TestTrue(
+        TEXT("setExternalSourceId action should support sourceId alias"),
+        Manager->RouteAction(TargetId, TargetId + TEXT(":setExternalSourceId"), SetExternalSourceAction));
+
+    const TArray<FRshipRenderContextState> ContextsAfterAction = Manager->GetRenderContexts();
+    const FRshipRenderContextState* AfterAction = FindContextById(ContextsAfterAction, ContextId);
+    TestNotNull(TEXT("Context should still exist after actions"), AfterAction);
+    if (!AfterAction)
+    {
+        return false;
+    }
+
+    TestTrue(TEXT("Action-normalized source type should remain external-texture"), AfterAction->SourceType == TEXT("external-texture"));
+    TestTrue(TEXT("External source id should update from sourceId alias"), AfterAction->ExternalSourceId == TEXT("stream-in-b"));
+
+    TSharedPtr<FJsonObject> Serialized = Manager->BuildRenderContextJsonForTest(*AfterAction);
+    TestTrue(TEXT("Serialized context should be valid"), Serialized.IsValid());
+    if (!Serialized.IsValid())
+    {
+        return false;
+    }
+    TestTrue(TEXT("Serialized externalSourceId should match"), Serialized->GetStringField(TEXT("externalSourceId")) == TEXT("stream-in-b"));
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FRshipContentMappingResolveMappingOutputRenderTargetTest,
+    "Rship.ContentMapping.Mapping.ResolveOutputRenderTarget",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FRshipContentMappingResolveMappingOutputRenderTargetTest::RunTest(const FString& Parameters)
+{
+    URshipContentMappingManager* Manager = NewObject<URshipContentMappingManager>();
+    TestNotNull(TEXT("Manager should be created"), Manager);
+    if (!Manager)
+    {
+        return false;
+    }
+
+    FRshipRenderContextState ContextState;
+    ContextState.Name = TEXT("ExternalContext");
+    ContextState.SourceType = TEXT("external-texture");
+    ContextState.ExternalSourceId = TEXT("stream-output-a");
+    const FString ContextId = Manager->CreateRenderContext(ContextState);
+    TestTrue(TEXT("CreateRenderContext should return an id"), !ContextId.IsEmpty());
+    if (ContextId.IsEmpty())
+    {
+        return false;
+    }
+
+    FRshipMappingSurfaceState SurfaceState;
+    SurfaceState.Name = TEXT("Surface-A");
+    const FString SurfaceId = Manager->CreateMappingSurface(SurfaceState);
+    TestTrue(TEXT("CreateMappingSurface should return an id"), !SurfaceId.IsEmpty());
+    if (SurfaceId.IsEmpty())
+    {
+        return false;
+    }
+
+    FRshipContentMappingState MappingState;
+    MappingState.Name = TEXT("MappingOutputProbe");
+    MappingState.Type = TEXT("direct");
+    MappingState.ContextId = ContextId;
+    MappingState.SurfaceIds = { SurfaceId };
+    MappingState.bEnabled = true;
+    MappingState.Opacity = 1.0f;
+    MappingState.Config = MakeShared<FJsonObject>();
+    MappingState.Config->SetStringField(TEXT("uvMode"), TEXT("direct"));
+    const FString MappingId = Manager->CreateMapping(MappingState);
+    TestTrue(TEXT("CreateMapping should return an id"), !MappingId.IsEmpty());
+    if (MappingId.IsEmpty())
+    {
+        return false;
+    }
+
+    UTextureRenderTarget2D* ExternalRenderTarget = NewObject<UTextureRenderTarget2D>(Manager);
+    TestNotNull(TEXT("External render target should be created"), ExternalRenderTarget);
+    if (!ExternalRenderTarget)
+    {
+        return false;
+    }
+
+    ExternalRenderTarget->RenderTargetFormat = ETextureRenderTargetFormat::RTF_RGBA8;
+    ExternalRenderTarget->InitAutoFormat(640, 360);
+    ExternalRenderTarget->UpdateResourceImmediate();
+
+    TestTrue(
+        TEXT("RegisterExternalTextureSource should succeed"),
+        Manager->RegisterExternalTextureSource(TEXT("stream-output-a"), ExternalRenderTarget, 640, 360));
+
+    UTextureRenderTarget2D* ResolvedRenderTarget = nullptr;
+    FString ResolveError;
+    TestTrue(
+        TEXT("ResolveMappingOutputRenderTarget should succeed for explicit surface"),
+        Manager->ResolveMappingOutputRenderTarget(MappingId, SurfaceId, ResolvedRenderTarget, ResolveError));
+    TestTrue(TEXT("Resolved render target should match registered external texture"), ResolvedRenderTarget == ExternalRenderTarget);
+
+    ResolvedRenderTarget = nullptr;
+    ResolveError.Reset();
+    TestTrue(
+        TEXT("ResolveMappingOutputRenderTarget should auto-resolve single surface when surfaceId is empty"),
+        Manager->ResolveMappingOutputRenderTarget(MappingId, TEXT(""), ResolvedRenderTarget, ResolveError));
+    TestTrue(TEXT("Auto-resolved render target should match registered external texture"), ResolvedRenderTarget == ExternalRenderTarget);
+
+    FRshipMappingSurfaceState SurfaceStateB;
+    SurfaceStateB.Name = TEXT("Surface-B");
+    const FString SurfaceIdB = Manager->CreateMappingSurface(SurfaceStateB);
+    TestTrue(TEXT("Create second mapping surface should return an id"), !SurfaceIdB.IsEmpty());
+    if (SurfaceIdB.IsEmpty())
+    {
+        return false;
+    }
+
+    FRshipContentMappingState UpdatedMapping;
+    TestTrue(TEXT("Mapping should be readable for update"), CopyMappingById(Manager, MappingId, UpdatedMapping));
+    if (UpdatedMapping.Id.IsEmpty())
+    {
+        return false;
+    }
+    UpdatedMapping.SurfaceIds = { SurfaceId, SurfaceIdB };
+    TestTrue(TEXT("UpdateMapping should succeed with two surfaces"), Manager->UpdateMapping(UpdatedMapping));
+
+    ResolvedRenderTarget = nullptr;
+    ResolveError.Reset();
+    TestFalse(
+        TEXT("ResolveMappingOutputRenderTarget should require explicit surface when mapping has multiple surfaces"),
+        Manager->ResolveMappingOutputRenderTarget(MappingId, TEXT(""), ResolvedRenderTarget, ResolveError));
+    TestTrue(TEXT("Resolve error should mention explicit surfaceId requirement"), ResolveError.Contains(TEXT("requires an explicit surfaceId")));
+
+    return true;
+}
+
+bool FRshipContentMappingUpdateRejectsModeChangeTest::RunTest(const FString& Parameters)
+{
+    URshipContentMappingManager* Manager = NewObject<URshipContentMappingManager>();
+    TestNotNull(TEXT("Manager should be created"), Manager);
+    if (!Manager)
+    {
+        return false;
+    }
+
+    FRshipContentMappingState Mapping;
+    Mapping.Name = TEXT("ImmutableUpdate");
+    Mapping.Type = TEXT("direct");
+    Mapping.bEnabled = true;
+    Mapping.Opacity = 1.0f;
+    Mapping.Config = MakeShared<FJsonObject>();
+    Mapping.Config->SetStringField(TEXT("uvMode"), TEXT("direct"));
+
+    const FString MappingId = Manager->CreateMapping(Mapping);
+    TestTrue(TEXT("CreateMapping should return an id"), !MappingId.IsEmpty());
+    if (MappingId.IsEmpty())
+    {
+        return false;
+    }
+
+    FRshipContentMappingState Stored;
+    TestTrue(TEXT("Mapping should be readable"), CopyMappingById(Manager, MappingId, Stored));
+    if (Stored.Id.IsEmpty())
+    {
+        return false;
+    }
+
+    Stored.Type = TEXT("perspective");
+    Stored.Name = TEXT("ShouldNotApply");
+    TestFalse(TEXT("UpdateMapping should reject mode changes"), Manager->UpdateMapping(Stored));
+
+    FRshipContentMappingState After;
+    TestTrue(TEXT("Mapping should still exist"), CopyMappingById(Manager, MappingId, After));
+    if (After.Id.IsEmpty())
+    {
+        return false;
+    }
+
+    TestEqual(TEXT("Type should remain surface-uv"), After.Type, FString(TEXT("surface-uv")));
+    const FString UvMode = (After.Config.IsValid() && After.Config->HasTypedField<EJson::String>(TEXT("uvMode")))
+        ? After.Config->GetStringField(TEXT("uvMode"))
+        : FString();
+    TestEqual(TEXT("uvMode should remain direct"), UvMode, FString(TEXT("direct")));
+    TestEqual(TEXT("Name should remain unchanged"), After.Name, FString(TEXT("ImmutableUpdate")));
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FRshipContentMappingActionRejectsModeChangeTest,
+    "Rship.ContentMapping.Mapping.ModeImmutable.ActionRejectsModeChange",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FRshipContentMappingActionRejectsModeChangeTest::RunTest(const FString& Parameters)
+{
+    URshipContentMappingManager* Manager = NewObject<URshipContentMappingManager>();
+    TestNotNull(TEXT("Manager should be created"), Manager);
+    if (!Manager)
+    {
+        return false;
+    }
+
+    FRshipContentMappingState Mapping;
+    Mapping.Name = TEXT("ImmutableAction");
+    Mapping.Type = TEXT("direct");
+    Mapping.bEnabled = true;
+    Mapping.Opacity = 1.0f;
+    Mapping.Config = MakeShared<FJsonObject>();
+    Mapping.Config->SetStringField(TEXT("uvMode"), TEXT("direct"));
+
+    const FString MappingId = Manager->CreateMapping(Mapping);
+    TestTrue(TEXT("CreateMapping should return an id"), !MappingId.IsEmpty());
+    if (MappingId.IsEmpty())
+    {
+        return false;
+    }
+
+    const FString TargetId = FString::Printf(TEXT("/content-mapping/mapping/%s"), *MappingId);
+    TSharedRef<FJsonObject> ActionData = MakeShared<FJsonObject>();
+    ActionData->SetStringField(TEXT("type"), TEXT("perspective"));
+    TestFalse(TEXT("setType action should reject mode changes"), Manager->RouteAction(TargetId, TargetId + TEXT(":setType"), ActionData));
+
+    FRshipContentMappingState After;
+    TestTrue(TEXT("Mapping should still exist"), CopyMappingById(Manager, MappingId, After));
+    if (After.Id.IsEmpty())
+    {
+        return false;
+    }
+
+    TestEqual(TEXT("Type should remain surface-uv"), After.Type, FString(TEXT("surface-uv")));
+    const FString UvMode = (After.Config.IsValid() && After.Config->HasTypedField<EJson::String>(TEXT("uvMode")))
+        ? After.Config->GetStringField(TEXT("uvMode"))
+        : FString();
+    TestEqual(TEXT("uvMode should remain direct"), UvMode, FString(TEXT("direct")));
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FRshipContentMappingEventIgnoresModeChangeTest,
+    "Rship.ContentMapping.Mapping.ModeImmutable.EventIgnoresModeChange",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FRshipContentMappingEventIgnoresModeChangeTest::RunTest(const FString& Parameters)
+{
+    URshipContentMappingManager* Manager = NewObject<URshipContentMappingManager>();
+    TestNotNull(TEXT("Manager should be created"), Manager);
+    if (!Manager)
+    {
+        return false;
+    }
+
+    FRshipContentMappingState Mapping;
+    Mapping.Name = TEXT("ImmutableEvent");
+    Mapping.Type = TEXT("direct");
+    Mapping.bEnabled = true;
+    Mapping.Opacity = 1.0f;
+    Mapping.Config = MakeShared<FJsonObject>();
+    Mapping.Config->SetStringField(TEXT("uvMode"), TEXT("direct"));
+
+    const FString MappingId = Manager->CreateMapping(Mapping);
+    TestTrue(TEXT("CreateMapping should return an id"), !MappingId.IsEmpty());
+    if (MappingId.IsEmpty())
+    {
+        return false;
+    }
+
+    TSharedPtr<FJsonObject> Upsert = MakeShared<FJsonObject>();
+    Upsert->SetStringField(TEXT("id"), MappingId);
+    Upsert->SetStringField(TEXT("name"), TEXT("ShouldNotApply"));
+    Upsert->SetStringField(TEXT("type"), TEXT("perspective"));
+    Upsert->SetBoolField(TEXT("enabled"), true);
+    Upsert->SetNumberField(TEXT("opacity"), 1.0);
+    TSharedPtr<FJsonObject> Config = MakeShared<FJsonObject>();
+    Config->SetStringField(TEXT("projectionType"), TEXT("perspective"));
+    Upsert->SetObjectField(TEXT("config"), Config);
+    Manager->ProcessMappingEvent(Upsert, false);
+
+    FRshipContentMappingState After;
+    TestTrue(TEXT("Mapping should still exist"), CopyMappingById(Manager, MappingId, After));
+    if (After.Id.IsEmpty())
+    {
+        return false;
+    }
+
+    TestEqual(TEXT("Type should remain surface-uv"), After.Type, FString(TEXT("surface-uv")));
+    const FString UvMode = (After.Config.IsValid() && After.Config->HasTypedField<EJson::String>(TEXT("uvMode")))
+        ? After.Config->GetStringField(TEXT("uvMode"))
+        : FString();
+    TestEqual(TEXT("uvMode should remain direct"), UvMode, FString(TEXT("direct")));
+    TestEqual(TEXT("Name should remain unchanged"), After.Name, FString(TEXT("ImmutableEvent")));
 
     return true;
 }
@@ -2207,6 +2603,533 @@ bool FRshipContentMappingFeedRemoveSourceGuardsStaleEchoTest::RunTest(const FStr
     }
     TestEqual(TEXT("stale echo must not re-add sources"), GetFeedArrayCount(&AfterStaleEcho, TEXT("sources")), 0);
     TestEqual(TEXT("stale echo must not re-add routes"), GetFeedArrayCount(&AfterStaleEcho, TEXT("routes")), 0);
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FRshipContentMappingPipelineValidateRejectsCycleTest,
+    "Rship.ContentMapping.Pipeline.ValidateRejectsCycle",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FRshipContentMappingPipelineValidateRejectsCycleTest::RunTest(const FString& Parameters)
+{
+    URshipContentMappingManager* Manager = NewObject<URshipContentMappingManager>();
+    TestNotNull(TEXT("Manager should be created"), Manager);
+    if (!Manager)
+    {
+        return false;
+    }
+
+    URshipTexturePipelineAsset* Asset = NewObject<URshipTexturePipelineAsset>();
+    TestNotNull(TEXT("Pipeline asset should be created"), Asset);
+    if (!Asset)
+    {
+        return false;
+    }
+
+    FRshipPipelineNode& Input = Asset->Nodes.AddDefaulted_GetRef();
+    Input.Id = TEXT("input-a");
+    Input.Kind = ERshipPipelineNodeKind::RenderContextInput;
+    Input.Params.Add(TEXT("contextId"), TEXT("ctx-a"));
+
+    FRshipPipelineNode& Output = Asset->Nodes.AddDefaulted_GetRef();
+    Output.Id = TEXT("output-a");
+    Output.Kind = ERshipPipelineNodeKind::MappingSurfaceOutput;
+    Output.Params.Add(TEXT("surfaceId"), TEXT("surface-a"));
+    Output.Params.Add(TEXT("mappingId"), TEXT("mapping-a"));
+
+    FRshipPipelineEdge& EdgeA = Asset->Edges.AddDefaulted_GetRef();
+    EdgeA.Id = TEXT("edge-a");
+    EdgeA.FromNodeId = TEXT("input-a");
+    EdgeA.ToNodeId = TEXT("output-a");
+
+    FRshipPipelineEdge& EdgeB = Asset->Edges.AddDefaulted_GetRef();
+    EdgeB.Id = TEXT("edge-b");
+    EdgeB.FromNodeId = TEXT("output-a");
+    EdgeB.ToNodeId = TEXT("input-a");
+
+    TArray<FRshipPipelineDiagnostic> Diagnostics;
+    const bool bValid = Manager->ValidatePipelineGraph(Asset, Diagnostics);
+    TestFalse(TEXT("Cycle graph must fail validation"), bValid);
+    TestTrue(TEXT("Cycle diagnostic code should be present"), ContainsPipelineDiagnosticCode(Diagnostics, TEXT("pipeline.graph.cycle")));
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FRshipContentMappingPipelineCompileDeterministicOrderTest,
+    "Rship.ContentMapping.Pipeline.CompileDeterministicOrder",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FRshipContentMappingPipelineCompileDeterministicOrderTest::RunTest(const FString& Parameters)
+{
+    URshipContentMappingManager* Manager = NewObject<URshipContentMappingManager>();
+    TestNotNull(TEXT("Manager should be created"), Manager);
+    if (!Manager)
+    {
+        return false;
+    }
+
+    URshipTexturePipelineAsset* Asset = NewObject<URshipTexturePipelineAsset>();
+    TestNotNull(TEXT("Pipeline asset should be created"), Asset);
+    if (!Asset)
+    {
+        return false;
+    }
+    Asset->AssetId = TEXT("deterministic-test");
+    Asset->Revision = 7;
+
+    FRshipPipelineNode& Input = Asset->Nodes.AddDefaulted_GetRef();
+    Input.Id = TEXT("input-a");
+    Input.Kind = ERshipPipelineNodeKind::RenderContextInput;
+    Input.Params.Add(TEXT("contextId"), TEXT("ctx-a"));
+    Input.Params.Add(TEXT("sourceType"), TEXT("camera"));
+    Input.Params.Add(TEXT("cameraId"), TEXT("cam-a"));
+
+    FRshipPipelineNode& Projection = Asset->Nodes.AddDefaulted_GetRef();
+    Projection.Id = TEXT("projection-a");
+    Projection.Kind = ERshipPipelineNodeKind::Projection;
+    Projection.Params.Add(TEXT("projectionType"), TEXT("perspective"));
+
+    FRshipPipelineNode& Output = Asset->Nodes.AddDefaulted_GetRef();
+    Output.Id = TEXT("output-a");
+    Output.Kind = ERshipPipelineNodeKind::MappingSurfaceOutput;
+    Output.Params.Add(TEXT("surfaceId"), TEXT("surface-a"));
+    Output.Params.Add(TEXT("mappingId"), TEXT("mapping-a"));
+
+    FRshipPipelineEdge& EdgeA = Asset->Edges.AddDefaulted_GetRef();
+    EdgeA.Id = TEXT("edge-a");
+    EdgeA.FromNodeId = TEXT("input-a");
+    EdgeA.ToNodeId = TEXT("projection-a");
+
+    FRshipPipelineEdge& EdgeB = Asset->Edges.AddDefaulted_GetRef();
+    EdgeB.Id = TEXT("edge-b");
+    EdgeB.FromNodeId = TEXT("projection-a");
+    EdgeB.ToNodeId = TEXT("output-a");
+
+    FRshipCompiledPipelinePlan FirstPlan;
+    FRshipCompiledPipelinePlan SecondPlan;
+    TArray<FRshipPipelineDiagnostic> FirstDiagnostics;
+    TArray<FRshipPipelineDiagnostic> SecondDiagnostics;
+
+    const bool bFirstCompiled = Manager->CompilePipelineGraph(Asset, FirstPlan, FirstDiagnostics);
+    const bool bSecondCompiled = Manager->CompilePipelineGraph(Asset, SecondPlan, SecondDiagnostics);
+    TestTrue(TEXT("First compile should succeed"), bFirstCompiled);
+    TestTrue(TEXT("Second compile should succeed"), bSecondCompiled);
+    if (!bFirstCompiled || !bSecondCompiled)
+    {
+        return false;
+    }
+
+    TestEqual(TEXT("Topological order should be deterministic"), FirstPlan.TopologicalOrder, SecondPlan.TopologicalOrder);
+    TestEqual(TEXT("Context count should be one"), FirstPlan.Contexts.Num(), 1);
+    TestEqual(TEXT("Surface count should be one"), FirstPlan.Surfaces.Num(), 1);
+    TestEqual(TEXT("Mapping count should be one"), FirstPlan.Mappings.Num(), 1);
+    TestEqual(TEXT("Compiled mapping type should be projection"), FirstPlan.Mappings[0].Type, FString(TEXT("surface-projection")));
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FRshipContentMappingPipelineCompileRejectsMissingProjectionWhenStrictTest,
+    "Rship.ContentMapping.Pipeline.CompileRejectsMissingProjectionWhenStrict",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FRshipContentMappingPipelineCompileRejectsMissingProjectionWhenStrictTest::RunTest(const FString& Parameters)
+{
+    URshipContentMappingManager* Manager = NewObject<URshipContentMappingManager>();
+    TestNotNull(TEXT("Manager should be created"), Manager);
+    if (!Manager)
+    {
+        return false;
+    }
+
+    URshipTexturePipelineAsset* Asset = NewObject<URshipTexturePipelineAsset>();
+    TestNotNull(TEXT("Pipeline asset should be created"), Asset);
+    if (!Asset)
+    {
+        return false;
+    }
+    Asset->bStrictNoFallback = true;
+
+    FRshipPipelineNode& Input = Asset->Nodes.AddDefaulted_GetRef();
+    Input.Id = TEXT("input-a");
+    Input.Kind = ERshipPipelineNodeKind::RenderContextInput;
+    Input.Params.Add(TEXT("contextId"), TEXT("ctx-a"));
+    Input.Params.Add(TEXT("sourceType"), TEXT("camera"));
+    Input.Params.Add(TEXT("cameraId"), TEXT("cam-a"));
+
+    FRshipPipelineNode& Output = Asset->Nodes.AddDefaulted_GetRef();
+    Output.Id = TEXT("output-a");
+    Output.Kind = ERshipPipelineNodeKind::MappingSurfaceOutput;
+    Output.Params.Add(TEXT("surfaceId"), TEXT("surface-a"));
+    Output.Params.Add(TEXT("mappingId"), TEXT("mapping-a"));
+
+    FRshipPipelineEdge& Edge = Asset->Edges.AddDefaulted_GetRef();
+    Edge.Id = TEXT("edge-a");
+    Edge.FromNodeId = TEXT("input-a");
+    Edge.ToNodeId = TEXT("output-a");
+
+    FRshipCompiledPipelinePlan Plan;
+    TArray<FRshipPipelineDiagnostic> Diagnostics;
+    const bool bCompiled = Manager->CompilePipelineGraph(Asset, Plan, Diagnostics);
+    TestFalse(TEXT("Strict compile should reject output without projection node"), bCompiled);
+    TestTrue(TEXT("Missing projection diagnostic should be present"), ContainsPipelineDiagnosticCode(Diagnostics, TEXT("pipeline.compile.missing_projection")));
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FRshipContentMappingPipelineCompileAggregatesMultiSurfaceMappingTest,
+    "Rship.ContentMapping.Pipeline.CompileAggregatesMultiSurfaceMapping",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FRshipContentMappingPipelineCompileAggregatesMultiSurfaceMappingTest::RunTest(const FString& Parameters)
+{
+    URshipContentMappingManager* Manager = NewObject<URshipContentMappingManager>();
+    TestNotNull(TEXT("Manager should be created"), Manager);
+    if (!Manager)
+    {
+        return false;
+    }
+
+    URshipTexturePipelineAsset* Asset = NewObject<URshipTexturePipelineAsset>();
+    TestNotNull(TEXT("Pipeline asset should be created"), Asset);
+    if (!Asset)
+    {
+        return false;
+    }
+    Asset->AssetId = TEXT("aggregate-surfaces");
+    Asset->Revision = 1;
+
+    FRshipPipelineNode& Input = Asset->Nodes.AddDefaulted_GetRef();
+    Input.Id = TEXT("input-a");
+    Input.Kind = ERshipPipelineNodeKind::RenderContextInput;
+    Input.Params.Add(TEXT("contextId"), TEXT("ctx-a"));
+    Input.Params.Add(TEXT("sourceType"), TEXT("camera"));
+    Input.Params.Add(TEXT("cameraId"), TEXT("cam-a"));
+
+    FRshipPipelineNode& Projection = Asset->Nodes.AddDefaulted_GetRef();
+    Projection.Id = TEXT("projection-a");
+    Projection.Kind = ERshipPipelineNodeKind::Projection;
+    Projection.Params.Add(TEXT("projectionType"), TEXT("perspective"));
+
+    FRshipPipelineNode& OutputA = Asset->Nodes.AddDefaulted_GetRef();
+    OutputA.Id = TEXT("output-a");
+    OutputA.Kind = ERshipPipelineNodeKind::MappingSurfaceOutput;
+    OutputA.Params.Add(TEXT("surfaceId"), TEXT("surface-a"));
+    OutputA.Params.Add(TEXT("mappingId"), TEXT("mapping-shared"));
+
+    FRshipPipelineNode& OutputB = Asset->Nodes.AddDefaulted_GetRef();
+    OutputB.Id = TEXT("output-b");
+    OutputB.Kind = ERshipPipelineNodeKind::MappingSurfaceOutput;
+    OutputB.Params.Add(TEXT("surfaceId"), TEXT("surface-b"));
+    OutputB.Params.Add(TEXT("mappingId"), TEXT("mapping-shared"));
+
+    FRshipPipelineEdge& EdgeA = Asset->Edges.AddDefaulted_GetRef();
+    EdgeA.Id = TEXT("edge-a");
+    EdgeA.FromNodeId = TEXT("input-a");
+    EdgeA.ToNodeId = TEXT("projection-a");
+
+    FRshipPipelineEdge& EdgeB = Asset->Edges.AddDefaulted_GetRef();
+    EdgeB.Id = TEXT("edge-b");
+    EdgeB.FromNodeId = TEXT("projection-a");
+    EdgeB.ToNodeId = TEXT("output-a");
+
+    FRshipPipelineEdge& EdgeC = Asset->Edges.AddDefaulted_GetRef();
+    EdgeC.Id = TEXT("edge-c");
+    EdgeC.FromNodeId = TEXT("projection-a");
+    EdgeC.ToNodeId = TEXT("output-b");
+
+    FRshipCompiledPipelinePlan Plan;
+    TArray<FRshipPipelineDiagnostic> Diagnostics;
+    const bool bCompiled = Manager->CompilePipelineGraph(Asset, Plan, Diagnostics);
+    TestTrue(TEXT("Compile should succeed for shared mapping across multiple outputs"), bCompiled);
+    if (!bCompiled)
+    {
+        return false;
+    }
+
+    TestEqual(TEXT("Expected one compiled mapping spec"), Plan.Mappings.Num(), 1);
+    if (Plan.Mappings.Num() != 1)
+    {
+        return false;
+    }
+
+    const FRshipPipelineMappingSpec& CompiledMapping = Plan.Mappings[0];
+    TestEqual(TEXT("Compiled mapping id should be shared id"), CompiledMapping.Id, FString(TEXT("mapping-shared")));
+    TestEqual(TEXT("Compiled mapping should include both surfaces"), CompiledMapping.SurfaceIds.Num(), 2);
+    TestTrue(TEXT("Compiled mapping should include surface-a"), CompiledMapping.SurfaceIds.Contains(TEXT("surface-a")));
+    TestTrue(TEXT("Compiled mapping should include surface-b"), CompiledMapping.SurfaceIds.Contains(TEXT("surface-b")));
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FRshipContentMappingPipelineCompileProjectionTypeCoverageTest,
+    "Rship.ContentMapping.Pipeline.CompileProjectionTypeCoverage",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FRshipContentMappingPipelineCompileProjectionTypeCoverageTest::RunTest(const FString& Parameters)
+{
+    URshipContentMappingManager* Manager = NewObject<URshipContentMappingManager>();
+    TestNotNull(TEXT("Manager should be created"), Manager);
+    if (!Manager)
+    {
+        return false;
+    }
+
+    struct FProjectionCompileExpectation
+    {
+        FString InputToken;
+        FString ExpectedCanonicalType;
+        FString ExpectedModeField;
+        FString ExpectedModeToken;
+    };
+
+    const TArray<FProjectionCompileExpectation> Cases =
+    {
+        {TEXT("direct"), TEXT("surface-uv"), TEXT("uvMode"), TEXT("direct")},
+        {TEXT("feed"), TEXT("surface-uv"), TEXT("uvMode"), TEXT("feed")},
+        {TEXT("perspective"), TEXT("surface-projection"), TEXT("projectionType"), TEXT("perspective")},
+        {TEXT("projection"), TEXT("surface-projection"), TEXT("projectionType"), TEXT("perspective")},
+        {TEXT("projector"), TEXT("surface-projection"), TEXT("projectionType"), TEXT("perspective")},
+        {TEXT("custom-matrix"), TEXT("surface-projection"), TEXT("projectionType"), TEXT("custom-matrix")},
+        {TEXT("matrix"), TEXT("surface-projection"), TEXT("projectionType"), TEXT("custom-matrix")},
+        {TEXT("cylindrical"), TEXT("surface-projection"), TEXT("projectionType"), TEXT("cylindrical")},
+        {TEXT("spherical"), TEXT("surface-projection"), TEXT("projectionType"), TEXT("spherical")},
+        {TEXT("orthographic"), TEXT("surface-projection"), TEXT("projectionType"), TEXT("parallel")},
+        {TEXT("parallel"), TEXT("surface-projection"), TEXT("projectionType"), TEXT("parallel")},
+        {TEXT("radial"), TEXT("surface-projection"), TEXT("projectionType"), TEXT("radial")},
+        {TEXT("mesh-projection"), TEXT("surface-projection"), TEXT("projectionType"), TEXT("mesh")},
+        {TEXT("fisheye"), TEXT("surface-projection"), TEXT("projectionType"), TEXT("fisheye")},
+        {TEXT("camera-plate"), TEXT("surface-projection"), TEXT("projectionType"), TEXT("camera-plate")},
+        {TEXT("spatial"), TEXT("surface-projection"), TEXT("projectionType"), TEXT("spatial")},
+        {TEXT("depth-map"), TEXT("surface-projection"), TEXT("projectionType"), TEXT("depth-map")}
+    };
+
+    for (const FProjectionCompileExpectation& Case : Cases)
+    {
+        URshipTexturePipelineAsset* Asset = NewObject<URshipTexturePipelineAsset>();
+        Asset->AssetId = TEXT("projection-coverage");
+        Asset->Revision = 1;
+
+        FRshipPipelineNode& Input = Asset->Nodes.AddDefaulted_GetRef();
+        Input.Id = TEXT("input-a");
+        Input.Kind = ERshipPipelineNodeKind::RenderContextInput;
+        Input.Params.Add(TEXT("contextId"), TEXT("ctx-a"));
+        Input.Params.Add(TEXT("sourceType"), TEXT("camera"));
+        Input.Params.Add(TEXT("cameraId"), TEXT("cam-a"));
+
+        FRshipPipelineNode& Projection = Asset->Nodes.AddDefaulted_GetRef();
+        Projection.Id = TEXT("projection-a");
+        Projection.Kind = ERshipPipelineNodeKind::Projection;
+        Projection.Params.Add(TEXT("projectionType"), Case.InputToken);
+
+        FRshipPipelineNode& Output = Asset->Nodes.AddDefaulted_GetRef();
+        Output.Id = TEXT("output-a");
+        Output.Kind = ERshipPipelineNodeKind::MappingSurfaceOutput;
+        Output.Params.Add(TEXT("surfaceId"), TEXT("surface-a"));
+        Output.Params.Add(TEXT("mappingId"), TEXT("mapping-a"));
+
+        FRshipPipelineEdge& EdgeA = Asset->Edges.AddDefaulted_GetRef();
+        EdgeA.Id = TEXT("edge-a");
+        EdgeA.FromNodeId = TEXT("input-a");
+        EdgeA.ToNodeId = TEXT("projection-a");
+
+        FRshipPipelineEdge& EdgeB = Asset->Edges.AddDefaulted_GetRef();
+        EdgeB.Id = TEXT("edge-b");
+        EdgeB.FromNodeId = TEXT("projection-a");
+        EdgeB.ToNodeId = TEXT("output-a");
+
+        FRshipCompiledPipelinePlan Plan;
+        TArray<FRshipPipelineDiagnostic> Diagnostics;
+        const bool bCompiled = Manager->CompilePipelineGraph(Asset, Plan, Diagnostics);
+        TestTrue(FString::Printf(TEXT("Compile should succeed for projection token '%s'"), *Case.InputToken), bCompiled);
+        if (!bCompiled)
+        {
+            return false;
+        }
+
+        TestEqual(FString::Printf(TEXT("One mapping expected for token '%s'"), *Case.InputToken), Plan.Mappings.Num(), 1);
+        if (Plan.Mappings.Num() != 1)
+        {
+            return false;
+        }
+
+        const FRshipPipelineMappingSpec& Mapping = Plan.Mappings[0];
+        TestEqual(
+            FString::Printf(TEXT("Canonical mapping type mismatch for '%s'"), *Case.InputToken),
+            Mapping.Type,
+            Case.ExpectedCanonicalType);
+
+        const TSharedPtr<FJsonObject> MappingConfig = ParseJsonObjectForTest(Mapping.ConfigJson);
+        TestTrue(FString::Printf(TEXT("Mapping config JSON should parse for '%s'"), *Case.InputToken), MappingConfig.IsValid());
+        if (!MappingConfig.IsValid())
+        {
+            return false;
+        }
+
+        TestTrue(
+            FString::Printf(TEXT("Expected mode field '%s' missing for '%s'"), *Case.ExpectedModeField, *Case.InputToken),
+            MappingConfig->HasTypedField<EJson::String>(Case.ExpectedModeField));
+        if (!MappingConfig->HasTypedField<EJson::String>(Case.ExpectedModeField))
+        {
+            return false;
+        }
+
+        TestEqual(
+            FString::Printf(TEXT("Canonical mode token mismatch for '%s'"), *Case.InputToken),
+            MappingConfig->GetStringField(Case.ExpectedModeField),
+            Case.ExpectedModeToken);
+    }
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FRshipContentMappingPipelineApplyReplacesMappingModeTest,
+    "Rship.ContentMapping.Pipeline.ApplyReplacesMappingMode",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FRshipContentMappingPipelineApplyReplacesMappingModeTest::RunTest(const FString& Parameters)
+{
+    URshipContentMappingManager* Manager = NewObject<URshipContentMappingManager>();
+    TestNotNull(TEXT("Manager should be created"), Manager);
+    if (!Manager)
+    {
+        return false;
+    }
+
+    FRshipRenderContextState Context;
+    Context.Id = TEXT("ctx-a");
+    Context.SourceType = TEXT("camera");
+    Context.CameraId = TEXT("cam-a");
+    Context.Width = 1280;
+    Context.Height = 720;
+    const FString ContextId = Manager->CreateRenderContext(Context);
+    TestEqual(TEXT("Context id should match requested id"), ContextId, FString(TEXT("ctx-a")));
+
+    FRshipMappingSurfaceState Surface;
+    Surface.Id = TEXT("surface-a");
+    Surface.ActorPath = TEXT("/Game/Maps/PersistentLevel.ScreenA");
+    const FString SurfaceId = Manager->CreateMappingSurface(Surface);
+    TestEqual(TEXT("Surface id should match requested id"), SurfaceId, FString(TEXT("surface-a")));
+
+    FRshipContentMappingState Mapping;
+    Mapping.Id = TEXT("mapping-a");
+    Mapping.Type = TEXT("surface-uv");
+    Mapping.ContextId = ContextId;
+    Mapping.SurfaceIds = { SurfaceId };
+    Mapping.Config = MakeShared<FJsonObject>();
+    Mapping.Config->SetStringField(TEXT("uvMode"), TEXT("direct"));
+    const FString MappingId = Manager->CreateMapping(Mapping);
+    TestEqual(TEXT("Mapping id should match requested id"), MappingId, FString(TEXT("mapping-a")));
+
+    FRshipCompiledPipelinePlan Plan;
+    Plan.AssetId = TEXT("replace-mode-test");
+    Plan.Revision = 1;
+    Plan.bValid = true;
+
+    FRshipPipelineContextSpec& ContextSpec = Plan.Contexts.AddDefaulted_GetRef();
+    ContextSpec.Id = TEXT("ctx-a");
+    ContextSpec.SourceType = TEXT("camera");
+    ContextSpec.CameraId = TEXT("cam-a");
+    ContextSpec.Width = 1280;
+    ContextSpec.Height = 720;
+
+    FRshipPipelineSurfaceSpec& SurfaceSpec = Plan.Surfaces.AddDefaulted_GetRef();
+    SurfaceSpec.Id = TEXT("surface-a");
+    SurfaceSpec.ActorPath = TEXT("/Game/Maps/PersistentLevel.ScreenA");
+
+    FRshipPipelineMappingSpec& MappingSpec = Plan.Mappings.AddDefaulted_GetRef();
+    MappingSpec.Id = TEXT("mapping-a");
+    MappingSpec.Type = TEXT("surface-projection");
+    MappingSpec.ContextId = TEXT("ctx-a");
+    MappingSpec.SurfaceIds = { TEXT("surface-a") };
+    {
+        TSharedPtr<FJsonObject> ProjectionConfig = MakeShared<FJsonObject>();
+        ProjectionConfig->SetStringField(TEXT("projectionType"), TEXT("perspective"));
+        MappingSpec.ConfigJson = JsonToStringForTest(ProjectionConfig);
+    }
+
+    TArray<FRshipPipelineDiagnostic> Diagnostics;
+    const bool bApplied = Manager->ApplyCompiledPipelinePlan(Plan, Diagnostics);
+    TestTrue(TEXT("Compiled plan apply should succeed"), bApplied);
+    if (!bApplied)
+    {
+        return false;
+    }
+
+    FRshipContentMappingState Stored;
+    TestTrue(TEXT("Mapping should exist after apply"), CopyMappingById(Manager, TEXT("mapping-a"), Stored));
+    TestEqual(TEXT("Mapping type should be replaced to projection"), Stored.Type, FString(TEXT("surface-projection")));
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FRshipContentMappingPipelineApplyRollbackOnFailureTest,
+    "Rship.ContentMapping.Pipeline.ApplyRollbackOnFailure",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FRshipContentMappingPipelineApplyRollbackOnFailureTest::RunTest(const FString& Parameters)
+{
+    URshipContentMappingManager* Manager = NewObject<URshipContentMappingManager>();
+    TestNotNull(TEXT("Manager should be created"), Manager);
+    if (!Manager)
+    {
+        return false;
+    }
+
+    FRshipRenderContextState Context;
+    Context.Id = TEXT("ctx-base");
+    Context.SourceType = TEXT("camera");
+    Context.CameraId = TEXT("cam-base");
+    Context.Width = 1920;
+    Context.Height = 1080;
+    Manager->CreateRenderContext(Context);
+
+    FRshipMappingSurfaceState Surface;
+    Surface.Id = TEXT("surface-base");
+    Surface.ActorPath = TEXT("/Game/Maps/PersistentLevel.ScreenBase");
+    Manager->CreateMappingSurface(Surface);
+
+    FRshipContentMappingState Mapping;
+    Mapping.Id = TEXT("mapping-base");
+    Mapping.Type = TEXT("surface-uv");
+    Mapping.ContextId = TEXT("ctx-base");
+    Mapping.SurfaceIds = { TEXT("surface-base") };
+    Mapping.Config = MakeShared<FJsonObject>();
+    Mapping.Config->SetStringField(TEXT("uvMode"), TEXT("direct"));
+    Manager->CreateMapping(Mapping);
+
+    FRshipCompiledPipelinePlan InvalidPlan;
+    InvalidPlan.AssetId = TEXT("rollback-invalid");
+    InvalidPlan.Revision = 1;
+    InvalidPlan.bValid = true;
+
+    // Empty mapping id forces deterministic apply failure after deletion pass.
+    FRshipPipelineMappingSpec& InvalidMapping = InvalidPlan.Mappings.AddDefaulted_GetRef();
+    InvalidMapping.Id = TEXT("");
+    InvalidMapping.Type = TEXT("surface-uv");
+    InvalidMapping.ContextId = TEXT("ctx-base");
+    InvalidMapping.SurfaceIds = { TEXT("surface-base") };
+    {
+        TSharedPtr<FJsonObject> Config = MakeShared<FJsonObject>();
+        Config->SetStringField(TEXT("uvMode"), TEXT("direct"));
+        InvalidMapping.ConfigJson = JsonToStringForTest(Config);
+    }
+
+    TArray<FRshipPipelineDiagnostic> Diagnostics;
+    const bool bApplied = Manager->ApplyCompiledPipelinePlan(InvalidPlan, Diagnostics);
+    TestFalse(TEXT("Invalid plan should fail apply"), bApplied);
+    TestTrue(TEXT("Apply failure should include mapping_id_empty code"), ContainsPipelineDiagnosticCode(Diagnostics, TEXT("pipeline.apply.mapping_id_empty")));
+
+    FRshipContentMappingState StoredAfterFailure;
+    TestTrue(TEXT("Rollback should restore baseline mapping"), CopyMappingById(Manager, TEXT("mapping-base"), StoredAfterFailure));
+    TestEqual(TEXT("Baseline mapping type should remain surface-uv after rollback"), StoredAfterFailure.Type, FString(TEXT("surface-uv")));
 
     return true;
 }

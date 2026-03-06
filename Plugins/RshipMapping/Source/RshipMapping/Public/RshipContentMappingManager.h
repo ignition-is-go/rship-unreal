@@ -6,6 +6,7 @@
 #include "CoreMinimal.h"
 #include "UObject/Object.h"
 #include "Dom/JsonObject.h"
+#include "RshipTexturePipelineAsset.h"
 #include "RshipContentMappingManager.generated.h"
 
 class URshipSubsystem;
@@ -54,6 +55,9 @@ struct RSHIPMAPPING_API FRshipRenderContextState
 
     UPROPERTY(BlueprintReadOnly, Category = "Rship|ContentMapping")
     FString DepthAssetId;
+
+    UPROPERTY(BlueprintReadOnly, Category = "Rship|ContentMapping")
+    FString ExternalSourceId;
 
     UPROPERTY(BlueprintReadOnly, Category = "Rship|ContentMapping")
     int32 Width = 0;
@@ -223,6 +227,25 @@ public:
     TArray<FRshipMappingSurfaceState> GetMappingSurfaces() const;
     TArray<FRshipContentMappingState> GetMappings() const;
 
+    // Register/unregister externally-owned live textures for render contexts
+    // using sourceType = "external-texture".
+    bool RegisterExternalTextureSource(
+        const FString& SourceId,
+        UTexture* Texture,
+        int32 Width = 0,
+        int32 Height = 0);
+    bool UnregisterExternalTextureSource(const FString& SourceId);
+
+    // Resolve stream-safe output targets for bridge modules (Rship2110, etc).
+    bool ResolveRenderContextRenderTarget(
+        const FString& ContextId,
+        UTextureRenderTarget2D*& OutRenderTarget) const;
+    bool ResolveMappingOutputRenderTarget(
+        const FString& MappingId,
+        const FString& SurfaceId,
+        UTextureRenderTarget2D*& OutRenderTarget,
+        FString& OutError);
+
     void SetDebugOverlayEnabled(bool bEnabled);
     bool IsDebugOverlayEnabled() const;
     UFUNCTION()
@@ -238,6 +261,34 @@ public:
     FString GetRuntimeHealthReason() const;
     void SetCoveragePreviewEnabled(bool bEnabled);
     bool IsCoveragePreviewEnabled() const;
+
+    // Deterministic pipeline graph APIs.
+    bool ValidatePipelineGraph(
+        const URshipTexturePipelineAsset* PipelineAsset,
+        TArray<FRshipPipelineDiagnostic>& OutDiagnostics) const;
+    bool CompilePipelineGraph(
+        const URshipTexturePipelineAsset* PipelineAsset,
+        FRshipCompiledPipelinePlan& OutPlan,
+        TArray<FRshipPipelineDiagnostic>& OutDiagnostics) const;
+    bool ApplyCompiledPipelinePlan(
+        const FRshipCompiledPipelinePlan& Plan,
+        TArray<FRshipPipelineDiagnostic>& OutDiagnostics);
+    bool RollbackLastPipelineApply(TArray<FRshipPipelineDiagnostic>& OutDiagnostics);
+
+    UFUNCTION()
+    bool ValidatePipelineGraphJson(const FString& PipelineGraphJson, FString& OutDiagnosticsJson) const;
+
+    UFUNCTION()
+    bool CompilePipelineGraphJson(const FString& PipelineGraphJson, FString& OutPlanJson, FString& OutDiagnosticsJson) const;
+
+    UFUNCTION()
+    bool ApplyCompiledPipelinePlanJson(const FString& CompiledPlanJson, FString& OutDiagnosticsJson);
+
+    UFUNCTION()
+    bool RollbackLastPipelineApplyJson(FString& OutDiagnosticsJson);
+
+    void RegisterPipelineEndpointAdapter(UObject* Adapter);
+    void UnregisterPipelineEndpointAdapter(UObject* Adapter);
 
     // CRUD helpers (used by editor panel)
     FString CreateRenderContext(const FRshipRenderContextState& InState);
@@ -306,6 +357,21 @@ private:
         bool bHasInvalidContextReference = false;
     };
 
+    struct FExternalTextureSourceState
+    {
+        TWeakObjectPtr<UTexture> Texture;
+        int32 Width = 0;
+        int32 Height = 0;
+    };
+
+    struct FPipelineRuntimeSnapshot
+    {
+        bool bValid = false;
+        TMap<FString, FRshipRenderContextState> RenderContexts;
+        TMap<FString, FRshipMappingSurfaceState> MappingSurfaces;
+        TMap<FString, FRshipContentMappingState> Mappings;
+    };
+
     UPROPERTY()
     URshipSubsystem* Subsystem = nullptr;
 
@@ -330,6 +396,9 @@ private:
     TMap<FString, FRshipContentMappingState> PendingMappingUpserts;
     TMap<FString, double> PendingMappingUpsertExpiry;
     TMap<FString, double> PendingMappingDeletes;
+    TMap<FString, FExternalTextureSourceState> ExternalTextureSources;
+    TArray<TWeakObjectPtr<UObject>> PipelineEndpointAdapters;
+    FPipelineRuntimeSnapshot LastPipelineSnapshot;
 
     TMap<FString, TWeakObjectPtr<UTexture2D>> AssetTextureCache;
     TSet<FString> PendingAssetDownloads;
@@ -498,6 +567,15 @@ private:
     void TrackPendingMappingUpsert(const FRshipContentMappingState& State);
     void TrackPendingMappingDelete(const FString& MappingId);
     void PrunePendingMappingGuards(double NowSeconds);
+    void CapturePipelineRuntimeSnapshot();
+    void RestorePipelineRuntimeSnapshot(const FPipelineRuntimeSnapshot& Snapshot);
+    void AddPipelineDiagnostic(
+        TArray<FRshipPipelineDiagnostic>& Diagnostics,
+        ERshipPipelineDiagnosticSeverity Severity,
+        const FString& Code,
+        const FString& Message,
+        const FString& NodeId = FString(),
+        const FString& EdgeId = FString()) const;
 
     static FString GetStringField(const TSharedPtr<FJsonObject>& Obj, const FString& Field, const FString& DefaultValue = TEXT(""));
     static bool GetBoolField(const TSharedPtr<FJsonObject>& Obj, const FString& Field, bool DefaultValue);
