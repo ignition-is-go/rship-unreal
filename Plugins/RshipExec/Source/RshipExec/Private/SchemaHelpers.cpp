@@ -1,23 +1,40 @@
 #include "SchemaHelpers.h"
 #include "Logs.h"
-#include "UObject/FieldIterator.h"
 #include "UObject/UnrealType.h"
+
+void ConstructSchemaProp(FProperty* Property, SchemaNode& OutProp);
+
+static void AddEnumValues(const UEnum* Enum, SchemaNode& OutProp)
+{
+    if (!Enum)
+    {
+        return;
+    }
+
+    const int32 NumEnums = Enum->NumEnums();
+    OutProp.EnumValues.Reserve(OutProp.EnumValues.Num() + NumEnums);
+    for (int32 Index = 0; Index < NumEnums; ++Index)
+    {
+        if (Enum->HasMetaData(TEXT("Hidden"), Index))
+        {
+            continue;
+        }
+
+        const FString Name = Enum->GetNameStringByIndex(Index);
+        if (Name.EndsWith(TEXT("_MAX")))
+        {
+            continue;
+        }
+        OutProp.EnumValues.Add(Name);
+    }
+}
 
 static void BuildChildrenForStruct(const UScriptStruct *InStruct, SchemaNode &OutProp)
 {
     for (TFieldIterator<FProperty> It(InStruct); It; ++It)
     {
-        const FProperty *Field = *It;
-    SchemaNode Child;
-        Child.Name = Field->GetName();
-        Child.Type = Field->GetClass()->GetFName().ToString();
-        if (const FStructProperty *NestedStruct = CastField<FStructProperty>(Field))
-        {
-            if (const UScriptStruct *NestedScript = NestedStruct->Struct)
-            {
-                BuildChildrenForStruct(NestedScript, Child);
-            }
-        }
+        SchemaNode Child;
+        ConstructSchemaProp(*It, Child);
         OutProp.Children.Add(Child);
     }
 }
@@ -47,12 +64,24 @@ void ConstructSchemaProp(FProperty* Property, SchemaNode& OutProp)
 {
     OutProp.Name = Property->GetName();
     OutProp.Type = Property->GetClass()->GetFName().ToString();
+    OutProp.EnumValues.Reset();
 
     if (const FStructProperty *StructProp = CastField<FStructProperty>(Property))
     {
         if (const UScriptStruct *ScriptStruct = StructProp->Struct)
         {
             BuildChildrenForStruct(ScriptStruct, OutProp);
+        }
+    }
+    else if (const FEnumProperty *EnumProp = CastField<FEnumProperty>(Property))
+    {
+        AddEnumValues(EnumProp->GetEnum(), OutProp);
+    }
+    else if (const FByteProperty *ByteProp = CastField<FByteProperty>(Property))
+    {
+        if (ByteProp->Enum)
+        {
+            AddEnumValues(ByteProp->Enum, OutProp);
         }
     }
 
@@ -86,7 +115,7 @@ static FString FormatStructForUnrealArg(const SchemaNode &SchemaProp, const TSha
 
 static FString FormatValueForUnrealArg(const SchemaNode &SchemaProp, const TSharedPtr<FJsonValue> &JsonVal, bool bQuoteStrings)
 {
-    if (SchemaProp.Type == TEXT("StructProperty"))
+    if (SchemaProp.Type.EndsWith(TEXT("StructProperty")))
     {
         const TSharedPtr<FJsonObject> AsObj = (JsonVal.IsValid() && JsonVal->Type == EJson::Object) ? JsonVal->AsObject() : MakeShareable(new FJsonObject());
         return FormatStructForUnrealArg(SchemaProp, AsObj, bQuoteStrings);

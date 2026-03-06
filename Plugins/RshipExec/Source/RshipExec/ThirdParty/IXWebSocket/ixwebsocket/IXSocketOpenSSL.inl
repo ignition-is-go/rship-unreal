@@ -26,7 +26,7 @@
 
 #ifdef _WIN32
 // For manipulating the certificate store
-#include <windows.h>
+#include "Windows/MinWindows.h"
 #include <wincrypt.h>
 #endif
 

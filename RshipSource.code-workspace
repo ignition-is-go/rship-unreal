@@ -1,0 +1,879 @@
+{
+	"folders": [
+		{
+			"name": "RshipSource",
+			"path": "."
+		},
+		{
+			"name": "UE5",
+			"path": "/home/trevor/Code/UnrealEngine"
+		}
+	],
+	"settings": {
+		"typescript.tsc.autoDetect": "off",
+		"npm.autoDetect": "off",
+		"terminal.integrated.env.linux": {
+			"PATH": "/home/trevor/Code/UnrealEngine/Engine/Binaries/ThirdParty/DotNet/8.0.412/linux-x64:${env:PATH}",
+			"DOTNET_ROOT": "/home/trevor/Code/UnrealEngine/Engine/Binaries/ThirdParty/DotNet/8.0.412/linux-x64",
+			"DOTNET_HOST_PATH": "/home/trevor/Code/UnrealEngine/Engine/Binaries/ThirdParty/DotNet/8.0.412/linux-x64/dotnet",
+			"DOTNET_MULTILEVEL_LOOKUP": "0",
+			"DOTNET_ROLL_FORWARD": "LatestMajor"
+		}
+	},
+	"extensions": {
+		"recommendations": [
+			"ms-vscode.cpptools",
+			"ms-dotnettools.csharp"
+		]
+	},
+	"tasks": {
+		"version": "2.0.0",
+		"tasks": [
+			{
+				"label": "RshipSource Linux Debug Build",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSource",
+					"Linux",
+					"Debug",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex"
+				],
+				"problemMatcher": "$msCompile",
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			},
+			{
+				"label": "RshipSource Linux Debug Rebuild",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSource",
+					"Linux",
+					"Debug",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex"
+				],
+				"problemMatcher": "$msCompile",
+				"dependsOn": [
+					"RshipSource Linux Debug Clean"
+				],
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			},
+			{
+				"label": "RshipSource Linux Debug Clean",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSource",
+					"Linux",
+					"Debug",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex",
+					"-clean"
+				],
+				"problemMatcher": "$msCompile",
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			},
+			{
+				"label": "RshipSource Linux DebugGame Build",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSource",
+					"Linux",
+					"DebugGame",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex"
+				],
+				"problemMatcher": "$msCompile",
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			},
+			{
+				"label": "RshipSource Linux DebugGame Rebuild",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSource",
+					"Linux",
+					"DebugGame",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex"
+				],
+				"problemMatcher": "$msCompile",
+				"dependsOn": [
+					"RshipSource Linux DebugGame Clean"
+				],
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			},
+			{
+				"label": "RshipSource Linux DebugGame Clean",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSource",
+					"Linux",
+					"DebugGame",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex",
+					"-clean"
+				],
+				"problemMatcher": "$msCompile",
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			},
+			{
+				"label": "RshipSource Linux Development Build",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSource",
+					"Linux",
+					"Development",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex"
+				],
+				"problemMatcher": "$msCompile",
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			},
+			{
+				"label": "RshipSource Linux Development Rebuild",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSource",
+					"Linux",
+					"Development",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex"
+				],
+				"problemMatcher": "$msCompile",
+				"dependsOn": [
+					"RshipSource Linux Development Clean"
+				],
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			},
+			{
+				"label": "RshipSource Linux Development Clean",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSource",
+					"Linux",
+					"Development",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex",
+					"-clean"
+				],
+				"problemMatcher": "$msCompile",
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			},
+			{
+				"label": "RshipSource Linux Test Build",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSource",
+					"Linux",
+					"Test",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex"
+				],
+				"problemMatcher": "$msCompile",
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			},
+			{
+				"label": "RshipSource Linux Test Rebuild",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSource",
+					"Linux",
+					"Test",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex"
+				],
+				"problemMatcher": "$msCompile",
+				"dependsOn": [
+					"RshipSource Linux Test Clean"
+				],
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			},
+			{
+				"label": "RshipSource Linux Test Clean",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSource",
+					"Linux",
+					"Test",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex",
+					"-clean"
+				],
+				"problemMatcher": "$msCompile",
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			},
+			{
+				"label": "RshipSource Linux Shipping Build",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSource",
+					"Linux",
+					"Shipping",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex"
+				],
+				"problemMatcher": "$msCompile",
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			},
+			{
+				"label": "RshipSource Linux Shipping Rebuild",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSource",
+					"Linux",
+					"Shipping",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex"
+				],
+				"problemMatcher": "$msCompile",
+				"dependsOn": [
+					"RshipSource Linux Shipping Clean"
+				],
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			},
+			{
+				"label": "RshipSource Linux Shipping Clean",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSource",
+					"Linux",
+					"Shipping",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex",
+					"-clean"
+				],
+				"problemMatcher": "$msCompile",
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			},
+			{
+				"label": "RshipSource LinuxArm64 Debug Build",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSource",
+					"LinuxArm64",
+					"Debug",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex"
+				],
+				"problemMatcher": "$msCompile",
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			},
+			{
+				"label": "RshipSource LinuxArm64 Debug Rebuild",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSource",
+					"LinuxArm64",
+					"Debug",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex"
+				],
+				"problemMatcher": "$msCompile",
+				"dependsOn": [
+					"RshipSource LinuxArm64 Debug Clean"
+				],
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			},
+			{
+				"label": "RshipSource LinuxArm64 Debug Clean",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSource",
+					"LinuxArm64",
+					"Debug",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex",
+					"-clean"
+				],
+				"problemMatcher": "$msCompile",
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			},
+			{
+				"label": "RshipSource LinuxArm64 DebugGame Build",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSource",
+					"LinuxArm64",
+					"DebugGame",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex"
+				],
+				"problemMatcher": "$msCompile",
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			},
+			{
+				"label": "RshipSource LinuxArm64 DebugGame Rebuild",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSource",
+					"LinuxArm64",
+					"DebugGame",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex"
+				],
+				"problemMatcher": "$msCompile",
+				"dependsOn": [
+					"RshipSource LinuxArm64 DebugGame Clean"
+				],
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			},
+			{
+				"label": "RshipSource LinuxArm64 DebugGame Clean",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSource",
+					"LinuxArm64",
+					"DebugGame",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex",
+					"-clean"
+				],
+				"problemMatcher": "$msCompile",
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			},
+			{
+				"label": "RshipSource LinuxArm64 Development Build",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSource",
+					"LinuxArm64",
+					"Development",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex"
+				],
+				"problemMatcher": "$msCompile",
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			},
+			{
+				"label": "RshipSource LinuxArm64 Development Rebuild",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSource",
+					"LinuxArm64",
+					"Development",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex"
+				],
+				"problemMatcher": "$msCompile",
+				"dependsOn": [
+					"RshipSource LinuxArm64 Development Clean"
+				],
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			},
+			{
+				"label": "RshipSource LinuxArm64 Development Clean",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSource",
+					"LinuxArm64",
+					"Development",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex",
+					"-clean"
+				],
+				"problemMatcher": "$msCompile",
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			},
+			{
+				"label": "RshipSource LinuxArm64 Test Build",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSource",
+					"LinuxArm64",
+					"Test",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex"
+				],
+				"problemMatcher": "$msCompile",
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			},
+			{
+				"label": "RshipSource LinuxArm64 Test Rebuild",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSource",
+					"LinuxArm64",
+					"Test",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex"
+				],
+				"problemMatcher": "$msCompile",
+				"dependsOn": [
+					"RshipSource LinuxArm64 Test Clean"
+				],
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			},
+			{
+				"label": "RshipSource LinuxArm64 Test Clean",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSource",
+					"LinuxArm64",
+					"Test",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex",
+					"-clean"
+				],
+				"problemMatcher": "$msCompile",
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			},
+			{
+				"label": "RshipSource LinuxArm64 Shipping Build",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSource",
+					"LinuxArm64",
+					"Shipping",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex"
+				],
+				"problemMatcher": "$msCompile",
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			},
+			{
+				"label": "RshipSource LinuxArm64 Shipping Rebuild",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSource",
+					"LinuxArm64",
+					"Shipping",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex"
+				],
+				"problemMatcher": "$msCompile",
+				"dependsOn": [
+					"RshipSource LinuxArm64 Shipping Clean"
+				],
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			},
+			{
+				"label": "RshipSource LinuxArm64 Shipping Clean",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSource",
+					"LinuxArm64",
+					"Shipping",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex",
+					"-clean"
+				],
+				"problemMatcher": "$msCompile",
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			},
+			{
+				"label": "RshipSourceEditor Linux Debug Build",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSourceEditor",
+					"Linux",
+					"Debug",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex"
+				],
+				"problemMatcher": "$msCompile",
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			},
+			{
+				"label": "RshipSourceEditor Linux Debug Rebuild",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSourceEditor",
+					"Linux",
+					"Debug",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex"
+				],
+				"problemMatcher": "$msCompile",
+				"dependsOn": [
+					"RshipSourceEditor Linux Debug Clean"
+				],
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			},
+			{
+				"label": "RshipSourceEditor Linux Debug Clean",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSourceEditor",
+					"Linux",
+					"Debug",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex",
+					"-clean"
+				],
+				"problemMatcher": "$msCompile",
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			},
+			{
+				"label": "RshipSourceEditor Linux DebugGame Build",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSourceEditor",
+					"Linux",
+					"DebugGame",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex"
+				],
+				"problemMatcher": "$msCompile",
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			},
+			{
+				"label": "RshipSourceEditor Linux DebugGame Rebuild",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSourceEditor",
+					"Linux",
+					"DebugGame",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex"
+				],
+				"problemMatcher": "$msCompile",
+				"dependsOn": [
+					"RshipSourceEditor Linux DebugGame Clean"
+				],
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			},
+			{
+				"label": "RshipSourceEditor Linux DebugGame Clean",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSourceEditor",
+					"Linux",
+					"DebugGame",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex",
+					"-clean"
+				],
+				"problemMatcher": "$msCompile",
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			},
+			{
+				"label": "RshipSourceEditor Linux Development Build",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSourceEditor",
+					"Linux",
+					"Development",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex"
+				],
+				"problemMatcher": "$msCompile",
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			},
+			{
+				"label": "RshipSourceEditor Linux Development Rebuild",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSourceEditor",
+					"Linux",
+					"Development",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex"
+				],
+				"problemMatcher": "$msCompile",
+				"dependsOn": [
+					"RshipSourceEditor Linux Development Clean"
+				],
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			},
+			{
+				"label": "RshipSourceEditor Linux Development Clean",
+				"group": "build",
+				"command": "Engine/Build/BatchFiles/Linux/Build.sh",
+				"args": [
+					"RshipSourceEditor",
+					"Linux",
+					"Development",
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-waitmutex",
+					"-clean"
+				],
+				"problemMatcher": "$msCompile",
+				"type": "shell",
+				"options": {
+					"cwd": "/home/trevor/Code/UnrealEngine"
+				}
+			}
+		]
+	},
+	"launch": {
+		"version": "0.2.0",
+		"configurations": [
+			{
+				"name": "Launch RshipSource (Debug)",
+				"request": "launch",
+				"program": "/home/trevor/Code/rship/libs/unreal/rship-unreal/Binaries/Linux/RshipSource-Linux-Debug",
+				"preLaunchTask": "RshipSource Linux Debug Build",
+				"args": [
+				],
+				"cwd": "/home/trevor/Code/UnrealEngine",
+				"type": "cppdbg",
+				"visualizerFile": "/home/trevor/Code/UnrealEngine/Engine/Extras/VisualStudioDebugging/Unreal.natvis",
+				"showDisplayString": true
+			},
+			{
+				"name": "Launch RshipSource (DebugGame)",
+				"request": "launch",
+				"program": "/home/trevor/Code/rship/libs/unreal/rship-unreal/Binaries/Linux/RshipSource-Linux-DebugGame",
+				"preLaunchTask": "RshipSource Linux DebugGame Build",
+				"args": [
+				],
+				"cwd": "/home/trevor/Code/UnrealEngine",
+				"type": "cppdbg",
+				"visualizerFile": "/home/trevor/Code/UnrealEngine/Engine/Extras/VisualStudioDebugging/Unreal.natvis",
+				"showDisplayString": true
+			},
+			{
+				"name": "Launch RshipSource (Development)",
+				"request": "launch",
+				"program": "/home/trevor/Code/rship/libs/unreal/rship-unreal/Binaries/Linux/RshipSource",
+				"preLaunchTask": "RshipSource Linux Development Build",
+				"args": [
+				],
+				"cwd": "/home/trevor/Code/UnrealEngine",
+				"type": "cppdbg",
+				"visualizerFile": "/home/trevor/Code/UnrealEngine/Engine/Extras/VisualStudioDebugging/Unreal.natvis",
+				"showDisplayString": true
+			},
+			{
+				"name": "Launch RshipSource (Test)",
+				"request": "launch",
+				"program": "/home/trevor/Code/rship/libs/unreal/rship-unreal/Binaries/Linux/RshipSource-Linux-Test",
+				"preLaunchTask": "RshipSource Linux Test Build",
+				"args": [
+				],
+				"cwd": "/home/trevor/Code/UnrealEngine",
+				"type": "cppdbg",
+				"visualizerFile": "/home/trevor/Code/UnrealEngine/Engine/Extras/VisualStudioDebugging/Unreal.natvis",
+				"showDisplayString": true
+			},
+			{
+				"name": "Launch RshipSource (Shipping)",
+				"request": "launch",
+				"program": "/home/trevor/Code/rship/libs/unreal/rship-unreal/Binaries/Linux/RshipSource-Linux-Shipping",
+				"preLaunchTask": "RshipSource Linux Shipping Build",
+				"args": [
+				],
+				"cwd": "/home/trevor/Code/UnrealEngine",
+				"type": "cppdbg",
+				"visualizerFile": "/home/trevor/Code/UnrealEngine/Engine/Extras/VisualStudioDebugging/Unreal.natvis",
+				"showDisplayString": true
+			},
+			{
+				"name": "Launch RshipSourceEditor (Debug)",
+				"request": "launch",
+				"program": "/home/trevor/Code/UnrealEngine/Engine/Binaries/Linux/UnrealEditor-Linux-Debug",
+				"preLaunchTask": "RshipSourceEditor Linux Debug Build",
+				"args": [
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject"
+				],
+				"cwd": "/home/trevor/Code/UnrealEngine",
+				"type": "cppdbg",
+				"visualizerFile": "/home/trevor/Code/UnrealEngine/Engine/Extras/VisualStudioDebugging/Unreal.natvis",
+				"showDisplayString": true
+			},
+			{
+				"name": "Launch RshipSourceEditor (DebugGame)",
+				"request": "launch",
+				"program": "/home/trevor/Code/UnrealEngine/Engine/Binaries/Linux/UnrealEditor-Linux-DebugGame",
+				"preLaunchTask": "RshipSourceEditor Linux DebugGame Build",
+				"args": [
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject"
+				],
+				"cwd": "/home/trevor/Code/UnrealEngine",
+				"type": "cppdbg",
+				"visualizerFile": "/home/trevor/Code/UnrealEngine/Engine/Extras/VisualStudioDebugging/Unreal.natvis",
+				"showDisplayString": true
+			},
+			{
+				"name": "Launch RshipSourceEditor (Development)",
+				"request": "launch",
+				"program": "/home/trevor/Code/UnrealEngine/Engine/Binaries/Linux/UnrealEditor",
+				"preLaunchTask": "RshipSourceEditor Linux Development Build",
+				"args": [
+					"/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject"
+				],
+				"cwd": "/home/trevor/Code/UnrealEngine",
+				"type": "cppdbg",
+				"visualizerFile": "/home/trevor/Code/UnrealEngine/Engine/Extras/VisualStudioDebugging/Unreal.natvis",
+				"showDisplayString": true
+			},
+			{
+				"name": "Generate Project Files",
+				"type": "coreclr",
+				"request": "launch",
+				"preLaunchTask": "UnrealBuildTool Linux Development Build",
+				"program": "/home/trevor/Code/UnrealEngine/Engine/Build/BatchFiles/RunUBT.bat",
+				"args": [
+					"-projectfiles",
+					"-vscode",
+					"-project=/home/trevor/Code/rship/libs/unreal/rship-unreal/RshipSource.uproject",
+					"-game",
+					"-engine",
+					"-dotnet"
+				],
+				"env": {
+					"PATH": "/home/trevor/Code/UnrealEngine/Engine/Binaries/ThirdParty/DotNet/8.0.412/linux-x64:${env:PATH}",
+					"DOTNET_ROOT": "/home/trevor/Code/UnrealEngine/Engine/Binaries/ThirdParty/DotNet/8.0.412/linux-x64",
+					"DOTNET_HOST_PATH": "/home/trevor/Code/UnrealEngine/Engine/Binaries/ThirdParty/DotNet/8.0.412/linux-x64/dotnet",
+					"DOTNET_MULTILEVEL_LOOKUP": "0",
+					"DOTNET_ROLL_FORWARD": "LatestMajor"
+				},
+				"console": "internalConsole",
+				"internalConsoleOptions": "openOnSessionStart",
+				"stopAtEntry": false,
+				"cwd": "/home/trevor/Code/UnrealEngine"
+			}
+		]
+	}
+}
