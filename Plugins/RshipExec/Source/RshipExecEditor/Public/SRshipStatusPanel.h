@@ -78,6 +78,10 @@ private:
     TSharedRef<ITableRow> GenerateTargetRow(TSharedPtr<FRshipTargetListItem> Item, const TSharedRef<STableViewBase>& OwnerTable);
     void OnTargetSelectionChanged(TSharedPtr<FRshipTargetListItem> Item, ESelectInfo::Type SelectInfo);
 
+    // Editor selection sync
+    void OnEditorSelectionChanged(UObject* Object);
+    void SyncSelectionFromOutliner();
+
     // Build UI sections
     TSharedRef<SWidget> BuildConnectionSection();
     TSharedRef<SWidget> BuildTargetsSection();
@@ -157,6 +161,9 @@ private:
     // Refresh timer
     float RefreshTimer = 0.0f;
     static constexpr float RefreshInterval = 0.5f;  // Update every 0.5 seconds
+
+    // Editor selection delegate handle
+    FDelegateHandle SelectionChangedHandle;
 };
 
 /**
@@ -174,5 +181,7 @@ public:
     virtual TSharedRef<SWidget> GenerateWidgetForColumn(const FName& ColumnName) override;
 
 private:
+    void OnTargetIdCommitted(const FText& NewText, ETextCommit::Type CommitType);
+
     TSharedPtr<FRshipTargetListItem> Item;
 };

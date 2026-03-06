@@ -307,12 +307,12 @@ void FRshipPCGPropertyDescriptor::ParseMetadata(FProperty* Property)
 	PulseMode = LocalPulseMode;
 	PulseRateHz = LocalPulseRate;
 
-		// Get description from tooltip if available (editor-only metadata).
+	// Get description from tooltip if available (editor-only)
 #if WITH_EDITORONLY_DATA
-		if (Property->HasMetaData(TEXT("ToolTip")))
-		{
-			Description = Property->GetMetaData(TEXT("ToolTip"));
-		}
+	if (Property->HasMetaData(TEXT("ToolTip")))
+	{
+		Description = Property->GetMetaData(TEXT("ToolTip"));
+	}
 #endif
 
 	// Handle enum path
@@ -926,6 +926,7 @@ bool HasRshipMetadata(FProperty* Property)
 		return false;
 	}
 
+#if WITH_EDITORONLY_DATA
 	// Check for explicit RShipParam metadata
 #if WITH_EDITORONLY_DATA
 	if (Property->HasMetaData(RshipPCGMetaKeys::Param))
@@ -971,7 +972,9 @@ void ParseRshipMetadata(
 		return;
 	}
 
-	const auto HasMeta = [Property](const FName& Key) -> bool
+#if WITH_EDITORONLY_DATA
+	// Parse RShipParam (can be empty for default name, or contain custom name)
+	if (Property->HasMetaData(RshipPCGMetaKeys::Param))
 	{
 #if WITH_EDITORONLY_DATA
 		return Property->HasMetaData(Key);
@@ -1067,6 +1070,7 @@ void ParseRshipMetadata(
 		FString RateStr = GetMeta(RshipPCGMetaKeys::PulseRate);
 		OutPulseRate = FMath::Clamp(FCString::Atof(*RateStr), 0.1f, 60.0f);
 	}
+#endif // WITH_EDITORONLY_DATA
 }
 
 } // namespace RshipPCGUtils

@@ -12,7 +12,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnRshipData);
 
 
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
-class URshipTargetComponent : public UActorComponent
+class RSHIPEXEC_API URshipTargetComponent : public UActorComponent
 {
 	GENERATED_BODY()
 public:

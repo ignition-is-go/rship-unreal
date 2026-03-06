@@ -12,7 +12,7 @@
 void URshipFixtureLibrary::Initialize(URshipSubsystem* InSubsystem)
 {
     Subsystem = InSubsystem;
-    LoadLibrary();
+    LoadProfileLibrary();
     UE_LOG(LogRshipExec, Log, TEXT("FixtureLibrary initialized with %d profiles"), Profiles.Num());
 }
 
@@ -145,7 +145,7 @@ bool URshipFixtureLibrary::SaveLibrary()
     return FFileHelper::SaveStringToFile(Json, *Path);
 }
 
-bool URshipFixtureLibrary::LoadLibrary()
+bool URshipFixtureLibrary::LoadProfileLibrary()
 {
     FString Path = GetLibraryPath();
     if (!FPaths::FileExists(Path)) return false;

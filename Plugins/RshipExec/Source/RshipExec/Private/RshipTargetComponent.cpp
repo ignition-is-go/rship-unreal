@@ -123,10 +123,19 @@ void URshipTargetComponent::RegisterProperty(UObject* owner, FProperty* prop, FS
 
 void URshipTargetComponent::Register()
 {
-    if (!GEngine)
+    // Skip registration in blueprint editor preview worlds
+    UWorld* World = GetWorld();
+    if (World && World->WorldType == EWorldType::EditorPreview)
     {
-        UE_LOG(LogRshipExec, Warning, TEXT("Register failed: engine not initialized"));
+        UE_LOG(LogRshipExec, Verbose, TEXT("Skipping registration for blueprint preview actor: %s"), *targetName);
         return;
+    }
+
+    // If already registered, unregister first to clean up
+    if (TargetData != nullptr)
+    {
+        UE_LOG(LogRshipExec, Log, TEXT("Register called on already-registered target '%s', re-registering..."), *targetName);
+        Unregister();
     }
 
     URshipSubsystem *subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
@@ -281,7 +290,12 @@ void URshipTargetComponent::Register()
         this->TargetData->GetEmitters().Num(),
         this->TargetData->GetActions().Num());
 
-    subsystem->SendAll();
+    // Send only this target (not all targets) to avoid redundant sends
+    if (this->TargetData)
+    {
+        subsystem->SendTarget(this->TargetData);
+        subsystem->ProcessMessageQueue();
+    }
 
     // Register with GroupManager for tagging/grouping support
     if (URshipTargetGroupManager* GroupManager = subsystem->GetGroupManager())
@@ -617,7 +631,12 @@ void URshipTargetComponent::RescanSiblingComponents()
     if (newActionsCount > 0 || newEmittersCount > 0)
     {
         UE_LOG(LogRshipExec, Log, TEXT("Rescan complete: %d new actions, %d new emitters. Sending update to server."), newActionsCount, newEmittersCount);
-        subsystem->SendAll();
+        // Send only this target (not all targets) to avoid redundant sends
+        if (this->TargetData)
+        {
+            subsystem->SendTarget(this->TargetData);
+            subsystem->ProcessMessageQueue();
+        }
     }
     else
     {

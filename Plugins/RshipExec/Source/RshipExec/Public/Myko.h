@@ -12,9 +12,6 @@ FString GetIso8601Timestamp();
 // Create a SET event payload with tx and createdAt fields (myko protocol compliant)
 TSharedPtr<FJsonObject> MakeSet(FString itemType, TSharedPtr<FJsonObject> data);
 
-// Create a DEL event payload with tx and createdAt fields (myko protocol compliant)
-TSharedPtr<FJsonObject> MakeDel(FString itemType, TSharedPtr<FJsonObject> data);
-
 // Get unique machine identifier (hostname)
 FString GetUniqueMachineId();
 

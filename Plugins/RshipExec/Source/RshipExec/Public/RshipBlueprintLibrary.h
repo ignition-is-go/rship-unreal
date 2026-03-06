@@ -44,6 +44,10 @@ public:
     UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Rship|Connection")
     static FString GetRshipServiceId();
 
+    /** Get the rship instance ID (MachineId:ServiceId) */
+    UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Rship|Connection")
+    static FString GetRshipInstanceId();
+
     // ========================================================================
     // TARGETS
     // ========================================================================

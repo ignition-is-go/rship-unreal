@@ -6,8 +6,6 @@
 #include "Containers/Ticker.h"
 #include "Subsystems/EngineSubsystem.h"
 #include "Subsystems/SubsystemCollection.h"
-#include "IWebSocket.h"
-#include "HAL/CriticalSection.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "RshipTargetComponent.h"
@@ -49,6 +47,7 @@ class URshipSpatialAudioManager;
 class URshipContentMappingManager;
 class URshipDisplayManager;
 #include "Containers/List.h"
+#include "Containers/Ticker.h"
 #include "Target.h"
 #include "RshipRateLimiter.h"
 #include "RshipWebSocket.h"
@@ -91,11 +90,10 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
 
     AEmitterHandler *EmitterHandler;
 
-    // WebSocket connections (use one or the other based on settings)
-    TSharedPtr<IWebSocket> WebSocket;                    // Standard UE WebSocket
-    TSharedPtr<FRshipWebSocket> HighPerfWebSocket;       // High-performance WebSocket
-    bool bUsingHighPerfWebSocket;                        // Which one is active
+    // High-performance WebSocket connection
+    TSharedPtr<FRshipWebSocket> WebSocket;
     bool bPingResponseReceived = false;                  // Diagnostic: tracks if ping response came back
+    bool bIsManuallyReconnecting = false;                // Prevents auto-reconnect during manual reconnect
 
     FString InstanceId;
     FString ServiceId;
@@ -244,11 +242,10 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     // Connection state management
     ERshipConnectionState ConnectionState;
     int32 ReconnectAttempts;
-    FTimerHandle QueueProcessTimerHandle;
-    FTimerHandle ReconnectTimerHandle;
-    FTimerHandle SubsystemTickTimerHandle;
-    FTimerHandle ConnectionTimeoutHandle;
-    FTSTicker::FDelegateHandle SubsystemCoreTickerHandle;
+    FTSTicker::FDelegateHandle QueueProcessTickerHandle;
+    FTSTicker::FDelegateHandle ReconnectTickerHandle;
+    FTSTicker::FDelegateHandle SubsystemTickerHandle;
+    FTSTicker::FDelegateHandle ConnectionTimeoutTickerHandle;
     double LastTickTime;
     float ControlSyncRateHz = 60.0f;
 
@@ -307,9 +304,15 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
         InboundQueueHead = 0;
     }
 
+    // Ticker callbacks (return true to keep ticking, false to stop)
+    bool OnQueueProcessTick(float DeltaTime);
+    bool OnReconnectTick(float DeltaTime);
+    bool OnSubsystemTick(float DeltaTime);
+    bool OnConnectionTimeoutTick(float DeltaTime);
+
     // Internal message handling
     void SetItem(FString itemType, TSharedPtr<FJsonObject> data, ERshipMessagePriority Priority = ERshipMessagePriority::Normal, const FString& CoalesceKey = TEXT(""));
-    void DelItem(FString itemType, TSharedPtr<FJsonObject> data, ERshipMessagePriority Priority = ERshipMessagePriority::Normal, const FString& CoalesceKey = TEXT(""));
+    void SendInstanceInfo();  // Send Machine and Instance only (called once on connect)
     void SendTarget(Target* target);
     void DeleteTarget(Target* target);
     void SendAction(Action* action, FString targetId);
@@ -357,6 +360,13 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
 public:
     virtual void Initialize(FSubsystemCollectionBase &Collection) override;
     virtual void Deinitialize() override;
+    virtual void BeginDestroy() override;
+
+    /** Clean up tickers and connections before hot reload. Called by module ShutdownModule. */
+    void PrepareForHotReload();
+
+    /** Reinitialize tickers and connections after hot reload. Called by module StartupModule. */
+    void ReinitializeAfterHotReload();
 
     // ========================================================================
     // CONNECTION MANAGEMENT
@@ -392,7 +402,9 @@ public:
 
     // Target component registry - keyed by full target ID for O(1) lookups
     // Key format: "ServiceId:TargetName"
-    TMap<FString, URshipTargetComponent*>* TargetComponents;
+    // Uses TMultiMap to allow multiple components with the same target ID
+    // (e.g., during actor duplication before re-ID)
+    TMultiMap<FString, URshipTargetComponent*>* TargetComponents;
 
     // Register a target component (called by URshipTargetComponent)
     void RegisterTargetComponent(URshipTargetComponent* Component);
@@ -400,10 +412,14 @@ public:
     // Unregister a target component (called by URshipTargetComponent)
     void UnregisterTargetComponent(URshipTargetComponent* Component);
 
-    // Find a target component by full target ID - O(1) lookup
+    // Find a target component by full target ID - returns first match (O(1) lookup)
     URshipTargetComponent* FindTargetComponent(const FString& FullTargetId) const;
 
+    // Find all target components with the given target ID
+    TArray<URshipTargetComponent*> FindAllTargetComponents(const FString& FullTargetId) const;
+
     FString GetServiceId();
+    FString GetInstanceId();
 
     // ========================================================================
     // TARGET GROUP MANAGEMENT

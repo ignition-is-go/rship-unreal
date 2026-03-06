@@ -32,350 +32,11 @@
 #include "EmitterHandler.h"
 #include "Logs.h"
 
-static TAutoConsoleVariable<int32> CVarRshipInboundMaxMessagesPerTick(
-    TEXT("r.Rship.Inbound.MaxMessagesPerTick"),
-    256,
-    TEXT("Maximum number of inbound rship payloads applied per TickSubsystems frame."),
-    ECVF_Default);
+#if WITH_EDITOR
+#include "Editor.h"
+#endif
 
-static TAutoConsoleVariable<int32> CVarRshipInboundAuthorityOnly(
-    TEXT("r.Rship.Inbound.AuthorityOnly"),
-    1,
-    TEXT("If non-zero, only the configured authoritative node ingests live websocket state."),
-    ECVF_Default);
-
-static TAutoConsoleVariable<float> CVarRshipControlSyncRateHz(
-    TEXT("r.Rship.ControlSyncRateHz"),
-    0.0f,
-    TEXT("Override deterministic control/apply sync tick rate in Hz. <=0 uses project settings."),
-    ECVF_Default);
-
-static TAutoConsoleVariable<int32> CVarRshipInboundApplyLeadFrames(
-    TEXT("r.Rship.Inbound.ApplyLeadFrames"),
-    0,
-    TEXT("Override inbound apply lead frames. <=0 uses project settings."),
-    ECVF_Default);
-
-static TAutoConsoleVariable<int32> CVarRshipInboundRequireExactFrame(
-    TEXT("r.Rship.Inbound.RequireExactFrame"),
-    -1,
-    TEXT("Override whether inbound payloads with explicit apply-frame metadata require exact-frame match. 1=exact, 0=legacy, <=0 uses project settings."),
-    ECVF_Default);
-
-namespace
-{
-bool TryGetJsonInt64(const TSharedPtr<FJsonObject>& JsonObject, const FString& FieldName, int64& OutValue)
-{
-    if (!JsonObject.IsValid())
-    {
-        return false;
-    }
-
-    double NumberValue = 0.0;
-    if (JsonObject->TryGetNumberField(FieldName, NumberValue))
-    {
-        OutValue = static_cast<int64>(FMath::FloorToDouble(NumberValue));
-        return true;
-    }
-
-    FString StringValue;
-    if (JsonObject->TryGetStringField(FieldName, StringValue))
-    {
-        StringValue.TrimStartAndEndInline();
-        if (StringValue.IsNumeric())
-        {
-            OutValue = FCString::Atoi64(*StringValue);
-            return true;
-        }
-    }
-
-    return false;
-}
-
-bool TryGetExplicitApplyFrameFromObject(const TSharedPtr<FJsonObject>& JsonObject, int64& OutApplyFrame)
-{
-    if (!JsonObject.IsValid())
-    {
-        return false;
-    }
-
-    static const TCHAR* CandidateFields[] =
-    {
-        TEXT("applyFrame"),
-        TEXT("targetFrame"),
-        TEXT("frame"),
-        TEXT("frameNumber"),
-        TEXT("frameIndex"),
-        TEXT("target_frame"),
-        TEXT("apply_frame")
-    };
-
-    for (const TCHAR* FieldName : CandidateFields)
-    {
-        if (TryGetJsonInt64(JsonObject, FieldName, OutApplyFrame))
-        {
-            return true;
-        }
-    }
-
-    const TSharedPtr<FJsonObject>* NestedObject = nullptr;
-    if (JsonObject->TryGetObjectField(TEXT("data"), NestedObject) && NestedObject && NestedObject->IsValid())
-    {
-        for (const TCHAR* FieldName : CandidateFields)
-        {
-            if (TryGetJsonInt64(*NestedObject, FieldName, OutApplyFrame))
-            {
-                return true;
-            }
-        }
-    }
-
-    if (JsonObject->TryGetObjectField(TEXT("meta"), NestedObject) && NestedObject && NestedObject->IsValid())
-    {
-        for (const TCHAR* FieldName : CandidateFields)
-        {
-            if (TryGetJsonInt64(*NestedObject, FieldName, OutApplyFrame))
-            {
-                return true;
-            }
-        }
-
-        const TSharedPtr<FJsonObject>* MetadataData = nullptr;
-        if ((*NestedObject)->TryGetObjectField(TEXT("data"), MetadataData) && MetadataData && MetadataData->IsValid())
-        {
-            for (const TCHAR* FieldName : CandidateFields)
-            {
-                if (TryGetJsonInt64(*MetadataData, FieldName, OutApplyFrame))
-                {
-                    return true;
-                }
-            }
-        }
-    }
-
-    return false;
-}
-
-bool RshipTargetTokenMatchesLocalNode(const FString& RawValue, const FString& NodeId)
-{
-    FString Trimmed = RawValue.TrimStartAndEnd();
-    if (Trimmed.IsEmpty())
-    {
-        return false;
-    }
-
-    Trimmed.ReplaceInline(TEXT(";"), TEXT(","));
-    TArray<FString> Tokens;
-    Trimmed.ParseIntoArray(Tokens, TEXT(","), true);
-    if (Tokens.Num() == 0)
-    {
-        Tokens.Add(Trimmed);
-    }
-
-    for (FString Token : Tokens)
-    {
-        const FString TrimmedToken = Token.TrimStartAndEnd();
-        if (TrimmedToken.IsEmpty())
-        {
-            continue;
-        }
-        if (TrimmedToken == TEXT("*") || TrimmedToken.Equals(TEXT("all"), ESearchCase::IgnoreCase))
-        {
-            return true;
-        }
-        if (TrimmedToken.Equals(NodeId, ESearchCase::IgnoreCase))
-        {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-bool RshipObjectTargetsLocalNode(
-    const TSharedPtr<FJsonObject>& JsonObject,
-    const FString& NodeId,
-    bool& bHasTargetFilter)
-{
-    static const TCHAR* TargetFields[] = { TEXT("targetNodeId"), TEXT("targetNodeIds"), TEXT("targetIds") };
-
-    for (const TCHAR* FieldName : TargetFields)
-    {
-        FString StringValue;
-        if (JsonObject->TryGetStringField(FieldName, StringValue))
-        {
-            bHasTargetFilter = true;
-            if (RshipTargetTokenMatchesLocalNode(StringValue, NodeId))
-            {
-                return true;
-            }
-        }
-
-        const TArray<TSharedPtr<FJsonValue>>* ArrayValues = nullptr;
-        if (JsonObject->TryGetArrayField(FieldName, ArrayValues) && ArrayValues)
-        {
-            bHasTargetFilter = true;
-            for (const TSharedPtr<FJsonValue>& Value : *ArrayValues)
-            {
-                FString Element;
-                if (Value.IsValid() && Value->TryGetString(Element) &&
-                    RshipTargetTokenMatchesLocalNode(Element, NodeId))
-                {
-                    return true;
-                }
-            }
-        }
-    }
-
-    return false;
-}
-
-bool SerializeJsonObject(const TSharedPtr<FJsonObject>& JsonObject, FString& OutJson)
-{
-    OutJson.Reset();
-    if (!JsonObject.IsValid())
-    {
-        return false;
-    }
-
-    TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutJson);
-    if (!FJsonSerializer::Serialize(JsonObject.ToSharedRef(), Writer))
-    {
-        OutJson.Reset();
-        return false;
-    }
-    return true;
-}
-
-bool TryReadStringProperty(const UObject* Object, const FName PropertyName, FString& OutValue)
-{
-    if (!Object)
-    {
-        return false;
-    }
-
-    if (const FStrProperty* StrProperty = FindFProperty<FStrProperty>(Object->GetClass(), PropertyName))
-    {
-        const void* ValuePtr = StrProperty->ContainerPtrToValuePtr<void>(Object);
-        OutValue = StrProperty->GetPropertyValue(ValuePtr);
-        return true;
-    }
-
-    if (const FNameProperty* NameProperty = FindFProperty<FNameProperty>(Object->GetClass(), PropertyName))
-    {
-        const void* ValuePtr = NameProperty->ContainerPtrToValuePtr<void>(Object);
-        OutValue = NameProperty->GetPropertyValue(ValuePtr).ToString();
-        return true;
-    }
-
-    return false;
-}
-
-bool TryReadGuidProperty(const UObject* Object, const FName PropertyName, FGuid& OutGuid)
-{
-    if (!Object)
-    {
-        return false;
-    }
-
-    const FStructProperty* StructProperty = FindFProperty<FStructProperty>(Object->GetClass(), PropertyName);
-    if (!StructProperty || StructProperty->Struct != TBaseStructure<FGuid>::Get())
-    {
-        return false;
-    }
-
-    const void* ValuePtr = StructProperty->ContainerPtrToValuePtr<void>(Object);
-    OutGuid = *reinterpret_cast<const FGuid*>(ValuePtr);
-    return true;
-}
-
-TSharedPtr<FJsonObject> BuildRshipFieldMetadataFromActor(const AActor* Owner)
-{
-    if (!Owner)
-    {
-        return nullptr;
-    }
-
-    TInlineComponentArray<UActorComponent*> Components(const_cast<AActor*>(Owner));
-    for (UActorComponent* Component : Components)
-    {
-        if (!Component)
-        {
-            continue;
-        }
-
-        const FString ClassName = Component->GetClass()->GetName();
-        if (!ClassName.Contains(TEXT("RshipFieldTargetComponent")))
-        {
-            continue;
-        }
-
-        FGuid StableGuid;
-        FString VisiblePath;
-        FString ActorPath;
-        FString ComponentName;
-        FString MeshPath;
-
-        const bool bHasStableGuid = TryReadGuidProperty(Component, TEXT("StableGuid"), StableGuid);
-        const bool bHasVisiblePath = TryReadStringProperty(Component, TEXT("VisibleTargetPath"), VisiblePath);
-        TryReadStringProperty(Component, TEXT("FingerprintActorPath"), ActorPath);
-        TryReadStringProperty(Component, TEXT("FingerprintComponentName"), ComponentName);
-        TryReadStringProperty(Component, TEXT("FingerprintMeshPath"), MeshPath);
-
-        if (!bHasStableGuid && !bHasVisiblePath)
-        {
-            continue;
-        }
-
-        TSharedPtr<FJsonObject> Fingerprint = MakeShareable(new FJsonObject);
-        Fingerprint->SetStringField(TEXT("actorPath"), ActorPath);
-        Fingerprint->SetStringField(TEXT("componentName"), ComponentName);
-        Fingerprint->SetStringField(TEXT("meshPath"), MeshPath);
-
-        TSharedPtr<FJsonObject> FieldMeta = MakeShareable(new FJsonObject);
-        if (StableGuid.IsValid())
-        {
-            FieldMeta->SetStringField(TEXT("stableGuid"), StableGuid.ToString(EGuidFormats::DigitsWithHyphensLower));
-        }
-        FieldMeta->SetStringField(TEXT("visiblePath"), VisiblePath);
-        FieldMeta->SetObjectField(TEXT("fingerprint"), Fingerprint);
-        FieldMeta->SetStringField(TEXT("componentClass"), Component->GetClass()->GetPathName());
-
-        TSharedPtr<FJsonObject> Metadata = MakeShareable(new FJsonObject);
-        Metadata->SetObjectField(TEXT("rshipField"), FieldMeta);
-        return Metadata;
-    }
-
-    return nullptr;
-}
-
-bool InvokeContentMappingFunction(
-    UObject* MappingManagerObject,
-    const TCHAR* FunctionName,
-    void* Params = nullptr,
-    bool bWarnIfMissing = true)
-{
-    if (!MappingManagerObject)
-    {
-        return false;
-    }
-
-    UFunction* Function = MappingManagerObject->FindFunction(FName(FunctionName));
-    if (!Function)
-    {
-        if (bWarnIfMissing)
-        {
-            UE_LOG(LogRshipExec, Warning, TEXT("ContentMapping function missing: %s"), FunctionName);
-        }
-        return false;
-    }
-
-    MappingManagerObject->ProcessEvent(Function, Params);
-    return true;
-}
-
-
-}
+using namespace std;
 
 void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
 {
@@ -384,7 +45,6 @@ void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
     // Initialize connection state
     ConnectionState = ERshipConnectionState::Disconnected;
     ReconnectAttempts = 0;
-    bUsingHighPerfWebSocket = false;
     GroupManager = nullptr;
     HealthMonitor = nullptr;
     PresetManager = nullptr;
@@ -470,19 +130,25 @@ void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
         this->EmitterHandler = GetWorld()->SpawnActor<AEmitterHandler>();
     }
 
-    this->TargetComponents = new TMap<FString, URshipTargetComponent*>;
+    this->TargetComponents = new TMultiMap<FString, URshipTargetComponent*>;
 
-    // Start subsystem ticker independent of world availability.
-    SetControlSyncRateHz(ControlSyncRateHz);
+    // Start queue processing ticker (works in editor without a world)
+    const URshipSettings *Settings = GetDefault<URshipSettings>();
+    if (Settings->bEnableRateLimiting)
+    {
+        QueueProcessTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
+            FTickerDelegate::CreateUObject(this, &URshipSubsystem::OnQueueProcessTick),
+            Settings->QueueProcessInterval
+        );
+        UE_LOG(LogRshipExec, Log, TEXT("Started queue processing ticker (interval=%.3fs)"), Settings->QueueProcessInterval);
+    }
 
-    if (Settings->bEnableContentMapping)
-    {
-        GetContentMappingManager();
-    }
-    if (Settings->bEnableDisplayManagement)
-    {
-        GetDisplayManager();
-    }
+    // Start subsystem tick ticker (60Hz for smooth updates, works in editor)
+    SubsystemTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
+        FTickerDelegate::CreateUObject(this, &URshipSubsystem::OnSubsystemTick),
+        1.0f / 60.0f  // 60Hz tick rate
+    );
+    UE_LOG(LogRshipExec, Log, TEXT("Started subsystem ticker (60Hz)"));
 }
 
 void URshipSubsystem::InitializeRateLimiter()
@@ -556,21 +222,37 @@ void URshipSubsystem::InitializeRateLimiter()
 
 void URshipSubsystem::Reconnect()
 {
+    // Set flag to prevent OnWebSocketClosed from scheduling auto-reconnect
+    bIsManuallyReconnecting = true;
+
     // If we're backing off, cancel the timer and proceed with manual reconnect
     if (ConnectionState == ERshipConnectionState::BackingOff)
     {
         UE_LOG(LogRshipExec, Log, TEXT("Manual reconnect requested during backoff - cancelling scheduled reconnect"));
-        if (auto World = GetWorld())
+        if (ReconnectTickerHandle.IsValid())
         {
-            World->GetTimerManager().ClearTimer(ReconnectTimerHandle);
+            FTSTicker::GetCoreTicker().RemoveTicker(ReconnectTickerHandle);
+            ReconnectTickerHandle.Reset();
         }
         ReconnectAttempts = 0;  // Reset attempts on manual reconnect
     }
-    // Don't reconnect if already actively connecting
+    // If already connecting, cancel current attempt and start fresh
     else if (ConnectionState == ERshipConnectionState::Connecting)
     {
-        UE_LOG(LogRshipExec, Warning, TEXT("Reconnect called while already connecting, ignoring"));
-        return;
+        UE_LOG(LogRshipExec, Log, TEXT("Manual reconnect requested while connecting - cancelling current attempt"));
+        if (ConnectionTimeoutTickerHandle.IsValid())
+        {
+            FTSTicker::GetCoreTicker().RemoveTicker(ConnectionTimeoutTickerHandle);
+            ConnectionTimeoutTickerHandle.Reset();
+        }
+        // Close any pending connections
+        if (WebSocket)
+        {
+            WebSocket->Close();
+            WebSocket.Reset();
+        }
+        ConnectionState = ERshipConnectionState::Disconnected;
+        ReconnectAttempts = 0;
     }
 
     if (!FModuleManager::Get().IsModuleLoaded("WebSockets"))
@@ -586,100 +268,60 @@ void URshipSubsystem::Reconnect()
     InstanceId = ClusterId;
 
     const URshipSettings *Settings = GetDefault<URshipSettings>();
-    FString rshipHostAddress = *Settings->rshipHostAddress;
+    FString rshipHostAddress = Settings->rshipHostAddress;
     int32 rshipServerPort = Settings->rshipServerPort;
 
-    if (rshipHostAddress.IsEmpty() || rshipHostAddress.Len() == 0)
+    UE_LOG(LogRshipExec, Log, TEXT("Settings loaded - Address: [%s], Port: [%d]"), *rshipHostAddress, rshipServerPort);
+
+    if (rshipHostAddress.IsEmpty())
     {
-        rshipHostAddress = FString("localhost");
+        UE_LOG(LogRshipExec, Warning, TEXT("rshipHostAddress is empty, defaulting to localhost"));
+        rshipHostAddress = TEXT("localhost");
     }
 
-    // Close existing connections
+    // Close existing connection
     if (WebSocket)
     {
         WebSocket->Close();
         WebSocket.Reset();
     }
-    if (HighPerfWebSocket)
-    {
-        HighPerfWebSocket->Close();
-        HighPerfWebSocket.Reset();
-    }
 
     ConnectionState = ERshipConnectionState::Connecting;
 
-    // Set connection timeout (10 seconds)
-    if (auto World = GetWorld())
+    // Set connection timeout (10 seconds) - uses ticker which works in editor
+    if (ConnectionTimeoutTickerHandle.IsValid())
     {
-        World->GetTimerManager().ClearTimer(ConnectionTimeoutHandle);
-        World->GetTimerManager().SetTimer(
-            ConnectionTimeoutHandle,
-            this,
-            &URshipSubsystem::OnConnectionTimeout,
-            10.0f,  // 10 second timeout
-            false   // Not looping
-        );
+        FTSTicker::GetCoreTicker().RemoveTicker(ConnectionTimeoutTickerHandle);
+        ConnectionTimeoutTickerHandle.Reset();
     }
+    ConnectionTimeoutTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
+        FTickerDelegate::CreateUObject(this, &URshipSubsystem::OnConnectionTimeoutTick),
+        10.0f  // 10 second timeout (one-shot, callback returns false)
+    );
 
     FString WebSocketUrl = "ws://" + rshipHostAddress + ":" + FString::FromInt(rshipServerPort) + "/myko";
-    UE_LOG(LogRshipExec, Log, TEXT("Connecting to %s (HighPerf=%d)"), *WebSocketUrl, Settings->bUseHighPerformanceWebSocket);
+    UE_LOG(LogRshipExec, Log, TEXT("Connecting to %s"), *WebSocketUrl);
 
-    // Choose WebSocket implementation based on settings
-    if (Settings->bUseHighPerformanceWebSocket)
-    {
-        // Use high-performance WebSocket with dedicated send thread
-        bUsingHighPerfWebSocket = true;
-        HighPerfWebSocket = MakeShared<FRshipWebSocket>();
+    // Create high-performance WebSocket with dedicated send thread
+    WebSocket = MakeShared<FRshipWebSocket>();
 
-        // Bind event handlers
-        HighPerfWebSocket->OnConnected.BindUObject(this, &URshipSubsystem::OnWebSocketConnected);
-        HighPerfWebSocket->OnConnectionError.BindUObject(this, &URshipSubsystem::OnWebSocketConnectionError);
-        HighPerfWebSocket->OnClosed.BindUObject(this, &URshipSubsystem::OnWebSocketClosed);
-        HighPerfWebSocket->OnMessage.BindUObject(this, &URshipSubsystem::OnWebSocketMessage);
+    // Bind event handlers
+    WebSocket->OnConnected.BindUObject(this, &URshipSubsystem::OnWebSocketConnected);
+    WebSocket->OnConnectionError.BindUObject(this, &URshipSubsystem::OnWebSocketConnectionError);
+    WebSocket->OnClosed.BindUObject(this, &URshipSubsystem::OnWebSocketClosed);
+    WebSocket->OnMessage.BindUObject(this, &URshipSubsystem::OnWebSocketMessage);
 
-        // Configure and connect
-        FRshipWebSocketConfig Config;
-        Config.bTcpNoDelay = Settings->bTcpNoDelay;
-        Config.bDisableCompression = Settings->bDisableCompression;
-        Config.PingIntervalSeconds = Settings->PingIntervalSeconds;
-        Config.bAutoReconnect = false;  // We handle reconnection ourselves
+    // Configure and connect
+    FRshipWebSocketConfig Config;
+    Config.bTcpNoDelay = Settings->bTcpNoDelay;
+    Config.bDisableCompression = Settings->bDisableCompression;
+    Config.PingIntervalSeconds = Settings->PingIntervalSeconds;
+    Config.bAutoReconnect = false;  // We handle reconnection ourselves
 
-        HighPerfWebSocket->Connect(WebSocketUrl, Config);
-    }
-    else
-    {
-        // Use standard UE WebSocket
-        bUsingHighPerfWebSocket = false;
-        WebSocket = FWebSocketsModule::Get().CreateWebSocket(WebSocketUrl);
+    WebSocket->Connect(WebSocketUrl, Config);
 
-        // Bind event handlers
-        WebSocket->OnConnected().AddLambda([this]()
-        {
-            OnWebSocketConnected();
-        });
-
-        WebSocket->OnConnectionError().AddLambda([this](const FString &Error)
-        {
-            OnWebSocketConnectionError(Error);
-        });
-
-        WebSocket->OnClosed().AddLambda([this](int32 StatusCode, const FString &Reason, bool bWasClean)
-        {
-            OnWebSocketClosed(StatusCode, Reason, bWasClean);
-        });
-
-        WebSocket->OnMessage().AddLambda([this](const FString &MessageString)
-        {
-            OnWebSocketMessage(MessageString);
-        });
-
-        WebSocket->OnMessageSent().AddLambda([](const FString &MessageString)
-        {
-            // Optional: track sent messages for debugging
-        });
-
-        WebSocket->Connect();
-    }
+    // Clear the manual reconnect flag now that new connection is started
+    bIsManuallyReconnecting = false;
 }
 
 void URshipSubsystem::ConnectTo(const FString& Host, int32 Port)
@@ -691,8 +333,9 @@ void URshipSubsystem::ConnectTo(const FString& Host, int32 Port)
         Settings->rshipHostAddress = Host;
         Settings->rshipServerPort = Port;
         Settings->SaveConfig();
+        Settings->UpdateDefaultConfigFile();  // Also update DefaultGame.ini
 
-        UE_LOG(LogRshipExec, Log, TEXT("Updated server to %s:%d, reconnecting..."), *Host, Port);
+        UE_LOG(LogRshipExec, Log, TEXT("Saved server settings to config: %s:%d"), *Host, Port);
     }
 
     // Force reconnect with new settings
@@ -732,11 +375,16 @@ void URshipSubsystem::OnWebSocketConnected()
         RateLimiter->OnConnectionSuccess();
     }
 
-    // Clear any pending reconnect timer and connection timeout
-    if (auto World = GetWorld())
+    // Clear any pending reconnect ticker and connection timeout
+    if (ReconnectTickerHandle.IsValid())
     {
-        World->GetTimerManager().ClearTimer(ReconnectTimerHandle);
-        World->GetTimerManager().ClearTimer(ConnectionTimeoutHandle);
+        FTSTicker::GetCoreTicker().RemoveTicker(ReconnectTickerHandle);
+        ReconnectTickerHandle.Reset();
+    }
+    if (ConnectionTimeoutTickerHandle.IsValid())
+    {
+        FTSTicker::GetCoreTicker().RemoveTicker(ConnectionTimeoutTickerHandle);
+        ConnectionTimeoutTickerHandle.Reset();
     }
 
     // DIAGNOSTIC: Send a ping immediately to verify WebSocket send path works
@@ -759,11 +407,7 @@ void URshipSubsystem::OnWebSocketConnected()
         UE_LOG(LogRshipExec, Log, TEXT("*** SENDING DIAGNOSTIC PING *** %s"), *PingJson);
 
         // Send directly to bypass rate limiter for diagnostic
-        if (bUsingHighPerfWebSocket && HighPerfWebSocket.IsValid())
-        {
-            HighPerfWebSocket->Send(PingJson);
-        }
-        else if (WebSocket.IsValid())
+        if (WebSocket.IsValid())
         {
             WebSocket->Send(PingJson);
         }
@@ -777,13 +421,15 @@ void URshipSubsystem::OnWebSocketConnected()
     UE_LOG(LogRshipExec, Log, TEXT("Forcing immediate queue processing after SendAll"));
     ProcessMessageQueue();
 
-    // Ensure queue processing timer is running (may have failed during early init)
+    // Ensure queue processing ticker is running (may have failed during early init)
     const URshipSettings* Settings = GetDefault<URshipSettings>();
-    const int32 PendingOutboundMessages = RateLimiter ? RateLimiter->GetQueueLength() : 0;
-    if (Settings->bEnableRateLimiting && PendingOutboundMessages > 0)
+    if (Settings->bEnableRateLimiting && !QueueProcessTickerHandle.IsValid())
     {
-        UE_LOG(LogRshipExec, Log, TEXT("Starting queue processing timer (was not running)"));
-        ScheduleQueueProcessTimer(Settings->QueueProcessInterval, true);
+        UE_LOG(LogRshipExec, Log, TEXT("Starting queue processing ticker (was not running)"));
+        QueueProcessTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
+            FTickerDelegate::CreateUObject(this, &URshipSubsystem::OnQueueProcessTick),
+            Settings->QueueProcessInterval
+        );
     }
 }
 
@@ -794,10 +440,10 @@ void URshipSubsystem::OnWebSocketConnectionError(const FString &Error)
     ConnectionState = ERshipConnectionState::Disconnected;
 
     // Clear connection timeout
-    ClearQueueProcessTimer();
-    if (auto World = GetWorld())
+    if (ConnectionTimeoutTickerHandle.IsValid())
     {
-        World->GetTimerManager().ClearTimer(ConnectionTimeoutHandle);
+        FTSTicker::GetCoreTicker().RemoveTicker(ConnectionTimeoutTickerHandle);
+        ConnectionTimeoutTickerHandle.Reset();
     }
 
     // Notify rate limiter
@@ -835,8 +481,9 @@ void URshipSubsystem::OnWebSocketClosed(int32 StatusCode, const FString &Reason,
     ClearQueueProcessTimer();
 
     // Schedule reconnection if enabled and this wasn't a clean close
+    // Skip if we're in the middle of a manual reconnect (user called Reconnect())
     const URshipSettings *Settings = GetDefault<URshipSettings>();
-    if (Settings->bAutoReconnect && !bWasClean)
+    if (Settings->bAutoReconnect && !bWasClean && !bIsManuallyReconnecting)
     {
         ScheduleReconnect();
     }
@@ -1225,17 +872,16 @@ void URshipSubsystem::ScheduleReconnect()
     UE_LOG(LogRshipExec, Log, TEXT("Scheduling reconnect attempt %d in %.1f seconds"),
         ReconnectAttempts, BackoffDelay);
 
-    // Schedule reconnect using timer
-    if (auto world = GetWorld())
+    // Schedule reconnect using ticker (works in editor without a world)
+    if (ReconnectTickerHandle.IsValid())
     {
-        world->GetTimerManager().SetTimer(
-            ReconnectTimerHandle,
-            this,
-            &URshipSubsystem::AttemptReconnect,
-            BackoffDelay,
-            false  // Not looping
-        );
+        FTSTicker::GetCoreTicker().RemoveTicker(ReconnectTickerHandle);
+        ReconnectTickerHandle.Reset();
     }
+    ReconnectTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
+        FTickerDelegate::CreateUObject(this, &URshipSubsystem::OnReconnectTick),
+        BackoffDelay  // One-shot, callback returns false
+    );
 }
 
 void URshipSubsystem::AttemptReconnect()
@@ -1260,11 +906,6 @@ void URshipSubsystem::OnConnectionTimeout()
     {
         WebSocket->Close();
         WebSocket.Reset();
-    }
-    if (HighPerfWebSocket)
-    {
-        HighPerfWebSocket->Close();
-        HighPerfWebSocket.Reset();
     }
 
     ConnectionState = ERshipConnectionState::Disconnected;
@@ -1294,6 +935,51 @@ void URshipSubsystem::OnRateLimiterStatusChanged(bool bIsBackingOff, float Backo
     }
 }
 
+// Ticker callbacks - return true to keep ticking, false to stop
+// These check IsValid() to handle hot reload safely
+
+bool URshipSubsystem::OnQueueProcessTick(float DeltaTime)
+{
+    if (!IsValid(this))
+    {
+        return false;  // Stop ticking, object is being destroyed
+    }
+    ProcessMessageQueue();
+    return true;  // Keep ticking
+}
+
+bool URshipSubsystem::OnReconnectTick(float DeltaTime)
+{
+    if (!IsValid(this))
+    {
+        return false;  // Stop ticking, object is being destroyed
+    }
+    AttemptReconnect();
+    ReconnectTickerHandle.Reset();  // Clear handle since this is a one-shot
+    return false;  // Stop ticking (one-shot)
+}
+
+bool URshipSubsystem::OnSubsystemTick(float DeltaTime)
+{
+    if (!IsValid(this))
+    {
+        return false;  // Stop ticking, object is being destroyed
+    }
+    TickSubsystems();
+    return true;  // Keep ticking
+}
+
+bool URshipSubsystem::OnConnectionTimeoutTick(float DeltaTime)
+{
+    if (!IsValid(this))
+    {
+        return false;  // Stop ticking, object is being destroyed
+    }
+    OnConnectionTimeout();
+    ConnectionTimeoutTickerHandle.Reset();  // Clear handle since this is a one-shot
+    return false;  // Stop ticking (one-shot)
+}
+
 void URshipSubsystem::ProcessMessageQueue()
 {
     if (!RateLimiter)
@@ -1301,16 +987,19 @@ void URshipSubsystem::ProcessMessageQueue()
         return;
     }
 
-    const int32 QueueSize = RateLimiter->GetQueueLength();
-    const bool bConnected = (ConnectionState == ERshipConnectionState::Connected);
-    const URshipSettings* Settings = GetDefault<URshipSettings>();
-    const float Interval = Settings ? Settings->QueueProcessInterval : 0.016f;
-    if (!bConnected)
+    // Use actual WebSocket connection state, not internal enum (they can get out of sync)
+    if (!IsConnected())
     {
-        ClearQueueProcessTimer();
+        int32 QueueSize = RateLimiter->GetQueueLength();
+        if (QueueSize > 0)
+        {
+            UE_LOG(LogRshipExec, Warning, TEXT("ProcessMessageQueue: Not connected (State=%d), %d messages waiting"),
+                (int32)ConnectionState, QueueSize);
+        }
         return;
     }
 
+    int32 QueueSize = RateLimiter->GetQueueLength();
     if (QueueSize > 0)
     {
         UE_LOG(LogRshipExec, Log, TEXT("ProcessMessageQueue: Queue has %d messages, processing..."), QueueSize);
@@ -1496,6 +1185,13 @@ void URshipSubsystem::QueueMessage(TSharedPtr<FJsonObject> Payload, ERshipMessag
 
         UE_LOG(LogRshipExec, Log, TEXT("Enqueued message (Key=%s, QueueLen=%d)"), *CoalesceKey, RateLimiter->GetQueueLength());
     }
+
+    // If the queue processing ticker isn't running, immediately process the queue
+    // Use IsConnected() to check actual WebSocket state
+    if (!QueueProcessTickerHandle.IsValid() && IsConnected())
+    {
+        ProcessMessageQueue();
+    }
 }
 
 void URshipSubsystem::ClearQueueProcessTimer()
@@ -1523,16 +1219,7 @@ void URshipSubsystem::ScheduleQueueProcessTimer(float IntervalSeconds, bool bLoo
 
 void URshipSubsystem::SendJsonDirect(const FString& JsonString)
 {
-    // Check which WebSocket is active
-    bool bConnected = false;
-    if (bUsingHighPerfWebSocket)
-    {
-        bConnected = HighPerfWebSocket.IsValid() && HighPerfWebSocket->IsConnected();
-    }
-    else
-    {
-        bConnected = WebSocket.IsValid() && WebSocket->IsConnected();
-    }
+    bool bConnected = WebSocket.IsValid() && WebSocket->IsConnected();
 
     if (!bConnected)
     {
@@ -1540,7 +1227,7 @@ void URshipSubsystem::SendJsonDirect(const FString& JsonString)
         if (ConnectionState == ERshipConnectionState::Disconnected)
         {
             const URshipSettings *Settings = GetDefault<URshipSettings>();
-            if (Settings->bAutoReconnect && !ReconnectTimerHandle.IsValid())
+            if (Settings->bAutoReconnect && !ReconnectTickerHandle.IsValid())
             {
                 ScheduleReconnect();
             }
@@ -1548,36 +1235,9 @@ void URshipSubsystem::SendJsonDirect(const FString& JsonString)
         return;
     }
 
-    // Instrumentation: Track send timing to detect 30Hz throttle
-    static double LastSendTime = 0.0;
-    static int32 SendCount = 0;
-    double Now = FPlatformTime::Seconds();
-
-    SendCount++;
-    if (LastSendTime > 0.0)
-    {
-        double DeltaMs = (Now - LastSendTime) * 1000.0;
-        // Log if sends are being throttled (>30ms between sends suggests 30Hz limit)
-        // Only warn in non-high-perf mode since high-perf should be fast
-        if (!bUsingHighPerfWebSocket && DeltaMs > 30.0 && SendCount % 100 == 0)
-        {
-            UE_LOG(LogRshipExec, Warning, TEXT("WebSocket send throttled: %.1fms between sends (send #%d) - enable High-Performance WebSocket"),
-                DeltaMs, SendCount);
-        }
-    }
-    LastSendTime = Now;
-
     UE_LOG(LogRshipExec, Verbose, TEXT("Sending: %s"), *JsonString);
 
-    // Send via appropriate WebSocket
-    if (bUsingHighPerfWebSocket)
-    {
-        HighPerfWebSocket->Send(JsonString);
-    }
-    else
-    {
-        WebSocket->Send(JsonString);
-    }
+    WebSocket->Send(JsonString);
 }
 
 void URshipSubsystem::ProcessMessage(const FString &message, const TSharedPtr<FJsonObject>& ParsedPayload)
@@ -1697,22 +1357,64 @@ void URshipSubsystem::ProcessMessage(const FString &message, const TSharedPtr<FJ
             }
             else
             {
-                // Standard target component routing - O(1) lookup by target ID
-                URshipTargetComponent* comp = FindTargetComponent(targetId);
-                if (comp)
+                // Standard target component routing - get ALL components with this target ID
+                TArray<URshipTargetComponent*> comps = FindAllTargetComponents(targetId);
+                if (comps.Num() > 0)
                 {
-                    Target* target = comp->TargetData;
-                    AActor* owner = comp->GetOwner();
+                    for (URshipTargetComponent* comp : comps)
+                    {
+                        if (!comp) continue;
 
-                    if (target != nullptr)
-                    {
-                        bool takeResult = target->TakeAction(owner, actionId, execData);
-                        result |= takeResult;
-                        comp->OnDataReceived();
-                    }
-                    else
-                    {
-                        UE_LOG(LogRshipExec, Warning, TEXT("Target data null for: %s"), *targetId);
+                        Target* target = comp->TargetData;
+                        AActor* owner = comp->GetOwner();
+
+                        // Determine world type for logging
+                        FString WorldTypeStr = TEXT("Unknown");
+                        if (owner)
+                        {
+                            if (UWorld* World = owner->GetWorld())
+                            {
+                                switch (World->WorldType)
+                                {
+                                    case EWorldType::Editor: WorldTypeStr = TEXT("Editor"); break;
+                                    case EWorldType::PIE:
+#if WITH_EDITOR
+                                        WorldTypeStr = (GEditor && GEditor->bIsSimulatingInEditor) ? TEXT("Simulate") : TEXT("PIE");
+#else
+                                        WorldTypeStr = TEXT("PIE");
+#endif
+                                        break;
+                                    case EWorldType::Game: WorldTypeStr = TEXT("Game"); break;
+                                    case EWorldType::EditorPreview: WorldTypeStr = TEXT("EditorPreview"); break;
+                                    default: WorldTypeStr = TEXT("Other"); break;
+                                }
+                            }
+                        }
+
+                        if (target != nullptr)
+                        {
+                            // Skip action execution in Editor world - only run in PIE/Simulate/Game
+                            if (owner)
+                            {
+                                if (UWorld* World = owner->GetWorld())
+                                {
+                                    if (World->WorldType == EWorldType::Editor)
+                                    {
+                                        UE_LOG(LogRshipExec, Verbose, TEXT("Skipping action [%s] on target [%s] (Editor)"), *actionId, *targetId);
+                                        continue;
+                                    }
+                                }
+                            }
+
+                            UE_LOG(LogRshipExec, Log, TEXT("Executing action [%s] on target [%s] (%s)"), *actionId, *targetId, *WorldTypeStr);
+                            bool takeResult = target->TakeAction(owner, actionId, execData);
+                            result |= takeResult;
+                            comp->OnDataReceived();
+                        }
+                        else
+                        {
+                            UE_LOG(LogRshipExec, Warning, TEXT("Target data null for: %s (%s)"), *targetId, *WorldTypeStr);
+                        }
                     }
                 }
                 else
@@ -1949,12 +1651,26 @@ void URshipSubsystem::Deinitialize()
 {
     UE_LOG(LogRshipExec, Log, TEXT("RshipSubsystem::Deinitialize"));
 
-    // Clear timers
-    if (auto world = GetWorld())
+    // Remove tickers
+    if (QueueProcessTickerHandle.IsValid())
     {
-        world->GetTimerManager().ClearTimer(QueueProcessTimerHandle);
-        world->GetTimerManager().ClearTimer(ReconnectTimerHandle);
-        world->GetTimerManager().ClearTimer(SubsystemTickTimerHandle);
+        FTSTicker::GetCoreTicker().RemoveTicker(QueueProcessTickerHandle);
+        QueueProcessTickerHandle.Reset();
+    }
+    if (ReconnectTickerHandle.IsValid())
+    {
+        FTSTicker::GetCoreTicker().RemoveTicker(ReconnectTickerHandle);
+        ReconnectTickerHandle.Reset();
+    }
+    if (SubsystemTickerHandle.IsValid())
+    {
+        FTSTicker::GetCoreTicker().RemoveTicker(SubsystemTickerHandle);
+        SubsystemTickerHandle.Reset();
+    }
+    if (ConnectionTimeoutTickerHandle.IsValid())
+    {
+        FTSTicker::GetCoreTicker().RemoveTicker(ConnectionTimeoutTickerHandle);
+        ConnectionTimeoutTickerHandle.Reset();
     }
     if (SubsystemCoreTickerHandle.IsValid())
     {
@@ -2186,25 +1902,138 @@ void URshipSubsystem::Deinitialize()
         RateLimiter.Reset();
     }
 
-    // Close appropriate WebSocket
-    if (bUsingHighPerfWebSocket)
+    // Close WebSocket
+    if (WebSocket)
     {
-        if (HighPerfWebSocket)
-        {
-            HighPerfWebSocket->Close();
-            HighPerfWebSocket.Reset();
-        }
-    }
-    else
-    {
-        if (WebSocket && WebSocket->IsConnected())
-        {
-            WebSocket->Close();
-        }
+        WebSocket->Close();
         WebSocket.Reset();
     }
 
     Super::Deinitialize();
+}
+
+void URshipSubsystem::BeginDestroy()
+{
+    UE_LOG(LogRshipExec, Log, TEXT("BeginDestroy called - cleaning up tickers and connections"));
+
+    // Remove all tickers before destruction (critical for live coding re-instancing)
+    if (QueueProcessTickerHandle.IsValid())
+    {
+        FTSTicker::GetCoreTicker().RemoveTicker(QueueProcessTickerHandle);
+        QueueProcessTickerHandle.Reset();
+    }
+
+    if (ReconnectTickerHandle.IsValid())
+    {
+        FTSTicker::GetCoreTicker().RemoveTicker(ReconnectTickerHandle);
+        ReconnectTickerHandle.Reset();
+    }
+
+    if (SubsystemTickerHandle.IsValid())
+    {
+        FTSTicker::GetCoreTicker().RemoveTicker(SubsystemTickerHandle);
+        SubsystemTickerHandle.Reset();
+    }
+
+    if (ConnectionTimeoutTickerHandle.IsValid())
+    {
+        FTSTicker::GetCoreTicker().RemoveTicker(ConnectionTimeoutTickerHandle);
+        ConnectionTimeoutTickerHandle.Reset();
+    }
+
+    // Clean up WebSocket connection without callbacks (object is being destroyed)
+    if (WebSocket.IsValid())
+    {
+        // Don't call Close() as it may trigger callbacks - just reset
+        WebSocket.Reset();
+    }
+
+    Super::BeginDestroy();
+}
+
+void URshipSubsystem::PrepareForHotReload()
+{
+    UE_LOG(LogRshipExec, Log, TEXT("PrepareForHotReload - cleaning up tickers and connections before module reload"));
+
+    // Remove all tickers - these hold function pointers that will become invalid after hot reload
+    if (QueueProcessTickerHandle.IsValid())
+    {
+        FTSTicker::GetCoreTicker().RemoveTicker(QueueProcessTickerHandle);
+        QueueProcessTickerHandle.Reset();
+    }
+
+    if (ReconnectTickerHandle.IsValid())
+    {
+        FTSTicker::GetCoreTicker().RemoveTicker(ReconnectTickerHandle);
+        ReconnectTickerHandle.Reset();
+    }
+
+    if (SubsystemTickerHandle.IsValid())
+    {
+        FTSTicker::GetCoreTicker().RemoveTicker(SubsystemTickerHandle);
+        SubsystemTickerHandle.Reset();
+    }
+
+    if (ConnectionTimeoutTickerHandle.IsValid())
+    {
+        FTSTicker::GetCoreTicker().RemoveTicker(ConnectionTimeoutTickerHandle);
+        ConnectionTimeoutTickerHandle.Reset();
+    }
+
+    // Close WebSocket - its callbacks also hold function pointers
+    if (WebSocket.IsValid())
+    {
+        WebSocket->Close();
+        WebSocket.Reset();
+    }
+
+    // Clear rate limiter callback
+    if (RateLimiter)
+    {
+        RateLimiter->OnMessageReadyToSend.Unbind();
+    }
+
+    ConnectionState = ERshipConnectionState::Disconnected;
+
+    UE_LOG(LogRshipExec, Log, TEXT("PrepareForHotReload complete - subsystem will reinitialize after module reload"));
+}
+
+void URshipSubsystem::ReinitializeAfterHotReload()
+{
+    UE_LOG(LogRshipExec, Log, TEXT("ReinitializeAfterHotReload - setting up tickers and reconnecting"));
+
+    const URshipSettings* Settings = GetDefault<URshipSettings>();
+
+    // Restart queue processing ticker
+    if (Settings->bEnableRateLimiting && !QueueProcessTickerHandle.IsValid())
+    {
+        QueueProcessTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
+            FTickerDelegate::CreateUObject(this, &URshipSubsystem::OnQueueProcessTick),
+            Settings->QueueProcessInterval
+        );
+        UE_LOG(LogRshipExec, Log, TEXT("Restarted queue processing ticker"));
+    }
+
+    // Restart subsystem tick ticker
+    if (!SubsystemTickerHandle.IsValid())
+    {
+        SubsystemTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
+            FTickerDelegate::CreateUObject(this, &URshipSubsystem::OnSubsystemTick),
+            1.0f / 60.0f
+        );
+        UE_LOG(LogRshipExec, Log, TEXT("Restarted subsystem ticker"));
+    }
+
+    // Rebind rate limiter callback
+    if (RateLimiter)
+    {
+        RateLimiter->OnMessageReadyToSend.BindUObject(this, &URshipSubsystem::SendJsonDirect);
+    }
+
+    // Reconnect to server
+    Reconnect();
+
+    UE_LOG(LogRshipExec, Log, TEXT("ReinitializeAfterHotReload complete"));
 }
 
 void URshipSubsystem::SendTarget(Target *target)
@@ -2321,31 +2150,11 @@ void URshipSubsystem::DeleteTarget(Target* target)
         return;
     }
 
-    const auto& Actions = target->GetActions();
-    const auto& Emitters = target->GetEmitters();
+    UE_LOG(LogRshipExec, Log, TEXT("DeleteTarget: %s - setting target offline (not sending DEL commands)"),
+        *target->GetId());
 
-    UE_LOG(LogRshipExec, Log, TEXT("DeleteTarget: %s - removing %d actions, %d emitters"),
-        *target->GetId(),
-        Actions.Num(),
-        Emitters.Num());
-
-    // Send DEL events for all actions
-    for (auto& Elem : Actions)
-    {
-        TSharedPtr<FJsonObject> ActionDel = MakeShareable(new FJsonObject);
-        ActionDel->SetStringField(TEXT("id"), Elem.Key);
-        DelItem("Action", ActionDel, ERshipMessagePriority::High, Elem.Key + ":del");
-    }
-
-    // Send DEL events for all emitters
-    for (auto& Elem : Emitters)
-    {
-        TSharedPtr<FJsonObject> EmitterDel = MakeShareable(new FJsonObject);
-        EmitterDel->SetStringField(TEXT("id"), Elem.Key);
-        DelItem("Emitter", EmitterDel, ERshipMessagePriority::High, Elem.Key + ":del");
-    }
-
-    // Send TargetStatus offline
+    // Only send TargetStatus offline - server manages target lifecycle
+    // We do NOT send DEL events for actions, emitters, or target
     TSharedPtr<FJsonObject> TargetStatus = MakeShareable(new FJsonObject);
     TargetStatus->SetStringField(TEXT("targetId"), target->GetId());
     TargetStatus->SetStringField(TEXT("instanceId"), InstanceId);
@@ -2354,12 +2163,7 @@ void URshipSubsystem::DeleteTarget(Target* target)
     TargetStatus->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
     SetItem("TargetStatus", TargetStatus, ERshipMessagePriority::High, target->GetId() + ":status");
 
-    // Send DEL event for the target itself
-    TSharedPtr<FJsonObject> TargetDel = MakeShareable(new FJsonObject);
-    TargetDel->SetStringField(TEXT("id"), target->GetId());
-    DelItem("Target", TargetDel, ERshipMessagePriority::High, target->GetId() + ":del");
-
-    UE_LOG(LogRshipExec, Log, TEXT("DeleteTarget: %s - deletion events sent"), *target->GetId());
+    UE_LOG(LogRshipExec, Log, TEXT("DeleteTarget: %s - offline status sent"), *target->GetId());
 }
 
 void URshipSubsystem::SendAction(Action *action, FString targetId)
@@ -2421,11 +2225,10 @@ void URshipSubsystem::SendTargetStatus(Target *target, bool online)
     UE_LOG(LogRshipExec, Log, TEXT("Sent target status: %s = %s"), *target->GetId(), online ? TEXT("online") : TEXT("offline"));
 }
 
-void URshipSubsystem::SendAll()
+void URshipSubsystem::SendInstanceInfo()
 {
-    UE_LOG(LogRshipExec, Log, TEXT("SendAll: MachineId=%s, ServiceId=%s, InstanceId=%s, ClusterId=%s, ClientId=%s"),
+    UE_LOG(LogRshipExec, Log, TEXT("SendInstanceInfo: MachineId=%s, ServiceId=%s, InstanceId=%s, ClusterId=%s, ClientId=%s"),
         *MachineId, *ServiceId, *InstanceId, *ClusterId, *ClientId);
-    UE_LOG(LogRshipExec, Log, TEXT("SendAll: %d TargetComponents registered"), TargetComponents ? TargetComponents->Num() : 0);
 
     // Send Machine - HIGH priority, coalesce
     TSharedPtr<FJsonObject> Machine = MakeShareable(new FJsonObject);
@@ -2463,6 +2266,14 @@ void URshipSubsystem::SendAll()
     Instance->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
 
     SetItem("Instance", Instance, ERshipMessagePriority::High, "instance:" + InstanceId);
+}
+
+void URshipSubsystem::SendAll()
+{
+    UE_LOG(LogRshipExec, Log, TEXT("SendAll: %d TargetComponents registered"), TargetComponents ? TargetComponents->Num() : 0);
+
+    // Send Machine and Instance info first
+    SendInstanceInfo();
 
     // Send all targets
     for (auto& Pair : *this->TargetComponents)
@@ -2472,6 +2283,11 @@ void URshipSubsystem::SendAll()
             SendTarget(Pair.Value->TargetData);
         }
     }
+
+    // Force immediate queue processing to ensure messages are sent
+    // This is especially important when called from Register()/SetTargetId()
+    // where the queue process timer might not be running or might have delay
+    ProcessMessageQueue();
 }
 
 void URshipSubsystem::SendJson(TSharedPtr<FJsonObject> Payload)
@@ -2508,23 +2324,6 @@ void URshipSubsystem::SetItem(FString itemType, TSharedPtr<FJsonObject> data, ER
     QueueMessage(payload, Priority, Type, CoalesceKey);
 }
 
-void URshipSubsystem::DelItem(FString itemType, TSharedPtr<FJsonObject> data, ERshipMessagePriority Priority, const FString& CoalesceKey)
-{
-    // MakeDel produces the complete WSMEvent format with changeType: "DEL"
-    TSharedPtr<FJsonObject> payload = MakeDel(itemType, data);
-
-    // Debug: Log deletion events
-    if (itemType == TEXT("Target") || itemType == TEXT("Action") || itemType == TEXT("Emitter"))
-    {
-        FString JsonString;
-        TSharedRef<TJsonWriter<>> JsonWriter = TJsonWriterFactory<>::Create(&JsonString);
-        FJsonSerializer::Serialize(payload.ToSharedRef(), JsonWriter);
-        UE_LOG(LogRshipExec, Log, TEXT("DelItem [%s]: %s"), *itemType, *JsonString);
-    }
-
-    QueueMessage(payload, Priority, ERshipMessageType::Registration, CoalesceKey);
-}
-
 void URshipSubsystem::PulseEmitter(FString targetId, FString emitterId, TSharedPtr<FJsonObject> data)
 {
     TSharedPtr<FJsonObject> pulse = MakeShareable(new FJsonObject);
@@ -2543,9 +2342,9 @@ void URshipSubsystem::PulseEmitter(FString targetId, FString emitterId, TSharedP
     // hash for optimistic concurrency control (myko protocol requirement)
     pulse->SetStringField("hash", FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
 
-    // Emitter pulses are LOW priority and coalesce by emitter ID
-    // This means rapid pulses from the same emitter will be coalesced
-    SetItem("Pulse", pulse, ERshipMessagePriority::Low, fullEmitterId);
+    // Emitter pulses coalesce by emitter ID to ensure latest value is always sent
+    // This prevents stale data from queueing - only the most recent pulse per emitter is kept
+    SetItem("Pulse", pulse, ERshipMessagePriority::Normal, fullEmitterId);
 
     // Record pulse in health monitor for activity tracking
     if (HealthMonitor)
@@ -2587,6 +2386,11 @@ FString URshipSubsystem::GetServiceId()
     return ServiceId;
 }
 
+FString URshipSubsystem::GetInstanceId()
+{
+    return InstanceId;
+}
+
 // ============================================================================
 // DIAGNOSTIC METHODS
 // These provide runtime visibility into the adaptive outbound pipeline
@@ -2594,11 +2398,7 @@ FString URshipSubsystem::GetServiceId()
 
 bool URshipSubsystem::IsConnected() const
 {
-    if (bUsingHighPerfWebSocket)
-    {
-        return HighPerfWebSocket.IsValid() && HighPerfWebSocket->IsConnected();
-    }
-    return WebSocket && WebSocket->IsConnected();
+    return WebSocket.IsValid() && WebSocket->IsConnected();
 }
 
 int32 URshipSubsystem::GetQueueLength() const
@@ -3564,7 +3364,9 @@ void URshipSubsystem::UnregisterTargetComponent(URshipTargetComponent* Component
 
     if (!KeyToRemove.IsEmpty())
     {
-        TargetComponents->Remove(KeyToRemove);
+        // RemoveSingle removes exactly one entry matching both key AND value
+        // This is important for TMultiMap where multiple components can share a target ID
+        TargetComponents->RemoveSingle(KeyToRemove, Component);
         UE_LOG(LogRshipExec, Log, TEXT("Unregistered target component: %s (remaining: %d)"),
             *KeyToRemove, TargetComponents->Num());
     }
@@ -3581,114 +3383,12 @@ URshipTargetComponent* URshipSubsystem::FindTargetComponent(const FString& FullT
     return Found ? *Found : nullptr;
 }
 
-int32 URshipSubsystem::GetInboundQueueLength() const
+TArray<URshipTargetComponent*> URshipSubsystem::FindAllTargetComponents(const FString& FullTargetId) const
 {
-    FScopeLock Lock(&InboundQueueMutex);
-    return GetActiveInboundQueueCount();
-}
-
-int32 URshipSubsystem::GetInboundDroppedMessages() const
-{
-    FScopeLock Lock(&InboundQueueMutex);
-    return InboundDroppedMessages;
-}
-
-int32 URshipSubsystem::GetInboundTargetFilteredMessages() const
-{
-    FScopeLock Lock(&InboundQueueMutex);
-    return InboundTargetFilteredMessages;
-}
-
-int32 URshipSubsystem::GetInboundExactFrameDroppedMessages() const
-{
-    FScopeLock Lock(&InboundQueueMutex);
-    return InboundDroppedExactFrameMessages;
-}
-
-int64 URshipSubsystem::GetInboundFrameCounter() const
-{
-    FScopeLock Lock(&InboundQueueMutex);
-    return InboundFrameCounter;
-}
-
-int64 URshipSubsystem::GetInboundNextPlannedApplyFrame() const
-{
-    FScopeLock Lock(&InboundQueueMutex);
-    return InboundFrameCounter + FMath::Max<int64>(1, InboundApplyLeadFrames);
-}
-
-int64 URshipSubsystem::GetInboundQueuedOldestApplyFrame() const
-{
-    FScopeLock Lock(&InboundQueueMutex);
-    if (GetActiveInboundQueueCount() == 0)
+    TArray<URshipTargetComponent*> Result;
+    if (TargetComponents)
     {
-        return INDEX_NONE;
+        TargetComponents->MultiFind(FullTargetId, Result);
     }
-    return InboundQueue[InboundQueueHead].ApplyFrame;
-}
-
-int64 URshipSubsystem::GetInboundQueuedNewestApplyFrame() const
-{
-    FScopeLock Lock(&InboundQueueMutex);
-    if (GetActiveInboundQueueCount() == 0)
-    {
-        return INDEX_NONE;
-    }
-    return InboundQueue.Last().ApplyFrame;
-}
-
-float URshipSubsystem::GetInboundAverageApplyLatencyMs() const
-{
-    FScopeLock Lock(&InboundQueueMutex);
-    if (InboundAppliedMessages <= 0)
-    {
-        return 0.0f;
-    }
-    return static_cast<float>(InboundAppliedLatencyMsTotal / static_cast<double>(InboundAppliedMessages));
-}
-
-bool URshipSubsystem::IsAuthoritativeIngestNode() const
-{
-    return !bInboundAuthorityOnly || bIsAuthorityIngestNode;
-}
-
-bool URshipSubsystem::IsInboundRequireExactFrame() const
-{
-    return bInboundRequireExactFrame;
-}
-
-void URshipSubsystem::SetControlSyncRateHz(float SyncRateHz)
-{
-    ControlSyncRateHz = FMath::Max(1.0f, SyncRateHz);
-
-    if (SubsystemCoreTickerHandle.IsValid())
-    {
-        FTSTicker::GetCoreTicker().RemoveTicker(SubsystemCoreTickerHandle);
-        SubsystemCoreTickerHandle.Reset();
-    }
-
-    // Avoid double ticking; we drive subsystem updates from the core ticker.
-    if (UWorld* World = GetWorld())
-    {
-        World->GetTimerManager().ClearTimer(SubsystemTickTimerHandle);
-    }
-
-    const float TickInterval = 1.0f / ControlSyncRateHz;
-    SubsystemCoreTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
-        FTickerDelegate::CreateWeakLambda(this, [this](float)
-        {
-            TickSubsystems();
-            return true;
-        }),
-        TickInterval);
-}
-
-void URshipSubsystem::SetInboundApplyLeadFrames(int32 LeadFrames)
-{
-    InboundApplyLeadFrames = FMath::Max(1, LeadFrames);
-}
-
-void URshipSubsystem::SetInboundRequireExactFrame(bool bRequireExactFrame)
-{
-    bInboundRequireExactFrame = bRequireExactFrame;
+    return Result;
 }

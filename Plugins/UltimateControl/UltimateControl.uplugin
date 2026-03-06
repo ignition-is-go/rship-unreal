@@ -2,7 +2,7 @@
 	"FileVersion": 3,
 	"Version": 1,
 	"VersionName": "1.0.0",
-	"EngineVersion": "5.6.0",
+	"EngineVersion": "5.7.0",
 	"FriendlyName": "Ultimate Control",
 	"Description": "HTTP JSON-RPC API for AI agents and external tools to control Unreal Engine. Enables Claude, GPT, and other AI assistants to manipulate the editor via MCP.",
 	"Category": "Editor",

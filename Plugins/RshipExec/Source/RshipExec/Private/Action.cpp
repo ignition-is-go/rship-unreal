@@ -45,11 +45,9 @@ bool Action::Take(AActor *actor, const TSharedRef<FJsonObject> data)
 {
     UE_LOG(LogRshipExec, Verbose, TEXT("Taking Action %s"), *this->id);
 
-    // use our props list to build a string of our arguments
-    const FString argList = BuildArgStringFromJson(this->props, data);
-
-
     if (this->property != nullptr) {
+        // For ImportText_Direct, don't quote strings - it expects raw values
+        const FString argList = BuildArgStringFromJson(this->props, data, false);
 		UE_LOG(LogRshipExec, Verbose, TEXT("Setting property %s with args: %s"), *this->functionName, *argList);
 
         void* propAddress = this->property->ContainerPtrToValuePtr<void>(this->owner);
@@ -67,8 +65,8 @@ bool Action::Take(AActor *actor, const TSharedRef<FJsonObject> data)
 
     }
     else {
-
-
+        // For CallFunctionByNameWithArguments, quote strings for proper parsing
+        const FString argList = BuildArgStringFromJson(this->props, data, true);
 
         FString args;
         args.Append(TEXT("\""));
@@ -80,8 +78,6 @@ bool Action::Take(AActor *actor, const TSharedRef<FJsonObject> data)
             args.Append(TEXT(" "));
             args.Append(argList);
         }
-
-        // get current output device
 
         FOutputDeviceNull out = FOutputDeviceNull();
 

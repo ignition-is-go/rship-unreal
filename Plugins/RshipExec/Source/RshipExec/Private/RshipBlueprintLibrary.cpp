@@ -59,6 +59,15 @@ FString URshipBlueprintLibrary::GetRshipServiceId()
     return TEXT("");
 }
 
+FString URshipBlueprintLibrary::GetRshipInstanceId()
+{
+    if (URshipSubsystem* Subsystem = GetSubsystem())
+    {
+        return Subsystem->GetInstanceId();
+    }
+    return TEXT("");
+}
+
 // ============================================================================
 // TARGETS
 // ============================================================================

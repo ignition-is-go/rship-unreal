@@ -5,11 +5,11 @@
 
 # Unreal
 Saved/
-dist/
-mac/
+DerivedDataCache/
+nul
 
-# Claude
-.claude
+# Claude Code local settings
+.claude/settings.local.json
 
 # User-specific files
 *.rsuser
@@ -377,3 +377,7 @@ Log.rtf
 Log2.rtf
 *.rtf
 Plugins/RshipExec/Intermediate/
+
+
+**/Intermediate/*
+**/Binaries/*
