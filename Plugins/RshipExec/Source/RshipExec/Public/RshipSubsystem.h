@@ -551,6 +551,22 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Rship|ContentMapping")
     FString GetContentMappingRenderContextsJson();
 
+    /** Validate a pipeline graph JSON payload through content-mapping runtime */
+    UFUNCTION(BlueprintCallable, Category = "Rship|ContentMapping")
+    bool ValidateContentMappingPipelineGraphJson(const FString& PipelineGraphJson, FString& OutDiagnosticsJson);
+
+    /** Compile a pipeline graph JSON payload into deterministic runtime plan JSON */
+    UFUNCTION(BlueprintCallable, Category = "Rship|ContentMapping")
+    bool CompileContentMappingPipelineGraphJson(const FString& PipelineGraphJson, FString& OutPlanJson, FString& OutDiagnosticsJson);
+
+    /** Apply a compiled pipeline plan JSON payload atomically */
+    UFUNCTION(BlueprintCallable, Category = "Rship|ContentMapping")
+    bool ApplyContentMappingCompiledPipelinePlanJson(const FString& CompiledPlanJson, FString& OutDiagnosticsJson);
+
+    /** Roll back last compiled pipeline apply transaction */
+    UFUNCTION(BlueprintCallable, Category = "Rship|ContentMapping")
+    bool RollbackContentMappingPipelineApply(FString& OutDiagnosticsJson);
+
     /** Get the Display manager for deterministic monitor topology and pixel routing */
     UFUNCTION(BlueprintCallable, Category = "Rship|Display")
     URshipDisplayManager* GetDisplayManager();

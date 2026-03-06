@@ -13,6 +13,7 @@
 #include "Logging/LogMacros.h"
 #include "Subsystems/SubsystemCollection.h"
 #include "GameFramework/Actor.h"
+#include "Components/ActorComponent.h"
 #include "UObject/FieldPath.h"
 #include "Misc/StructBuilder.h"
 #include "UObject/UnrealTypePrivate.h"
@@ -244,6 +245,108 @@ bool SerializeJsonObject(const TSharedPtr<FJsonObject>& JsonObject, FString& Out
         return false;
     }
     return true;
+}
+
+bool TryReadStringProperty(const UObject* Object, const FName PropertyName, FString& OutValue)
+{
+    if (!Object)
+    {
+        return false;
+    }
+
+    if (const FStrProperty* StrProperty = FindFProperty<FStrProperty>(Object->GetClass(), PropertyName))
+    {
+        const void* ValuePtr = StrProperty->ContainerPtrToValuePtr<void>(Object);
+        OutValue = StrProperty->GetPropertyValue(ValuePtr);
+        return true;
+    }
+
+    if (const FNameProperty* NameProperty = FindFProperty<FNameProperty>(Object->GetClass(), PropertyName))
+    {
+        const void* ValuePtr = NameProperty->ContainerPtrToValuePtr<void>(Object);
+        OutValue = NameProperty->GetPropertyValue(ValuePtr).ToString();
+        return true;
+    }
+
+    return false;
+}
+
+bool TryReadGuidProperty(const UObject* Object, const FName PropertyName, FGuid& OutGuid)
+{
+    if (!Object)
+    {
+        return false;
+    }
+
+    const FStructProperty* StructProperty = FindFProperty<FStructProperty>(Object->GetClass(), PropertyName);
+    if (!StructProperty || StructProperty->Struct != TBaseStructure<FGuid>::Get())
+    {
+        return false;
+    }
+
+    const void* ValuePtr = StructProperty->ContainerPtrToValuePtr<void>(Object);
+    OutGuid = *reinterpret_cast<const FGuid*>(ValuePtr);
+    return true;
+}
+
+TSharedPtr<FJsonObject> BuildRshipFieldMetadataFromActor(const AActor* Owner)
+{
+    if (!Owner)
+    {
+        return nullptr;
+    }
+
+    TInlineComponentArray<UActorComponent*> Components(const_cast<AActor*>(Owner));
+    for (UActorComponent* Component : Components)
+    {
+        if (!Component)
+        {
+            continue;
+        }
+
+        const FString ClassName = Component->GetClass()->GetName();
+        if (!ClassName.Contains(TEXT("RshipFieldTargetComponent")))
+        {
+            continue;
+        }
+
+        FGuid StableGuid;
+        FString VisiblePath;
+        FString ActorPath;
+        FString ComponentName;
+        FString MeshPath;
+
+        const bool bHasStableGuid = TryReadGuidProperty(Component, TEXT("StableGuid"), StableGuid);
+        const bool bHasVisiblePath = TryReadStringProperty(Component, TEXT("VisibleTargetPath"), VisiblePath);
+        TryReadStringProperty(Component, TEXT("FingerprintActorPath"), ActorPath);
+        TryReadStringProperty(Component, TEXT("FingerprintComponentName"), ComponentName);
+        TryReadStringProperty(Component, TEXT("FingerprintMeshPath"), MeshPath);
+
+        if (!bHasStableGuid && !bHasVisiblePath)
+        {
+            continue;
+        }
+
+        TSharedPtr<FJsonObject> Fingerprint = MakeShareable(new FJsonObject);
+        Fingerprint->SetStringField(TEXT("actorPath"), ActorPath);
+        Fingerprint->SetStringField(TEXT("componentName"), ComponentName);
+        Fingerprint->SetStringField(TEXT("meshPath"), MeshPath);
+
+        TSharedPtr<FJsonObject> FieldMeta = MakeShareable(new FJsonObject);
+        if (StableGuid.IsValid())
+        {
+            FieldMeta->SetStringField(TEXT("stableGuid"), StableGuid.ToString(EGuidFormats::DigitsWithHyphensLower));
+        }
+        FieldMeta->SetStringField(TEXT("visiblePath"), VisiblePath);
+        FieldMeta->SetObjectField(TEXT("fingerprint"), Fingerprint);
+        FieldMeta->SetStringField(TEXT("componentClass"), Component->GetClass()->GetPathName());
+
+        TSharedPtr<FJsonObject> Metadata = MakeShareable(new FJsonObject);
+        Metadata->SetObjectField(TEXT("rshipField"), FieldMeta);
+        return Metadata;
+    }
+
+    return nullptr;
 }
 
 bool InvokeContentMappingFunction(
@@ -2168,6 +2271,20 @@ void URshipSubsystem::SendTarget(Target *target)
             GroupIdsJson.Add(MakeShareable(new FJsonValueString(GroupId)));
         }
         Target->SetArrayField(TEXT("groupIds"), GroupIdsJson);
+
+        if (TSharedPtr<FJsonObject> FieldMetadata = BuildRshipFieldMetadataFromActor(TargetComp->GetOwner()))
+        {
+            TSharedPtr<FJsonObject> Metadata = Target->HasTypedField<EJson::Object>(TEXT("metadata"))
+                ? Target->GetObjectField(TEXT("metadata"))
+                : MakeShareable(new FJsonObject);
+
+            const TSharedPtr<FJsonObject> FieldMetaObject = FieldMetadata->HasTypedField<EJson::Object>(TEXT("rshipField"))
+                ? FieldMetadata->GetObjectField(TEXT("rshipField"))
+                : MakeShareable(new FJsonObject);
+
+            Metadata->SetObjectField(TEXT("rshipField"), FieldMetaObject);
+            Target->SetObjectField(TEXT("metadata"), Metadata);
+        }
     }
     else
     {
@@ -3212,6 +3329,124 @@ FString URshipSubsystem::GetContentMappingRenderContextsJson()
         return FString();
     }
 
+    return Params.ReturnValue;
+}
+
+bool URshipSubsystem::ValidateContentMappingPipelineGraphJson(const FString& PipelineGraphJson, FString& OutDiagnosticsJson)
+{
+    OutDiagnosticsJson.Reset();
+
+    UObject* ManagerObject = GetContentMappingManager();
+    if (!ManagerObject)
+    {
+        return false;
+    }
+
+    struct FValidatePipelineParams
+    {
+        FString PipelineGraphJson;
+        FString OutDiagnosticsJson;
+        bool ReturnValue = false;
+    };
+
+    FValidatePipelineParams Params;
+    Params.PipelineGraphJson = PipelineGraphJson;
+    if (!InvokeContentMappingFunction(ManagerObject, TEXT("ValidatePipelineGraphJson"), &Params, false))
+    {
+        return false;
+    }
+
+    OutDiagnosticsJson = Params.OutDiagnosticsJson;
+    return Params.ReturnValue;
+}
+
+bool URshipSubsystem::CompileContentMappingPipelineGraphJson(
+    const FString& PipelineGraphJson,
+    FString& OutPlanJson,
+    FString& OutDiagnosticsJson)
+{
+    OutPlanJson.Reset();
+    OutDiagnosticsJson.Reset();
+
+    UObject* ManagerObject = GetContentMappingManager();
+    if (!ManagerObject)
+    {
+        return false;
+    }
+
+    struct FCompilePipelineParams
+    {
+        FString PipelineGraphJson;
+        FString OutPlanJson;
+        FString OutDiagnosticsJson;
+        bool ReturnValue = false;
+    };
+
+    FCompilePipelineParams Params;
+    Params.PipelineGraphJson = PipelineGraphJson;
+    if (!InvokeContentMappingFunction(ManagerObject, TEXT("CompilePipelineGraphJson"), &Params, false))
+    {
+        return false;
+    }
+
+    OutPlanJson = Params.OutPlanJson;
+    OutDiagnosticsJson = Params.OutDiagnosticsJson;
+    return Params.ReturnValue;
+}
+
+bool URshipSubsystem::ApplyContentMappingCompiledPipelinePlanJson(
+    const FString& CompiledPlanJson,
+    FString& OutDiagnosticsJson)
+{
+    OutDiagnosticsJson.Reset();
+
+    UObject* ManagerObject = GetContentMappingManager();
+    if (!ManagerObject)
+    {
+        return false;
+    }
+
+    struct FApplyCompiledPlanParams
+    {
+        FString CompiledPlanJson;
+        FString OutDiagnosticsJson;
+        bool ReturnValue = false;
+    };
+
+    FApplyCompiledPlanParams Params;
+    Params.CompiledPlanJson = CompiledPlanJson;
+    if (!InvokeContentMappingFunction(ManagerObject, TEXT("ApplyCompiledPipelinePlanJson"), &Params, false))
+    {
+        return false;
+    }
+
+    OutDiagnosticsJson = Params.OutDiagnosticsJson;
+    return Params.ReturnValue;
+}
+
+bool URshipSubsystem::RollbackContentMappingPipelineApply(FString& OutDiagnosticsJson)
+{
+    OutDiagnosticsJson.Reset();
+
+    UObject* ManagerObject = GetContentMappingManager();
+    if (!ManagerObject)
+    {
+        return false;
+    }
+
+    struct FRollbackPipelineParams
+    {
+        FString OutDiagnosticsJson;
+        bool ReturnValue = false;
+    };
+
+    FRollbackPipelineParams Params;
+    if (!InvokeContentMappingFunction(ManagerObject, TEXT("RollbackLastPipelineApplyJson"), &Params, false))
+    {
+        return false;
+    }
+
+    OutDiagnosticsJson = Params.OutDiagnosticsJson;
     return Params.ReturnValue;
 }
 
