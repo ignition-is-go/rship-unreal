@@ -35,7 +35,7 @@ Policy used for this baseline:
 | CM-DATA-004 | MUST | System MUST normalize mapping-surface UV/material slots by clamping UV channel to non-negative and deduplicating valid non-negative slots. | implemented |
 | CM-DATA-005 | MUST | System MUST normalize mapping type into canonical `surface-uv` or `surface-projection` forms when ingesting mapping state. | implemented |
 | CM-DATA-006 | MUST | System MUST normalize UV mode tokens to `direct` or `feed` when writing canonical mapping config. | implemented |
-| CM-DATA-007 | MUST | System MUST normalize projection mode aliases (including matrix/camera-plate/depth-map and mesh aliases) into canonical projection tokens when writing canonical mapping config. | implemented |
+| CM-DATA-007 | MUST | System MUST normalize projection mode aliases (including `surface-uv`/`surface-feed`, direct/feed tokens, matrix/camera-plate/depth-map, and mesh aliases) into canonical mapping/projection tokens when writing canonical mapping config. | implemented |
 | CM-DATA-008 | MUST | System MUST ensure default UV/projection config blocks exist (uvTransform, projector transforms, clipping/mask/border values) when mapping config is normalized. | implemented |
 | CM-DATA-009 | MUST | System MUST ensure projection subtype config defaults exist (cylindrical, spherical, parallel, fisheye, camera plate, spatial, depth-map, custom matrix) when those subtypes are selected. | implemented |
 | CM-DATA-010 | MUST | System MUST keep `feedV2.coordinateSpace` canonicalized to `pixel` and ensure `sources`, `destinations`, `routes` arrays exist when feed mode is normalized. | implemented |
@@ -44,6 +44,7 @@ Policy used for this baseline:
 | CM-DATA-013 | MUST | System MUST resolve mapping material path by trying settings override first, then runtime candidates in `/RshipMapping`, `/RshipExec`, then `/Game/Rship` material paths. | implemented |
 | CM-DATA-014 | MUST | System MUST treat `RshipContextTexture` as the required material contract texture parameter when validating mapping material compatibility. | conflict |
 | CM-DATA-015 | MUST | System MUST honor `URshipSettings` content-mapping settings (`bEnableContentMapping`, `AssetStoreUrl`, cache/material path overrides) when bootstrapping runtime behavior. | implemented |
+| CM-DATA-016 | MUST | System MUST define project-level deterministic pipeline graph schema types (`URshipTexturePipelineAsset`, node/pin/edge/diagnostic/compiled-plan specs) as serializable code-first contracts. | implemented |
 
 ### Runtime Requirements
 | ID | Priority | Requirement Statement | Status |
@@ -66,6 +67,8 @@ Policy used for this baseline:
 | CM-RT-016 | MUST | System MUST mark mappings dirty when coverage-preview flag changes so coverage shader params refresh on next apply. | implemented |
 | CM-RT-017 | MUST | System MUST expose render-context JSON snapshot for subsystem bridge including enabled state, dimensions, source metadata, render-target presence, and last error. | implemented |
 | CM-RT-018 | MUST | System MUST restore original materials and clear MID/hash caches when surface mappings are removed or rebuilt. | implemented |
+| CM-RT-019 | MUST | System MUST apply compiled node pipeline plans transactionally by snapshotting current runtime state and rolling back on apply failure. | implemented |
+| CM-RT-020 | MUST | System MUST force fail-closed strict behavior during compiled pipeline apply by disabling semantic/material fallback paths for the transaction. | implemented |
 
 ### Action / API Requirements
 | ID | Priority | Requirement Statement | Status |
@@ -83,6 +86,7 @@ Policy used for this baseline:
 | CM-ACT-011 | MUST | System MUST register surface target actions/emitters so every registered surface action has a corresponding surface action handler branch. | implemented |
 | CM-ACT-012 | MUST | System MUST register mapping target actions/emitters so every registered mapping action has a corresponding mapping action handler branch. | implemented |
 | CM-ACT-013 | MUST | System MUST emit updated state and mark mappings/cache dirty after successful action handling. | implemented |
+| CM-ACT-014 | MUST | System MUST expose pipeline graph validate/compile/apply/rollback manager APIs plus JSON wrappers for reflection bridge invocation. | implemented |
 
 ### UX / Editor Requirements
 | ID | Priority | Requirement Statement | Status |
@@ -97,6 +101,7 @@ Policy used for this baseline:
 | CM-UX-008 | SHOULD | System SHOULD support list filters and errors-only toggles for contexts/surfaces/mappings with visible/total counts. | untested |
 | CM-UX-009 | SHOULD | System SHOULD support explicit row selection and selected-vs-visible bulk scope operations for contexts/surfaces/mappings. | untested |
 | CM-UX-010 | MUST | System MUST provide feedV2 authoring controls (source/destination/route lists, per-destination canvases, read/write of `feedV2` config). | implemented |
+| CM-UX-011 | MUST | System MUST provide docked node pipeline editor workflow with one-click Validate/Apply/Revert/Diagnostics controls while retaining legacy form controls during rollout. | implemented |
 
 ### NFR / Performance / Observability Requirements
 | ID | Priority | Requirement Statement | Status |
@@ -108,6 +113,7 @@ Policy used for this baseline:
 | CM-NFR-005 | MUST | System MUST skip redundant MID updates using per-surface-slot binding hash cache when bindings are unchanged. | implemented |
 | CM-NFR-006 | SHOULD | System SHOULD skip static feed recomposition by using feed composite static signatures when route/source signature is unchanged and sources are non-dynamic. | implemented |
 | CM-NFR-007 | MUST | System MUST avoid explicit `CaptureScene()` calls when `bCaptureEveryFrame` is enabled to avoid known inefficiency warnings. | implemented |
+| CM-NFR-008 | MUST | System MUST enforce DAG-only compile semantics and deterministic topological ordering for node pipeline execution plans. | implemented |
 
 ### Integration / Bridge Requirements
 | ID | Priority | Requirement Statement | Status |
@@ -120,6 +126,8 @@ Policy used for this baseline:
 | CM-INT-006 | MUST | System MUST return null content-mapping manager from subsystem when `URshipSettings::bEnableContentMapping` is disabled. | implemented |
 | CM-INT-007 | MUST | System MUST declare plugin modules `RshipMapping` (Runtime) and `RshipMappingEditor` (Editor), enabled by default, with plugin dependency on `RshipExec`. | implemented |
 | CM-INT-008 | MUST | System MUST keep build/module dependencies wired so runtime/editor mapping modules both depend on `RshipExec` and editor module depends on `RshipMapping`. | implemented |
+| CM-INT-009 | MUST | System MUST forward pipeline graph validate/compile/apply/rollback calls through `RshipExec` reflection bridge methods for automation/remoting parity. | implemented |
+| CM-INT-010 | MUST | System MUST support pluggable endpoint-adapter validation interface for media-profile input/output endpoint bindings in pipeline plans. | implemented |
 
 ## Public API Coverage Map (Manager Header)
 All public manager methods/UFUNCTIONs are mapped below.
@@ -136,6 +144,8 @@ All public manager methods/UFUNCTIONs are mapped below.
 | `SetDebugOverlayEnabledForSubsystem`, `IsDebugOverlayEnabledForSubsystem` | CM-INT-005 |
 | `GetRenderContextsJsonForSubsystem` | CM-RT-017, CM-INT-005 |
 | `SetCoveragePreviewEnabled`, `IsCoveragePreviewEnabled` | CM-RT-016 |
+| `ValidatePipelineGraph`, `CompilePipelineGraph`, `ApplyCompiledPipelinePlan`, `RollbackLastPipelineApply` | CM-ACT-014, CM-RT-019, CM-RT-020 |
+| `ValidatePipelineGraphJson`, `CompilePipelineGraphJson`, `ApplyCompiledPipelinePlanJson`, `RollbackLastPipelineApplyJson` | CM-ACT-014, CM-INT-009 |
 | `CreateRenderContext`, `UpdateRenderContext`, `DeleteRenderContext` | CM-ACT-009 |
 | `CreateMappingSurface`, `UpdateMappingSurface`, `DeleteMappingSurface` | CM-ACT-009 |
 | `CreateMapping`, `UpdateMapping`, `DeleteMapping` | CM-ACT-009, CM-RT-015 |
@@ -159,19 +169,31 @@ Every `RegisterAction(...)` action name has a corresponding handler branch.
 | `Rship.ContentMapping.Feed.RemoveRouteGuardsStaleEcho` | CM-ACT-004, CM-RT-015 |
 | `Rship.ContentMapping.Feed.RemoveDestinationGuardsStaleEcho` | CM-ACT-004, CM-RT-015 |
 | `Rship.ContentMapping.Feed.RemoveSourceGuardsStaleEcho` | CM-ACT-004, CM-RT-015 |
+| `Rship.ContentMapping.Pipeline.ValidateRejectsCycle` | CM-NFR-008, CM-ACT-014 |
+| `Rship.ContentMapping.Pipeline.CompileDeterministicOrder` | CM-NFR-008, CM-DATA-016 |
+| `Rship.ContentMapping.Pipeline.ApplyReplacesMappingMode` | CM-RT-019, CM-ACT-014 |
+| `Rship.ContentMapping.Pipeline.ApplyRollbackOnFailure` | CM-RT-019, CM-RT-020 |
 
 ## Source-to-Requirement Index (Bidirectional Traceability Support)
 | Source File | Key Requirement IDs |
 |---|---|
 | `/Users/lucid/rship-unreal/Plugins/RshipMapping/Source/RshipMapping/Public/RshipContentMappingManager.h` | CM-DATA-001, CM-INT-002 |
 | `/Users/lucid/rship-unreal/Plugins/RshipMapping/Source/RshipMapping/Private/RshipContentMappingManager.cpp` | CM-DATA-002..014, CM-RT-001..018, CM-ACT-001..013, CM-NFR-001..007 |
+| `/Users/lucid/rship-unreal/Plugins/RshipMapping/Source/RshipMapping/Public/RshipTexturePipelineAsset.h` | CM-DATA-016, CM-INT-010 |
+| `/Users/lucid/rship-unreal/Plugins/RshipMapping/Source/RshipMapping/Private/RshipContentMappingManager.cpp` | CM-ACT-014, CM-RT-019, CM-RT-020, CM-NFR-008 |
 | `/Users/lucid/rship-unreal/Plugins/RshipMapping/Source/RshipMapping/Private/Tests/RshipContentMappingManagerTests.cpp` | CM-DATA-014, CM-RT-011, CM-RT-015, CM-ACT-004, CM-ACT-008 |
+| `/Users/lucid/rship-unreal/Plugins/RshipMapping/Source/RshipMapping/Private/Tests/RshipContentMappingManagerTests.cpp` | CM-NFR-008, CM-ACT-014, CM-RT-019, CM-RT-020 |
 | `/Users/lucid/rship-unreal/Plugins/RshipMapping/Source/RshipMappingEditor/Private/SRshipContentMappingPanel.cpp` | CM-UX-001..006, CM-UX-008..010 |
+| `/Users/lucid/rship-unreal/Plugins/RshipMapping/Source/RshipMappingEditor/Public/RshipTexturePipelineEdGraph.h` | CM-UX-011 |
+| `/Users/lucid/rship-unreal/Plugins/RshipMapping/Source/RshipMappingEditor/Public/RshipTexturePipelineEdGraphNode.h` | CM-UX-011 |
+| `/Users/lucid/rship-unreal/Plugins/RshipMapping/Source/RshipMappingEditor/Public/RshipTexturePipelineEdGraphSchema.h` | CM-UX-011 |
+| `/Users/lucid/rship-unreal/Plugins/RshipMapping/Source/RshipMappingEditor/Private/SRshipContentMappingPanel.cpp` | CM-UX-011 |
 | `/Users/lucid/rship-unreal/Plugins/RshipMapping/Source/RshipMappingEditor/Private/SRshipModeSelector.cpp` | CM-UX-003 |
 | `/Users/lucid/rship-unreal/Plugins/RshipMapping/Source/RshipMappingEditor/Private/SRshipContentModeSelector.cpp` | CM-UX-004 |
 | `/Users/lucid/rship-unreal/Plugins/RshipMapping/Source/RshipMappingEditor/Private/SRshipMappingCanvas.cpp` | CM-UX-007, CM-UX-010 |
 | `/Users/lucid/rship-unreal/Plugins/RshipMapping/Source/RshipMappingEditor/Private/RshipContentMappingPreviewActor.cpp` | CM-UX-006 |
 | `/Users/lucid/rship-unreal/Plugins/RshipExec/Source/RshipExec/Private/RshipSubsystem.cpp` | CM-INT-001..006 |
+| `/Users/lucid/rship-unreal/Plugins/RshipExec/Source/RshipExec/Private/RshipSubsystem.cpp` | CM-INT-009 |
 | `/Users/lucid/rship-unreal/Plugins/RshipExec/Source/RshipExec/Public/RshipSettings.h` | CM-DATA-015, CM-INT-006 |
 | `/Users/lucid/rship-unreal/Plugins/RshipMapping/RshipMapping.uplugin` | CM-INT-007 |
 | `/Users/lucid/rship-unreal/Plugins/RshipMapping/Source/RshipMapping/RshipMapping.Build.cs` | CM-INT-008 |
