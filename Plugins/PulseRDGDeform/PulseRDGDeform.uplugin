@@ -1,0 +1,22 @@
+{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "0.1.0",
+  "FriendlyName": "Pulse RDG Deform",
+  "Description": "High vertex-count runtime deformation using UE5 RDG compute shaders.",
+  "Category": "Rendering",
+  "EnabledByDefault": true,
+  "CanContainContent": false,
+  "Modules": [
+    {
+      "Name": "PulseRDGDeform",
+      "Type": "Runtime",
+      "LoadingPhase": "PostConfigInit"
+    },
+    {
+      "Name": "PulseRDGDeformEditor",
+      "Type": "Editor",
+      "LoadingPhase": "Default"
+    }
+  ]
+}
