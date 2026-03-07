@@ -6,6 +6,8 @@ struct SchemaNode
 {
 	FString Name;
 	FString Type;
+	// For EnumProperty/ByteProperty with Enum, EnumValues holds valid options.
+	TArray<FString> EnumValues;
 	// For StructProperty types, Children describes nested fields.
 	TArray<SchemaNode> Children;
 };

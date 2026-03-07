@@ -30,6 +30,8 @@ public class RshipExecEditor : ModuleRules
 				"Slate",
 				"SlateCore",
 				"UnrealEd",
+				"LevelEditor",
+				"SceneOutliner",
 				"EditorStyle",
 				"InputCore",
 				"ToolMenus",
@@ -41,8 +43,12 @@ public class RshipExecEditor : ModuleRules
 				"LiveLink",          // For LiveLinkClient and LiveLink roles
 				"DesktopPlatform",   // For DesktopPlatformModule in SRshipAssetSyncPanel
 				"Json",              // For FJsonObject in SRshipTimecodePanel
-			}
-		);
+				"PropertyEditor",    // Native Details panel widgets
+					"StructUtils",       // FInstancedPropertyBag
+					"StructUtilsEditor", // FInstancePropertyBagStructureDataProvider
+					"ClassViewer",       // Component class picker dialog
+				}
+			);
 
 		// Rship2110 plugin for SMPTE 2110 status display (optional)
 		// Check if the plugin exists to avoid circular dependency issues
@@ -78,3 +84,5 @@ public class RshipExecEditor : ModuleRules
 		}
 	}
 }
+
+

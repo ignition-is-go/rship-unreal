@@ -1,0 +1,88 @@
+#include "Controllers/RshipTransformController.h"
+
+#include "Components/SceneComponent.h"
+#include "GameFramework/Actor.h"
+
+void URshipTransformController::OnBeforeRegisterRshipTargets()
+{
+	if (AActor* Owner = GetOwner())
+	{
+		if (USceneComponent* Root = Owner->GetRootComponent())
+		{
+			if (Root->Mobility != EComponentMobility::Movable)
+			{
+				Root->SetMobility(EComponentMobility::Movable);
+			}
+		}
+	}
+}
+
+void URshipTransformController::RegisterOrRefreshTarget()
+{
+	AActor* Owner = GetOwner();
+	if (!Owner)
+	{
+		return;
+	}
+
+	FRshipTargetProxy ParentIdentity = ResolveParentTarget();
+	if (!ParentIdentity.IsValid())
+	{
+		return;
+	}
+
+	USceneComponent* Root = Owner->GetRootComponent();
+	if (!Root)
+	{
+		return;
+	}
+
+	if (bExposeLocation)
+	{
+		ParentIdentity
+			.AddAction(this, GET_FUNCTION_NAME_CHECKED(URshipTransformController, SetRelativeLocationAction), TEXT("Location"));
+	}
+	if (bExposeRotation)
+	{
+		ParentIdentity
+			.AddAction(this, GET_FUNCTION_NAME_CHECKED(URshipTransformController, SetRelativeRotationAction), TEXT("Rotation"));
+	}
+	if (bExposeScale)
+	{
+		ParentIdentity
+			.AddAction(this, GET_FUNCTION_NAME_CHECKED(URshipTransformController, SetRelativeScaleAction), TEXT("Scale"));
+	}
+}
+
+void URshipTransformController::SetRelativeLocationAction(float X, float Y, float Z)
+{
+	if (AActor* Owner = GetOwner())
+	{
+		if (USceneComponent* Root = Owner->GetRootComponent())
+		{
+			Root->SetRelativeLocation(FVector(X, Y, Z), false, nullptr, ETeleportType::TeleportPhysics);
+		}
+	}
+}
+
+void URshipTransformController::SetRelativeRotationAction(float X, float Y, float Z)
+{
+	if (AActor* Owner = GetOwner())
+	{
+		if (USceneComponent* Root = Owner->GetRootComponent())
+		{
+			Root->SetRelativeRotation(FRotator(X, Y, Z), false, nullptr, ETeleportType::TeleportPhysics);
+		}
+	}
+}
+
+void URshipTransformController::SetRelativeScaleAction(float X, float Y, float Z)
+{
+	if (AActor* Owner = GetOwner())
+	{
+		if (USceneComponent* Root = Owner->GetRootComponent())
+		{
+			Root->SetRelativeScale3D(FVector(X, Y, Z));
+		}
+	}
+}

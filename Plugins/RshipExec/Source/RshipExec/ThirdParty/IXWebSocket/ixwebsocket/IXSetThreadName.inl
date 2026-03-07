@@ -21,7 +21,7 @@
 
 // Windows
 #ifdef _WIN32
-#include <windows.h>
+#include "Windows/MinWindows.h"
 #endif
 
 namespace ix

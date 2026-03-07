@@ -92,9 +92,9 @@ public class RshipExec : ModuleRules
 				"RenderCore",  // For texture generation
 				"RHI",         // For GRHIGlobals (feedback reporter)
 				"InputCore",   // For FKey, EKeys (editor widget, camera presets)
-				"Niagara",     // For RshipNiagaraBinding
+				"Niagara",     // For RshipNiagaraController
 				"NiagaraCore", // For Niagara types
-				"ControlRig",  // For RshipControlRigBinding
+				"ControlRig",  // For RshipControlRigController
 				"RigVM",       // For ControlRig
 				"LiveLinkInterface", // For RshipLiveLinkSource
 				"LevelSequence",     // For RshipSequencerSync
@@ -120,11 +120,6 @@ public class RshipExec : ModuleRules
 		// For now, disable PCG by default - users can enable by uncommenting below
 		bHasPCG = false;
 		// To enable PCG: set bHasPCG = true above and add "PCG" plugin to your .uproject
-
-		// Always include PCG directory paths - base types don't require PCG plugin
-		// Only RshipPCGSpawnActorSettings requires PCG and is guarded with #if RSHIP_HAS_PCG
-		PublicIncludePaths.Add(Path.Combine(ModuleDirectory, "Public", "PCG"));
-		PrivateIncludePaths.Add(Path.Combine(ModuleDirectory, "Private", "PCG"));
 
 		if (bHasPCG)
 		{

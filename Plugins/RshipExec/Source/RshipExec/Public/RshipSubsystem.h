@@ -7,53 +7,23 @@
 #include "Subsystems/SubsystemCollection.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
-#include "RshipTargetComponent.h"
-#include "RshipTargetGroup.h"
-#include "RshipHealthMonitor.h"
-#include "RshipPresetManager.h"
-#include "RshipTemplateManager.h"
-#include "RshipLevelManager.h"
-#include "RshipEditorSelection.h"
-#include "RshipDataLayerManager.h"
-#include "RshipFixtureManager.h"
-#include "RshipCameraManager.h"
-#include "RshipIESProfileService.h"
-#include "RshipSceneConverter.h"
-#include "RshipEditorTransformSync.h"
-#include "RshipPulseReceiver.h"
-#include "RshipFeedbackReporter.h"
-#include "RshipFixtureVisualizer.h"
-#include "RshipTimecodeSync.h"
-#include "RshipFixtureLibrary.h"
-#include "RshipMultiCameraManager.h"
-#include "RshipSceneValidator.h"
-#include "RshipNiagaraBinding.h"
-#include "RshipSequencerSync.h"
-#include "RshipMaterialBinding.h"
-#include "RshipSubstrateMaterialBinding.h"
-#include "RshipDMXOutput.h"
-#include "RshipOSCBridge.h"
-#include "RshipLiveLinkSource.h"
-#include "RshipAudioReactive.h"
-#include "RshipRecorder.h"
-#include "RshipControlRigBinding.h"
-// PCG Manager is always available - only PCG graph nodes require PCG plugin
-#include "PCG/RshipPCGManager.h"
+#include "RshipActorRegistrationComponent.h"
 #include "GameFramework/Actor.h"
 
 // Forward declaration for optional SpatialAudio plugin
 class URshipSpatialAudioManager;
 #include "Containers/List.h"
 #include "Containers/Ticker.h"
-#include "Target.h"
-#include "RshipRateLimiter.h"
-#include "RshipWebSocket.h"
+#include "Core/Target.h"
+#include "Network/RshipRateLimiter.h"
+#include "Network/RshipWebSocket.h"
 #include "RshipSubsystem.generated.h"
 
 
 DECLARE_DYNAMIC_DELEGATE(FRshipMessageDelegate);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnRshipSelectionChanged);
 
+// Connection state for tracking
 // Connection state for tracking
 enum class ERshipConnectionState : uint8
 {
@@ -62,6 +32,38 @@ enum class ERshipConnectionState : uint8
     Connected,
     Reconnecting,
     BackingOff
+};
+
+struct FRshipManagedTargetView
+{
+    FString Id;
+    FString Name;
+    TArray<FString> ParentTargetIds;
+    int32 ActionCount = 0;
+    int32 EmitterCount = 0;
+    TWeakObjectPtr<URshipActorRegistrationComponent> BoundTargetComponent;
+    bool bBoundToComponent = false;
+};
+
+struct FRshipPendingExecTargetAction
+{
+    FString TargetId;
+    FString ActionId;
+    TSharedPtr<FJsonObject> Data;
+    TArray<FString> TxIds;
+};
+
+struct FRshipPendingBatchActionItem
+{
+    FString TargetId;
+    FString ActionId;
+    TSharedPtr<FJsonObject> Data;
+};
+
+struct FRshipPendingBatchTargetAction
+{
+    FString TxId;
+    TArray<FRshipPendingBatchActionItem> Actions;
 };
 
 /**
@@ -74,20 +76,15 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     GENERATED_BODY()
 
     // Friend classes that need access to private methods (SetItem, SendJsonDirect, SendTargetStatus, DeleteTarget)
-    friend class URshipCameraManager;
-    friend class URshipFixtureManager;
-    friend class URshipLevelManager;
-    friend class URshipMultiCameraManager;
-    friend class URshipDataLayerManager;
     friend class URshipSpatialAudioManager;
-    friend class URshipTargetComponent;
-
-    AEmitterHandler *EmitterHandler;
+    friend class URshipActorRegistrationComponent;
+    friend class Target;
 
     // High-performance WebSocket connection
     TSharedPtr<FRshipWebSocket> WebSocket;
     bool bPingResponseReceived = false;                  // Diagnostic: tracks if ping response came back
     bool bIsManuallyReconnecting = false;                // Prevents auto-reconnect during manual reconnect
+    bool bRemoteCommunicationEnabled = true;             // Global hard gate for all remote server communication
 
     FString InstanceId;
     FString ServiceId;
@@ -98,128 +95,6 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
 
     // Rate limiter for outbound messages
     TUniquePtr<FRshipRateLimiter> RateLimiter;
-
-    // Group manager for target organization (lazy initialized)
-    UPROPERTY()
-    URshipTargetGroupManager* GroupManager;
-
-    // Health monitor for dashboard (lazy initialized)
-    UPROPERTY()
-    URshipHealthMonitor* HealthMonitor;
-
-    // Preset manager for emitter state capture/recall (lazy initialized)
-    UPROPERTY()
-    URshipPresetManager* PresetManager;
-
-    // Template manager for target configuration templates (lazy initialized)
-    UPROPERTY()
-    URshipTemplateManager* TemplateManager;
-
-    // Level manager for streaming level awareness (lazy initialized)
-    UPROPERTY()
-    URshipLevelManager* LevelManager;
-
-    // Editor selection sync (lazy initialized, Editor only)
-    UPROPERTY()
-    URshipEditorSelection* EditorSelection;
-
-    // Data Layer manager for World Partition workflows (lazy initialized)
-    UPROPERTY()
-    URshipDataLayerManager* DataLayerManager;
-
-    // Fixture manager for lighting calibration (lazy initialized)
-    UPROPERTY()
-    URshipFixtureManager* FixtureManager;
-
-    // Camera manager for camera calibration (lazy initialized)
-    UPROPERTY()
-    URshipCameraManager* CameraManager;
-
-    // IES profile service for photometric data (lazy initialized)
-    UPROPERTY()
-    URshipIESProfileService* IESProfileService;
-
-    // Scene converter for importing existing UE scenes (lazy initialized)
-    UPROPERTY()
-    URshipSceneConverter* SceneConverter;
-
-    // Editor transform sync for automatic position synchronization (lazy initialized)
-    UPROPERTY()
-    URshipEditorTransformSync* EditorTransformSync;
-
-    // Pulse receiver for incoming fixture control values (lazy initialized)
-    UPROPERTY()
-    URshipPulseReceiver* PulseReceiver;
-
-    // Feedback reporter for bug reports and feature requests (lazy initialized)
-    UPROPERTY()
-    URshipFeedbackReporter* FeedbackReporter;
-
-    // Visualization manager for fixture beam cones and gizmos (lazy initialized)
-    UPROPERTY()
-    URshipVisualizationManager* VisualizationManager;
-
-    // Timecode sync for timeline integration (lazy initialized)
-    UPROPERTY()
-    URshipTimecodeSync* TimecodeSync;
-
-    // Fixture library for GDTF profiles (lazy initialized)
-    UPROPERTY()
-    URshipFixtureLibrary* FixtureLibrary;
-
-    // Multi-camera manager for switcher-style camera control (lazy initialized)
-    UPROPERTY()
-    URshipMultiCameraManager* MultiCameraManager;
-
-    // Scene validator for pre-conversion checks (lazy initialized)
-    UPROPERTY()
-    URshipSceneValidator* SceneValidator;
-
-    // Niagara manager for VFX pulse bindings (lazy initialized)
-    UPROPERTY()
-    URshipNiagaraManager* NiagaraManager;
-
-    // Sequencer sync for timeline integration (lazy initialized)
-    UPROPERTY()
-    URshipSequencerSync* SequencerSync;
-
-    // Material binding manager for reactive materials (lazy initialized)
-    UPROPERTY()
-    URshipMaterialManager* MaterialManager;
-
-    // Substrate material manager for UE 5.5+ Substrate materials (lazy initialized)
-    UPROPERTY()
-    URshipSubstrateMaterialManager* SubstrateMaterialManager;
-
-    // DMX output for real-world fixture control (lazy initialized)
-    UPROPERTY()
-    URshipDMXOutput* DMXOutput;
-
-    // OSC bridge for external controller integration (lazy initialized)
-    UPROPERTY()
-    URshipOSCBridge* OSCBridge;
-
-    // Live Link service for streaming data (lazy initialized)
-    UPROPERTY()
-    URshipLiveLinkService* LiveLinkService;
-
-    // Audio manager for audio-reactive components (lazy initialized)
-    UPROPERTY()
-    URshipAudioManager* AudioManager;
-
-    // Recorder for pulse recording/playback (lazy initialized)
-    UPROPERTY()
-    URshipRecorder* Recorder;
-
-    // Control Rig manager for binding pulse data to Control Rigs (lazy initialized)
-    UPROPERTY()
-    URshipControlRigManager* ControlRigManager;
-
-    // PCG manager for binding pulse data to PCG graphs (lazy initialized)
-    // Note: Returns nullptr if PCG plugin is not enabled
-    // Not a UPROPERTY because UHT requires full UCLASS definition which is only available when PCG plugin is enabled
-    URshipPCGManager* PCGManager;
-
     // Spatial Audio manager for loudspeaker management and spatialization (lazy initialized)
     // Note: Returns nullptr if RshipSpatialAudio plugin is not enabled
     // Not a UPROPERTY because UHT requires full UCLASS definition which is only available when SpatialAudio plugin is enabled
@@ -232,22 +107,46 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     FTSTicker::FDelegateHandle ReconnectTickerHandle;
     FTSTicker::FDelegateHandle SubsystemTickerHandle;
     FTSTicker::FDelegateHandle ConnectionTimeoutTickerHandle;
+    FTSTicker::FDelegateHandle DeferredOnDataReceivedTickerHandle;
     double LastTickTime;
+    // Components that had successful Take() calls this frame; flushed once per tick.
+    TSet<TWeakObjectPtr<URshipActorRegistrationComponent>> PendingOnDataReceivedComponents;
+    TMap<FString, FRshipPendingExecTargetAction> PendingExecTargetActions;
+    TArray<FRshipPendingBatchTargetAction> PendingBatchTargetActions;
+
+    struct FManagedTargetSnapshot
+    {
+        FString Id;
+        FString Name;
+        TArray<FString> ParentTargetIds;
+        TSet<FString> ActionIds;
+        TSet<FString> EmitterIds;
+        TWeakObjectPtr<URshipActorRegistrationComponent> BoundTargetComponent;
+        bool bBoundToComponent = false;
+    };
+    TMap<Target*, FManagedTargetSnapshot> ManagedTargetSnapshots;
+    TMultiMap<FString, Target*> RegisteredTargetsById;
+    TMap<FString, TUniquePtr<Target>> AutomationOwnedTargets;
 
     // Ticker callbacks (return true to keep ticking, false to stop)
     bool OnQueueProcessTick(float DeltaTime);
     bool OnReconnectTick(float DeltaTime);
     bool OnSubsystemTick(float DeltaTime);
     bool OnConnectionTimeoutTick(float DeltaTime);
+    bool OnDeferredOnDataReceivedTick(float DeltaTime);
 
     // Internal message handling
     void SetItem(FString itemType, TSharedPtr<FJsonObject> data, ERshipMessagePriority Priority = ERshipMessagePriority::Normal, const FString& CoalesceKey = TEXT(""));
     void SendInstanceInfo();  // Send Machine and Instance only (called once on connect)
     void SendTarget(Target* target);
     void DeleteTarget(Target* target);
-    void SendAction(Action* action, FString targetId);
-    void SendEmitter(EmitterContainer* emitter, FString targetId);
+    void SendAction(const FRshipActionProxy& action, FString targetId);
+    void SendEmitter(const FRshipEmitterProxy& emitter, FString targetId);
     void SendTargetStatus(Target* target, bool online);
+    void QueueEventBatch(const TArray<TSharedPtr<FJsonObject>>& Events,
+                         ERshipMessagePriority Priority,
+                         ERshipMessageType Type,
+                         const FString& CoalesceKey);
     void ProcessMessage(const FString& message);
 
     // Queue a message through rate limiter (preferred method)
@@ -262,6 +161,11 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     void AttemptReconnect();
     void TickSubsystems();
     void OnConnectionTimeout();
+    void FlushPendingOnDataReceived();
+    void EnqueueExecTargetAction(const FString& TargetId, const FString& ActionId, const TSharedRef<FJsonObject>& Data, const FString& TxId);
+    void EnqueueBatchTargetAction(const FString& TxId, TArray<FRshipPendingBatchActionItem>&& Actions);
+    void ProcessPendingExecTargetActions();
+    void QueueCommandResponse(const FString& TxId, bool bOk, const FString& CommandId, const FString& ErrorMessage = TEXT(""));
 
     // WebSocket event handlers
     void OnWebSocketConnected();
@@ -274,9 +178,30 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
 
     // Initialize rate limiter from settings
     void InitializeRateLimiter();
+    FManagedTargetSnapshot BuildManagedTargetSnapshot(Target* ManagedTarget) const;
+    int32 PruneInvalidManagedTargetRefs(const FString& TargetId);
 
     // Schedule reconnection with backoff
     void ScheduleReconnect();
+
+    // Registration batching state
+    int32 RegistrationBatchDepth = 0;
+    TArray<TSharedPtr<FJsonObject>> PendingRegistrationEvents;
+
+#if WITH_EDITOR
+    void RegisterEditorDelegates();
+    void UnregisterEditorDelegates();
+    void RefreshAllTargetComponents(const TCHAR* Reason);
+    void HandleBeginPIE(bool bIsSimulating);
+    void HandleEndPIE(bool bIsSimulating);
+    void HandleMapChanged(uint32 MapChangeFlags);
+    void HandleBlueprintCompiled();
+
+    FDelegateHandle BeginPIEHandle;
+    FDelegateHandle EndPIEHandle;
+    FDelegateHandle MapChangedHandle;
+    FDelegateHandle BlueprintCompiledHandle;
+#endif
 
 public:
     virtual void Initialize(FSubsystemCollectionBase &Collection) override;
@@ -309,157 +234,61 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Rship|Connection")
     int32 GetServerPort() const;
 
-    void PulseEmitter(FString TargetId, FString EmitterId, TSharedPtr<FJsonObject> data);
-    void SendAll();
+    /** Enable/disable all remote server communication. Disabling immediately disconnects and blocks reconnect/send. */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Connection")
+    void SetRemoteCommunicationEnabled(bool bEnabled);
+    /** Whether remote server communication is globally enabled. */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Connection")
+    bool IsRemoteCommunicationEnabled() const { return bRemoteCommunicationEnabled; }
 
-    EmitterContainer* GetEmitterInfo(FString targetId, FString emitterId);
+    void PulseEmitter(FString TargetId, FString EmitterId, TSharedPtr<FJsonObject> data);
+	void SendAll();
+
+	const FRshipEmitterProxy* GetEmitterInfo(FString targetId, FString emitterId);
+
+	// Identity-first registration helpers.
+	FRshipTargetProxy EnsureTargetIdentity(const FString& FullTargetId, const FString& DisplayName = TEXT(""),
+		const TArray<FString>& ParentTargetIds = {});
+	FRshipTargetProxy EnsureActorIdentity(AActor* Actor);
+	FRshipTargetProxy GetTargetProxyForActor(AActor* Actor);
+
+	// Managed target lifecycle (owned by subsystem, fed by automation components/controllers)
+	void RegisterManagedTarget(Target* ManagedTarget);
+    void UnregisterManagedTarget(Target* ManagedTarget);
+    void OnManagedTargetChanged(Target* ManagedTarget);
+    Target* EnsureAutomationTarget(const FString& FullTargetId, const FString& Name, const TArray<FString>& ParentTargetIds);
+    bool RemoveAutomationTarget(const FString& FullTargetId);
+    bool RegisterFunctionActionForTarget(const FString& FullTargetId, UObject* Owner, const FName& FunctionName, const FString& ExposedActionName = TEXT(""));
+    bool RegisterPropertyActionForTarget(const FString& FullTargetId, UObject* Owner, const FName& PropertyName, const FString& ExposedActionName = TEXT(""));
+    bool RegisterEmitterForTarget(const FString& FullTargetId, UObject* Owner, const FName& DelegateName, const FString& ExposedEmitterName = TEXT(""));
+    void GetManagedTargetsSnapshot(TArray<FRshipManagedTargetView>& OutTargets) const;
 
     // Target component registry - keyed by full target ID for O(1) lookups
     // Key format: "ServiceId:TargetName"
     // Uses TMultiMap to allow multiple components with the same target ID
     // (e.g., during actor duplication before re-ID)
-    TMultiMap<FString, URshipTargetComponent*>* TargetComponents;
+    TMultiMap<FString, URshipActorRegistrationComponent*>* TargetComponents;
 
-    // Register a target component (called by URshipTargetComponent)
-    void RegisterTargetComponent(URshipTargetComponent* Component);
+    // Register a target component (called by URshipActorRegistrationComponent)
+    void RegisterTargetComponent(URshipActorRegistrationComponent* Component);
 
-    // Unregister a target component (called by URshipTargetComponent)
-    void UnregisterTargetComponent(URshipTargetComponent* Component);
+    // Unregister a target component (called by URshipActorRegistrationComponent)
+    void UnregisterTargetComponent(URshipActorRegistrationComponent* Component);
 
     // Find a target component by full target ID - returns first match (O(1) lookup)
-    URshipTargetComponent* FindTargetComponent(const FString& FullTargetId) const;
+    URshipActorRegistrationComponent* FindTargetComponent(const FString& FullTargetId) const;
 
     // Find all target components with the given target ID
-    TArray<URshipTargetComponent*> FindAllTargetComponents(const FString& FullTargetId) const;
+    TArray<URshipActorRegistrationComponent*> FindAllTargetComponents(const FString& FullTargetId) const;
+
+    // Execute an action using the same routing/guards as server commands.
+    bool ExecuteTargetAction(const FString& TargetId, const FString& ActionId, const TSharedRef<FJsonObject>& Data);
+
+    // Queue OnRshipData broadcast for end-of-frame dispatch.
+    void QueueOnDataReceived(URshipActorRegistrationComponent* Component);
 
     FString GetServiceId();
     FString GetInstanceId();
-
-    // ========================================================================
-    // TARGET GROUP MANAGEMENT
-    // ========================================================================
-
-    /** Get the group manager for organizing targets */
-    UFUNCTION(BlueprintCallable, Category = "Rship|Groups")
-    URshipTargetGroupManager* GetGroupManager();
-
-    /** Get the health monitor for dashboard */
-    UFUNCTION(BlueprintCallable, Category = "Rship|Health")
-    URshipHealthMonitor* GetHealthMonitor();
-
-    /** Get the preset manager for emitter state snapshots */
-    UFUNCTION(BlueprintCallable, Category = "Rship|Presets")
-    URshipPresetManager* GetPresetManager();
-
-    /** Get the template manager for target configuration templates */
-    UFUNCTION(BlueprintCallable, Category = "Rship|Templates")
-    URshipTemplateManager* GetTemplateManager();
-
-    /** Get the level manager for streaming level awareness */
-    UFUNCTION(BlueprintCallable, Category = "Rship|Levels")
-    URshipLevelManager* GetLevelManager();
-
-    /** Get the editor selection sync manager (Editor only) */
-    UFUNCTION(BlueprintCallable, Category = "Rship|Editor")
-    URshipEditorSelection* GetEditorSelection();
-
-    /** Get the Data Layer manager for World Partition workflows */
-    UFUNCTION(BlueprintCallable, Category = "Rship|DataLayers")
-    URshipDataLayerManager* GetDataLayerManager();
-
-    /** Get the Fixture manager for lighting calibration */
-    UFUNCTION(BlueprintCallable, Category = "Rship|Fixtures")
-    URshipFixtureManager* GetFixtureManager();
-
-    /** Get the Camera manager for camera calibration */
-    UFUNCTION(BlueprintCallable, Category = "Rship|Cameras")
-    URshipCameraManager* GetCameraManager();
-
-    /** Get the IES profile service for photometric data */
-    UFUNCTION(BlueprintCallable, Category = "Rship|IES")
-    URshipIESProfileService* GetIESProfileService();
-
-    /** Get the scene converter for importing existing UE scenes */
-    UFUNCTION(BlueprintCallable, Category = "Rship|SceneConversion")
-    URshipSceneConverter* GetSceneConverter();
-
-    /** Get the editor transform sync for automatic position synchronization */
-    UFUNCTION(BlueprintCallable, Category = "Rship|Editor")
-    URshipEditorTransformSync* GetEditorTransformSync();
-
-    /** Get the pulse receiver for incoming fixture control values */
-    UFUNCTION(BlueprintCallable, Category = "Rship|Pulse")
-    URshipPulseReceiver* GetPulseReceiver();
-
-    /** Get the feedback reporter for bug reports and feature requests */
-    UFUNCTION(BlueprintCallable, Category = "Rship|Feedback")
-    URshipFeedbackReporter* GetFeedbackReporter();
-
-    /** Get the visualization manager for fixture beam cones and gizmos */
-    UFUNCTION(BlueprintCallable, Category = "Rship|Visualization")
-    URshipVisualizationManager* GetVisualizationManager();
-
-    /** Get the timecode sync for timeline integration */
-    UFUNCTION(BlueprintCallable, Category = "Rship|Timecode")
-    URshipTimecodeSync* GetTimecodeSync();
-
-    /** Get the fixture library for GDTF profiles */
-    UFUNCTION(BlueprintCallable, Category = "Rship|Fixtures")
-    URshipFixtureLibrary* GetFixtureLibrary();
-
-    /** Get the multi-camera manager for switcher-style camera control */
-    UFUNCTION(BlueprintCallable, Category = "Rship|Cameras")
-    URshipMultiCameraManager* GetMultiCameraManager();
-
-    /** Get the scene validator for pre-conversion checks */
-    UFUNCTION(BlueprintCallable, Category = "Rship|Validation")
-    URshipSceneValidator* GetSceneValidator();
-
-    /** Get the Niagara manager for VFX pulse bindings */
-    UFUNCTION(BlueprintCallable, Category = "Rship|Niagara")
-    URshipNiagaraManager* GetNiagaraManager();
-
-    /** Get the sequencer sync for timeline integration */
-    UFUNCTION(BlueprintCallable, Category = "Rship|Sequencer")
-    URshipSequencerSync* GetSequencerSync();
-
-    /** Get the material binding manager for reactive materials */
-    UFUNCTION(BlueprintCallable, Category = "Rship|Materials")
-    URshipMaterialManager* GetMaterialManager();
-
-    /** Get the Substrate material manager for UE 5.5+ Substrate materials */
-    UFUNCTION(BlueprintCallable, Category = "Rship|Materials")
-    URshipSubstrateMaterialManager* GetSubstrateMaterialManager();
-
-    /** Get the DMX output for real-world fixture control */
-    UFUNCTION(BlueprintCallable, Category = "Rship|DMX")
-    URshipDMXOutput* GetDMXOutput();
-
-    /** Get the OSC bridge for external controller integration */
-    UFUNCTION(BlueprintCallable, Category = "Rship|OSC")
-    URshipOSCBridge* GetOSCBridge();
-
-    /** Get the Live Link service for streaming data */
-    UFUNCTION(BlueprintCallable, Category = "Rship|LiveLink")
-    URshipLiveLinkService* GetLiveLinkService();
-
-    /** Get the Audio manager for audio-reactive components */
-    UFUNCTION(BlueprintCallable, Category = "Rship|Audio")
-    URshipAudioManager* GetAudioManager();
-
-    /** Get the Recorder for pulse recording/playback */
-    UFUNCTION(BlueprintCallable, Category = "Rship|Recording")
-    URshipRecorder* GetRecorder();
-
-    /** Get the Control Rig manager for binding pulse data to Control Rigs */
-    UFUNCTION(BlueprintCallable, Category = "Rship|ControlRig")
-    URshipControlRigManager* GetControlRigManager();
-
-    /** Get the PCG manager for binding pulse data to PCG graphs.
-     *  Note: Returns nullptr if PCG plugin is not enabled.
-     *  Not exposed to Blueprint because UHT requires full UCLASS definition. */
-    URshipPCGManager* GetPCGManager();
-
     /** Get the Spatial Audio manager for loudspeaker management and spatialization.
      *  Note: Returns nullptr if RshipSpatialAudio plugin is not enabled.
      *  Not exposed to Blueprint because UHT requires full UCLASS definition. */
@@ -515,6 +344,10 @@ public:
     // Reset statistics (useful for testing)
     UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
     void ResetRateLimiterStats();
+
+    // Registration batching (for multi-target component registration)
+    void BeginRegistrationBatch();
+    void EndRegistrationBatch();
 
     // Legacy compatibility - direct send (use sparingly, bypasses queue)
     void SendJson(TSharedPtr<FJsonObject> Payload);

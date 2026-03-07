@@ -2,15 +2,12 @@
 
 #include "RshipExecEditor.h"
 #include "SRshipStatusPanel.h"
-#include "SRshipTimecodePanel.h"
-#include "SRshipLiveLinkPanel.h"
-#include "SRshipMaterialPanel.h"
-#include "SRshipAssetSyncPanel.h"
-#include "SRshipFixturePanel.h"
-#include "SRshipTestPanel.h"
 #include "SRshipNDIPanel.h"
 #include "RshipStatusPanelStyle.h"
 #include "RshipStatusPanelCommands.h"
+#include "RshipSubsystem.h"
+#include "RshipActorRegistrationComponent.h"
+#include "RshipTargetIdOutlinerColumn.h"
 
 #include "LevelEditor.h"
 #include "ToolMenus.h"
@@ -18,17 +15,22 @@
 #include "WorkspaceMenuStructureModule.h"
 #include "Widgets/Docking/SDockTab.h"
 #include "Framework/Docking/TabManager.h"
+#include "Engine/Engine.h"
+#include "Editor.h"
+#include "ScopedTransaction.h"
+#include "Engine/Selection.h"
+#include "GameFramework/Actor.h"
+#include "Components/ActorComponent.h"
+#include "ClassViewerModule.h"
+#include "Kismet2/SClassPickerDialog.h"
+#include "SceneOutlinerModule.h"
+#include "SceneOutlinerPublicTypes.h"
 
 #define LOCTEXT_NAMESPACE "FRshipExecEditorModule"
 
 static const FName RshipStatusPanelTabName("RshipStatusPanel");
-static const FName RshipTimecodePanelTabName("RshipTimecodePanel");
-static const FName RshipLiveLinkPanelTabName("RshipLiveLinkPanel");
-static const FName RshipMaterialPanelTabName("RshipMaterialPanel");
-static const FName RshipAssetSyncPanelTabName("RshipAssetSyncPanel");
-static const FName RshipFixturePanelTabName("RshipFixturePanel");
-static const FName RshipTestPanelTabName("RshipTestPanel");
 static const FName RshipNDIPanelTabName("RshipNDIPanel");
+static const FName RshipToolbarEntryName("RshipStatusToolbarButton");
 
 void FRshipExecEditorModule::StartupModule()
 {
@@ -39,20 +41,24 @@ void FRshipExecEditorModule::StartupModule()
     // Initialize commands
     FRshipStatusPanelCommands::Register();
 
+    FSceneOutlinerModule& SceneOutlinerModule = FModuleManager::LoadModuleChecked<FSceneOutlinerModule>("SceneOutliner");
+    SceneOutlinerModule.RegisterDefaultColumnType<FRshipTargetIdOutlinerColumn>(
+        FSceneOutlinerColumnInfo(ESceneOutlinerColumnVisibility::Invisible, 12, FCreateSceneOutlinerColumn(), true, TOptional<float>(), TAttribute<FText>(LOCTEXT("RshipTargetIdColumnDisplayName", "Rship Target ID"))));
+
     PluginCommands = MakeShareable(new FUICommandList);
 
     // Register panels
     RegisterStatusPanel();
-    RegisterTimecodePanel();
-    RegisterLiveLinkPanel();
-    RegisterMaterialPanel();
-    RegisterAssetSyncPanel();
-    RegisterFixturePanel();
-    RegisterTestPanel();
     RegisterNDIPanel();
 
     // Register menus after ToolMenus is ready
     UToolMenus::RegisterStartupCallback(FSimpleMulticastDelegate::FDelegate::CreateRaw(this, &FRshipExecEditorModule::RegisterMenus));
+
+    bLastToolbarConnectedState = false;
+    ToolbarStatusTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
+        FTickerDelegate::CreateRaw(this, &FRshipExecEditorModule::OnToolbarStatusTick),
+        0.25f
+    );
 }
 
 void FRshipExecEditorModule::ShutdownModule()
@@ -60,16 +66,22 @@ void FRshipExecEditorModule::ShutdownModule()
     UToolMenus::UnRegisterStartupCallback(this);
     UToolMenus::UnregisterOwner(this);
 
+    if (ToolbarStatusTickerHandle.IsValid())
+    {
+        FTSTicker::GetCoreTicker().RemoveTicker(ToolbarStatusTickerHandle);
+        ToolbarStatusTickerHandle.Reset();
+    }
+
+    if (FModuleManager::Get().IsModuleLoaded("SceneOutliner"))
+    {
+        FSceneOutlinerModule& SceneOutlinerModule = FModuleManager::GetModuleChecked<FSceneOutlinerModule>("SceneOutliner");
+        SceneOutlinerModule.UnRegisterColumnType<FRshipTargetIdOutlinerColumn>();
+    }
+
     FRshipStatusPanelCommands::Unregister();
     FRshipStatusPanelStyle::Shutdown();
 
     UnregisterStatusPanel();
-    UnregisterTimecodePanel();
-    UnregisterLiveLinkPanel();
-    UnregisterMaterialPanel();
-    UnregisterAssetSyncPanel();
-    UnregisterFixturePanel();
-    UnregisterTestPanel();
     UnregisterNDIPanel();
 }
 
@@ -91,150 +103,6 @@ void FRshipExecEditorModule::RegisterStatusPanel()
 void FRshipExecEditorModule::UnregisterStatusPanel()
 {
     FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(RshipStatusPanelTabName);
-}
-
-void FRshipExecEditorModule::RegisterTimecodePanel()
-{
-    FGlobalTabmanager::Get()->RegisterNomadTabSpawner(RshipTimecodePanelTabName,
-        FOnSpawnTab::CreateRaw(this, &FRshipExecEditorModule::SpawnTimecodePanelTab))
-        .SetDisplayName(LOCTEXT("RshipTimecodePanelTabTitle", "Rship Timecode"))
-        .SetTooltipText(LOCTEXT("RshipTimecodePanelTooltip", "Open Rocketship Timecode Panel"))
-        .SetGroup(WorkspaceMenu::GetMenuStructure().GetLevelEditorCategory())
-        .SetIcon(FSlateIcon(FRshipStatusPanelStyle::GetStyleSetName(), "Rship.StatusPanel.TabIcon"));
-}
-
-void FRshipExecEditorModule::UnregisterTimecodePanel()
-{
-    FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(RshipTimecodePanelTabName);
-}
-
-TSharedRef<SDockTab> FRshipExecEditorModule::SpawnTimecodePanelTab(const FSpawnTabArgs& Args)
-{
-    return SNew(SDockTab)
-        .TabRole(ETabRole::NomadTab)
-        [
-            SNew(SRshipTimecodePanel)
-        ];
-}
-
-void FRshipExecEditorModule::RegisterLiveLinkPanel()
-{
-    FGlobalTabmanager::Get()->RegisterNomadTabSpawner(RshipLiveLinkPanelTabName,
-        FOnSpawnTab::CreateRaw(this, &FRshipExecEditorModule::SpawnLiveLinkPanelTab))
-        .SetDisplayName(LOCTEXT("RshipLiveLinkPanelTabTitle", "Rship LiveLink"))
-        .SetTooltipText(LOCTEXT("RshipLiveLinkPanelTooltip", "Open Rocketship LiveLink Panel"))
-        .SetGroup(WorkspaceMenu::GetMenuStructure().GetLevelEditorCategory())
-        .SetIcon(FSlateIcon(FRshipStatusPanelStyle::GetStyleSetName(), "Rship.StatusPanel.TabIcon"));
-}
-
-void FRshipExecEditorModule::UnregisterLiveLinkPanel()
-{
-    FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(RshipLiveLinkPanelTabName);
-}
-
-TSharedRef<SDockTab> FRshipExecEditorModule::SpawnLiveLinkPanelTab(const FSpawnTabArgs& Args)
-{
-    return SNew(SDockTab)
-        .TabRole(ETabRole::NomadTab)
-        [
-            SNew(SRshipLiveLinkPanel)
-        ];
-}
-
-void FRshipExecEditorModule::RegisterMaterialPanel()
-{
-    FGlobalTabmanager::Get()->RegisterNomadTabSpawner(RshipMaterialPanelTabName,
-        FOnSpawnTab::CreateRaw(this, &FRshipExecEditorModule::SpawnMaterialPanelTab))
-        .SetDisplayName(LOCTEXT("RshipMaterialPanelTabTitle", "Rship Materials"))
-        .SetTooltipText(LOCTEXT("RshipMaterialPanelTooltip", "Open Rocketship Material Binding Panel"))
-        .SetGroup(WorkspaceMenu::GetMenuStructure().GetLevelEditorCategory())
-        .SetIcon(FSlateIcon(FRshipStatusPanelStyle::GetStyleSetName(), "Rship.StatusPanel.TabIcon"));
-}
-
-void FRshipExecEditorModule::UnregisterMaterialPanel()
-{
-    FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(RshipMaterialPanelTabName);
-}
-
-TSharedRef<SDockTab> FRshipExecEditorModule::SpawnMaterialPanelTab(const FSpawnTabArgs& Args)
-{
-    return SNew(SDockTab)
-        .TabRole(ETabRole::NomadTab)
-        [
-            SNew(SRshipMaterialPanel)
-        ];
-}
-
-void FRshipExecEditorModule::RegisterAssetSyncPanel()
-{
-    FGlobalTabmanager::Get()->RegisterNomadTabSpawner(RshipAssetSyncPanelTabName,
-        FOnSpawnTab::CreateRaw(this, &FRshipExecEditorModule::SpawnAssetSyncPanelTab))
-        .SetDisplayName(LOCTEXT("RshipAssetSyncPanelTabTitle", "Rship Assets"))
-        .SetTooltipText(LOCTEXT("RshipAssetSyncPanelTooltip", "Open Rocketship Asset Sync Panel"))
-        .SetGroup(WorkspaceMenu::GetMenuStructure().GetLevelEditorCategory())
-        .SetIcon(FSlateIcon(FRshipStatusPanelStyle::GetStyleSetName(), "Rship.StatusPanel.TabIcon"));
-}
-
-void FRshipExecEditorModule::UnregisterAssetSyncPanel()
-{
-    FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(RshipAssetSyncPanelTabName);
-}
-
-TSharedRef<SDockTab> FRshipExecEditorModule::SpawnAssetSyncPanelTab(const FSpawnTabArgs& Args)
-{
-    return SNew(SDockTab)
-        .TabRole(ETabRole::NomadTab)
-        [
-            SNew(SRshipAssetSyncPanel)
-        ];
-}
-
-void FRshipExecEditorModule::RegisterFixturePanel()
-{
-    FGlobalTabmanager::Get()->RegisterNomadTabSpawner(RshipFixturePanelTabName,
-        FOnSpawnTab::CreateRaw(this, &FRshipExecEditorModule::SpawnFixturePanelTab))
-        .SetDisplayName(LOCTEXT("RshipFixturePanelTabTitle", "Rship Fixtures"))
-        .SetTooltipText(LOCTEXT("RshipFixturePanelTooltip", "Open Rocketship Fixture Library Panel"))
-        .SetGroup(WorkspaceMenu::GetMenuStructure().GetLevelEditorCategory())
-        .SetIcon(FSlateIcon(FRshipStatusPanelStyle::GetStyleSetName(), "Rship.StatusPanel.TabIcon"));
-}
-
-void FRshipExecEditorModule::UnregisterFixturePanel()
-{
-    FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(RshipFixturePanelTabName);
-}
-
-TSharedRef<SDockTab> FRshipExecEditorModule::SpawnFixturePanelTab(const FSpawnTabArgs& Args)
-{
-    return SNew(SDockTab)
-        .TabRole(ETabRole::NomadTab)
-        [
-            SNew(SRshipFixturePanel)
-        ];
-}
-
-void FRshipExecEditorModule::RegisterTestPanel()
-{
-    FGlobalTabmanager::Get()->RegisterNomadTabSpawner(RshipTestPanelTabName,
-        FOnSpawnTab::CreateRaw(this, &FRshipExecEditorModule::SpawnTestPanelTab))
-        .SetDisplayName(LOCTEXT("RshipTestPanelTabTitle", "Rship Testing"))
-        .SetTooltipText(LOCTEXT("RshipTestPanelTooltip", "Open Rocketship Testing & Validation Panel"))
-        .SetGroup(WorkspaceMenu::GetMenuStructure().GetLevelEditorCategory())
-        .SetIcon(FSlateIcon(FRshipStatusPanelStyle::GetStyleSetName(), "Rship.StatusPanel.TabIcon"));
-}
-
-void FRshipExecEditorModule::UnregisterTestPanel()
-{
-    FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(RshipTestPanelTabName);
-}
-
-TSharedRef<SDockTab> FRshipExecEditorModule::SpawnTestPanelTab(const FSpawnTabArgs& Args)
-{
-    return SNew(SDockTab)
-        .TabRole(ETabRole::NomadTab)
-        [
-            SNew(SRshipTestPanel)
-        ];
 }
 
 void FRshipExecEditorModule::RegisterNDIPanel()
@@ -270,6 +138,54 @@ TSharedRef<SDockTab> FRshipExecEditorModule::SpawnStatusPanelTab(const FSpawnTab
         ];
 }
 
+void FRshipExecEditorModule::UpdateToolbarStatusIcon(bool bConnected)
+{
+    UToolMenus* ToolMenus = UToolMenus::Get();
+    if (!ToolMenus)
+    {
+        return;
+    }
+
+    UToolMenu* ToolbarMenu = ToolMenus->ExtendMenu("LevelEditor.LevelEditorToolBar.PlayToolBar");
+    if (!ToolbarMenu)
+    {
+        return;
+    }
+
+    FToolMenuSection* Section = ToolbarMenu->FindSection("PluginTools");
+    if (!Section)
+    {
+        return;
+    }
+
+    FToolMenuEntry* Entry = Section->FindEntry(RshipToolbarEntryName);
+    if (!Entry)
+    {
+        return;
+    }
+
+    Entry->Icon = FSlateIcon(
+        FRshipStatusPanelStyle::GetStyleSetName(),
+        bConnected ? "Rship.StatusPanel.ToolbarIcon.Connected" : "Rship.StatusPanel.ToolbarIcon.Disconnected"
+    );
+
+    ToolMenus->RefreshAllWidgets();
+}
+
+bool FRshipExecEditorModule::OnToolbarStatusTick(float DeltaTime)
+{
+    URshipSubsystem* Subsystem = GEngine ? GEngine->GetEngineSubsystem<URshipSubsystem>() : nullptr;
+    const bool bConnected = Subsystem && Subsystem->IsConnected();
+
+    if (bConnected != bLastToolbarConnectedState)
+    {
+        bLastToolbarConnectedState = bConnected;
+        UpdateToolbarStatusIcon(bConnected);
+    }
+
+    return true;
+}
+
 void FRshipExecEditorModule::RegisterMenus()
 {
     // Owner will be used for cleanup in call to UToolMenus::UnregisterOwner
@@ -297,9 +213,10 @@ void FRshipExecEditorModule::RegisterMenus()
             FRshipStatusPanelCommands::Get().OpenStatusPanel,
             LOCTEXT("RshipToolbarButton", "Rship"),
             LOCTEXT("RshipToolbarTooltip", "Open Rocketship Status Panel"),
-            FSlateIcon(FRshipStatusPanelStyle::GetStyleSetName(), "Rship.StatusPanel.ToolbarIcon")
+            FSlateIcon(FRshipStatusPanelStyle::GetStyleSetName(), "Rship.StatusPanel.ToolbarIcon.Disconnected")
         ));
         Entry.SetCommandList(PluginCommands);
+        Entry.Name = RshipToolbarEntryName;
     }
 
     // Bind the command
@@ -310,8 +227,266 @@ void FRshipExecEditorModule::RegisterMenus()
             FGlobalTabmanager::Get()->TryInvokeTab(RshipStatusPanelTabName);
         }),
         FCanExecuteAction());
+
+    RegisterActorContextMenu();
+}
+
+void FRshipExecEditorModule::RegisterActorContextMenu()
+{
+    UToolMenu* Menu = UToolMenus::Get()->ExtendMenu("LevelEditor.ActorContextMenu");
+    if (!Menu)
+    {
+        return;
+    }
+
+    FToolMenuSection& Section = Menu->FindOrAddSection("RSHIP");
+    Section.Label = LOCTEXT("RshipActorContextSectionLabel", "RSHIP");
+
+    Section.AddMenuEntry(
+        "RshipAddRegistrationComponent",
+        LOCTEXT("RshipAddRegistrationComponentLabel", "Add Rship Actor Registration Component"),
+        LOCTEXT("RshipAddRegistrationComponentTooltip", "Add RshipActorRegistrationComponent to all selected actors."),
+        FSlateIcon(),
+        FUIAction(
+            FExecuteAction::CreateRaw(this, &FRshipExecEditorModule::AddRshipRegistrationToSelectedActors),
+            FCanExecuteAction::CreateRaw(this, &FRshipExecEditorModule::CanAddRshipRegistrationToSelectedActors))
+    );
+
+    Section.AddMenuEntry(
+        "RshipAddComponentByClass",
+        LOCTEXT("RshipAddComponentByClassLabel", "Add Component..."),
+        LOCTEXT("RshipAddComponentByClassTooltip", "Search for a component class and add it to all selected actors."),
+        FSlateIcon(),
+        FUIAction(
+            FExecuteAction::CreateRaw(this, &FRshipExecEditorModule::AddComponentClassToSelectedActors),
+            FCanExecuteAction::CreateRaw(this, &FRshipExecEditorModule::CanAddComponentClassToSelectedActors))
+    );
+
+    Section.AddMenuEntry(
+        "RshipRemoveComponentByClass",
+        LOCTEXT("RshipRemoveComponentByClassLabel", "Remove Component..."),
+        LOCTEXT("RshipRemoveComponentByClassTooltip", "Search for a component class and remove it from all selected actors."),
+        FSlateIcon(),
+        FUIAction(
+            FExecuteAction::CreateRaw(this, &FRshipExecEditorModule::RemoveComponentClassFromSelectedActors),
+            FCanExecuteAction::CreateRaw(this, &FRshipExecEditorModule::CanRemoveComponentClassFromSelectedActors))
+    );
+}
+
+void FRshipExecEditorModule::AddRshipRegistrationToSelectedActors()
+{
+    AddComponentToSelectedActors(URshipActorRegistrationComponent::StaticClass(), true);
+}
+
+bool FRshipExecEditorModule::CanAddRshipRegistrationToSelectedActors() const
+{
+    return HasEligibleSelectedActors(URshipActorRegistrationComponent::StaticClass(), true);
+}
+
+void FRshipExecEditorModule::AddComponentClassToSelectedActors()
+{
+    FClassViewerInitializationOptions Options;
+    Options.Mode = EClassViewerMode::ClassPicker;
+    Options.DisplayMode = EClassViewerDisplayMode::TreeView;
+    Options.bShowObjectRootClass = false;
+    Options.bShowNoneOption = false;
+    Options.NameTypeToDisplay = EClassViewerNameTypeToDisplay::Dynamic;
+
+    UClass* PickedClass = nullptr;
+    const bool bPicked = SClassPickerDialog::PickClass(
+        LOCTEXT("RshipPickComponentClassTitle", "Pick Component Class"),
+        Options,
+        PickedClass,
+        UActorComponent::StaticClass());
+
+    if (!bPicked || !PickedClass || !PickedClass->IsChildOf(UActorComponent::StaticClass()))
+    {
+        return;
+    }
+
+    AddComponentToSelectedActors(PickedClass, true);
+}
+
+bool FRshipExecEditorModule::CanAddComponentClassToSelectedActors() const
+{
+    return HasEligibleSelectedActors(UActorComponent::StaticClass(), false);
+}
+
+void FRshipExecEditorModule::RemoveComponentClassFromSelectedActors()
+{
+    FClassViewerInitializationOptions Options;
+    Options.Mode = EClassViewerMode::ClassPicker;
+    Options.DisplayMode = EClassViewerDisplayMode::TreeView;
+    Options.bShowObjectRootClass = false;
+    Options.bShowNoneOption = false;
+    Options.NameTypeToDisplay = EClassViewerNameTypeToDisplay::Dynamic;
+
+    UClass* PickedClass = nullptr;
+    const bool bPicked = SClassPickerDialog::PickClass(
+        LOCTEXT("RshipPickComponentClassToRemoveTitle", "Pick Component Class To Remove"),
+        Options,
+        PickedClass,
+        UActorComponent::StaticClass());
+
+    if (!bPicked || !PickedClass || !PickedClass->IsChildOf(UActorComponent::StaticClass()))
+    {
+        return;
+    }
+
+    RemoveComponentFromSelectedActors(PickedClass);
+}
+
+bool FRshipExecEditorModule::CanRemoveComponentClassFromSelectedActors() const
+{
+    return HasEligibleSelectedActors(UActorComponent::StaticClass(), false);
+}
+
+bool FRshipExecEditorModule::HasEligibleSelectedActors(TSubclassOf<UActorComponent> ComponentClass, bool bSkipIfAlreadyPresent) const
+{
+    if (!GEditor || !*ComponentClass)
+    {
+        return false;
+    }
+
+    USelection* Selection = GEditor->GetSelectedActors();
+    if (!Selection || Selection->Num() == 0)
+    {
+        return false;
+    }
+
+    for (FSelectionIterator It(*Selection); It; ++It)
+    {
+        AActor* Actor = Cast<AActor>(*It);
+        if (!IsValid(Actor) || Actor->IsTemplate())
+        {
+            continue;
+        }
+        if (bSkipIfAlreadyPresent && Actor->FindComponentByClass(ComponentClass))
+        {
+            continue;
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
+int32 FRshipExecEditorModule::AddComponentToSelectedActors(TSubclassOf<UActorComponent> ComponentClass, bool bSkipIfAlreadyPresent) const
+{
+    if (!HasEligibleSelectedActors(ComponentClass, bSkipIfAlreadyPresent) || !GEditor)
+    {
+        return 0;
+    }
+
+    USelection* Selection = GEditor->GetSelectedActors();
+    if (!Selection)
+    {
+        return 0;
+    }
+
+    const FScopedTransaction Transaction(LOCTEXT("AddComponentToSelectedActorsTx", "Add Component to Selected Actors"));
+    int32 AddedCount = 0;
+
+    for (FSelectionIterator It(*Selection); It; ++It)
+    {
+        AActor* Actor = Cast<AActor>(*It);
+        if (!IsValid(Actor) || Actor->IsTemplate())
+        {
+            continue;
+        }
+
+        if (bSkipIfAlreadyPresent && Actor->FindComponentByClass(ComponentClass))
+        {
+            continue;
+        }
+
+        Actor->Modify();
+
+        UActorComponent* NewComponent = NewObject<UActorComponent>(Actor, ComponentClass, NAME_None, RF_Transactional);
+        if (!NewComponent)
+        {
+            continue;
+        }
+
+        Actor->AddInstanceComponent(NewComponent);
+        NewComponent->OnComponentCreated();
+        NewComponent->RegisterComponent();
+        Actor->RerunConstructionScripts();
+        Actor->MarkPackageDirty();
+        ++AddedCount;
+    }
+
+    if (AddedCount > 0)
+    {
+        GEditor->NoteSelectionChange();
+        GEditor->RedrawLevelEditingViewports();
+    }
+
+    return AddedCount;
+}
+
+int32 FRshipExecEditorModule::RemoveComponentFromSelectedActors(TSubclassOf<UActorComponent> ComponentClass) const
+{
+    if (!GEditor || !*ComponentClass)
+    {
+        return 0;
+    }
+
+    USelection* Selection = GEditor->GetSelectedActors();
+    if (!Selection || Selection->Num() == 0)
+    {
+        return 0;
+    }
+
+    const FScopedTransaction Transaction(LOCTEXT("RemoveComponentFromSelectedActorsTx", "Remove Component from Selected Actors"));
+    int32 RemovedCount = 0;
+
+    for (FSelectionIterator It(*Selection); It; ++It)
+    {
+        AActor* Actor = Cast<AActor>(*It);
+        if (!IsValid(Actor) || Actor->IsTemplate())
+        {
+            continue;
+        }
+
+        TArray<UActorComponent*> ComponentsToRemove;
+        Actor->GetComponents(ComponentClass, ComponentsToRemove);
+        if (ComponentsToRemove.Num() == 0)
+        {
+            continue;
+        }
+
+        Actor->Modify();
+
+        for (UActorComponent* Component : ComponentsToRemove)
+        {
+            if (!IsValid(Component))
+            {
+                continue;
+            }
+
+            Component->Modify();
+            Actor->RemoveInstanceComponent(Component);
+            Component->DestroyComponent();
+            ++RemovedCount;
+        }
+
+        Actor->MarkPackageDirty();
+    }
+
+    if (RemovedCount > 0)
+    {
+        GEditor->NoteSelectionChange();
+        GEditor->RedrawLevelEditingViewports();
+    }
+
+    return RemovedCount;
 }
 
 #undef LOCTEXT_NAMESPACE
 
 IMPLEMENT_MODULE(FRshipExecEditorModule, RshipExecEditor)
+
+
+
