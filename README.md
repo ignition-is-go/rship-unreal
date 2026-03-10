@@ -1,6 +1,6 @@
-# Rship-Unreal
+# pulse-unreal
 
-Unreal Engine integration for [Rocketship](https://rocketship.io) - a reactive control platform for live entertainment, broadcast, and immersive experiences.
+Pulse ecosystem utility plugins and Unreal Engine integration for [Rocketship](https://rocketship.io) - a reactive control platform for live entertainment, broadcast, and immersive experiences.
 
 ## Plugins
 

@@ -1,0 +1,25 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0.0",
+	"FriendlyName": "RT Light Color",
+	"Description": "Reads a render target and applies pixel colors to rect lights each frame.",
+	"Category": "Rocketship",
+	"CreatedBy": "Lucid",
+	"CreatedByURL": "https://lucid.rocks",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"CanContainContent": false,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": false,
+	"Installed": true,
+	"EnabledByDefault": true,
+	"Modules": [
+		{
+			"Name": "RTLightColor",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	]
+}
