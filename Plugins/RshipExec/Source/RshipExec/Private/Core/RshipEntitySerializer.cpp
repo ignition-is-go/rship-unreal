@@ -25,16 +25,38 @@ TSharedPtr<FJsonObject> FRshipEntitySerializer::ToJson(const FRshipMachineRecord
 
 TSharedPtr<FJsonObject> FRshipEntitySerializer::ToJson(const FRshipInstanceRecord& Record)
 {
+	auto SetNullableString = [](TSharedPtr<FJsonObject>& Json, const TCHAR* Key, const FString& Value)
+	{
+		const FString FieldName(Key);
+		if (Value.IsEmpty())
+		{
+			Json->SetField(FieldName, MakeShared<FJsonValueNull>());
+		}
+		else
+		{
+			Json->SetStringField(FieldName, Value);
+		}
+	};
+
 	TSharedPtr<FJsonObject> Json = MakeShared<FJsonObject>();
-	Json->SetStringField(TEXT("clientId"), Record.ClientId);
+	SetNullableString(Json, TEXT("clientId"), Record.ClientId);
 	Json->SetStringField(TEXT("name"), Record.Name);
 	Json->SetStringField(TEXT("id"), Record.Id);
-	Json->SetStringField(TEXT("clusterId"), Record.ClusterId);
+	SetNullableString(Json, TEXT("clusterId"), Record.ClusterId);
 	Json->SetStringField(TEXT("serviceTypeCode"), Record.ServiceTypeCode);
 	Json->SetStringField(TEXT("serviceId"), Record.ServiceId);
 	Json->SetStringField(TEXT("machineId"), Record.MachineId);
+	SetNullableString(Json, TEXT("message"), Record.Message);
 	Json->SetStringField(TEXT("status"), Record.Status);
 	Json->SetStringField(TEXT("color"), Record.Color);
+	if (Record.RenderDomain.IsValid())
+	{
+		Json->SetObjectField(TEXT("renderDomain"), Record.RenderDomain);
+	}
+	else
+	{
+		Json->SetField(TEXT("renderDomain"), MakeShared<FJsonValueNull>());
+	}
 	Json->SetStringField(TEXT("hash"), Record.Hash);
 	return Json;
 }

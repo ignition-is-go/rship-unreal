@@ -14,10 +14,17 @@
 #include "Subsystems/SubsystemCollection.h"
 #include "Algo/Sort.h"
 #include "GameFramework/Actor.h"
+#include "Components/PrimitiveComponent.h"
+#include "Components/SceneComponent.h"
+#include "Camera/CameraComponent.h"
 #include "UObject/FieldPath.h"
 #include "Misc/StructBuilder.h"
+#include "Misc/Parse.h"
+#include "Misc/CommandLine.h"
 #include "UObject/UnrealTypePrivate.h"
+#include "HAL/IConsoleManager.h"
 #include "TimerManager.h"
+#include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "Core/Target.h"
 #include "Core/RshipEntityRecords.h"
@@ -32,10 +39,53 @@
 #include "Editor.h"
 #endif
 
+#if RSHIP_HAS_DISPLAY_CLUSTER
+#include "IDisplayCluster.h"
+#include "DisplayClusterRootActor.h"
+#include "Cluster/IDisplayClusterClusterManager.h"
+#include "Config/IDisplayClusterConfigManager.h"
+#include "DisplayClusterConfigurationTypes.h"
+#include "DisplayClusterConfigurationTypes_Viewport.h"
+#endif
+
 using namespace std;
 
 namespace
 {
+constexpr float ProjectionBoundsPadding = 25.0f;
+constexpr float DefaultHalfFovDegrees = 45.0f;
+constexpr float MaxFrustumDistance = 10000000.0f;
+
+static TAutoConsoleVariable<float> CVarRshipNDisplayVisibilityBufferCm(
+    TEXT("r.Rship.NDisplay.VisibilityBufferCm"),
+    150.0f,
+    TEXT("Extra world-space buffer (cm) added around per-node nDisplay visibility domains.")
+);
+
+static TAutoConsoleVariable<float> CVarRshipNDisplayVisibilityEvalIntervalSeconds(
+    TEXT("r.Rship.NDisplay.VisibilityEvalIntervalSeconds"),
+    0.2f,
+    TEXT("How often (seconds) to evaluate per-node nDisplay target visibility.")
+);
+
+static TAutoConsoleVariable<float> CVarRshipNDisplayRenderDomainRefreshIntervalSeconds(
+    TEXT("r.Rship.NDisplay.RenderDomainRefreshIntervalSeconds"),
+    1.0f,
+    TEXT("How often (seconds) to rebuild cached nDisplay render domains from config.")
+);
+
+static TAutoConsoleVariable<float> CVarRshipNDisplayRenderDomainPublishIntervalSeconds(
+    TEXT("r.Rship.NDisplay.RenderDomainPublishIntervalSeconds"),
+    0.25f,
+    TEXT("How often (seconds) to publish this instance's render volumes to Rship.")
+);
+
+static TAutoConsoleVariable<int32> CVarRshipNDisplayOfflineMissThreshold(
+    TEXT("r.Rship.NDisplay.OfflineMissThreshold"),
+    3,
+    TEXT("Consecutive invisible evaluations required before sending TargetStatus=offline.")
+);
+
 FString GetActorDisplayName(const AActor* Actor)
 {
 	if (!Actor)
@@ -49,6 +99,171 @@ FString GetActorDisplayName(const AActor* Actor)
 	return Actor->GetName();
 #endif
 }
+
+#if RSHIP_HAS_DISPLAY_CLUSTER
+UWorld* FindRuntimeWorld()
+{
+	if (!GEngine)
+	{
+		return nullptr;
+	}
+
+	for (const FWorldContext& WorldContext : GEngine->GetWorldContexts())
+	{
+		UWorld* World = WorldContext.World();
+		if (!World)
+		{
+			continue;
+		}
+
+		if (World->WorldType == EWorldType::Game || World->WorldType == EWorldType::PIE)
+		{
+			return World;
+		}
+	}
+
+	return nullptr;
+}
+
+FString ExtractCommandLineValueBestEffort(const FString& Cmd, const FString& Key)
+{
+	auto ExtractAfter = [&Cmd](const FString& Marker) -> FString
+	{
+		const int32 Start = Cmd.Find(Marker, ESearchCase::IgnoreCase, ESearchDir::FromStart);
+		if (Start == INDEX_NONE)
+		{
+			return FString();
+		}
+
+		int32 ValueStart = Start + Marker.Len();
+		while (ValueStart < Cmd.Len() && FChar::IsWhitespace(Cmd[ValueStart]))
+		{
+			++ValueStart;
+		}
+		if (ValueStart >= Cmd.Len())
+		{
+			return FString();
+		}
+
+		const bool bQuoted = Cmd[ValueStart] == TEXT('"');
+		if (bQuoted)
+		{
+			++ValueStart;
+		}
+
+		int32 ValueEnd = ValueStart;
+		while (ValueEnd < Cmd.Len())
+		{
+			const TCHAR C = Cmd[ValueEnd];
+			if (bQuoted)
+			{
+				if (C == TEXT('"'))
+				{
+					break;
+				}
+			}
+			else if (FChar::IsWhitespace(C))
+			{
+				break;
+			}
+			++ValueEnd;
+		}
+
+		return Cmd.Mid(ValueStart, ValueEnd - ValueStart).TrimStartAndEnd();
+	};
+
+	FString Value = ExtractAfter(FString::Printf(TEXT("-%s="), *Key));
+	if (Value.IsEmpty())
+	{
+		Value = ExtractAfter(FString::Printf(TEXT("-%s "), *Key));
+	}
+	if (Value.IsEmpty())
+	{
+		Value = ExtractAfter(FString::Printf(TEXT("%s="), *Key));
+	}
+	if (Value.IsEmpty())
+	{
+		Value = ExtractAfter(FString::Printf(TEXT("%s "), *Key));
+	}
+
+	return Value;
+}
+
+FString ResolveDisplayClusterNodeIdBestEffort()
+{
+	FString NodeId;
+
+	if (IDisplayCluster::IsAvailable())
+	{
+		IDisplayCluster& DisplayCluster = IDisplayCluster::Get();
+		if (IDisplayClusterClusterManager* ClusterManager = DisplayCluster.GetClusterMgr())
+		{
+			NodeId = ClusterManager->GetNodeId();
+		}
+
+		if (NodeId.IsEmpty())
+		{
+			if (IDisplayClusterConfigManager* ConfigManager = DisplayCluster.GetConfigMgr())
+			{
+				NodeId = ConfigManager->GetLocalNodeId();
+			}
+		}
+	}
+
+	// nDisplay launcher commonly passes -dc_node=<NodeId>.
+	if (NodeId.IsEmpty())
+	{
+		FParse::Value(FCommandLine::Get(), TEXT("dc_node="), NodeId);
+		if (NodeId.IsEmpty())
+		{
+			FParse::Value(FCommandLine::Get(), TEXT("dc_node"), NodeId);
+		}
+
+		if (NodeId.IsEmpty())
+		{
+			NodeId = ExtractCommandLineValueBestEffort(FCommandLine::Get(), TEXT("dc_node"));
+		}
+	}
+
+	return NodeId;
+}
+
+bool IsDisplayClusterProcessBestEffort()
+{
+	const TCHAR* CmdLine = FCommandLine::Get();
+
+	if (FParse::Param(CmdLine, TEXT("dc_cluster")))
+	{
+		return true;
+	}
+
+	FString ParsedValue;
+	if (FParse::Value(CmdLine, TEXT("dc_node="), ParsedValue) && !ParsedValue.IsEmpty())
+	{
+		return true;
+	}
+	if (FParse::Value(CmdLine, TEXT("dc_cfg="), ParsedValue) && !ParsedValue.IsEmpty())
+	{
+		return true;
+	}
+	if (!ExtractCommandLineValueBestEffort(CmdLine, TEXT("dc_node")).IsEmpty())
+	{
+		return true;
+	}
+	if (!ExtractCommandLineValueBestEffort(CmdLine, TEXT("dc_cfg")).IsEmpty())
+	{
+		return true;
+	}
+
+	FString Cmd(CmdLine);
+	Cmd.ToLowerInline();
+	return Cmd.Contains(TEXT("-dc_cluster"))
+		|| Cmd.Contains(TEXT("-dc_cfg"))
+		|| Cmd.Contains(TEXT("-dc_node"))
+		|| Cmd.Contains(TEXT("displaycluster.displayclustergameengine"))
+		|| Cmd.Contains(TEXT("displaycluster.displayclusterviewportclient"));
+}
+#endif
 
 }
 
@@ -64,14 +279,24 @@ void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
     // Initialize rate limiter
     InitializeRateLimiter();
 
-    // Connect to server (if globally enabled)
-    if (bRemoteCommunicationEnabled)
+    bool bShouldAutoConnect = bRemoteCommunicationEnabled;
+#if WITH_EDITOR
+    if (GIsEditor && !IsDisplayClusterProcessBestEffort())
+    {
+        // Keep the editor process from registering as an instance when launching nDisplay nodes externally.
+        bShouldAutoConnect = false;
+        UE_LOG(LogRshipExec, Log, TEXT("Skipping auto-connect in editor process (no nDisplay launch flags)."));
+    }
+#endif
+
+    // Connect to server (if globally enabled and eligible in this process)
+    if (bShouldAutoConnect)
     {
         Reconnect();
     }
     else
     {
-        UE_LOG(LogRshipExec, Warning, TEXT("Remote communication is disabled; skipping initial connect"));
+        UE_LOG(LogRshipExec, Warning, TEXT("Skipping initial connect"));
     }
 
     this->TargetComponents = new TMultiMap<FString, URshipActorRegistrationComponent*>;
@@ -169,6 +394,17 @@ void URshipSubsystem::InitializeRateLimiter()
 
 void URshipSubsystem::Reconnect()
 {
+#if WITH_EDITOR
+    if (GIsEditor && !IsDisplayClusterProcessBestEffort())
+    {
+        UE_LOG(LogRshipExec, Log, TEXT("Reconnect blocked in editor process (no nDisplay launch flags)."));
+        ConnectionState = ERshipConnectionState::Disconnected;
+        return;
+    }
+#endif
+
+    const bool bIsDisplayClusterProcess = IsDisplayClusterProcessBestEffort();
+
     if (!bRemoteCommunicationEnabled)
     {
         UE_LOG(LogRshipExec, Log, TEXT("Reconnect skipped: remote communication is disabled"));
@@ -217,7 +453,70 @@ void URshipSubsystem::Reconnect()
     MachineId = FRshipMykoTransport::GetUniqueMachineId();
     ServiceId = FApp::GetProjectName();
 
-    InstanceId = MachineId + ":" + ServiceId;
+    FString InstanceNodeSuffix;
+#if RSHIP_HAS_DISPLAY_CLUSTER
+    InstanceNodeSuffix = ResolveDisplayClusterNodeIdBestEffort();
+#endif
+
+    if (bIsDisplayClusterProcess && InstanceNodeSuffix.IsEmpty())
+    {
+        UE_LOG(LogRshipExec, Warning, TEXT("nDisplay process detected but dc_node unresolved. CmdLine='%s'"), FCommandLine::Get());
+        ++DisplayClusterNodeResolveRetries;
+        if (DisplayClusterNodeResolveRetries <= 10)
+        {
+            UE_LOG(LogRshipExec, Warning,
+                TEXT("Reconnect deferred: running with -dc_cluster but node id not resolved yet (attempt %d)."),
+                DisplayClusterNodeResolveRetries);
+
+            if (ReconnectTickerHandle.IsValid())
+            {
+                FTSTicker::GetCoreTicker().RemoveTicker(ReconnectTickerHandle);
+                ReconnectTickerHandle.Reset();
+            }
+
+            ReconnectTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
+                FTickerDelegate::CreateUObject(this, &URshipSubsystem::OnReconnectTick),
+                0.5f
+            );
+            ConnectionState = ERshipConnectionState::Connecting;
+            return;
+        }
+
+        UE_LOG(LogRshipExec, Warning,
+            TEXT("Reconnect continuing without node id after %d attempts; instance id will omit node suffix."),
+            DisplayClusterNodeResolveRetries);
+
+        const uint32 ProcessId = FPlatformProcess::GetCurrentProcessId();
+        InstanceNodeSuffix = FString::Printf(TEXT("unknown-%u"), ProcessId);
+        UE_LOG(LogRshipExec, Warning, TEXT("Using fallback node suffix '%s' to avoid instance id collision."), *InstanceNodeSuffix);
+    }
+    else
+    {
+        DisplayClusterNodeResolveRetries = 0;
+    }
+
+    if (!InstanceNodeSuffix.IsEmpty())
+    {
+        InstanceId = MachineId + TEXT(":") + InstanceNodeSuffix + TEXT(":") + ServiceId;
+    }
+    else
+    {
+#if WITH_EDITOR
+        if (GIsEditor && !bIsDisplayClusterProcess)
+        {
+            const uint32 ProcessId = FPlatformProcess::GetCurrentProcessId();
+            InstanceId = MachineId + TEXT(":") + FString::Printf(TEXT("editor-%u"), ProcessId) + TEXT(":") + ServiceId;
+        }
+        else
+#endif
+        {
+        InstanceId = MachineId + TEXT(":") + ServiceId;
+        }
+    }
+    UE_LOG(LogRshipExec, Log, TEXT("Resolved instance identity: isDC=%s node='%s' instanceId='%s'"),
+        bIsDisplayClusterProcess ? TEXT("true") : TEXT("false"),
+        *InstanceNodeSuffix,
+        *InstanceId);
     ClusterId = ServiceId;
 
     const URshipSettings *Settings = GetDefault<URshipSettings>();
@@ -824,6 +1123,10 @@ void URshipSubsystem::TickSubsystems()
 
     // Fire OnRshipData once per target/component at end-of-frame for all successful Take() calls.
     FlushPendingOnDataReceived();
+
+#if RSHIP_HAS_DISPLAY_CLUSTER
+    UpdateManagedTargetVisibility();
+#endif
 
     // Process message queue every tick to ensure messages are sent
     ProcessMessageQueue();
@@ -1954,6 +2257,500 @@ void URshipSubsystem::SendTargetStatus(Target *target, bool online)
     UE_LOG(LogRshipExec, Log, TEXT("Sent target status: %s = %s"), *target->GetId(), online ? TEXT("online") : TEXT("offline"));
 }
 
+#if RSHIP_HAS_DISPLAY_CLUSTER
+void URshipSubsystem::RefreshRenderDomains()
+{
+    CachedRenderDomains.Reset();
+    CachedDisplayClusterNodeId.Reset();
+    CachedDisplayClusterRootActor.Reset();
+    bHasLocalDisplayClusterNodeConfig = false;
+
+    if (!IDisplayCluster::IsAvailable())
+    {
+        return;
+    }
+
+    IDisplayCluster& DisplayCluster = IDisplayCluster::Get();
+    IDisplayClusterClusterManager* ClusterManager = DisplayCluster.GetClusterMgr();
+    IDisplayClusterConfigManager* ConfigManager = DisplayCluster.GetConfigMgr();
+    if (!ClusterManager || !ConfigManager)
+    {
+        return;
+    }
+
+    FString LocalNodeId = ClusterManager->GetNodeId();
+    if (LocalNodeId.IsEmpty())
+    {
+        LocalNodeId = ConfigManager->GetLocalNodeId();
+    }
+#if RSHIP_HAS_DISPLAY_CLUSTER
+    if (LocalNodeId.IsEmpty())
+    {
+        LocalNodeId = ResolveDisplayClusterNodeIdBestEffort();
+    }
+#endif
+    if (LocalNodeId.IsEmpty())
+    {
+        return;
+    }
+
+    UDisplayClusterConfigurationData* ConfigData = ConfigManager->GetConfig();
+    if (!ConfigData)
+    {
+        return;
+    }
+
+    ADisplayClusterRootActor* RootActor = nullptr;
+    if (UWorld* RuntimeWorld = FindRuntimeWorld())
+    {
+        for (TActorIterator<ADisplayClusterRootActor> It(RuntimeWorld); It; ++It)
+        {
+            RootActor = *It;
+            if (RootActor && RootActor->IsPrimaryRootActor())
+            {
+                break;
+            }
+        }
+    }
+
+    UDisplayClusterConfigurationClusterNode* ClusterNode = ConfigData->GetNode(LocalNodeId);
+    if (!ClusterNode)
+    {
+        return;
+    }
+    bHasLocalDisplayClusterNodeConfig = true;
+
+    USceneComponent* FallbackViewPoint = nullptr;
+    if (RootActor)
+    {
+        FallbackViewPoint = RootActor->GetCommonViewPoint();
+        if (!FallbackViewPoint)
+        {
+            FallbackViewPoint = RootActor->GetRootComponent();
+        }
+    }
+
+    for (const TPair<FString, TObjectPtr<UDisplayClusterConfigurationViewport>>& Pair : ClusterNode->Viewports)
+    {
+        const FString& ViewportId = Pair.Key;
+        const UDisplayClusterConfigurationViewport* Viewport = Pair.Value.Get();
+        if (!Viewport || !Viewport->bAllowRendering)
+        {
+            continue;
+        }
+
+        const FString ProjectionType = Viewport->ProjectionPolicy.Type.ToLower();
+        const TMap<FString, FString>& Params = Viewport->ProjectionPolicy.Parameters;
+
+        FString ProjectionComponentName;
+        if (ProjectionType == TEXT("mesh"))
+        {
+            ProjectionComponentName = Params.FindRef(TEXT("mesh_component"));
+        }
+        else if (ProjectionType == TEXT("simple"))
+        {
+            ProjectionComponentName = Params.FindRef(TEXT("screen"));
+        }
+        else if (ProjectionType == TEXT("mpcdi"))
+        {
+            ProjectionComponentName = Params.FindRef(TEXT("screen_component"));
+        }
+
+        UPrimitiveComponent* ProjectionComponent = nullptr;
+        if (RootActor && !ProjectionComponentName.IsEmpty())
+        {
+            ProjectionComponent = RootActor->GetComponentByName<UPrimitiveComponent>(ProjectionComponentName);
+        }
+
+        USceneComponent* ViewPoint = FallbackViewPoint;
+        if (RootActor && !Viewport->Camera.IsEmpty())
+        {
+            if (USceneComponent* CameraComponent = RootActor->GetComponentByName<USceneComponent>(Viewport->Camera))
+            {
+                ViewPoint = CameraComponent;
+            }
+        }
+
+        FDisplayClusterRenderDomain Domain;
+        Domain.ViewportId = ViewportId;
+        Domain.ProjectionType = ProjectionType;
+        Domain.ProjectionComponent = ProjectionComponent;
+        Domain.ViewPointComponent = ViewPoint;
+        CachedRenderDomains.Add(MoveTemp(Domain));
+    }
+
+    CachedDisplayClusterNodeId = LocalNodeId;
+    CachedDisplayClusterRootActor = RootActor;
+}
+
+void URshipSubsystem::PublishRenderDomains()
+{
+    if (!bHasLocalDisplayClusterNodeConfig || CachedDisplayClusterNodeId.IsEmpty())
+    {
+        return;
+    }
+
+    const double NowSeconds = FPlatformTime::Seconds();
+    const double PublishIntervalSeconds = FMath::Max(0.05, static_cast<double>(CVarRshipNDisplayRenderDomainPublishIntervalSeconds.GetValueOnGameThread()));
+    if ((NowSeconds - LastRenderDomainPublishTimeSeconds) < PublishIntervalSeconds)
+    {
+        return;
+    }
+    LastRenderDomainPublishTimeSeconds = NowSeconds;
+
+    const URshipSettings* Settings = GetDefault<URshipSettings>();
+    FColor SRGBColor = Settings->ServiceColor.ToFColor(true);
+    const FString ColorHex = FString::Printf(TEXT("#%02X%02X%02X"), SRGBColor.R, SRGBColor.G, SRGBColor.B);
+
+    FRshipInstanceRecord InstanceRecord;
+    InstanceRecord.ClientId = ClientId;
+    InstanceRecord.Name = ServiceId;
+    InstanceRecord.Id = InstanceId;
+    InstanceRecord.ClusterId = ClusterId;
+    InstanceRecord.ServiceTypeCode = TEXT("unreal");
+    InstanceRecord.ServiceId = ServiceId;
+    InstanceRecord.MachineId = MachineId;
+    InstanceRecord.Status = TEXT("Available");
+    InstanceRecord.Color = ColorHex;
+    InstanceRecord.RenderDomain = BuildRenderDomainJson();
+    InstanceRecord.Hash = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower);
+
+    SetItem(TEXT("Instance"), FRshipEntitySerializer::ToJson(InstanceRecord), ERshipMessagePriority::High, TEXT("instance:") + InstanceId);
+}
+
+TSharedPtr<FJsonObject> URshipSubsystem::BuildRenderDomainJson() const
+{
+    if (!bHasLocalDisplayClusterNodeConfig)
+    {
+        return nullptr;
+    }
+
+    const double VisibilityBufferCm = static_cast<double>(FMath::Max(0.0f, CVarRshipNDisplayVisibilityBufferCm.GetValueOnGameThread()));
+
+    TArray<TSharedPtr<FJsonValue>> DomainsJson;
+    DomainsJson.Reserve(CachedRenderDomains.Num());
+
+    auto MakePoint = [](const FVector& V) -> TSharedPtr<FJsonObject>
+    {
+        TSharedPtr<FJsonObject> P = MakeShared<FJsonObject>();
+        P->SetNumberField(TEXT("x"), static_cast<double>(V.X));
+        P->SetNumberField(TEXT("y"), static_cast<double>(V.Y));
+        P->SetNumberField(TEXT("z"), static_cast<double>(V.Z));
+        return P;
+    };
+
+    for (const FDisplayClusterRenderDomain& Domain : CachedRenderDomains)
+    {
+        if (const UPrimitiveComponent* ProjectionComponent = Domain.ProjectionComponent.Get())
+        {
+            const FBoxSphereBounds B = ProjectionComponent->Bounds;
+            const FVector Min = (B.Origin - B.BoxExtent) - FVector(VisibilityBufferCm);
+            const FVector Max = (B.Origin + B.BoxExtent) + FVector(VisibilityBufferCm);
+
+            TSharedPtr<FJsonObject> Bounds = MakeShared<FJsonObject>();
+            Bounds->SetObjectField(TEXT("min"), MakePoint(Min));
+            Bounds->SetObjectField(TEXT("max"), MakePoint(Max));
+
+            TSharedPtr<FJsonObject> Aabb = MakeShared<FJsonObject>();
+            Aabb->SetStringField(TEXT("type"), TEXT("aabb"));
+            Aabb->SetObjectField(TEXT("bounds"), Bounds);
+            DomainsJson.Add(MakeShared<FJsonValueObject>(Aabb));
+        }
+
+        if (const USceneComponent* ViewPoint = Domain.ViewPointComponent.Get())
+        {
+            const FVector Origin = ViewPoint->GetComponentLocation();
+            const FVector Forward = ViewPoint->GetForwardVector().GetSafeNormal();
+            const FVector Up = ViewPoint->GetUpVector().GetSafeNormal();
+
+            float FarDistance = 50000.0f;
+            float FarWidth = 20000.0f + static_cast<float>(VisibilityBufferCm) * 2.0f;
+            float FarHeight = FarWidth;
+
+            if (const UPrimitiveComponent* ProjectionComponent = Domain.ProjectionComponent.Get())
+            {
+                const FBoxSphereBounds B = ProjectionComponent->Bounds;
+                const float Dist = (B.Origin - Origin).Size();
+                FarDistance = FMath::Max(1000.0f, Dist + B.SphereRadius + static_cast<float>(VisibilityBufferCm));
+                FarWidth = (B.BoxExtent.X + B.BoxExtent.Y) + static_cast<float>(VisibilityBufferCm) * 2.0f;
+                FarHeight = (B.BoxExtent.Z * 2.0f) + static_cast<float>(VisibilityBufferCm) * 2.0f;
+            }
+
+            TSharedPtr<FJsonObject> Frustum = MakeShared<FJsonObject>();
+            Frustum->SetObjectField(TEXT("origin"), MakePoint(Origin));
+            Frustum->SetObjectField(TEXT("forward"), MakePoint(Forward));
+            Frustum->SetObjectField(TEXT("up"), MakePoint(Up));
+            Frustum->SetNumberField(TEXT("nearDistance"), 10.0);
+            Frustum->SetNumberField(TEXT("farDistance"), static_cast<double>(FarDistance));
+            Frustum->SetNumberField(TEXT("nearWidth"), 20.0 + VisibilityBufferCm * 2.0);
+            Frustum->SetNumberField(TEXT("nearHeight"), 20.0 + VisibilityBufferCm * 2.0);
+            Frustum->SetNumberField(TEXT("farWidth"), static_cast<double>(FarWidth));
+            Frustum->SetNumberField(TEXT("farHeight"), static_cast<double>(FarHeight));
+
+            TSharedPtr<FJsonObject> FrustumDomain = MakeShared<FJsonObject>();
+            FrustumDomain->SetStringField(TEXT("type"), TEXT("frustum"));
+            FrustumDomain->SetObjectField(TEXT("frustum"), Frustum);
+            DomainsJson.Add(MakeShared<FJsonValueObject>(FrustumDomain));
+        }
+        else
+        {
+            // Config-only fallback when runtime viewpoint/component cannot be resolved.
+            TSharedPtr<FJsonObject> Frustum = MakeShared<FJsonObject>();
+            Frustum->SetObjectField(TEXT("origin"), MakePoint(FVector::ZeroVector));
+            Frustum->SetObjectField(TEXT("forward"), MakePoint(FVector::ForwardVector));
+            Frustum->SetObjectField(TEXT("up"), MakePoint(FVector::UpVector));
+            Frustum->SetNumberField(TEXT("nearDistance"), 10.0);
+            Frustum->SetNumberField(TEXT("farDistance"), 50000.0);
+            Frustum->SetNumberField(TEXT("nearWidth"), 20.0 + VisibilityBufferCm * 2.0);
+            Frustum->SetNumberField(TEXT("nearHeight"), 20.0 + VisibilityBufferCm * 2.0);
+            Frustum->SetNumberField(TEXT("farWidth"), 20000.0 + VisibilityBufferCm * 2.0);
+            Frustum->SetNumberField(TEXT("farHeight"), 20000.0 + VisibilityBufferCm * 2.0);
+
+            TSharedPtr<FJsonObject> FrustumDomain = MakeShared<FJsonObject>();
+            FrustumDomain->SetStringField(TEXT("type"), TEXT("frustum"));
+            FrustumDomain->SetObjectField(TEXT("frustum"), Frustum);
+            DomainsJson.Add(MakeShared<FJsonValueObject>(FrustumDomain));
+        }
+    }
+
+    if (DomainsJson.Num() == 0)
+    {
+        TSharedPtr<FJsonObject> Sphere = MakeShared<FJsonObject>();
+        Sphere->SetObjectField(TEXT("center"), MakePoint(FVector::ZeroVector));
+        Sphere->SetNumberField(TEXT("radius"), 1000000.0 + VisibilityBufferCm);
+
+        TSharedPtr<FJsonObject> SphereDomain = MakeShared<FJsonObject>();
+        SphereDomain->SetStringField(TEXT("type"), TEXT("sphere"));
+        SphereDomain->SetObjectField(TEXT("sphere"), Sphere);
+        return SphereDomain;
+    }
+
+    TSharedPtr<FJsonObject> AnyOf = MakeShared<FJsonObject>();
+    AnyOf->SetStringField(TEXT("type"), TEXT("anyOf"));
+    AnyOf->SetArrayField(TEXT("domains"), DomainsJson);
+    return AnyOf;
+}
+
+bool URshipSubsystem::IsActorInsideRenderDomain(const AActor* Actor, const FDisplayClusterRenderDomain& Domain) const
+{
+    if (!Actor)
+    {
+        return false;
+    }
+
+    const USceneComponent* RootComponent = Actor->GetRootComponent();
+    if (!RootComponent)
+    {
+        return true;
+    }
+
+    const FBoxSphereBounds ActorBounds = RootComponent->Bounds;
+    const FVector ActorCenter = ActorBounds.Origin;
+    const float VisibilityBufferCm = FMath::Max(0.0f, CVarRshipNDisplayVisibilityBufferCm.GetValueOnGameThread());
+    const float ActorRadius = FMath::Max(ActorBounds.SphereRadius, 1.0f) + VisibilityBufferCm;
+
+    const UPrimitiveComponent* ProjectionComponent = Domain.ProjectionComponent.Get();
+    const USceneComponent* ViewPoint = Domain.ViewPointComponent.Get();
+
+    if (ProjectionComponent)
+    {
+        const FBoxSphereBounds ProjectionBounds = ProjectionComponent->Bounds;
+        if (ProjectionBounds.SphereRadius > 1.0f)
+        {
+            FBox ExpandedProjectionBox = ProjectionBounds.GetBox();
+            ExpandedProjectionBox = ExpandedProjectionBox.ExpandBy(ProjectionBounds.SphereRadius * 0.1f + ProjectionBoundsPadding + VisibilityBufferCm);
+            if (ExpandedProjectionBox.Intersect(ActorBounds.GetBox()))
+            {
+                return true;
+            }
+
+            if (ViewPoint)
+            {
+                const FVector ViewLocation = ViewPoint->GetComponentLocation();
+                const FVector ToActor = ActorCenter - ViewLocation;
+                const FVector ToProjection = ProjectionBounds.Origin - ViewLocation;
+
+                const float ToActorLen = ToActor.Size();
+                const float ToProjectionLen = ToProjection.Size();
+                if (ToActorLen <= KINDA_SMALL_NUMBER || ToProjectionLen <= KINDA_SMALL_NUMBER)
+                {
+                    return true;
+                }
+
+                const float ForwardDot = FVector::DotProduct(ToActor, ToProjection);
+                if (ForwardDot <= 0.0f)
+                {
+                    return false;
+                }
+
+                const float ProjectionHalfAngle = FMath::Atan2(ProjectionBounds.SphereRadius + ProjectionBoundsPadding + VisibilityBufferCm, ToProjectionLen);
+                const float ActorHalfAngle = FMath::Atan2(ActorRadius, ToActorLen);
+                const float CosAngle = FVector::DotProduct(ToActor / ToActorLen, ToProjection / ToProjectionLen);
+                const float Angle = FMath::Acos(FMath::Clamp(CosAngle, -1.0f, 1.0f));
+
+                return Angle <= (ProjectionHalfAngle + ActorHalfAngle);
+            }
+
+            return false;
+        }
+    }
+
+    if (ViewPoint)
+    {
+        float HalfFovDegrees = DefaultHalfFovDegrees;
+        if (const UCameraComponent* CameraComponent = Cast<UCameraComponent>(ViewPoint))
+        {
+            HalfFovDegrees = FMath::Clamp(CameraComponent->FieldOfView * 0.5f, 5.0f, 89.0f);
+        }
+
+        const FVector ViewLocation = ViewPoint->GetComponentLocation();
+        const FVector Forward = ViewPoint->GetForwardVector().GetSafeNormal();
+        const FVector ToActor = ActorCenter - ViewLocation;
+        const float DistanceToActor = ToActor.Size();
+        if (DistanceToActor <= KINDA_SMALL_NUMBER)
+        {
+            return true;
+        }
+
+        if (DistanceToActor > MaxFrustumDistance)
+        {
+            return false;
+        }
+
+        const float CosAngle = FVector::DotProduct(Forward, ToActor / DistanceToActor);
+        const float AngleDegrees = FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(CosAngle, -1.0f, 1.0f)));
+        const float ActorAngularPadding = FMath::RadiansToDegrees(FMath::Atan2(ActorRadius, DistanceToActor));
+        return AngleDegrees <= (HalfFovDegrees + ActorAngularPadding);
+    }
+
+    return true;
+}
+
+bool URshipSubsystem::IsActorInsideAnyRenderDomain(const AActor* Actor) const
+{
+    if (CachedRenderDomains.Num() == 0)
+    {
+        return true;
+    }
+
+    for (const FDisplayClusterRenderDomain& Domain : CachedRenderDomains)
+    {
+        if (IsActorInsideRenderDomain(Actor, Domain))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void URshipSubsystem::UpdateManagedTargetVisibility()
+{
+    const double NowSeconds = FPlatformTime::Seconds();
+    const double EvalIntervalSeconds = FMath::Max(0.01, static_cast<double>(CVarRshipNDisplayVisibilityEvalIntervalSeconds.GetValueOnGameThread()));
+    if ((NowSeconds - LastTargetVisibilityEvalTimeSeconds) < EvalIntervalSeconds)
+    {
+        return;
+    }
+    LastTargetVisibilityEvalTimeSeconds = NowSeconds;
+
+    const double RefreshIntervalSeconds = FMath::Max(0.1, static_cast<double>(CVarRshipNDisplayRenderDomainRefreshIntervalSeconds.GetValueOnGameThread()));
+    if ((NowSeconds - LastRenderDomainRefreshTimeSeconds) >= RefreshIntervalSeconds)
+    {
+        RefreshRenderDomains();
+        LastRenderDomainRefreshTimeSeconds = NowSeconds;
+    }
+
+    PublishRenderDomains();
+
+    if (CachedRenderDomains.Num() == 0)
+    {
+        return;
+    }
+
+    TMap<FString, Target*> TargetRefById;
+    TMap<FString, bool> AnyVisibleById;
+    TSet<FString> CurrentTargetIds;
+
+    for (const TPair<Target*, FManagedTargetSnapshot>& Pair : ManagedTargetSnapshots)
+    {
+        Target* ManagedTarget = Pair.Key;
+        if (!ManagedTarget)
+        {
+            continue;
+        }
+
+        const FString TargetId = Pair.Value.Id.IsEmpty() ? ManagedTarget->GetId() : Pair.Value.Id;
+        if (TargetId.IsEmpty())
+        {
+            continue;
+        }
+
+        CurrentTargetIds.Add(TargetId);
+        TargetRefById.FindOrAdd(TargetId, ManagedTarget);
+
+        bool bTargetVisible = true;
+        URshipActorRegistrationComponent* BoundComponent = Pair.Value.BoundTargetComponent.Get();
+        if (Pair.Value.bBoundToComponent && IsValid(BoundComponent))
+        {
+            AActor* Owner = BoundComponent->GetOwner();
+            if (IsValid(Owner))
+            {
+                bTargetVisible = IsActorInsideAnyRenderDomain(Owner);
+            }
+        }
+
+        bool& bAnyVisible = AnyVisibleById.FindOrAdd(TargetId, false);
+        bAnyVisible = bAnyVisible || bTargetVisible;
+    }
+
+    for (const TPair<FString, bool>& Pair : AnyVisibleById)
+    {
+        const FString& TargetId = Pair.Key;
+        const bool bVisibleNow = Pair.Value;
+
+        int32& MissCount = TargetVisibilityMissCountById.FindOrAdd(TargetId, 0);
+        if (bVisibleNow)
+        {
+            MissCount = 0;
+        }
+        else
+        {
+            ++MissCount;
+        }
+
+        const int32 OfflineMissThreshold = FMath::Max(1, CVarRshipNDisplayOfflineMissThreshold.GetValueOnGameThread());
+        const bool bShouldBeOnline = bVisibleNow || (MissCount < OfflineMissThreshold);
+        bool& bCurrentOnline = TargetOnlineStateById.FindOrAdd(TargetId, true);
+
+        if (bCurrentOnline != bShouldBeOnline)
+        {
+            bCurrentOnline = bShouldBeOnline;
+            if (Target* const* TargetRef = TargetRefById.Find(TargetId))
+            {
+                SendTargetStatus(*TargetRef, bShouldBeOnline);
+            }
+        }
+    }
+
+    for (auto It = TargetOnlineStateById.CreateIterator(); It; ++It)
+    {
+        if (!CurrentTargetIds.Contains(It.Key()))
+        {
+            It.RemoveCurrent();
+        }
+    }
+
+    for (auto It = TargetVisibilityMissCountById.CreateIterator(); It; ++It)
+    {
+        if (!CurrentTargetIds.Contains(It.Key()))
+        {
+            It.RemoveCurrent();
+        }
+    }
+}
+#endif
+
 URshipSubsystem::FManagedTargetSnapshot URshipSubsystem::BuildManagedTargetSnapshot(Target* ManagedTarget) const
 {
     FManagedTargetSnapshot Snapshot;
@@ -2166,6 +2963,8 @@ void URshipSubsystem::UnregisterManagedTarget(Target* ManagedTarget)
 
         if (RemainingRefCount == 0)
         {
+            TargetOnlineStateById.Remove(TargetId);
+            TargetVisibilityMissCountById.Remove(TargetId);
             DeleteTarget(ManagedTarget);
             ProcessMessageQueue();
         }
@@ -2543,6 +3342,13 @@ void URshipSubsystem::SendInstanceInfo()
     UE_LOG(LogRshipExec, Log, TEXT("SendInstanceInfo: MachineId=%s, ServiceId=%s, InstanceId=%s, ClusterId=%s, ClientId=%s"),
         *MachineId, *ServiceId, *InstanceId, *ClusterId, *ClientId);
 
+#if RSHIP_HAS_DISPLAY_CLUSTER
+    if (CachedRenderDomains.Num() == 0)
+    {
+        RefreshRenderDomains();
+    }
+#endif
+
     // Send Machine - HIGH priority, coalesce
     FRshipMachineRecord MachineRecord;
     MachineRecord.Id = MachineId;
@@ -2567,6 +3373,9 @@ void URshipSubsystem::SendInstanceInfo()
     InstanceRecord.MachineId = MachineId;
     InstanceRecord.Status = TEXT("Available");
     InstanceRecord.Color = ColorHex;
+#if RSHIP_HAS_DISPLAY_CLUSTER
+    InstanceRecord.RenderDomain = BuildRenderDomainJson();
+#endif
     InstanceRecord.Hash = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower);
 
     SetItem("Instance", FRshipEntitySerializer::ToJson(InstanceRecord), ERshipMessagePriority::High, "instance:" + InstanceId);

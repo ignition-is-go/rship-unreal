@@ -23,6 +23,8 @@ struct FRshipInstanceRecord
 	FString MachineId;
 	FString Status;
 	FString Color;
+	FString Message;
+	TSharedPtr<FJsonObject> RenderDomain;
 	FString Hash;
 };
 

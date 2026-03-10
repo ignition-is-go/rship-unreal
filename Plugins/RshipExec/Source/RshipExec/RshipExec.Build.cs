@@ -166,6 +166,28 @@ public class RshipExec : ModuleRules
 			System.Console.WriteLine("RshipExec: RshipColorManagement plugin not found, color targets disabled");
 		}
 
+		// nDisplay / DisplayCluster support (optional)
+		string EngineRoot = Path.GetFullPath(Target.RelativeEnginePath ?? "");
+		string DisplayClusterPluginPath = Path.Combine(EngineRoot, "Plugins", "Runtime", "nDisplay");
+		bool bHasDisplayCluster = Directory.Exists(DisplayClusterPluginPath);
+		if (bHasDisplayCluster)
+		{
+			PrivateDependencyModuleNames.AddRange(
+				new string[]
+				{
+					"DisplayCluster",
+					"DisplayClusterConfiguration",
+				}
+			);
+			PublicDefinitions.Add("RSHIP_HAS_DISPLAY_CLUSTER=1");
+			System.Console.WriteLine("RshipExec: nDisplay plugin found, per-node target visibility enabled");
+		}
+		else
+		{
+			PublicDefinitions.Add("RSHIP_HAS_DISPLAY_CLUSTER=0");
+			System.Console.WriteLine("RshipExec: nDisplay plugin not found, per-node target visibility disabled");
+		}
+
 		PrivateDependencyModuleNames.AddRange(
 			new string[]
 			{
