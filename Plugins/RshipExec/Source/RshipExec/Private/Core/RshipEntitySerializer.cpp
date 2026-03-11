@@ -57,6 +57,10 @@ TSharedPtr<FJsonObject> FRshipEntitySerializer::ToJson(const FRshipInstanceRecor
 	{
 		Json->SetField(TEXT("renderDomain"), MakeShared<FJsonValueNull>());
 	}
+	if (Record.CoordinateSpace.IsValid())
+	{
+		Json->SetObjectField(TEXT("coordinateSpace"), Record.CoordinateSpace);
+	}
 	Json->SetStringField(TEXT("hash"), Record.Hash);
 	return Json;
 }

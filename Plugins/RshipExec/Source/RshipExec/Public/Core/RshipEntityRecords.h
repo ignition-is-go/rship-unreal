@@ -25,6 +25,7 @@ struct FRshipInstanceRecord
 	FString Color;
 	FString Message;
 	TSharedPtr<FJsonObject> RenderDomain;
+	TSharedPtr<FJsonObject> CoordinateSpace;
 	FString Hash;
 };
 

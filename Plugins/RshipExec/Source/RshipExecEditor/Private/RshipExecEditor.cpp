@@ -2,7 +2,6 @@
 
 #include "RshipExecEditor.h"
 #include "SRshipStatusPanel.h"
-#include "SRshipNDIPanel.h"
 #include "RshipStatusPanelStyle.h"
 #include "RshipStatusPanelCommands.h"
 #include "RshipSubsystem.h"
@@ -29,7 +28,6 @@
 #define LOCTEXT_NAMESPACE "FRshipExecEditorModule"
 
 static const FName RshipStatusPanelTabName("RshipStatusPanel");
-static const FName RshipNDIPanelTabName("RshipNDIPanel");
 static const FName RshipToolbarEntryName("RshipStatusToolbarButton");
 
 void FRshipExecEditorModule::StartupModule()
@@ -49,8 +47,6 @@ void FRshipExecEditorModule::StartupModule()
 
     // Register panels
     RegisterStatusPanel();
-    RegisterNDIPanel();
-
     // Register menus after ToolMenus is ready
     UToolMenus::RegisterStartupCallback(FSimpleMulticastDelegate::FDelegate::CreateRaw(this, &FRshipExecEditorModule::RegisterMenus));
 
@@ -82,7 +78,6 @@ void FRshipExecEditorModule::ShutdownModule()
     FRshipStatusPanelStyle::Shutdown();
 
     UnregisterStatusPanel();
-    UnregisterNDIPanel();
 }
 
 FRshipExecEditorModule& FRshipExecEditorModule::Get()
@@ -103,30 +98,6 @@ void FRshipExecEditorModule::RegisterStatusPanel()
 void FRshipExecEditorModule::UnregisterStatusPanel()
 {
     FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(RshipStatusPanelTabName);
-}
-
-void FRshipExecEditorModule::RegisterNDIPanel()
-{
-    FGlobalTabmanager::Get()->RegisterNomadTabSpawner(RshipNDIPanelTabName,
-        FOnSpawnTab::CreateRaw(this, &FRshipExecEditorModule::SpawnNDIPanelTab))
-        .SetDisplayName(LOCTEXT("RshipNDIPanelTabTitle", "Rship NDI"))
-        .SetTooltipText(LOCTEXT("RshipNDIPanelTooltip", "Open Rocketship NDI Streaming Panel"))
-        .SetGroup(WorkspaceMenu::GetMenuStructure().GetLevelEditorCategory())
-        .SetIcon(FSlateIcon(FRshipStatusPanelStyle::GetStyleSetName(), "Rship.StatusPanel.TabIcon"));
-}
-
-void FRshipExecEditorModule::UnregisterNDIPanel()
-{
-    FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(RshipNDIPanelTabName);
-}
-
-TSharedRef<SDockTab> FRshipExecEditorModule::SpawnNDIPanelTab(const FSpawnTabArgs& Args)
-{
-    return SNew(SDockTab)
-        .TabRole(ETabRole::NomadTab)
-        [
-            SNew(SRshipNDIPanel)
-        ];
 }
 
 TSharedRef<SDockTab> FRshipExecEditorModule::SpawnStatusPanelTab(const FSpawnTabArgs& Args)

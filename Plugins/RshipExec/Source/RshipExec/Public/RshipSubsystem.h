@@ -133,8 +133,6 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     TMap<Target*, FManagedTargetSnapshot> ManagedTargetSnapshots;
     TMultiMap<FString, Target*> RegisteredTargetsById;
     TMap<FString, TUniquePtr<Target>> AutomationOwnedTargets;
-    TMap<FString, bool> TargetOnlineStateById;
-    TMap<FString, int32> TargetVisibilityMissCountById;
 
 #if RSHIP_HAS_DISPLAY_CLUSTER
     struct FDisplayClusterRenderDomain
@@ -151,15 +149,13 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     TArray<FDisplayClusterRenderDomain> CachedRenderDomains;
     double LastRenderDomainRefreshTimeSeconds = 0.0;
     double LastRenderDomainPublishTimeSeconds = 0.0;
-    double LastTargetVisibilityEvalTimeSeconds = 0.0;
 
-    bool IsActorInsideAnyRenderDomain(const AActor* Actor) const;
-    bool IsActorInsideRenderDomain(const AActor* Actor, const FDisplayClusterRenderDomain& Domain) const;
     TSharedPtr<FJsonObject> BuildRenderDomainJson() const;
     void RefreshRenderDomains();
     void PublishRenderDomains();
-    void UpdateManagedTargetVisibility();
+    void UpdateRenderDomainMetadata();
 #endif
+    TSharedPtr<FJsonObject> BuildCoordinateSpaceJson() const;
 
     // Ticker callbacks (return true to keep ticking, false to stop)
     bool OnQueueProcessTick(float DeltaTime);
