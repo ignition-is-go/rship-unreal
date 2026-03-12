@@ -33,6 +33,7 @@
 		{ "Name": "RigVM", "Enabled": true },
 		{ "Name": "LiveLink", "Enabled": true },
 		{ "Name": "ProceduralMeshComponent", "Enabled": true },
+		{ "Name": "nDisplay", "Enabled": true, "Optional": true },
 		{ "Name": "RshipNDI", "Enabled": true, "Optional": true },
 		{ "Name": "RshipColorManagement", "Enabled": true, "Optional": true },
 		{ "Name": "StructUtils", "Enabled": true }

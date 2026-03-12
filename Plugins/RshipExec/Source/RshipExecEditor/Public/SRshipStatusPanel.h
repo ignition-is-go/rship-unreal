@@ -127,11 +127,6 @@ private:
         const TSharedPtr<FRshipActionEntryState>& Entry,
         TSet<FName>& UsedBagNames);
 
-#if RSHIP_EDITOR_HAS_2110
-    TSharedRef<SWidget> Build2110Section();
-    void Update2110Status();
-#endif
-
     // Data
     TArray<TSharedPtr<FRshipTargetListItem>> TargetItems;
     TArray<TSharedPtr<FRshipTargetListItem>> RootTargetItems;
@@ -159,15 +154,6 @@ private:
     TSharedPtr<STextBlock> ByteRateText;
     TSharedPtr<STextBlock> DroppedText;
     TSharedPtr<STextBlock> BackoffText;
-
-#if RSHIP_EDITOR_HAS_2110
-    // 2110 status text blocks
-    TSharedPtr<STextBlock> RivermaxStatusText;
-    TSharedPtr<STextBlock> PTPStatusText;
-    TSharedPtr<STextBlock> IPMXStatusText;
-    TSharedPtr<STextBlock> GPUDirectStatusText;
-    TSharedPtr<STextBlock> NetworkStatusText;
-#endif
 
     // Refresh timer
     float RefreshTimer = 0.0f;

@@ -2,6 +2,7 @@
 
 using UnrealBuildTool;
 using System.IO;
+using System.Text.RegularExpressions;
 
 public class RshipExec : ModuleRules
 {
@@ -164,6 +165,40 @@ public class RshipExec : ModuleRules
 		{
 			PublicDefinitions.Add("RSHIP_HAS_COLOR_MANAGEMENT=0");
 			System.Console.WriteLine("RshipExec: RshipColorManagement plugin not found, color targets disabled");
+		}
+
+		// nDisplay / DisplayCluster support (optional)
+		string EngineRoot = Path.GetFullPath(Target.RelativeEnginePath ?? "");
+		string DisplayClusterPluginPath = Path.Combine(EngineRoot, "Plugins", "Runtime", "nDisplay");
+		bool bHasDisplayClusterPlugin = Directory.Exists(DisplayClusterPluginPath);
+		bool bProjectEnablesDisplayCluster = false;
+
+		if (Target.ProjectFile != null && File.Exists(Target.ProjectFile.FullName))
+		{
+			string ProjectDescriptor = File.ReadAllText(Target.ProjectFile.FullName);
+			bProjectEnablesDisplayCluster = Regex.IsMatch(
+				ProjectDescriptor,
+				"\\{\\s*\"Name\"\\s*:\\s*\"nDisplay\"\\s*,\\s*\"Enabled\"\\s*:\\s*true",
+				RegexOptions.Singleline);
+		}
+
+		bool bHasDisplayCluster = bHasDisplayClusterPlugin && bProjectEnablesDisplayCluster;
+		if (bHasDisplayCluster)
+		{
+			PrivateDependencyModuleNames.AddRange(
+				new string[]
+				{
+					"DisplayCluster",
+					"DisplayClusterConfiguration",
+				}
+			);
+			PublicDefinitions.Add("RSHIP_HAS_DISPLAY_CLUSTER=1");
+			System.Console.WriteLine("RshipExec: nDisplay plugin enabled in project, instance render-domain integration enabled");
+		}
+		else
+		{
+			PublicDefinitions.Add("RSHIP_HAS_DISPLAY_CLUSTER=0");
+			System.Console.WriteLine("RshipExec: nDisplay plugin not enabled in project, instance render-domain integration disabled");
 		}
 
 		PrivateDependencyModuleNames.AddRange(

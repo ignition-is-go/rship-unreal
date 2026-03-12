@@ -12,6 +12,11 @@
 
 // Forward declaration for optional SpatialAudio plugin
 class URshipSpatialAudioManager;
+#if RSHIP_HAS_DISPLAY_CLUSTER
+class UPrimitiveComponent;
+class USceneComponent;
+class ADisplayClusterRootActor;
+#endif
 #include "Containers/List.h"
 #include "Containers/Ticker.h"
 #include "Core/Target.h"
@@ -90,7 +95,7 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     FString ServiceId;
     FString MachineId;
 
-    FString ClientId = "UNSET";
+    FString ClientId;
     FString ClusterId;
 
     // Rate limiter for outbound messages
@@ -103,6 +108,7 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     // Connection state management
     ERshipConnectionState ConnectionState;
     int32 ReconnectAttempts;
+    int32 DisplayClusterNodeResolveRetries = 0;
     FTSTicker::FDelegateHandle QueueProcessTickerHandle;
     FTSTicker::FDelegateHandle ReconnectTickerHandle;
     FTSTicker::FDelegateHandle SubsystemTickerHandle;
@@ -127,6 +133,29 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     TMap<Target*, FManagedTargetSnapshot> ManagedTargetSnapshots;
     TMultiMap<FString, Target*> RegisteredTargetsById;
     TMap<FString, TUniquePtr<Target>> AutomationOwnedTargets;
+
+#if RSHIP_HAS_DISPLAY_CLUSTER
+    struct FDisplayClusterRenderDomain
+    {
+        FString ViewportId;
+        FString ProjectionType;
+        TWeakObjectPtr<UPrimitiveComponent> ProjectionComponent;
+        TWeakObjectPtr<USceneComponent> ViewPointComponent;
+    };
+
+    TWeakObjectPtr<ADisplayClusterRootActor> CachedDisplayClusterRootActor;
+    FString CachedDisplayClusterNodeId;
+    bool bHasLocalDisplayClusterNodeConfig = false;
+    TArray<FDisplayClusterRenderDomain> CachedRenderDomains;
+    double LastRenderDomainRefreshTimeSeconds = 0.0;
+    double LastRenderDomainPublishTimeSeconds = 0.0;
+
+    TSharedPtr<FJsonObject> BuildRenderDomainJson() const;
+    void RefreshRenderDomains();
+    void PublishRenderDomains();
+    void UpdateRenderDomainMetadata();
+#endif
+    TSharedPtr<FJsonObject> BuildCoordinateSpaceJson() const;
 
     // Ticker callbacks (return true to keep ticking, false to stop)
     bool OnQueueProcessTick(float DeltaTime);
