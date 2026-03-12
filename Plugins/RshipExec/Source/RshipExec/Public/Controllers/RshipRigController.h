@@ -3,12 +3,15 @@
 #include "CoreMinimal.h"
 #include "HAL/CriticalSection.h"
 #include "Controllers/RshipControllerComponent.h"
+#include "Rigs/RigHierarchyElements.h"
 #include "RshipRigController.generated.h"
 
 class UControlRigComponent;
 class UControlRig;
 class URigHierarchy;
+class URigHierarchyController;
 class USkeletalMeshComponent;
+struct FRigUnit_RshipApplyPendingRigState;
 
 UENUM(BlueprintType)
 enum class ERshipRigTransformChoice : uint8
@@ -23,8 +26,9 @@ class RSHIPEXEC_API URshipRigBoneActionProxy : public UObject
 	GENERATED_BODY()
 
 public:
-	void Initialize(class URshipRigController* InController, const FName& InBoneName);
+	void Initialize(class URshipRigController* InController, const FName& InBoneName, ERigElementType InTargetType);
 	FName GetBoneName() const { return BoneName; }
+	ERigElementType GetTargetType() const { return TargetType; }
 
 	UFUNCTION()
 	void RotateInSocket(float X, float Y, float Z);
@@ -49,6 +53,8 @@ private:
 
 	UPROPERTY()
 	FName BoneName;
+
+	ERigElementType TargetType = ERigElementType::Bone;
 };
 
 UCLASS(ClassGroup = (Rship), meta = (BlueprintSpawnableComponent, DisplayName = "Rship Rig Controller"))
@@ -68,15 +74,15 @@ public:
 	UFUNCTION()
 	void ResetAllBonesToInitialWorld();
 
+	static URshipRigController* FindForControlRig(const UControlRig* InControlRig);
+	void ApplyPendingRigStateToHierarchy(URigHierarchy* Hierarchy);
+
 private:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 	virtual void OnBeforeRegisterRshipTargets() override;
 	void ConfigureControlRigComponent();
-	UFUNCTION()
-	void HandleControlRigComponentPreForwardsSolve(UControlRigComponent* InComponent);
-	void HandleControlRigPreForwardsSolve(UControlRig* InRig, const FName& InEventName);
 	virtual void RegisterOrRefreshTarget() override;
-	void RotateBoneInSocket(const FName& BoneName, const FRotator& Rotation);
+	void RotateElementInSocket(const FName& ElementName, ERigElementType ElementType, const FRotator& Rotation);
 	void AttachBoneToParent(const FName& BoneName, const FName& ParentBoneName,
 		ERshipRigTransformChoice ParentLocation,
 		ERshipRigTransformChoice ParentRotation,
@@ -89,7 +95,7 @@ private:
 	UControlRigComponent* ResolveControlRigComponent();
 	UControlRig* ResolveControlRig();
 	URigHierarchy* ResolveRigHierarchy();
-	void ApplyPendingRigState(float DeltaTime);
+	void LogElementDiagnostics(URigHierarchy* Hierarchy, const FName& ElementName);
 
 	struct FRshipRigAttachTarget
 	{
@@ -101,7 +107,7 @@ private:
 		};
 
 		EMode Mode = EMode::ParentRelative;
-		FName ParentBone;
+		FRigElementKey ParentElement;
 		FTransform LocalOffset = FTransform::Identity;
 		FTransform WorldTransform = FTransform::Identity;
 	};
@@ -134,9 +140,19 @@ private:
 	UPROPERTY(Transient)
 	TMap<FName, FQuat> BoneRotationOverrides;
 
+	UPROPERTY(Transient)
+	TMap<FName, FQuat> ControlRotationOverrides;
+
+	UPROPERTY(Transient)
+	TSet<FName> LoggedDiagnosticElements;
+
 	mutable FCriticalSection RigStateMutex;
 	TMap<FName, FRshipRigAttachState> BoneAttachStates;
 	float LastTickDeltaTime = 0.0f;
 
 	friend class URshipRigBoneActionProxy;
+	friend struct FRigUnit_RshipApplyPendingRigState;
+	void CopyPendingRigState(TMap<FName, FQuat>& OutBoneRotations, TMap<FName, FQuat>& OutControlRotations, TMap<FName, FRshipRigAttachState>& OutAttachStates, float& OutDeltaTime);
+	void CommitPendingAttachStates(const TMap<FName, FRshipRigAttachState>& UpdatedStates, const TArray<FName>& ChildrenToRemove, const TArray<FName>& ChildrenToPersist);
+
 };
