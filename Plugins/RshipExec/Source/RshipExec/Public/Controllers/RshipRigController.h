@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "HAL/CriticalSection.h"
 #include "Controllers/RshipControllerComponent.h"
 #include "RshipRigController.generated.h"
 
@@ -61,6 +62,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Rig")
 	TObjectPtr<UControlRigComponent> ControlRigComponent;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Rig")
+	TObjectPtr<UControlRig> ControlRig;
+
 	UFUNCTION()
 	void ResetAllBonesToInitialWorld();
 
@@ -68,6 +72,9 @@ private:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 	virtual void OnBeforeRegisterRshipTargets() override;
 	void ConfigureControlRigComponent();
+	UFUNCTION()
+	void HandleControlRigComponentPreForwardsSolve(UControlRigComponent* InComponent);
+	void HandleControlRigPreForwardsSolve(UControlRig* InRig, const FName& InEventName);
 	virtual void RegisterOrRefreshTarget() override;
 	void RotateBoneInSocket(const FName& BoneName, const FRotator& Rotation);
 	void AttachBoneToParent(const FName& BoneName, const FName& ParentBoneName,
@@ -82,7 +89,7 @@ private:
 	UControlRigComponent* ResolveControlRigComponent();
 	UControlRig* ResolveControlRig();
 	URigHierarchy* ResolveRigHierarchy();
-	void ApplyActiveAttachments(float DeltaTime);
+	void ApplyPendingRigState(float DeltaTime);
 
 	struct FRshipRigAttachTarget
 	{
@@ -124,7 +131,12 @@ private:
 	UPROPERTY(Transient)
 	bool bRigComponentConfigured = false;
 
+	UPROPERTY(Transient)
+	TMap<FName, FQuat> BoneRotationOverrides;
+
+	mutable FCriticalSection RigStateMutex;
 	TMap<FName, FRshipRigAttachState> BoneAttachStates;
+	float LastTickDeltaTime = 0.0f;
 
 	friend class URshipRigBoneActionProxy;
 };

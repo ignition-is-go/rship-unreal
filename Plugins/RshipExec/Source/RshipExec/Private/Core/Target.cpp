@@ -123,6 +123,8 @@ URshipSubsystem* Target::GetBoundSubsystem() const
 
 bool Target::TakeAction(AActor* actor, FString actionId, const TSharedRef<FJsonObject> data)
 {
+	UE_LOG(LogRshipExec, Log, TEXT("TakeAction target='%s' action='%s'"), *id, *actionId);
+
 	FRshipActionProxy* ActionPtr = actions.Find(actionId);
 	if (!ActionPtr)
 	{
