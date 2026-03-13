@@ -799,8 +799,7 @@ FString URshipPCGAutoBindComponent::GetPropertyValueAsJson(FName PropertyName) c
 	}
 
 	FString Result;
-	TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
-		TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&Result);
+	TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Result);
 	FJsonSerializer::Serialize(JsonValue.ToSharedRef(), TEXT(""), Writer);
 	return Result;
 }

@@ -458,6 +458,9 @@ bool URshipSceneValidator::FixNamingIssue(const FRshipValidationIssue& Issue)
     Actor->SetActorLabel(NewName);
 #endif
     return true;
+#else
+    return false;
+#endif
 }
 
 bool URshipSceneValidator::FixComponentIssue(const FRshipValidationIssue& Issue)

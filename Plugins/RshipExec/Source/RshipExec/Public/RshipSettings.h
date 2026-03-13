@@ -180,6 +180,68 @@ public:
     float RateAdjustmentInterval = 1.0f;
 
     // ============================================================================
+    // CONTENT MAPPING SETTINGS
+    // ============================================================================
+
+    UPROPERTY(EditAnywhere, config, Category = "Content Mapping", meta = (DisplayName = "Enable Content Mapping"))
+    bool bEnableContentMapping = true;
+
+    UPROPERTY(EditAnywhere, config, Category = "Content Mapping", meta = (DisplayName = "Asset Store URL"))
+    FString AssetStoreUrl = TEXT("http://localhost:3100");
+
+    UPROPERTY(EditAnywhere, config, Category = "Content Mapping", meta = (DisplayName = "Content Mapping Cache Path",
+        ToolTip = "Optional override for content mapping cache file location."))
+    FString ContentMappingCachePath;
+
+    UPROPERTY(EditAnywhere, config, Category = "Content Mapping", meta = (DisplayName = "Content Mapping Material Path",
+        ToolTip = "Optional override for the content mapping material instance asset path. Leave empty to use runtime defaults."))
+    FString ContentMappingMaterialPath;
+
+    UPROPERTY(EditAnywhere, config, Category = "Content Mapping", meta = (DisplayName = "Projection Material Path",
+        ToolTip = "Optional override for the base projection material/profile used by perspective, cylindrical, spherical, parallel, radial, mesh, fisheye and custom-matrix modes."))
+    FString ContentMappingProjectionMaterialPath;
+
+    UPROPERTY(EditAnywhere, config, Category = "Content Mapping", meta = (DisplayName = "Camera Plate Material Path",
+        ToolTip = "Optional override for camera-plate mode material/profile."))
+    FString ContentMappingCameraPlateMaterialPath;
+
+    UPROPERTY(EditAnywhere, config, Category = "Content Mapping", meta = (DisplayName = "Spatial Material Path",
+        ToolTip = "Optional override for spatial mode material/profile."))
+    FString ContentMappingSpatialMaterialPath;
+
+    UPROPERTY(EditAnywhere, config, Category = "Content Mapping", meta = (DisplayName = "Depth Map Material Path",
+        ToolTip = "Optional override for depth-map mode material/profile."))
+    FString ContentMappingDepthMapMaterialPath;
+
+    UPROPERTY(EditAnywhere, config, Category = "Content Mapping", meta = (DisplayName = "Spawn Debug Actors (Editor Only)"))
+    bool bSpawnContentMappingDebugActors = false;
+
+    // ============================================================================
+    // DISPLAY MANAGEMENT SETTINGS
+    // ============================================================================
+
+    UPROPERTY(EditAnywhere, config, Category = "Display Management", meta = (DisplayName = "Enable Display Management"))
+    bool bEnableDisplayManagement = true;
+
+    UPROPERTY(EditAnywhere, config, Category = "Display Management", meta = (DisplayName = "Collect Snapshot On Startup"))
+    bool bDisplayManagementCollectOnStartup = true;
+
+    UPROPERTY(EditAnywhere, config, Category = "Display Management", meta = (DisplayName = "Display Profile Path",
+        ToolTip = "Optional path to a JSON display profile loaded by the display manager at startup."))
+    FString DisplayManagementProfilePath;
+
+    UPROPERTY(EditAnywhere, config, Category = "Display Management", meta = (DisplayName = "Display State Cache Path",
+        ToolTip = "Optional path to persist canonical display identity state between runs."))
+    FString DisplayManagementStateCachePath;
+
+    UPROPERTY(EditAnywhere, config, Category = "Display Management", meta = (DisplayName = "Guarded Apply Mode",
+        ToolTip = "When enabled, apply operations run in guarded mode and avoid destructive topology mutations."))
+    bool bDisplayManagementGuardedApply = true;
+
+    UPROPERTY(EditAnywhere, config, Category = "Display Management", meta = (DisplayName = "Display Debug Overlay"))
+    bool bDisplayManagementDebugOverlay = false;
+
+    // ============================================================================
     // BACKOFF SETTINGS
     // Controls reconnection and rate-limit recovery behavior
     // ============================================================================
@@ -188,6 +250,11 @@ public:
         ClampMin = "0.1", ClampMax = "10.0",
         ToolTip = "Initial backoff time when a rate limit or connection error occurs."))
     float InitialBackoffSeconds = 1.0f;
+
+    UPROPERTY(EditAnywhere, config, Category = "Backoff", meta = (DisplayName = "Reconnect Jitter (%)",
+        ClampMin = "0.0", ClampMax = "100.0",
+        ToolTip = "Randomize reconnect delay by ±N%. Helps avoid reconnection thundering across fleet nodes."))
+    float ReconnectJitterPercent = 10.0f;
 
     UPROPERTY(EditAnywhere, config, Category = "Backoff", meta = (DisplayName = "Max Backoff (Seconds)",
         ClampMin = "1.0", ClampMax = "300.0",
@@ -248,6 +315,20 @@ public:
     // PROCESSING SETTINGS
     // Controls timing and threading behavior
     // ============================================================================
+
+    UPROPERTY(EditAnywhere, config, Category = "Processing", meta = (DisplayName = "Control Sync Rate (Hz)",
+        ClampMin = "1.0", ClampMax = "240.0",
+        ToolTip = "Deterministic control/apply tick rate shared across nodes. Keep this identical across the cluster."))
+    float ControlSyncRateHz = 60.0f;
+
+    UPROPERTY(EditAnywhere, config, Category = "Processing", meta = (DisplayName = "Inbound Apply Lead Frames",
+        ClampMin = "1", ClampMax = "16",
+        ToolTip = "Minimum sync-frame lead time before applying inbound payloads. Higher values improve jitter tolerance at the cost of control latency."))
+    int32 InboundApplyLeadFrames = 1;
+
+    UPROPERTY(EditAnywhere, config, Category = "Processing", meta = (DisplayName = "Inbound Require Exact Frame",
+        ToolTip = "When enabled, inbound payloads with explicit frame metadata are dropped if they arrive after their target frame. When disabled (legacy), payloads are clamped forward to the next frame when requested frame is behind."))
+    bool bInboundRequireExactFrame = false;
 
     UPROPERTY(EditAnywhere, config, Category = "Processing", meta = (DisplayName = "Queue Process Interval (Seconds)",
         ClampMin = "0.001", ClampMax = "1.0",

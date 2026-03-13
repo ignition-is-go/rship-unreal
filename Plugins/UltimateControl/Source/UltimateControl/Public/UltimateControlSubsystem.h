@@ -40,6 +40,7 @@
 #include "Handlers/UltimateControlLiveCodingHandler.h"
 #include "Handlers/UltimateControlSessionHandler.h"
 #include "Handlers/UltimateControlEditorHandler.h"
+#include "Handlers/UltimateControlAgentHandler.h"
 
 #include "UltimateControlSubsystem.generated.h"
 
@@ -175,6 +176,7 @@ private:
 	TUniquePtr<FUltimateControlLiveCodingHandler> LiveCodingHandler;
 	TUniquePtr<FUltimateControlSessionHandler> SessionHandler;
 	TUniquePtr<FUltimateControlEditorHandler> EditorHandler;
+	TUniquePtr<FUltimateControlAgentHandler> AgentHandler;
 
 	/** Pending confirmations for dangerous operations */
 	TMap<FString, TSharedPtr<FJsonObject>> PendingConfirmations;

@@ -1,0 +1,19 @@
+[package]
+name = "rship-display-ffi"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lib]
+name = "rship_display"
+crate-type = ["staticlib"]
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+rship-display-core = { path = "../rship-display-core" }
+rship-display-windows = { path = "../rship-display-windows" }
+
+[build-dependencies]
+cbindgen = "0.28"

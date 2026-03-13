@@ -18,6 +18,8 @@
 #include "UObject/NoExportTypes.h"
 #include "Rship2110Types.h"
 #include "Http.h"
+#include "Dom/JsonObject.h"
+#include "TimerManager.h"
 #include "RshipIPMXService.generated.h"
 
 class URship2110Subsystem;

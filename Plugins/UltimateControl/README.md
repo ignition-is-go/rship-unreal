@@ -34,7 +34,7 @@ UltimateControl exposes a local HTTP server that accepts JSON-RPC 2.0 requests, 
 - **Profiling**: Performance stats, memory usage, tracing
 - **Files**: Read/write project files with security restrictions
 
-**Extended Tools (27 handler categories, 350+ methods):**
+**Extended Tools (28 handler categories, 350+ methods):**
 - **Viewport/Camera**: Camera control, screenshots, view modes
 - **Transaction/Undo**: Undo/redo management and history
 - **Materials**: Material/shader parameters, instances
@@ -52,11 +52,32 @@ UltimateControl exposes a local HTTP server that accepts JSON-RPC 2.0 requests, 
 - **Source Control**: Check-out, check-in, sync, history
 - **Live Coding**: Hot reload, live compile
 - **Multi-User Sessions**: Concert/Multi-User editing
+- **Agent Orchestration**: Team-agent registration, leases, shared task queue, dashboard
 - **Editor UI**: Windows, tabs, modes, notifications
+
+## Product Reality Check
+
+The plugin now has two different collaboration layers:
+
+- **Concert/Multi-User (`session.*`)**: Integrates with Unreal Multi-User when that subsystem is available.
+- **Agent Orchestration (`agent.*`)**: Built-in, always-available team-agent control plane for AI workers:
+  - Agent lifecycle (`agent.register`, `agent.heartbeat`, `agent.list`, `agent.unregister`)
+  - Lease-based edit coordination (`agent.claimResource`, `agent.releaseResource`, `agent.listClaims`)
+  - Shared task queue (`agent.createTask`, `agent.assignTask`, `agent.takeTask`, `agent.updateTask`, `agent.listTasks`)
+  - Operational monitoring (`agent.getDashboard`)
+
+This gives agents a practical end-to-end workflow even when Multi-User server features are unavailable or partially configured.
+
+### Agent State Persistence
+
+Agent orchestration state persists across editor restarts:
+- File: `Saved/UltimateControl/AgentOrchestrationState.json`
+- Includes: agents, resource leases, task queue, task order
+- Auto-save: state mutations are persisted automatically (with short throttling for heartbeat-heavy traffic)
 
 ## Installation
 
-1. Copy the `UltimateControl` folder to your project's `Source/` directory
+1. Copy the `UltimateControl` folder to your project's `Plugins/` directory
 2. Add `UltimateControl` to your project's `.uproject` file:
 
 ```json
@@ -180,7 +201,7 @@ Get server and engine information.
 **Returns:**
 ```json
 {
-    "serverVersion": "1.0.0",
+    "serverVersion": "1.1.0",
     "engineVersion": "5.7.0",
     "platform": "Windows",
     "isRunning": true,
@@ -197,6 +218,50 @@ List all available methods with descriptions.
 
 #### `system.echo`
 Echo back parameters (for testing connectivity).
+
+#### `system.health`
+Readiness check for orchestration loops. Includes:
+- server running/auth status
+- registered method count
+- total request/error counters
+- batch + agent-orchestration capability flags
+
+### Agent Orchestration Methods
+
+#### `agent.register`
+Register or update an agent record.
+
+**Params:** `{ "agentId": "lighting-agent-1", "role": "lighting", "capabilities": ["light", "viewport"] }`
+
+#### `agent.heartbeat`
+Update agent liveliness, status, and current task.
+
+#### `agent.claimResource`
+Acquire a lease on a shared resource path to avoid edit conflicts.
+
+**Params:** `{ "agentId": "lighting-agent-1", "resourcePath": "/Game/Maps/MainMap", "leaseSeconds": 300 }`
+
+#### `agent.createTask`
+Create a task in the shared queue.
+
+**Params:** `{ "title": "Relight alley set", "priority": 25, "tags": ["lighting", "city_night"] }`
+
+#### `agent.takeTask`
+Worker pulls the next matching queued task.
+
+#### `agent.updateTask`
+Update task status/result/error.
+
+#### `agent.getDashboard`
+Get a full team view (online/offline agents, queue state, active claims).
+
+### Team Workflow (Recommended)
+
+1. **Coordinator** registers all agents and seeds the task queue.
+2. **Worker agent** sends heartbeat and calls `agent.takeTask`.
+3. Agent claims resource(s) before editing (`agent.claimResource`).
+4. Agent performs UE operations (`asset.*`, `actor.*`, `light.*`, etc.).
+5. Agent updates task status and releases claims.
 
 ### Project Methods
 
@@ -852,16 +917,16 @@ The plugin includes a bundled MCP (Model Context Protocol) server that enables A
 
 ### Building the MCP Server
 
-The MCP server is a Rust executable located in `Source/UltimateControl/MCP/`:
+The MCP server is a Rust executable located in `Plugins/UltimateControl/MCP/`:
 
 ```bash
-cd Source/UltimateControl/MCP
+cd Plugins/UltimateControl/MCP
 ./build.sh  # Builds and copies to Binaries/
 ```
 
 Or manually:
 ```bash
-cd Source/UltimateControl/MCP
+cd Plugins/UltimateControl/MCP
 cargo build --release
 ```
 
@@ -884,15 +949,11 @@ Add to your Claude Desktop configuration (`claude_desktop_config.json`):
 }
 ```
 
-### Alternative: Python MCP Server
+### MCP Notes for Team Agents
 
-A Python MCP server is also available in `ue5-mcp-bridge/`:
-
-```bash
-cd ue5-mcp-bridge
-pip install -e .
-UE5_MCP_TOKEN=your-token ue5-mcp
-```
+- Use `ue5_agent_*` tools for orchestration (agent registration, leases, task queue).
+- Use `ue5_system_health` for heartbeat/readiness loops.
+- Use `ue5_rpc_call` when you need a JSON-RPC method that is not yet wrapped as a named MCP tool.
 
 ### Architecture
 

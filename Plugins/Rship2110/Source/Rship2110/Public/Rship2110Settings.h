@@ -234,6 +234,23 @@ public:
         meta = (DisplayName = "Align Frames to PTP"))
     bool bAlignFramesToPTP = true;
 
+    /** Shared deterministic control/apply frame rate for cluster data/state */
+    UPROPERTY(EditAnywhere, config, Category = "Timing",
+        meta = (DisplayName = "Cluster Sync Rate (Hz)", ClampMin = "1.0", ClampMax = "240.0"))
+    float ClusterSyncRateHz = 60.0f;
+
+    /** Local output/render pacing multiplier relative to sync frames */
+    UPROPERTY(EditAnywhere, config, Category = "Timing",
+        meta = (DisplayName = "Local Render Substeps", ClampMin = "1", ClampMax = "8",
+        ToolTip = "Allows faster local output pacing while deterministic cluster apply still runs on the shared sync timeline."))
+    int32 LocalRenderSubsteps = 1;
+
+    /** Upper bound on deterministic sync-frame catch-up steps per engine tick */
+    UPROPERTY(EditAnywhere, config, Category = "Timing",
+        meta = (DisplayName = "Max Sync Catch-up Steps", ClampMin = "1", ClampMax = "16",
+        ToolTip = "Limits per-tick catch-up work when a node stalls, preventing long hitches."))
+    int32 MaxSyncCatchupSteps = 4;
+
     /** Maximum allowed frame latency in milliseconds before dropping */
     UPROPERTY(EditAnywhere, config, Category = "Timing",
         meta = (DisplayName = "Max Frame Latency (ms)", ClampMin = "1", ClampMax = "100"))

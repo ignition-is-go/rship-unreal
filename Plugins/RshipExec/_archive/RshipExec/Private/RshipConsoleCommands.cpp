@@ -12,9 +12,32 @@
 #include "RshipSequencerSync.h"
 #include "RshipMaterialBinding.h"
 #include "RshipDMXOutput.h"
+#include "RshipDisplayManager.h"
+#include "RshipSettings.h"
 #include "Logs.h"
 #include "HAL/IConsoleManager.h"
 #include "Engine/Engine.h"
+
+namespace
+{
+bool ParseBoolConsoleArg(const FString& Arg, bool& OutValue)
+{
+    const FString Lower = Arg.ToLower();
+    if (Lower == TEXT("1") || Lower == TEXT("true") || Lower == TEXT("on") || Lower == TEXT("yes") || Lower == TEXT("enabled"))
+    {
+        OutValue = true;
+        return true;
+    }
+
+    if (Lower == TEXT("0") || Lower == TEXT("false") || Lower == TEXT("off") || Lower == TEXT("no") || Lower == TEXT("disabled"))
+    {
+        OutValue = false;
+        return true;
+    }
+
+    return false;
+}
+}
 
 // ============================================================================
 // SCENE VALIDATION
@@ -262,6 +285,124 @@ static FAutoConsoleCommand CmdRshipStatus(
             Subsystem->IsRateLimiterBackingOff() ? TEXT("Yes") : TEXT("No"),
             Subsystem->GetBackoffRemaining());
         UE_LOG(LogRshipExec, Log, TEXT("Current rate limit: %.1f msg/s"), Subsystem->GetCurrentRateLimit());
+    })
+);
+
+static FAutoConsoleCommand CmdRshipSyncStatus(
+    TEXT("rship.sync"),
+    TEXT("Show deterministic control sync settings"),
+    FConsoleCommandDelegate::CreateLambda([]()
+    {
+        if (!GEngine) return;
+        URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+        if (!Subsystem)
+        {
+            UE_LOG(LogRshipExec, Warning, TEXT("RshipSubsystem not available"));
+            return;
+        }
+
+        UE_LOG(LogRshipExec, Log, TEXT("ControlSyncRateHz: %.2f"), Subsystem->GetControlSyncRateHz());
+        UE_LOG(LogRshipExec, Log, TEXT("InboundApplyLeadFrames: %d"), Subsystem->GetInboundApplyLeadFrames());
+        UE_LOG(LogRshipExec, Log, TEXT("InboundRequireExactFrame: %s"), Subsystem->IsInboundRequireExactFrame() ? TEXT("enabled") : TEXT("disabled"));
+        UE_LOG(LogRshipExec, Log, TEXT("ExactFrameDroppedInbound: %d"), Subsystem->GetInboundExactFrameDroppedMessages());
+    })
+);
+
+static FAutoConsoleCommand CmdRshipSyncStrict(
+    TEXT("rship.sync.strict"),
+    TEXT("Set exact-frame behavior for inbound payloads. Usage: rship.sync.strict <0|1|on|off|true|false>"),
+    FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+    {
+        if (!GEngine) return;
+        URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+        if (!Subsystem)
+        {
+            return;
+        }
+
+        if (Args.Num() < 1)
+        {
+            UE_LOG(LogRshipExec, Log, TEXT("Usage: rship.sync.strict <0|1|on|off|true|false>"));
+            UE_LOG(LogRshipExec, Log, TEXT("Current: %s"), Subsystem->IsInboundRequireExactFrame() ? TEXT("enabled") : TEXT("disabled"));
+            return;
+        }
+
+        bool bRequireExactFrame = false;
+        if (!ParseBoolConsoleArg(Args[0], bRequireExactFrame))
+        {
+            bRequireExactFrame = FCString::Atoi(*Args[0]) != 0;
+            if (!Args[0].IsNumeric() && !Args[0].Equals(TEXT("0"), ESearchCase::IgnoreCase)
+                && !Args[0].Equals(TEXT("-0"), ESearchCase::IgnoreCase))
+            {
+                UE_LOG(LogRshipExec, Warning, TEXT("Invalid value: %s"), *Args[0]);
+                UE_LOG(LogRshipExec, Log, TEXT("Use 0/1, on/off, true/false, yes/no, enabled/disabled."));
+                return;
+            }
+        }
+
+        Subsystem->SetInboundRequireExactFrame(bRequireExactFrame);
+        if (IConsoleVariable* ExactFrameCVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.Rship.Inbound.RequireExactFrame")))
+        {
+            ExactFrameCVar->Set(bRequireExactFrame ? 1 : 0);
+        }
+
+        UE_LOG(LogRshipExec, Log, TEXT("Inbound exact-frame mode %s"), bRequireExactFrame ? TEXT("enabled") : TEXT("disabled"));
+    })
+);
+
+static FAutoConsoleCommand CmdRshipSyncRate(
+    TEXT("rship.sync.rate"),
+    TEXT("Set deterministic control sync rate in Hz - Usage: rship.sync.rate <hz>"),
+    FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+    {
+        if (!GEngine) return;
+        URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+        if (!Subsystem)
+        {
+            return;
+        }
+
+        if (Args.Num() < 1)
+        {
+            UE_LOG(LogRshipExec, Log, TEXT("Usage: rship.sync.rate <hz>"));
+            return;
+        }
+
+        const float Hz = FCString::Atof(*Args[0]);
+        Subsystem->SetControlSyncRateHz(Hz);
+        if (IConsoleVariable* ControlSyncCVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.Rship.ControlSyncRateHz")))
+        {
+            ControlSyncCVar->Set(Subsystem->GetControlSyncRateHz());
+        }
+        UE_LOG(LogRshipExec, Log, TEXT("Control sync rate set to %.2f Hz"), Subsystem->GetControlSyncRateHz());
+    })
+);
+
+static FAutoConsoleCommand CmdRshipSyncLead(
+    TEXT("rship.sync.lead"),
+    TEXT("Set inbound apply lead frames - Usage: rship.sync.lead <frames>"),
+    FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+    {
+        if (!GEngine) return;
+        URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+        if (!Subsystem)
+        {
+            return;
+        }
+
+        if (Args.Num() < 1)
+        {
+            UE_LOG(LogRshipExec, Log, TEXT("Usage: rship.sync.lead <frames>"));
+            return;
+        }
+
+        const int32 LeadFrames = FCString::Atoi(*Args[0]);
+        Subsystem->SetInboundApplyLeadFrames(LeadFrames);
+        if (IConsoleVariable* InboundLeadCVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.Rship.Inbound.ApplyLeadFrames")))
+        {
+            InboundLeadCVar->Set(Subsystem->GetInboundApplyLeadFrames());
+        }
+        UE_LOG(LogRshipExec, Log, TEXT("Inbound apply lead frames set to %d"), Subsystem->GetInboundApplyLeadFrames());
     })
 );
 
@@ -630,6 +771,238 @@ static FAutoConsoleCommand CmdRshipDMXAutoMap(
 );
 
 // ============================================================================
+// CONTENT MAPPING
+// ============================================================================
+
+static FAutoConsoleCommand CmdRshipContentMappingDebug(
+    TEXT("rship.contentmapping.debug"),
+    TEXT("Toggle content mapping debug overlay"),
+    FConsoleCommandDelegate::CreateLambda([]()
+    {
+        if (!GEngine) return;
+        URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+        if (!Subsystem) return;
+
+        if (!Subsystem->GetContentMappingManager())
+        {
+            UE_LOG(LogRshipExec, Warning, TEXT("ContentMappingManager not available"));
+            return;
+        }
+
+        const bool bEnabled = !Subsystem->IsContentMappingDebugOverlayEnabled();
+        Subsystem->SetContentMappingDebugOverlayEnabled(bEnabled);
+        UE_LOG(LogRshipExec, Log, TEXT("Content mapping debug overlay: %s"), bEnabled ? TEXT("ON") : TEXT("OFF"));
+    })
+);
+
+// ============================================================================
+// DISPLAY MANAGEMENT
+// ============================================================================
+
+static FAutoConsoleCommand CmdRshipDisplaySnapshot(
+    TEXT("rship.display.snapshot"),
+    TEXT("Collect a display snapshot via Rust display runtime"),
+    FConsoleCommandDelegate::CreateLambda([]()
+    {
+        if (!GEngine) return;
+        URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+        if (!Subsystem) return;
+
+        URshipDisplayManager* Manager = Subsystem->GetDisplayManager();
+        if (!Manager)
+        {
+            UE_LOG(LogRshipExec, Warning, TEXT("DisplayManager not available"));
+            return;
+        }
+
+        const bool bOk = Manager->CollectSnapshot();
+        if (!bOk)
+        {
+            UE_LOG(LogRshipExec, Warning, TEXT("Display snapshot failed: %s"), *Manager->GetLastError());
+            return;
+        }
+
+        UE_LOG(LogRshipExec, Log, TEXT("Display snapshot updated (%d chars)"), Manager->GetLastSnapshotJson().Len());
+    })
+);
+
+static FAutoConsoleCommand CmdRshipDisplayPlan(
+    TEXT("rship.display.plan"),
+    TEXT("Generate display apply plan from active profile"),
+    FConsoleCommandDelegate::CreateLambda([]()
+    {
+        if (!GEngine) return;
+        URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+        if (!Subsystem) return;
+
+        URshipDisplayManager* Manager = Subsystem->GetDisplayManager();
+        if (!Manager)
+        {
+            UE_LOG(LogRshipExec, Warning, TEXT("DisplayManager not available"));
+            return;
+        }
+
+        const FString ProfileJson = Manager->GetActiveProfileJson();
+        if (ProfileJson.IsEmpty())
+        {
+            UE_LOG(LogRshipExec, Warning, TEXT("No active display profile. Set one with /display-management/system:setProfileJson."));
+            return;
+        }
+
+        const bool bOk = Manager->PlanProfileJson(ProfileJson);
+        if (!bOk)
+        {
+            UE_LOG(LogRshipExec, Warning, TEXT("Display plan failed: %s"), *Manager->GetLastError());
+            return;
+        }
+
+        UE_LOG(LogRshipExec, Log, TEXT("Display plan updated (%d chars)"), Manager->GetLastPlanJson().Len());
+    })
+);
+
+static FAutoConsoleCommand CmdRshipDisplayLedger(
+    TEXT("rship.display.ledger"),
+    TEXT("Show latest display pixel ledger payload"),
+    FConsoleCommandDelegate::CreateLambda([]()
+    {
+        if (!GEngine) return;
+        URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+        if (!Subsystem) return;
+
+        URshipDisplayManager* Manager = Subsystem->GetDisplayManager();
+        if (!Manager)
+        {
+            UE_LOG(LogRshipExec, Warning, TEXT("DisplayManager not available"));
+            return;
+        }
+
+        const FString LedgerJson = Manager->GetLastLedgerJson();
+        if (LedgerJson.IsEmpty())
+        {
+            UE_LOG(LogRshipExec, Warning, TEXT("No display ledger available. Run rship.display.plan first."));
+            return;
+        }
+
+        UE_LOG(LogRshipExec, Log, TEXT("Display ledger (%d chars): %s"), LedgerJson.Len(), *LedgerJson);
+    })
+);
+
+static FAutoConsoleCommand CmdRshipDisplayResolve(
+    TEXT("rship.display.resolve"),
+    TEXT("Resolve canonical display identity against latest snapshot/known state"),
+    FConsoleCommandDelegate::CreateLambda([]()
+    {
+        if (!GEngine) return;
+        URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+        if (!Subsystem) return;
+
+        URshipDisplayManager* Manager = Subsystem->GetDisplayManager();
+        if (!Manager)
+        {
+            UE_LOG(LogRshipExec, Warning, TEXT("DisplayManager not available"));
+            return;
+        }
+
+        const bool bOk = Manager->ResolveIdentity();
+        if (!bOk)
+        {
+            UE_LOG(LogRshipExec, Warning, TEXT("Display identity resolve failed: %s"), *Manager->GetLastError());
+            return;
+        }
+
+        UE_LOG(LogRshipExec, Log, TEXT("Display identity updated (%d chars)"), Manager->GetLastIdentityJson().Len());
+    })
+);
+
+static FAutoConsoleCommand CmdRshipDisplayValidate(
+    TEXT("rship.display.validate"),
+    TEXT("Validate active display profile against latest snapshot"),
+    FConsoleCommandDelegate::CreateLambda([]()
+    {
+        if (!GEngine) return;
+        URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+        if (!Subsystem) return;
+
+        URshipDisplayManager* Manager = Subsystem->GetDisplayManager();
+        if (!Manager)
+        {
+            UE_LOG(LogRshipExec, Warning, TEXT("DisplayManager not available"));
+            return;
+        }
+
+        const FString ProfileJson = Manager->GetActiveProfileJson();
+        if (ProfileJson.IsEmpty())
+        {
+            UE_LOG(LogRshipExec, Warning, TEXT("No active display profile to validate"));
+            return;
+        }
+
+        const bool bOk = Manager->ValidateProfileJson(ProfileJson);
+        if (!bOk)
+        {
+            UE_LOG(LogRshipExec, Warning, TEXT("Display profile validation failed: %s"), *Manager->GetLastError());
+            return;
+        }
+
+        UE_LOG(LogRshipExec, Log, TEXT("Display validation updated (%d chars)"), Manager->GetLastValidationJson().Len());
+    })
+);
+
+static FAutoConsoleCommand CmdRshipDisplayApply(
+    TEXT("rship.display.apply"),
+    TEXT("Apply the current display plan (guarded mode from settings may force dry-run behavior)"),
+    FConsoleCommandDelegate::CreateLambda([]()
+    {
+        if (!GEngine) return;
+        URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+        if (!Subsystem) return;
+
+        URshipDisplayManager* Manager = Subsystem->GetDisplayManager();
+        if (!Manager)
+        {
+            UE_LOG(LogRshipExec, Warning, TEXT("DisplayManager not available"));
+            return;
+        }
+
+        const URshipSettings* Settings = GetDefault<URshipSettings>();
+        const bool bDryRun = Settings ? Settings->bDisplayManagementGuardedApply : true;
+
+        const bool bOk = Manager->ApplyLastPlan(bDryRun);
+        if (!bOk)
+        {
+            UE_LOG(LogRshipExec, Warning, TEXT("Display apply failed: %s"), *Manager->GetLastError());
+            return;
+        }
+
+        UE_LOG(LogRshipExec, Log, TEXT("Display apply completed (%s, %d chars)"),
+            bDryRun ? TEXT("dry-run") : TEXT("live"),
+            Manager->GetLastApplyJson().Len());
+    })
+);
+
+static FAutoConsoleCommand CmdRshipDisplayDebug(
+    TEXT("rship.display.debug"),
+    TEXT("Toggle display manager debug overlay"),
+    FConsoleCommandDelegate::CreateLambda([]()
+    {
+        if (!GEngine) return;
+        URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+        if (!Subsystem) return;
+
+        URshipDisplayManager* Manager = Subsystem->GetDisplayManager();
+        if (!Manager)
+        {
+            UE_LOG(LogRshipExec, Warning, TEXT("DisplayManager not available"));
+            return;
+        }
+
+        const bool bEnabled = !Manager->IsDebugOverlayEnabled();
+        Manager->SetDebugOverlayEnabled(bEnabled);
+        UE_LOG(LogRshipExec, Log, TEXT("Display manager debug overlay: %s"), bEnabled ? TEXT("ON") : TEXT("OFF"));
+    })
+);
+
+// ============================================================================
 // HELP
 // ============================================================================
 
@@ -644,6 +1017,11 @@ static FAutoConsoleCommand CmdRshipHelp(
         UE_LOG(LogRshipExec, Log, TEXT(""));
         UE_LOG(LogRshipExec, Log, TEXT("Connection:"));
         UE_LOG(LogRshipExec, Log, TEXT("  rship.status         - Show connection and queue status"));
+        UE_LOG(LogRshipExec, Log, TEXT("  rship.sync           - Show sync timing settings"));
+        UE_LOG(LogRshipExec, Log, TEXT("  rship.sync.rate <hz> - Set sync rate live"));
+        UE_LOG(LogRshipExec, Log, TEXT("  rship.sync.lead <n>  - Set inbound lead frames live"));
+        UE_LOG(LogRshipExec, Log, TEXT("  rship.sync.strict    - Set exact-frame strict mode (0/1/on/off/true/false)"));
+        UE_LOG(LogRshipExec, Log, TEXT("                          - Usage: rship.sync.strict <0|1|on|off|true|false>"));
         UE_LOG(LogRshipExec, Log, TEXT("  rship.reconnect      - Reconnect using current settings"));
         UE_LOG(LogRshipExec, Log, TEXT("  rship.connect <h> <p>- Connect to host:port"));
         UE_LOG(LogRshipExec, Log, TEXT(""));
@@ -674,6 +1052,18 @@ static FAutoConsoleCommand CmdRshipHelp(
         UE_LOG(LogRshipExec, Log, TEXT("  rship.dmx.disable    - Disable DMX output"));
         UE_LOG(LogRshipExec, Log, TEXT("  rship.dmx.blackout   - Toggle blackout"));
         UE_LOG(LogRshipExec, Log, TEXT("  rship.dmx.automap    - Auto-map fixtures to DMX"));
+        UE_LOG(LogRshipExec, Log, TEXT(""));
+        UE_LOG(LogRshipExec, Log, TEXT("Content Mapping:"));
+        UE_LOG(LogRshipExec, Log, TEXT("  rship.contentmapping.debug - Toggle content mapping debug overlay"));
+        UE_LOG(LogRshipExec, Log, TEXT(""));
+        UE_LOG(LogRshipExec, Log, TEXT("Display Management:"));
+        UE_LOG(LogRshipExec, Log, TEXT("  rship.display.snapshot    - Collect display snapshot"));
+        UE_LOG(LogRshipExec, Log, TEXT("  rship.display.resolve     - Resolve display canonical identities"));
+        UE_LOG(LogRshipExec, Log, TEXT("  rship.display.validate    - Validate active display profile"));
+        UE_LOG(LogRshipExec, Log, TEXT("  rship.display.plan        - Build display plan from active profile"));
+        UE_LOG(LogRshipExec, Log, TEXT("  rship.display.ledger      - Print latest display pixel ledger"));
+        UE_LOG(LogRshipExec, Log, TEXT("  rship.display.apply       - Apply current display plan"));
+        UE_LOG(LogRshipExec, Log, TEXT("  rship.display.debug       - Toggle display debug overlay"));
         UE_LOG(LogRshipExec, Log, TEXT(""));
         UE_LOG(LogRshipExec, Log, TEXT("Library:"));
         UE_LOG(LogRshipExec, Log, TEXT("  rship.fixtures       - List fixture profiles"));

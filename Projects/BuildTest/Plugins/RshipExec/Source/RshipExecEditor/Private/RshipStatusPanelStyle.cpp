@@ -1,0 +1,75 @@
+// Copyright Rocketship. All Rights Reserved.
+
+#include "RshipStatusPanelStyle.h"
+#include "Styling/SlateStyleRegistry.h"
+#include "Styling/SlateTypes.h"
+#include "Styling/CoreStyle.h"
+#include "Interfaces/IPluginManager.h"
+
+#define IMAGE_BRUSH(RelativePath, ...) FSlateImageBrush(Style->RootToContentDir(RelativePath, TEXT(".png")), __VA_ARGS__)
+#define BOX_BRUSH(RelativePath, ...) FSlateBoxBrush(Style->RootToContentDir(RelativePath, TEXT(".png")), __VA_ARGS__)
+#define BORDER_BRUSH(RelativePath, ...) FSlateBorderBrush(Style->RootToContentDir(RelativePath, TEXT(".png")), __VA_ARGS__)
+
+TSharedPtr<FSlateStyleSet> FRshipStatusPanelStyle::StyleInstance = nullptr;
+
+void FRshipStatusPanelStyle::Initialize()
+{
+    if (!StyleInstance.IsValid())
+    {
+        StyleInstance = Create();
+        FSlateStyleRegistry::RegisterSlateStyle(*StyleInstance);
+    }
+}
+
+void FRshipStatusPanelStyle::Shutdown()
+{
+    FSlateStyleRegistry::UnRegisterSlateStyle(*StyleInstance);
+    ensure(StyleInstance.IsUnique());
+    StyleInstance.Reset();
+}
+
+void FRshipStatusPanelStyle::ReloadTextures()
+{
+    if (FSlateApplication::IsInitialized())
+    {
+        FSlateApplication::Get().GetRenderer()->ReloadTextureResources();
+    }
+}
+
+const ISlateStyle& FRshipStatusPanelStyle::Get()
+{
+    return *StyleInstance;
+}
+
+FName FRshipStatusPanelStyle::GetStyleSetName()
+{
+    static FName StyleSetName(TEXT("RshipStatusPanelStyle"));
+    return StyleSetName;
+}
+
+TSharedRef<FSlateStyleSet> FRshipStatusPanelStyle::Create()
+{
+    TSharedRef<FSlateStyleSet> Style = MakeShareable(new FSlateStyleSet("RshipStatusPanelStyle"));
+    Style->SetContentRoot(IPluginManager::Get().FindPlugin("RshipExec")->GetBaseDir() / TEXT("Resources"));
+
+    // Use built-in icons since we don't have custom ones yet
+    const FVector2D Icon16x16(16.0f, 16.0f);
+    const FVector2D Icon20x20(20.0f, 20.0f);
+    const FVector2D Icon40x40(40.0f, 40.0f);
+
+    // Tab and toolbar icons - use editor style icons as placeholders
+    Style->Set("Rship.StatusPanel.TabIcon", new FSlateRoundedBoxBrush(FLinearColor(0.1f, 0.6f, 0.9f, 1.0f), 4.0f, FLinearColor::Transparent, 0.0f, Icon16x16));
+    Style->Set("Rship.StatusPanel.ToolbarIcon", new FSlateRoundedBoxBrush(FLinearColor(0.1f, 0.6f, 0.9f, 1.0f), 4.0f, FLinearColor::Transparent, 0.0f, Icon40x40));
+
+    // Status indicator brushes
+    Style->Set("Rship.Status.Connected", new FSlateRoundedBoxBrush(GetConnectedColor(), 6.0f, FLinearColor::Transparent, 0.0f, FVector2D(12.0f, 12.0f)));
+    Style->Set("Rship.Status.Disconnected", new FSlateRoundedBoxBrush(GetDisconnectedColor(), 6.0f, FLinearColor::Transparent, 0.0f, FVector2D(12.0f, 12.0f)));
+    Style->Set("Rship.Status.Connecting", new FSlateRoundedBoxBrush(GetConnectingColor(), 6.0f, FLinearColor::Transparent, 0.0f, FVector2D(12.0f, 12.0f)));
+    Style->Set("Rship.Status.BackingOff", new FSlateRoundedBoxBrush(GetBackingOffColor(), 6.0f, FLinearColor::Transparent, 0.0f, FVector2D(12.0f, 12.0f)));
+
+    return Style;
+}
+
+#undef IMAGE_BRUSH
+#undef BOX_BRUSH
+#undef BORDER_BRUSH

@@ -247,6 +247,313 @@ static FAutoConsoleCommand Rship2110StreamStopCmd(
     }));
 
 // ============================================================================
+// CLUSTER COMMANDS
+// ============================================================================
+
+static FAutoConsoleCommand Rship2110ClusterStatusCmd(
+    TEXT("rship.cluster.status"),
+    TEXT("Display cluster control state and local ownership"),
+    FConsoleCommandDelegate::CreateLambda([]()
+    {
+        URship2110Subsystem* Subsystem = GEngine ? GEngine->GetEngineSubsystem<URship2110Subsystem>() : nullptr;
+        if (!Subsystem)
+        {
+            UE_LOG(LogRship2110, Log, TEXT("2110 subsystem not available"));
+            return;
+        }
+
+        const FRship2110ClusterState State = Subsystem->GetClusterState();
+        const FString LocalNodeId = Subsystem->GetLocalClusterNodeId();
+        const FString Role = Subsystem->IsLocalNodeAuthority() ? TEXT("Primary") : TEXT("Secondary");
+        const FString ActiveSyncDomain = Subsystem->GetActiveSyncDomainId();
+
+        UE_LOG(LogRship2110, Log, TEXT("=== Cluster Status ==="));
+        UE_LOG(LogRship2110, Log, TEXT("Local Node: %s"), *LocalNodeId);
+        UE_LOG(LogRship2110, Log, TEXT("Role: %s"), *Role);
+        UE_LOG(LogRship2110, Log, TEXT("Frame: %lld"), Subsystem->GetClusterFrameCounter());
+        UE_LOG(LogRship2110, Log, TEXT("Active Sync Domain: %s"), *ActiveSyncDomain);
+        UE_LOG(LogRship2110, Log, TEXT("Default Sync Rate: %.2f Hz"), Subsystem->GetClusterSyncRateHz());
+        UE_LOG(LogRship2110, Log, TEXT("Local Render Substeps: %d"), Subsystem->GetLocalRenderSubsteps());
+        UE_LOG(LogRship2110, Log, TEXT("Max Catch-up Steps: %d"), Subsystem->GetMaxSyncCatchupSteps());
+        UE_LOG(LogRship2110, Log, TEXT("Epoch/Version: %d/%d"), State.Epoch, State.Version);
+        UE_LOG(LogRship2110, Log, TEXT("Authority: %s"), *State.ActiveAuthorityNodeId);
+        UE_LOG(LogRship2110, Log, TEXT("Strict Ownership: %s"), State.bStrictNodeOwnership ? TEXT("Yes") : TEXT("No"));
+        UE_LOG(LogRship2110, Log, TEXT("Failover: %s (timeout %.2fs)"),
+            State.bFailoverEnabled ? TEXT("Enabled") : TEXT("Disabled"),
+            State.FailoverTimeoutSeconds);
+
+        const TArray<FString> SyncDomains = Subsystem->GetSyncDomainIds();
+        UE_LOG(LogRship2110, Log, TEXT("Sync Domains (%d):"), SyncDomains.Num());
+        for (const FString& DomainId : SyncDomains)
+        {
+            UE_LOG(LogRship2110, Log, TEXT("  %s frame=%lld rate=%.2f"),
+                *DomainId,
+                Subsystem->GetClusterFrameCounterForDomain(DomainId),
+                Subsystem->GetSyncDomainRateHz(DomainId));
+        }
+
+        const TArray<FString> OwnedStreams = Subsystem->GetLocallyOwnedStreams();
+        UE_LOG(LogRship2110, Log, TEXT("Owned Streams (%d):"), OwnedStreams.Num());
+        for (const FString& StreamId : OwnedStreams)
+        {
+            UE_LOG(LogRship2110, Log, TEXT("  %s"), *StreamId);
+        }
+    }));
+
+static FAutoConsoleCommand Rship2110ClusterSetNodeCmd(
+    TEXT("rship.cluster.node"),
+    TEXT("Set local cluster node id - Usage: rship.cluster.node <node_id>"),
+    FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+    {
+        if (Args.Num() < 1)
+        {
+            UE_LOG(LogRship2110, Log, TEXT("Usage: rship.cluster.node <node_id>"));
+            return;
+        }
+
+        URship2110Subsystem* Subsystem = GEngine ? GEngine->GetEngineSubsystem<URship2110Subsystem>() : nullptr;
+        if (!Subsystem)
+        {
+            return;
+        }
+
+        Subsystem->SetLocalClusterNodeId(Args[0]);
+        UE_LOG(LogRship2110, Log, TEXT("Local cluster node id updated to %s"), *Subsystem->GetLocalClusterNodeId());
+    }));
+
+static FAutoConsoleCommand Rship2110ClusterAssignCmd(
+    TEXT("rship.cluster.assign"),
+    TEXT("Assign stream ownership - Usage: rship.cluster.assign <stream_id> <node_id>"),
+    FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+    {
+        if (Args.Num() < 2)
+        {
+            UE_LOG(LogRship2110, Log, TEXT("Usage: rship.cluster.assign <stream_id> <node_id>"));
+            return;
+        }
+
+        URship2110Subsystem* Subsystem = GEngine ? GEngine->GetEngineSubsystem<URship2110Subsystem>() : nullptr;
+        if (!Subsystem)
+        {
+            return;
+        }
+
+        Subsystem->SetClusterOwnershipForStream(Args[0], Args[1], true);
+        UE_LOG(LogRship2110, Log, TEXT("Queued ownership update: %s -> %s"), *Args[0], *Args[1]);
+    }));
+
+static FAutoConsoleCommand Rship2110ClusterPromoteCmd(
+    TEXT("rship.cluster.promote"),
+    TEXT("Promote local node to authority on next frame"),
+    FConsoleCommandDelegate::CreateLambda([]()
+    {
+        URship2110Subsystem* Subsystem = GEngine ? GEngine->GetEngineSubsystem<URship2110Subsystem>() : nullptr;
+        if (!Subsystem)
+        {
+            return;
+        }
+
+        Subsystem->PromoteLocalNodeToPrimary(true);
+        UE_LOG(LogRship2110, Warning, TEXT("Queued local authority promotion for node %s"), *Subsystem->GetLocalClusterNodeId());
+    }));
+
+static FAutoConsoleCommand Rship2110ClusterHeartbeatCmd(
+    TEXT("rship.cluster.heartbeat"),
+    TEXT("Record authority heartbeat - Usage: rship.cluster.heartbeat <authority_node> <epoch> <version>"),
+    FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+    {
+        if (Args.Num() < 3)
+        {
+            UE_LOG(LogRship2110, Log, TEXT("Usage: rship.cluster.heartbeat <authority_node> <epoch> <version>"));
+            return;
+        }
+
+        URship2110Subsystem* Subsystem = GEngine ? GEngine->GetEngineSubsystem<URship2110Subsystem>() : nullptr;
+        if (!Subsystem)
+        {
+            return;
+        }
+
+        const int32 Epoch = FCString::Atoi(*Args[1]);
+        const int32 Version = FCString::Atoi(*Args[2]);
+        Subsystem->NotifyClusterAuthorityHeartbeat(Args[0], Epoch, Version);
+    }));
+
+static FAutoConsoleCommand Rship2110ClusterPrepareCmd(
+    TEXT("rship.cluster.prepare"),
+    TEXT("Authority: create and broadcast prepare for current state with incremented version"),
+    FConsoleCommandDelegate::CreateLambda([]()
+    {
+        URship2110Subsystem* Subsystem = GEngine ? GEngine->GetEngineSubsystem<URship2110Subsystem>() : nullptr;
+        if (!Subsystem)
+        {
+            return;
+        }
+
+        FRship2110ClusterState State = Subsystem->GetClusterState();
+        State.Version += 1;
+        State.ApplyFrame = Subsystem->GetClusterFrameCounter() + 3;
+        if (!Subsystem->SubmitAuthorityClusterStatePrepare(State, true))
+        {
+            UE_LOG(LogRship2110, Warning, TEXT("Prepare submit failed (node is likely not authority)"));
+        }
+    }));
+
+static FAutoConsoleCommand Rship2110ClusterAckCmd(
+    TEXT("rship.cluster.ack"),
+    TEXT("Inject ACK - Usage: rship.cluster.ack <node> <epoch> <version> <hash>"),
+    FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+    {
+        if (Args.Num() < 4)
+        {
+            UE_LOG(LogRship2110, Log, TEXT("Usage: rship.cluster.ack <node> <epoch> <version> <hash>"));
+            return;
+        }
+
+        URship2110Subsystem* Subsystem = GEngine ? GEngine->GetEngineSubsystem<URship2110Subsystem>() : nullptr;
+        if (!Subsystem)
+        {
+            return;
+        }
+
+        FRship2110ClusterAckMessage Ack;
+        Ack.NodeId = Args[0];
+        Ack.AuthorityNodeId = Subsystem->GetClusterState().ActiveAuthorityNodeId;
+        Ack.Epoch = FCString::Atoi(*Args[1]);
+        Ack.Version = FCString::Atoi(*Args[2]);
+        Ack.StateHash = Args[3];
+        const bool bAccepted = Subsystem->ReceiveClusterStateAck(Ack);
+        UE_LOG(LogRship2110, Log, TEXT("ACK %s"), bAccepted ? TEXT("accepted") : TEXT("rejected"));
+    }));
+
+static FAutoConsoleCommand Rship2110ClusterSyncRateCmd(
+    TEXT("rship.cluster.timing.sync"),
+    TEXT("Set default cluster sync rate in Hz - Usage: rship.cluster.timing.sync <hz>"),
+    FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+    {
+        if (Args.Num() < 1)
+        {
+            UE_LOG(LogRship2110, Log, TEXT("Usage: rship.cluster.timing.sync <hz>"));
+            return;
+        }
+
+        URship2110Subsystem* Subsystem = GEngine ? GEngine->GetEngineSubsystem<URship2110Subsystem>() : nullptr;
+        if (!Subsystem)
+        {
+            return;
+        }
+
+        const float SyncRateHz = FCString::Atof(*Args[0]);
+        Subsystem->SetClusterSyncRateHz(SyncRateHz);
+        if (IConsoleVariable* SyncRateCVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.Rship2110.ClusterSyncRateHz")))
+        {
+            SyncRateCVar->Set(Subsystem->GetClusterSyncRateHz());
+        }
+        UE_LOG(LogRship2110, Log, TEXT("Default cluster sync rate set to %.2f Hz"), Subsystem->GetClusterSyncRateHz());
+    }));
+
+static FAutoConsoleCommand Rship2110ClusterSubstepsCmd(
+    TEXT("rship.cluster.timing.substeps"),
+    TEXT("Set local render substeps - Usage: rship.cluster.timing.substeps <n>"),
+    FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+    {
+        if (Args.Num() < 1)
+        {
+            UE_LOG(LogRship2110, Log, TEXT("Usage: rship.cluster.timing.substeps <n>"));
+            return;
+        }
+
+        URship2110Subsystem* Subsystem = GEngine ? GEngine->GetEngineSubsystem<URship2110Subsystem>() : nullptr;
+        if (!Subsystem)
+        {
+            return;
+        }
+
+        const int32 Substeps = FCString::Atoi(*Args[0]);
+        Subsystem->SetLocalRenderSubsteps(Substeps);
+        if (IConsoleVariable* SubstepsCVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.Rship2110.LocalRenderSubsteps")))
+        {
+            SubstepsCVar->Set(Subsystem->GetLocalRenderSubsteps());
+        }
+        UE_LOG(LogRship2110, Log, TEXT("Local render substeps set to %d"), Subsystem->GetLocalRenderSubsteps());
+    }));
+
+static FAutoConsoleCommand Rship2110ClusterCatchupCmd(
+    TEXT("rship.cluster.timing.catchup"),
+    TEXT("Set max sync catch-up steps - Usage: rship.cluster.timing.catchup <n>"),
+    FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+    {
+        if (Args.Num() < 1)
+        {
+            UE_LOG(LogRship2110, Log, TEXT("Usage: rship.cluster.timing.catchup <n>"));
+            return;
+        }
+
+        URship2110Subsystem* Subsystem = GEngine ? GEngine->GetEngineSubsystem<URship2110Subsystem>() : nullptr;
+        if (!Subsystem)
+        {
+            return;
+        }
+
+        const int32 CatchupSteps = FCString::Atoi(*Args[0]);
+        Subsystem->SetMaxSyncCatchupSteps(CatchupSteps);
+        if (IConsoleVariable* CatchupCVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.Rship2110.MaxSyncCatchupSteps")))
+        {
+            CatchupCVar->Set(Subsystem->GetMaxSyncCatchupSteps());
+        }
+        UE_LOG(LogRship2110, Log, TEXT("Max sync catch-up steps set to %d"), Subsystem->GetMaxSyncCatchupSteps());
+    }));
+
+static FAutoConsoleCommand Rship2110ClusterDomainActiveCmd(
+    TEXT("rship.cluster.domain.active"),
+    TEXT("Set active sync domain for authoritative outbound payloads - Usage: rship.cluster.domain.active <domain_id>"),
+    FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+    {
+        if (Args.Num() < 1)
+        {
+            UE_LOG(LogRship2110, Log, TEXT("Usage: rship.cluster.domain.active <domain_id>"));
+            return;
+        }
+
+        URship2110Subsystem* Subsystem = GEngine ? GEngine->GetEngineSubsystem<URship2110Subsystem>() : nullptr;
+        if (!Subsystem)
+        {
+            return;
+        }
+
+        Subsystem->SetActiveSyncDomainId(Args[0]);
+        UE_LOG(LogRship2110, Log, TEXT("Active sync domain set to %s"), *Subsystem->GetActiveSyncDomainId());
+    }));
+
+static FAutoConsoleCommand Rship2110ClusterDomainRateCmd(
+    TEXT("rship.cluster.domain.rate"),
+    TEXT("Set sync rate for a specific domain - Usage: rship.cluster.domain.rate <domain_id> <hz>"),
+    FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+    {
+        if (Args.Num() < 2)
+        {
+            UE_LOG(LogRship2110, Log, TEXT("Usage: rship.cluster.domain.rate <domain_id> <hz>"));
+            return;
+        }
+
+        URship2110Subsystem* Subsystem = GEngine ? GEngine->GetEngineSubsystem<URship2110Subsystem>() : nullptr;
+        if (!Subsystem)
+        {
+            return;
+        }
+
+        const float DomainRateHz = FCString::Atof(*Args[1]);
+        if (!Subsystem->SetSyncDomainRateHz(Args[0], DomainRateHz))
+        {
+            UE_LOG(LogRship2110, Warning, TEXT("Failed to set sync rate for domain %s"), *Args[0]);
+            return;
+        }
+
+        UE_LOG(LogRship2110, Log, TEXT("Sync domain %s rate set to %.2f Hz"),
+            *Args[0], Subsystem->GetSyncDomainRateHz(Args[0]));
+    }));
+
+// ============================================================================
 // IPMX COMMANDS
 // ============================================================================
 
@@ -372,6 +679,20 @@ static FAutoConsoleCommand Rship2110HelpCmd(
         UE_LOG(LogRship2110, Log, TEXT("  rship.stream.list      - List active streams"));
         UE_LOG(LogRship2110, Log, TEXT("  rship.stream.starttest - Start test 1080p60 stream"));
         UE_LOG(LogRship2110, Log, TEXT("  rship.stream.stop <id> - Stop stream by ID"));
+        UE_LOG(LogRship2110, Log, TEXT(""));
+        UE_LOG(LogRship2110, Log, TEXT("Cluster Commands:"));
+        UE_LOG(LogRship2110, Log, TEXT("  rship.cluster.status                         - Display cluster state"));
+        UE_LOG(LogRship2110, Log, TEXT("  rship.cluster.node <node_id>                - Set local node id"));
+        UE_LOG(LogRship2110, Log, TEXT("  rship.cluster.assign <stream_id> <node_id>  - Assign stream ownership"));
+        UE_LOG(LogRship2110, Log, TEXT("  rship.cluster.promote                        - Promote local authority"));
+        UE_LOG(LogRship2110, Log, TEXT("  rship.cluster.heartbeat <node> <e> <v>      - Record authority heartbeat"));
+        UE_LOG(LogRship2110, Log, TEXT("  rship.cluster.prepare                        - Emit prepare for current state"));
+        UE_LOG(LogRship2110, Log, TEXT("  rship.cluster.ack <node> <e> <v> <hash>     - Inject ACK"));
+        UE_LOG(LogRship2110, Log, TEXT("  rship.cluster.timing.sync <hz>              - Set default sync rate"));
+        UE_LOG(LogRship2110, Log, TEXT("  rship.cluster.timing.substeps <n>           - Set local render substeps"));
+        UE_LOG(LogRship2110, Log, TEXT("  rship.cluster.timing.catchup <n>            - Set max catch-up steps"));
+        UE_LOG(LogRship2110, Log, TEXT("  rship.cluster.domain.active <id>            - Set active sync domain"));
+        UE_LOG(LogRship2110, Log, TEXT("  rship.cluster.domain.rate <id> <hz>         - Set domain sync rate"));
         UE_LOG(LogRship2110, Log, TEXT(""));
         UE_LOG(LogRship2110, Log, TEXT("IPMX Commands:"));
         UE_LOG(LogRship2110, Log, TEXT("  rship.ipmx.status          - Display IPMX status"));

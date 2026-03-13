@@ -1,0 +1,39 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0.0",
+	"FriendlyName": "Rship Executor",
+	"Description": "Core Rocketship executor for Unreal Engine - WebSocket client, targets, emitters, actions, fixture control, material/Niagara bindings, and sequencer sync",
+	"Category": "Rocketship",
+	"CreatedBy": "Lucid",
+	"CreatedByURL": "https://lucid.rocks",
+	"DocsURL": "https://docs.rocketship.live",
+	"MarketplaceURL": "",
+	"SupportURL": "https://github.com/lucidlive/rship-unreal/issues",
+	"CanContainContent": true,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": false,
+	"Installed": true,
+	"EnabledByDefault": true,
+	"Modules": [
+		{
+			"Name": "RshipExec",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "RshipExecEditor",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{ "Name": "Niagara", "Enabled": true },
+		{ "Name": "ControlRig", "Enabled": true },
+		{ "Name": "RigVM", "Enabled": true },
+		{ "Name": "LiveLink", "Enabled": true },
+		{ "Name": "ProceduralMeshComponent", "Enabled": true },
+		{ "Name": "RshipNDI", "Enabled": true, "Optional": true },
+		{ "Name": "RshipColorManagement", "Enabled": true, "Optional": true }
+	]
+}

@@ -11,6 +11,7 @@
 #include "Rigs/RigHierarchy.h"
 #include "Rigs/RigHierarchyElements.h"
 #include "Curves/CurveFloat.h"
+#include "HAL/PlatformFileManager.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Serialization/JsonReader.h"
@@ -35,6 +36,19 @@ URshipControlRigBinding::URshipControlRigBinding()
 void URshipControlRigBinding::BeginPlay()
 {
     Super::BeginPlay();
+
+    AActor* Owner = GetOwner();
+    if (!Owner)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("RshipControlRigBinding: Owner missing during BeginPlay"));
+        return;
+    }
+
+    if (!GEngine)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("RshipControlRigBinding: Engine not available during BeginPlay"));
+        return;
+    }
 
     // Get subsystem
     Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();

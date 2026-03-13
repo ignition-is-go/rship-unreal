@@ -150,6 +150,26 @@ public:
     void SetRenderTarget(UTextureRenderTarget2D* RenderTarget);
 
     /**
+     * Set an optional capture region in render target pixel coordinates.
+     * @param CaptureRect Capture rectangle (min inclusive, max exclusive)
+     */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110")
+    void SetCaptureRect(const FIntRect& CaptureRect);
+
+    /**
+     * Clear any capture rectangle and capture the full render target.
+     */
+    UFUNCTION(BlueprintCallable, Category = "Rship|2110")
+    void ClearCaptureRect();
+
+    /**
+     * Get the currently configured capture rectangle.
+     * @return Capture rectangle (min inclusive, max exclusive)
+     */
+    UFUNCTION(BlueprintPure, Category = "Rship|2110")
+    FIntRect GetCaptureRect() const;
+
+    /**
      * Get currently set render target.
      * @return Render target or nullptr
      */
@@ -296,6 +316,8 @@ private:
     FRshipPTPTimestamp LastFrameTime;
     double LastSendTime = 0.0;
     int64 FrameCounter = 0;
+    FIntRect CaptureRect = FIntRect(0, 0, 0, 0);
+    bool bUseCaptureRect = false;
 
     // Buffers (managed externally or via Rivermax)
     TArray<uint8> CaptureBuffer;
@@ -332,6 +354,10 @@ private:
     void TransmitFrame();
     bool AllocateBuffers();
     void FreeBuffers();
+    bool ReadRenderTargetPixels(UTextureRenderTarget2D* RenderTarget, TArray<FColor>& OutPixels) const;
+    FIntRect ResolveCaptureRect(int32 SourceWidth, int32 SourceHeight) const;
+    int32 FindFreeFrameBufferIndex() const;
+    int64 GetExpectedCaptureBytes(int32 Width, int32 Height) const;
     void PackRTPPackets(const void* FrameData, int64 DataSize, const FRshipPTPTimestamp& Timestamp);
     void SendPacket(const void* PacketData, int32 PacketSize);
     void UpdateStatistics(int64 BytesSent, bool bLateFrame);

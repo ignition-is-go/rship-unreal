@@ -8,6 +8,7 @@
 
 #include "Network/RshipWebSocket.h"
 #include "Logs.h"
+#include "Async/Async.h"
 
 #if RSHIP_USE_IXWEBSOCKET
 // Include IXWebSocket headers

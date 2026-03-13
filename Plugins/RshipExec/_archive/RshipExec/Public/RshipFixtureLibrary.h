@@ -8,6 +8,7 @@
 #include "RshipFixtureLibrary.generated.h"
 
 class URshipSubsystem;
+class FJsonObject;
 
 // ============================================================================
 // FIXTURE PROFILE TYPES

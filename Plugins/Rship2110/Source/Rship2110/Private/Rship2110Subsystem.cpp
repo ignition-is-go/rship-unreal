@@ -8,12 +8,114 @@
 #include "Rivermax/Rship2110VideoSender.h"
 #include "IPMX/RshipIPMXService.h"
 #include "Capture/Rship2110VideoCapture.h"
+#include "HAL/PlatformMisc.h"
+#include "HAL/PlatformProcess.h"
+#include "Misc/App.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Crc.h"
+#include "Misc/Parse.h"
+#include "Containers/Set.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
+#include "HAL/IConsoleManager.h"
 
 // Include RshipExec for integration
 #include "RshipSubsystem.h"
+#include "RshipContentMappingManager.h"
 
 DECLARE_STATS_GROUP(TEXT("Rship2110"), STATGROUP_Rship2110, STATCAT_Advanced);
 DECLARE_CYCLE_STAT(TEXT("Rship2110 Tick"), STAT_Rship2110Tick, STATGROUP_Rship2110);
+
+static TAutoConsoleVariable<float> CVarRship2110ClusterSyncRateHz(
+    TEXT("r.Rship2110.ClusterSyncRateHz"),
+    0.0f,
+    TEXT("Override default cluster sync rate in Hz. <=0 uses project settings/runtime API."),
+    ECVF_Default);
+
+static TAutoConsoleVariable<int32> CVarRship2110LocalRenderSubsteps(
+    TEXT("r.Rship2110.LocalRenderSubsteps"),
+    0,
+    TEXT("Override local render substeps. <=0 uses project settings/runtime API."),
+    ECVF_Default);
+
+static TAutoConsoleVariable<int32> CVarRship2110MaxSyncCatchupSteps(
+    TEXT("r.Rship2110.MaxSyncCatchupSteps"),
+    0,
+    TEXT("Override max cluster sync catch-up steps. <=0 uses project settings/runtime API."),
+    ECVF_Default);
+
+namespace
+{
+FString ExtractSyncDomainIdFromPayload(const FString& Payload)
+{
+    TSharedPtr<FJsonObject> JsonObject;
+    TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Payload);
+    if (!FJsonSerializer::Deserialize(Reader, JsonObject) || !JsonObject.IsValid())
+    {
+        return FString();
+    }
+
+    FString SyncDomainId;
+    if (JsonObject->TryGetStringField(TEXT("syncDomainId"), SyncDomainId))
+    {
+        return SyncDomainId.TrimStartAndEnd();
+    }
+
+    const TSharedPtr<FJsonObject>* DataObjectPtr = nullptr;
+    if (JsonObject->TryGetObjectField(TEXT("data"), DataObjectPtr) && DataObjectPtr && DataObjectPtr->IsValid())
+    {
+        if ((*DataObjectPtr)->TryGetStringField(TEXT("syncDomainId"), SyncDomainId))
+        {
+            return SyncDomainId.TrimStartAndEnd();
+        }
+    }
+
+    return FString();
+}
+
+bool TryNormalizeCaptureRectForRenderTarget(
+    const FIntRect& RequestedRect,
+    const UTextureRenderTarget2D* RenderTarget,
+    FIntRect& OutNormalizedRect)
+{
+    OutNormalizedRect = FIntRect();
+
+    if (!RenderTarget)
+    {
+        return false;
+    }
+
+    const int32 SourceWidth = FMath::Max(0, RenderTarget->SizeX);
+    const int32 SourceHeight = FMath::Max(0, RenderTarget->SizeY);
+    if (SourceWidth <= 0 || SourceHeight <= 0)
+    {
+        return false;
+    }
+
+    const int32 RequestedWidth = RequestedRect.Max.X - RequestedRect.Min.X;
+    const int32 RequestedHeight = RequestedRect.Max.Y - RequestedRect.Min.Y;
+    if (RequestedWidth <= 0 || RequestedHeight <= 0)
+    {
+        return false;
+    }
+
+    const int32 ClampedX = FMath::Clamp(RequestedRect.Min.X, 0, FMath::Max(0, SourceWidth - 1));
+    const int32 ClampedY = FMath::Clamp(RequestedRect.Min.Y, 0, FMath::Max(0, SourceHeight - 1));
+    const int32 ClampedWidth = FMath::Clamp(RequestedWidth, 1, SourceWidth - ClampedX);
+    const int32 ClampedHeight = FMath::Clamp(RequestedHeight, 1, SourceHeight - ClampedY);
+    if (ClampedWidth <= 0 || ClampedHeight <= 0)
+    {
+        return false;
+    }
+
+    OutNormalizedRect = FIntRect(
+        ClampedX,
+        ClampedY,
+        ClampedX + ClampedWidth,
+        ClampedY + ClampedHeight);
+    return true;
+}
+}
 
 void URship2110Subsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
@@ -23,6 +125,15 @@ void URship2110Subsystem::Initialize(FSubsystemCollectionBase& Collection)
 
     // Load settings
     URship2110Settings* Settings = URship2110Settings::Get();
+    if (Settings)
+    {
+        ClusterSyncRateHz = FMath::Max(1.0f, Settings->ClusterSyncRateHz);
+        LocalRenderSubsteps = FMath::Max(1, Settings->LocalRenderSubsteps);
+        MaxSyncCatchupSteps = FMath::Max(1, Settings->MaxSyncCatchupSteps);
+    }
+    ClusterSyncFrameAccumulator = 0.0;
+    LocalRenderStepCounter = 0;
+    ActiveSyncDomainId = DefaultSyncDomainId;
 
     // Initialize services based on settings
     if (Settings && Settings->bEnablePTP)
@@ -49,7 +160,20 @@ void URship2110Subsystem::Initialize(FSubsystemCollectionBase& Collection)
         IPMXService->ConnectToRegistry(Settings->IPMXRegistryUrl);
     }
 
+    StreamToContextBinding.Empty();
+    InitializeClusterState();
+
+    if (URshipSubsystem* RshipSubsystem = GetRshipSubsystem())
+    {
+        RshipAuthoritativeInboundHandle = RshipSubsystem->OnAuthoritativeInboundQueued().AddUObject(
+            this,
+            &URship2110Subsystem::HandleAuthoritativeRshipInbound);
+    }
+
     bIsInitialized = true;
+
+    UE_LOG(LogRship2110, Log, TEXT("Cluster timing: syncRate=%.2fHz renderSubsteps=%d maxCatchup=%d"),
+        ClusterSyncRateHz, LocalRenderSubsteps, MaxSyncCatchupSteps);
 
     UE_LOG(LogRship2110, Log, TEXT("Rship2110Subsystem: Initialized"));
 }
@@ -86,6 +210,28 @@ void URship2110Subsystem::Deinitialize()
     }
 
     StreamToIPMXSender.Empty();
+    StreamToContextBinding.Empty();
+    PendingClusterStates.Empty();
+    SyncDomains.Empty();
+    StreamOwnerNodeCache.Empty();
+    ActiveClusterState = FRship2110ClusterState();
+    ActiveSyncDomainId = DefaultSyncDomainId;
+    LocalRenderStepCounter = 0;
+    ClusterFrameCounter = 0;
+    ClusterDataSequenceCounter = 0;
+    ClusterSyncFrameAccumulator = 0.0;
+    ClusterSyncRateHz = 60.0f;
+    LocalRenderSubsteps = 1;
+    MaxSyncCatchupSteps = 4;
+
+    if (URshipSubsystem* RshipSubsystem = GetRshipSubsystem())
+    {
+        if (RshipAuthoritativeInboundHandle.IsValid())
+        {
+            RshipSubsystem->OnAuthoritativeInboundQueued().Remove(RshipAuthoritativeInboundHandle);
+            RshipAuthoritativeInboundHandle.Reset();
+        }
+    }
 
     UE_LOG(LogRship2110, Log, TEXT("Rship2110Subsystem: Deinitialized"));
 
@@ -101,6 +247,54 @@ bool URship2110Subsystem::ShouldCreateSubsystem(UObject* Outer) const
 void URship2110Subsystem::Tick(float DeltaTime)
 {
     SCOPE_CYCLE_COUNTER(STAT_Rship2110Tick);
+    const float CVarSyncRateHz = CVarRship2110ClusterSyncRateHz.GetValueOnGameThread();
+    if (CVarSyncRateHz > 0.0f && !FMath::IsNearlyEqual(ClusterSyncRateHz, FMath::Max(1.0f, CVarSyncRateHz)))
+    {
+        SetClusterSyncRateHz(CVarSyncRateHz);
+    }
+    const int32 CVarRenderSubsteps = CVarRship2110LocalRenderSubsteps.GetValueOnGameThread();
+    if (CVarRenderSubsteps > 0 && LocalRenderSubsteps != FMath::Max(1, CVarRenderSubsteps))
+    {
+        SetLocalRenderSubsteps(CVarRenderSubsteps);
+    }
+    const int32 CVarCatchupSteps = CVarRship2110MaxSyncCatchupSteps.GetValueOnGameThread();
+    if (CVarCatchupSteps > 0 && MaxSyncCatchupSteps != FMath::Max(1, CVarCatchupSteps))
+    {
+        SetMaxSyncCatchupSteps(CVarCatchupSteps);
+    }
+
+    const int32 RenderSubsteps = FMath::Max(1, LocalRenderSubsteps);
+
+    if (bIsInitialized)
+    {
+        LocalRenderStepCounter += RenderSubsteps;
+
+        const double SyncRateHz = FMath::Max(1.0, static_cast<double>(ClusterSyncRateHz));
+        ClusterSyncFrameAccumulator += static_cast<double>(DeltaTime) * SyncRateHz;
+        const int32 RawSyncSteps = FMath::FloorToInt(ClusterSyncFrameAccumulator);
+        const int32 MaxSteps = FMath::Max(1, MaxSyncCatchupSteps);
+        int32 SyncSteps = FMath::Min(RawSyncSteps, MaxSteps);
+
+        if (RawSyncSteps > MaxSteps)
+        {
+            UE_LOG(LogRship2110, VeryVerbose, TEXT("Cluster sync catch-up clamped (requested=%d applied=%d)"), RawSyncSteps, SyncSteps);
+            ClusterSyncFrameAccumulator = 0.0;
+        }
+        else
+        {
+            ClusterSyncFrameAccumulator -= static_cast<double>(SyncSteps);
+        }
+
+        for (int32 Step = 0; Step < SyncSteps; ++Step)
+        {
+            ++ClusterFrameCounter;
+            PurgeExpiredPreparedStates();
+            ProcessPendingClusterStates();
+            ProcessPendingClusterDataMessages();
+        }
+
+        TickNonDefaultSyncDomains(DeltaTime);
+    }
 
     if (PTPService)
     {
@@ -109,7 +303,11 @@ void URship2110Subsystem::Tick(float DeltaTime)
 
     if (RivermaxManager)
     {
-        RivermaxManager->Tick(DeltaTime);
+        const float SubstepDelta = DeltaTime / static_cast<float>(RenderSubsteps);
+        for (int32 Step = 0; Step < RenderSubsteps; ++Step)
+        {
+            RivermaxManager->Tick(SubstepDelta);
+        }
     }
 
     if (IPMXService)
@@ -120,6 +318,12 @@ void URship2110Subsystem::Tick(float DeltaTime)
     if (VideoCapture)
     {
         VideoCapture->ProcessPendingCaptures();
+    }
+
+    if (bIsInitialized)
+    {
+        EvaluateClusterFailover();
+        RefreshStreamRenderContextBindings();
     }
 }
 
@@ -180,6 +384,15 @@ FString URship2110Subsystem::CreateVideoStream(
     // Bind event handler
     Sender->OnStateChanged.AddDynamic(this, &URship2110Subsystem::OnStreamStateChangedInternal);
 
+    if (ActiveClusterState.bStrictNodeOwnership && LocalClusterNodeId.Len() > 0)
+    {
+        // Default newly created streams to local ownership unless explicitly assigned otherwise.
+        if (GetClusterOwnershipForStream(StreamId).IsEmpty())
+        {
+            SetClusterOwnershipForStream(StreamId, LocalClusterNodeId, false);
+        }
+    }
+
     return StreamId;
 }
 
@@ -196,7 +409,332 @@ bool URship2110Subsystem::DestroyVideoStream(const FString& StreamId)
     // Destroy stream
     if (RivermaxManager)
     {
-        return RivermaxManager->DestroyStream(StreamId);
+        const bool bDestroyed = RivermaxManager->DestroyStream(StreamId);
+        StreamToContextBinding.Remove(StreamId);
+        if (bIsInitialized)
+        {
+            SetClusterOwnershipForStream(StreamId, TEXT(""), false);
+        }
+        return bDestroyed;
+    }
+
+    StreamToContextBinding.Remove(StreamId);
+    if (bIsInitialized)
+    {
+        SetClusterOwnershipForStream(StreamId, TEXT(""), false);
+    }
+    return false;
+}
+
+bool URship2110Subsystem::BindVideoStreamToRenderContext(const FString& StreamId, const FString& RenderContextId)
+{
+    return BindVideoStreamToRenderContextWithRect(StreamId, RenderContextId, FIntRect());
+}
+
+bool URship2110Subsystem::BindVideoStreamToRenderContextWithRect(const FString& StreamId, const FString& RenderContextId, const FIntRect& CaptureRect)
+{
+    URship2110VideoSender* Sender = GetVideoSender(StreamId);
+    if (!Sender)
+    {
+        UE_LOG(LogRship2110, Warning, TEXT("BindVideoStreamToRenderContextWithRect: Stream %s not found"), *StreamId);
+        return false;
+    }
+
+    UTextureRenderTarget2D* RenderTarget = nullptr;
+    if (!ResolveRenderContextRenderTarget(RenderContextId, RenderTarget))
+    {
+        UE_LOG(LogRship2110, Warning, TEXT("BindVideoStreamToRenderContextWithRect: Context %s not found or has no render target"), *RenderContextId);
+        return false;
+    }
+
+    Sender->SetRenderTarget(RenderTarget);
+    FRship2110RenderContextBinding Binding;
+    Binding.BindingSource = FRship2110RenderContextBinding::EBindingSource::RenderContext;
+    Binding.RenderContextId = RenderContextId.TrimStartAndEnd();
+    Binding.MappingId.Reset();
+    Binding.SurfaceId.Reset();
+
+    if (CaptureRect.Area() > 0)
+    {
+        FIntRect NormalizedCaptureRect;
+        if (!TryNormalizeCaptureRectForRenderTarget(CaptureRect, RenderTarget, NormalizedCaptureRect))
+        {
+            UE_LOG(
+                LogRship2110,
+                Warning,
+                TEXT("BindVideoStreamToRenderContextWithRect: Invalid capture rect (%d,%d)-(%d,%d) for context %s target %dx%d"),
+                CaptureRect.Min.X,
+                CaptureRect.Min.Y,
+                CaptureRect.Max.X,
+                CaptureRect.Max.Y,
+                *RenderContextId,
+                RenderTarget ? RenderTarget->SizeX : 0,
+                RenderTarget ? RenderTarget->SizeY : 0);
+            return false;
+        }
+
+        Binding.bUseCaptureRect = true;
+        Binding.CaptureRect = NormalizedCaptureRect;
+        Sender->SetCaptureRect(NormalizedCaptureRect);
+    }
+    else
+    {
+        Binding.bUseCaptureRect = false;
+        Binding.CaptureRect = FIntRect();
+        Sender->ClearCaptureRect();
+    }
+
+    StreamToContextBinding.Add(StreamId, Binding);
+    if (!IsStreamOwnedByLocalNode(StreamId))
+    {
+        UE_LOG(LogRship2110, Verbose, TEXT("Bound stream %s to context %s, but local node %s does not own this stream"), *StreamId, *RenderContextId, *LocalClusterNodeId);
+    }
+    return true;
+}
+
+bool URship2110Subsystem::BindVideoStreamToMappingOutput(const FString& StreamId, const FString& MappingId, const FString& SurfaceId)
+{
+    return BindVideoStreamToMappingOutputWithRect(StreamId, MappingId, SurfaceId, FIntRect());
+}
+
+bool URship2110Subsystem::BindVideoStreamToMappingOutputWithRect(
+    const FString& StreamId,
+    const FString& MappingId,
+    const FString& SurfaceId,
+    const FIntRect& CaptureRect)
+{
+    URship2110VideoSender* Sender = GetVideoSender(StreamId);
+    if (!Sender)
+    {
+        UE_LOG(LogRship2110, Warning, TEXT("BindVideoStreamToMappingOutputWithRect: Stream %s not found"), *StreamId);
+        return false;
+    }
+
+    const FString NormalizedMappingId = MappingId.TrimStartAndEnd();
+    const FString NormalizedSurfaceId = SurfaceId.TrimStartAndEnd();
+    if (NormalizedMappingId.IsEmpty())
+    {
+        UE_LOG(LogRship2110, Warning, TEXT("BindVideoStreamToMappingOutputWithRect: MappingId is empty"));
+        return false;
+    }
+
+    URshipSubsystem* RshipSubsystem = GetRshipSubsystem();
+    if (!RshipSubsystem)
+    {
+        UE_LOG(LogRship2110, Warning, TEXT("BindVideoStreamToMappingOutputWithRect: Rship subsystem unavailable"));
+        return false;
+    }
+
+    URshipContentMappingManager* MappingManager = Cast<URshipContentMappingManager>(RshipSubsystem->GetContentMappingManager());
+    if (!MappingManager)
+    {
+        UE_LOG(LogRship2110, Warning, TEXT("BindVideoStreamToMappingOutputWithRect: Content mapping manager unavailable"));
+        return false;
+    }
+
+    UTextureRenderTarget2D* RenderTarget = nullptr;
+    FString ResolveError;
+    if (!MappingManager->ResolveMappingOutputRenderTarget(
+            NormalizedMappingId,
+            NormalizedSurfaceId,
+            RenderTarget,
+            ResolveError))
+    {
+        UE_LOG(
+            LogRship2110,
+            Warning,
+            TEXT("BindVideoStreamToMappingOutputWithRect: mapping=%s surface=%s resolve failed (%s)"),
+            *NormalizedMappingId,
+            *NormalizedSurfaceId,
+            *ResolveError);
+        return false;
+    }
+
+    Sender->SetRenderTarget(RenderTarget);
+    FRship2110RenderContextBinding Binding;
+    Binding.BindingSource = FRship2110RenderContextBinding::EBindingSource::MappingOutput;
+    Binding.RenderContextId.Reset();
+    Binding.MappingId = NormalizedMappingId;
+    Binding.SurfaceId = NormalizedSurfaceId;
+
+    if (CaptureRect.Area() > 0)
+    {
+        FIntRect NormalizedCaptureRect;
+        if (!TryNormalizeCaptureRectForRenderTarget(CaptureRect, RenderTarget, NormalizedCaptureRect))
+        {
+            UE_LOG(
+                LogRship2110,
+                Warning,
+                TEXT("BindVideoStreamToMappingOutputWithRect: Invalid capture rect (%d,%d)-(%d,%d) for mapping %s/%s target %dx%d"),
+                CaptureRect.Min.X,
+                CaptureRect.Min.Y,
+                CaptureRect.Max.X,
+                CaptureRect.Max.Y,
+                *NormalizedMappingId,
+                *NormalizedSurfaceId,
+                RenderTarget ? RenderTarget->SizeX : 0,
+                RenderTarget ? RenderTarget->SizeY : 0);
+            return false;
+        }
+
+        Binding.bUseCaptureRect = true;
+        Binding.CaptureRect = NormalizedCaptureRect;
+        Sender->SetCaptureRect(NormalizedCaptureRect);
+    }
+    else
+    {
+        Binding.bUseCaptureRect = false;
+        Binding.CaptureRect = FIntRect();
+        Sender->ClearCaptureRect();
+    }
+
+    StreamToContextBinding.Add(StreamId, Binding);
+    if (!IsStreamOwnedByLocalNode(StreamId))
+    {
+        UE_LOG(
+            LogRship2110,
+            Verbose,
+            TEXT("Bound stream %s to mapping output %s/%s, but local node %s does not own this stream"),
+            *StreamId,
+            *NormalizedMappingId,
+            *NormalizedSurfaceId,
+            *LocalClusterNodeId);
+    }
+    return true;
+}
+
+bool URship2110Subsystem::UnbindVideoStreamFromRenderContext(const FString& StreamId)
+{
+    return StreamToContextBinding.Remove(StreamId) > 0;
+}
+
+FString URship2110Subsystem::GetBoundRenderContextForStream(const FString& StreamId) const
+{
+    const FRship2110RenderContextBinding* Binding = StreamToContextBinding.Find(StreamId);
+    if (!Binding || Binding->BindingSource != FRship2110RenderContextBinding::EBindingSource::RenderContext)
+    {
+        return FString();
+    }
+    return Binding->RenderContextId;
+}
+
+bool URship2110Subsystem::GetBoundRenderContextBinding(const FString& StreamId, FString& OutRenderContextId, FIntRect& OutCaptureRect, bool& bOutUseCaptureRect) const
+{
+    const FRship2110RenderContextBinding* Binding = StreamToContextBinding.Find(StreamId);
+    if (!Binding || Binding->BindingSource != FRship2110RenderContextBinding::EBindingSource::RenderContext)
+    {
+        return false;
+    }
+
+    OutRenderContextId = Binding->RenderContextId;
+    OutCaptureRect = Binding->CaptureRect;
+    bOutUseCaptureRect = Binding->bUseCaptureRect;
+    return true;
+}
+
+bool URship2110Subsystem::GetBoundMappingOutputBinding(
+    const FString& StreamId,
+    FString& OutMappingId,
+    FString& OutSurfaceId,
+    FIntRect& OutCaptureRect,
+    bool& bOutUseCaptureRect) const
+{
+    const FRship2110RenderContextBinding* Binding = StreamToContextBinding.Find(StreamId);
+    if (!Binding || Binding->BindingSource != FRship2110RenderContextBinding::EBindingSource::MappingOutput)
+    {
+        return false;
+    }
+
+    OutMappingId = Binding->MappingId;
+    OutSurfaceId = Binding->SurfaceId;
+    OutCaptureRect = Binding->CaptureRect;
+    bOutUseCaptureRect = Binding->bUseCaptureRect;
+    return true;
+}
+
+bool URship2110Subsystem::RegisterContentMappingExternalTextureSource(
+    const FString& SourceId,
+    UTexture* Texture,
+    int32 Width,
+    int32 Height)
+{
+    URshipSubsystem* RshipSubsystem = GetRshipSubsystem();
+    if (!RshipSubsystem)
+    {
+        return false;
+    }
+
+    URshipContentMappingManager* MappingManager = Cast<URshipContentMappingManager>(RshipSubsystem->GetContentMappingManager());
+    if (!MappingManager)
+    {
+        return false;
+    }
+
+    return MappingManager->RegisterExternalTextureSource(SourceId, Texture, Width, Height);
+}
+
+bool URship2110Subsystem::UnregisterContentMappingExternalTextureSource(const FString& SourceId)
+{
+    URshipSubsystem* RshipSubsystem = GetRshipSubsystem();
+    if (!RshipSubsystem)
+    {
+        return false;
+    }
+
+    URshipContentMappingManager* MappingManager = Cast<URshipContentMappingManager>(RshipSubsystem->GetContentMappingManager());
+    if (!MappingManager)
+    {
+        return false;
+    }
+
+    return MappingManager->UnregisterExternalTextureSource(SourceId);
+}
+
+bool URship2110Subsystem::ConfigureRenderContextExternalTextureSource(
+    const FString& RenderContextId,
+    const FString& SourceId,
+    int32 Width,
+    int32 Height)
+{
+    const FString NormalizedContextId = RenderContextId.TrimStartAndEnd();
+    const FString NormalizedSourceId = SourceId.TrimStartAndEnd();
+    if (NormalizedContextId.IsEmpty() || NormalizedSourceId.IsEmpty())
+    {
+        return false;
+    }
+
+    URshipSubsystem* RshipSubsystem = GetRshipSubsystem();
+    if (!RshipSubsystem)
+    {
+        return false;
+    }
+
+    URshipContentMappingManager* MappingManager = Cast<URshipContentMappingManager>(RshipSubsystem->GetContentMappingManager());
+    if (!MappingManager)
+    {
+        return false;
+    }
+
+    TArray<FRshipRenderContextState> ContextStates = MappingManager->GetRenderContexts();
+    for (FRshipRenderContextState& ContextState : ContextStates)
+    {
+        if (ContextState.Id != NormalizedContextId)
+        {
+            continue;
+        }
+
+        ContextState.SourceType = TEXT("external-texture");
+        ContextState.ExternalSourceId = NormalizedSourceId;
+        if (Width > 0)
+        {
+            ContextState.Width = Width;
+        }
+        if (Height > 0)
+        {
+            ContextState.Height = Height;
+        }
+
+        return MappingManager->UpdateRenderContext(ContextState);
     }
 
     return false;
@@ -214,6 +752,12 @@ TArray<FString> URship2110Subsystem::GetActiveStreamIds() const
 
 bool URship2110Subsystem::StartStream(const FString& StreamId)
 {
+    if (!IsStreamOwnedByLocalNode(StreamId))
+    {
+        UE_LOG(LogRship2110, Warning, TEXT("StartStream denied for %s: local node %s is not owner"), *StreamId, *LocalClusterNodeId);
+        return false;
+    }
+
     URship2110VideoSender* Sender = GetVideoSender(StreamId);
     if (Sender)
     {
@@ -231,6 +775,175 @@ bool URship2110Subsystem::StopStream(const FString& StreamId)
         return true;
     }
     return false;
+}
+
+void URship2110Subsystem::RefreshStreamRenderContextBindings()
+{
+    if (StreamToContextBinding.Num() == 0)
+    {
+        return;
+    }
+
+    URshipSubsystem* RshipSubsystem = GetRshipSubsystem();
+    if (!RshipSubsystem)
+    {
+        return;
+    }
+
+    URshipContentMappingManager* MappingManager = Cast<URshipContentMappingManager>(RshipSubsystem->GetContentMappingManager());
+    if (!MappingManager)
+    {
+        return;
+    }
+
+    TArray<FString> ToUnbind;
+    for (TPair<FString, FRship2110RenderContextBinding>& Binding : StreamToContextBinding)
+    {
+        const FString& StreamId = Binding.Key;
+        FRship2110RenderContextBinding& BoundContext = Binding.Value;
+
+        URship2110VideoSender* Sender = GetVideoSender(StreamId);
+        if (!Sender)
+        {
+            ToUnbind.Add(StreamId);
+            continue;
+        }
+
+        if (!IsStreamOwnedByLocalNode(StreamId))
+        {
+            if (Sender->IsStreaming())
+            {
+                Sender->StopStream();
+            }
+            continue;
+        }
+
+        UTextureRenderTarget2D* ResolvedRenderTarget = nullptr;
+        FString ResolveError;
+        if (!ResolveBindingRenderTarget(MappingManager, BoundContext, ResolvedRenderTarget, ResolveError))
+        {
+            if (!ResolveError.IsEmpty())
+            {
+                UE_LOG(
+                    LogRship2110,
+                    VeryVerbose,
+                    TEXT("RefreshStreamRenderContextBindings: stream=%s resolve failed (%s)"),
+                    *StreamId,
+                    *ResolveError);
+            }
+            continue;
+        }
+
+        FIntRect NormalizedCaptureRect = BoundContext.CaptureRect;
+        if (BoundContext.bUseCaptureRect)
+        {
+            if (!TryNormalizeCaptureRectForRenderTarget(BoundContext.CaptureRect, ResolvedRenderTarget, NormalizedCaptureRect))
+            {
+                UE_LOG(
+                    LogRship2110,
+                    VeryVerbose,
+                    TEXT("RefreshStreamRenderContextBindings: stream=%s capture rect invalid for target %dx%d"),
+                    *StreamId,
+                    ResolvedRenderTarget ? ResolvedRenderTarget->SizeX : 0,
+                    ResolvedRenderTarget ? ResolvedRenderTarget->SizeY : 0);
+                continue;
+            }
+
+            BoundContext.CaptureRect = NormalizedCaptureRect;
+        }
+
+        Sender->SetRenderTarget(ResolvedRenderTarget);
+        if (BoundContext.bUseCaptureRect)
+        {
+            Sender->SetCaptureRect(NormalizedCaptureRect);
+        }
+        else
+        {
+            Sender->ClearCaptureRect();
+        }
+        Sender->SetCaptureSource(ERship2110CaptureSource::RenderTarget);
+    }
+
+    for (const FString& StreamId : ToUnbind)
+    {
+        StreamToContextBinding.Remove(StreamId);
+        UE_LOG(LogRship2110, Log, TEXT("Removed render context binding for missing stream %s"), *StreamId);
+    }
+}
+
+bool URship2110Subsystem::ResolveBindingRenderTarget(
+    URshipContentMappingManager* MappingManager,
+    const FRship2110RenderContextBinding& Binding,
+    UTextureRenderTarget2D*& OutRenderTarget,
+    FString& OutError)
+{
+    OutRenderTarget = nullptr;
+    OutError.Reset();
+
+    if (!MappingManager)
+    {
+        OutError = TEXT("Content mapping manager unavailable");
+        return false;
+    }
+
+    if (Binding.BindingSource == FRship2110RenderContextBinding::EBindingSource::RenderContext)
+    {
+        if (!MappingManager->ResolveRenderContextRenderTarget(Binding.RenderContextId, OutRenderTarget))
+        {
+            OutError = FString::Printf(
+                TEXT("Context '%s' not found or has no render target"),
+                *Binding.RenderContextId);
+            return false;
+        }
+        return true;
+    }
+
+    if (Binding.BindingSource == FRship2110RenderContextBinding::EBindingSource::MappingOutput)
+    {
+        if (!MappingManager->ResolveMappingOutputRenderTarget(
+                Binding.MappingId,
+                Binding.SurfaceId,
+                OutRenderTarget,
+                OutError))
+        {
+            if (OutError.IsEmpty())
+            {
+                OutError = FString::Printf(
+                    TEXT("Mapping output '%s/%s' not available"),
+                    *Binding.MappingId,
+                    *Binding.SurfaceId);
+            }
+            return false;
+        }
+        return true;
+    }
+
+    OutError = TEXT("Unknown binding source");
+    return false;
+}
+
+bool URship2110Subsystem::ResolveRenderContextRenderTarget(const FString& ContextId, UTextureRenderTarget2D*& OutRenderTarget)
+{
+    OutRenderTarget = nullptr;
+
+    if (ContextId.IsEmpty())
+    {
+        return false;
+    }
+
+    URshipSubsystem* RshipSubsystem = GetRshipSubsystem();
+    if (!RshipSubsystem)
+    {
+        return false;
+    }
+
+    URshipContentMappingManager* MappingManager = Cast<URshipContentMappingManager>(RshipSubsystem->GetContentMappingManager());
+    if (!MappingManager)
+    {
+        return false;
+    }
+
+    return MappingManager->ResolveRenderContextRenderTarget(ContextId, OutRenderTarget);
 }
 
 bool URship2110Subsystem::ConnectIPMX(const FString& RegistryUrl)
@@ -301,6 +1014,1177 @@ bool URship2110Subsystem::IsIPMXAvailable() const
 #else
     return false;
 #endif
+}
+
+void URship2110Subsystem::SetLocalClusterNodeId(const FString& NodeId)
+{
+    const FString Trimmed = NodeId.TrimStartAndEnd();
+    if (Trimmed.IsEmpty() || Trimmed == LocalClusterNodeId)
+    {
+        return;
+    }
+
+    LocalClusterNodeId = Trimmed;
+    UE_LOG(LogRship2110, Log, TEXT("Cluster local node ID set to %s"), *LocalClusterNodeId);
+}
+
+ERship2110ClusterRole URship2110Subsystem::GetLocalClusterRole() const
+{
+    if (ActiveClusterState.ActiveAuthorityNodeId.IsEmpty())
+    {
+        return ERship2110ClusterRole::Unknown;
+    }
+    return IsLocalNodeAuthority() ? ERship2110ClusterRole::Primary : ERship2110ClusterRole::Secondary;
+}
+
+bool URship2110Subsystem::IsLocalNodeAuthority() const
+{
+    return !LocalClusterNodeId.IsEmpty()
+        && !ActiveClusterState.ActiveAuthorityNodeId.IsEmpty()
+        && LocalClusterNodeId.Equals(ActiveClusterState.ActiveAuthorityNodeId, ESearchCase::CaseSensitive);
+}
+
+bool URship2110Subsystem::QueueClusterStateUpdate(const FRship2110ClusterState& ClusterState)
+{
+    if (IsClusterStateStale(ClusterState))
+    {
+        return false;
+    }
+
+    FRship2110ClusterState Update = ClusterState;
+    if (Update.ApplyFrame <= ClusterFrameCounter)
+    {
+        Update.ApplyFrame = ClusterFrameCounter + 1;
+    }
+    if (Update.ActiveAuthorityNodeId.IsEmpty())
+    {
+        Update.ActiveAuthorityNodeId = ActiveClusterState.ActiveAuthorityNodeId.IsEmpty()
+            ? LocalClusterNodeId
+            : ActiveClusterState.ActiveAuthorityNodeId;
+    }
+    if (Update.FailoverTimeoutSeconds < 0.1f)
+    {
+        Update.FailoverTimeoutSeconds = 0.1f;
+    }
+
+    auto IsQueuedStateLess = [](const FRship2110ClusterState& A, const FRship2110ClusterState& B)
+    {
+        if (A.ApplyFrame != B.ApplyFrame)
+        {
+            return A.ApplyFrame < B.ApplyFrame;
+        }
+        if (A.Epoch != B.Epoch)
+        {
+            return A.Epoch < B.Epoch;
+        }
+        return A.Version < B.Version;
+    };
+
+    for (int32 Index = PendingClusterStates.Num() - 1; Index >= 0; --Index)
+    {
+        if (PendingClusterStates[Index].Epoch == Update.Epoch && PendingClusterStates[Index].Version == Update.Version)
+        {
+            PendingClusterStates.RemoveAt(Index);
+        }
+    }
+
+    int32 Low = 0;
+    int32 High = PendingClusterStates.Num();
+    while (Low < High)
+    {
+        const int32 Mid = (Low + High) / 2;
+        if (IsQueuedStateLess(PendingClusterStates[Mid], Update))
+        {
+            Low = Mid + 1;
+        }
+        else
+        {
+            High = Mid;
+        }
+    }
+
+    PendingClusterStates.Insert(Update, FMath::Clamp(Low, 0, PendingClusterStates.Num()));
+    return true;
+}
+
+void URship2110Subsystem::SetClusterOwnershipForStream(const FString& StreamId, const FString& OwnerNodeId, bool bApplyNextFrame)
+{
+    if (!IsLocalNodeAuthority())
+    {
+        UE_LOG(LogRship2110, Warning, TEXT("SetClusterOwnershipForStream ignored: local node %s is not authority"), *LocalClusterNodeId);
+        return;
+    }
+
+    const FString TrimmedStreamId = StreamId.TrimStartAndEnd();
+    const FString TrimmedOwner = OwnerNodeId.TrimStartAndEnd();
+    if (TrimmedStreamId.IsEmpty())
+    {
+        return;
+    }
+
+    FRship2110ClusterState Updated = ActiveClusterState;
+    if (Updated.Epoch <= 0)
+    {
+        Updated.Epoch = 1;
+    }
+    Updated.Version = FMath::Max(Updated.Version + 1, 1);
+    Updated.ApplyFrame = bApplyNextFrame ? (ClusterFrameCounter + 1) : ClusterFrameCounter;
+    if (Updated.ActiveAuthorityNodeId.IsEmpty())
+    {
+        Updated.ActiveAuthorityNodeId = LocalClusterNodeId;
+    }
+
+    for (FRship2110ClusterNodeStreams& Assignment : Updated.NodeStreamAssignments)
+    {
+        Assignment.StreamIds.RemoveAll([&TrimmedStreamId](const FString& Existing)
+        {
+            return Existing == TrimmedStreamId;
+        });
+    }
+    Updated.NodeStreamAssignments.RemoveAll([](const FRship2110ClusterNodeStreams& Assignment)
+    {
+        return Assignment.NodeId.IsEmpty() || Assignment.StreamIds.Num() == 0;
+    });
+
+    if (!TrimmedOwner.IsEmpty())
+    {
+        FRship2110ClusterNodeStreams* Assignment = Updated.NodeStreamAssignments.FindByPredicate([&TrimmedOwner](const FRship2110ClusterNodeStreams& Existing)
+        {
+            return Existing.NodeId == TrimmedOwner;
+        });
+        if (!Assignment)
+        {
+            FRship2110ClusterNodeStreams NewAssignment;
+            NewAssignment.NodeId = TrimmedOwner;
+            Updated.NodeStreamAssignments.Add(NewAssignment);
+            Assignment = &Updated.NodeStreamAssignments.Last();
+        }
+        Assignment->StreamIds.AddUnique(TrimmedStreamId);
+    }
+
+    Updated.ApplyFrame = bApplyNextFrame ? FMath::Max<int64>(Updated.ApplyFrame, ClusterFrameCounter + 2) : (ClusterFrameCounter + 1);
+    SubmitAuthorityClusterStatePrepare(Updated, true);
+}
+
+bool URship2110Subsystem::UpdateClusterFailoverConfig(
+    bool bFailoverEnabled,
+    bool bAllowAutoPromotion,
+    float FailoverTimeoutSeconds,
+    bool bStrictNodeOwnership,
+    bool bApplyNextFrame)
+{
+    if (!IsLocalNodeAuthority())
+    {
+        UE_LOG(LogRship2110, Warning, TEXT("UpdateClusterFailoverConfig ignored: local node %s is not authority"), *LocalClusterNodeId);
+        return false;
+    }
+
+    FRship2110ClusterState Updated = ActiveClusterState;
+    if (Updated.Epoch <= 0)
+    {
+        Updated.Epoch = 1;
+    }
+    Updated.Version = FMath::Max(Updated.Version + 1, 1);
+    Updated.ApplyFrame = bApplyNextFrame ? (ClusterFrameCounter + 2) : (ClusterFrameCounter + 1);
+    Updated.ActiveAuthorityNodeId = LocalClusterNodeId;
+    Updated.bFailoverEnabled = bFailoverEnabled;
+    Updated.bAllowAutoPromotion = bAllowAutoPromotion;
+    Updated.FailoverTimeoutSeconds = FMath::Clamp(FailoverTimeoutSeconds, 0.1f, 60.0f);
+    Updated.bStrictNodeOwnership = bStrictNodeOwnership;
+
+    return SubmitAuthorityClusterStatePrepare(Updated, true);
+}
+
+FString URship2110Subsystem::GetClusterOwnershipForStream(const FString& StreamId) const
+{
+    const FString* OwnerNode = StreamOwnerNodeCache.Find(StreamId);
+    return OwnerNode ? *OwnerNode : FString();
+}
+
+TArray<FString> URship2110Subsystem::GetLocallyOwnedStreams() const
+{
+    if (!ActiveClusterState.bStrictNodeOwnership)
+    {
+        return GetActiveStreamIds();
+    }
+
+    TArray<FString> Owned;
+    for (const TPair<FString, FString>& Pair : StreamOwnerNodeCache)
+    {
+        if (Pair.Value == LocalClusterNodeId)
+        {
+            Owned.Add(Pair.Key);
+        }
+    }
+    return Owned;
+}
+
+void URship2110Subsystem::NotifyClusterAuthorityHeartbeat(const FString& AuthorityNodeId, int32 Epoch, int32 Version)
+{
+    if (AuthorityNodeId.IsEmpty())
+    {
+        return;
+    }
+
+    if (Epoch == ActiveClusterState.Epoch
+        && Version == ActiveClusterState.Version
+        && AuthorityNodeId == ActiveClusterState.ActiveAuthorityNodeId)
+    {
+        LastAuthorityHeartbeatTime = FPlatformTime::Seconds();
+    }
+}
+
+void URship2110Subsystem::PromoteLocalNodeToPrimary(bool bApplyNextFrame)
+{
+    if (LocalClusterNodeId.IsEmpty())
+    {
+        return;
+    }
+
+    FRship2110ClusterState Update = ActiveClusterState;
+    Update.Epoch = FMath::Max(Update.Epoch + 1, 1);
+    Update.Version = 1;
+    Update.ActiveAuthorityNodeId = LocalClusterNodeId;
+    Update.ApplyFrame = bApplyNextFrame ? (ClusterFrameCounter + 1) : ClusterFrameCounter;
+    if (!Update.FailoverPriority.Contains(LocalClusterNodeId))
+    {
+        Update.FailoverPriority.Insert(LocalClusterNodeId, 0);
+    }
+
+    if (bApplyNextFrame)
+    {
+        QueueClusterStateUpdate(Update);
+    }
+    else
+    {
+        ApplyClusterStateNow(Update);
+    }
+}
+
+FString URship2110Subsystem::ComputeClusterStateHash(const FRship2110ClusterState& ClusterState) const
+{
+    const FString Canonical = BuildClusterStateCanonicalString(ClusterState);
+    const uint32 Crc = FCrc::StrCrc32(*Canonical);
+    return FString::Printf(TEXT("%08X"), Crc);
+}
+
+bool URship2110Subsystem::SubmitAuthorityClusterStatePrepare(FRship2110ClusterState ClusterState, bool bAutoCommitOnQuorum)
+{
+    if (!IsLocalNodeAuthority())
+    {
+        UE_LOG(LogRship2110, Warning, TEXT("SubmitAuthorityClusterStatePrepare denied: local node %s is not authority"), *LocalClusterNodeId);
+        return false;
+    }
+
+    if (ClusterState.ActiveAuthorityNodeId.IsEmpty())
+    {
+        ClusterState.ActiveAuthorityNodeId = LocalClusterNodeId;
+    }
+    if (ClusterState.ActiveAuthorityNodeId != LocalClusterNodeId)
+    {
+        UE_LOG(LogRship2110, Warning, TEXT("SubmitAuthorityClusterStatePrepare denied: authority mismatch (%s vs %s)"),
+            *ClusterState.ActiveAuthorityNodeId, *LocalClusterNodeId);
+        return false;
+    }
+
+    ClusterState.Epoch = FMath::Max(ClusterState.Epoch, ActiveClusterState.Epoch);
+    if (ClusterState.Epoch == ActiveClusterState.Epoch && ClusterState.Version <= ActiveClusterState.Version)
+    {
+        ClusterState.Version = ActiveClusterState.Version + 1;
+    }
+    ClusterState.ApplyFrame = FMath::Max(ClusterState.ApplyFrame, ClusterFrameCounter + 2);
+    ClusterState.PrepareTimeoutSeconds = FMath::Max(0.1f, ClusterState.PrepareTimeoutSeconds);
+
+    FRship2110ClusterPrepareMessage PrepareMessage;
+    PrepareMessage.AuthorityNodeId = LocalClusterNodeId;
+    PrepareMessage.Epoch = ClusterState.Epoch;
+    PrepareMessage.Version = ClusterState.Version;
+    PrepareMessage.ApplyFrame = ClusterState.ApplyFrame;
+    PrepareMessage.ClusterState = ClusterState;
+    PrepareMessage.StateHash = ComputeClusterStateHash(ClusterState);
+    PrepareMessage.RequiredAckCount = ClusterState.RequiredAckCount;
+
+    const FString StateKey = MakePreparedStateKey(PrepareMessage.Epoch, PrepareMessage.Version, PrepareMessage.StateHash);
+
+    FPreparedClusterStateEntry Entry;
+    Entry.Prepare = PrepareMessage;
+    Entry.AckedNodeIds.Add(LocalClusterNodeId);
+    Entry.bAutoCommitOnQuorum = bAutoCommitOnQuorum;
+    Entry.bCommitBroadcast = false;
+    Entry.CreatedTimeSeconds = FPlatformTime::Seconds();
+    PreparedClusterStates.Add(StateKey, Entry);
+
+    OnClusterPrepareOutbound.Broadcast(PrepareMessage);
+    if (bAutoCommitOnQuorum)
+    {
+        FinalizePreparedStateCommit(StateKey);
+    }
+    return true;
+}
+
+bool URship2110Subsystem::ReceiveClusterStatePrepare(const FRship2110ClusterPrepareMessage& PrepareMessage)
+{
+    if (PrepareMessage.AuthorityNodeId.IsEmpty() || PrepareMessage.StateHash.IsEmpty())
+    {
+        return false;
+    }
+
+    const FString ExpectedHash = ComputeClusterStateHash(PrepareMessage.ClusterState);
+    if (ExpectedHash != PrepareMessage.StateHash)
+    {
+        UE_LOG(LogRship2110, Warning, TEXT("Rejected cluster prepare due to hash mismatch (expected %s got %s)"), *ExpectedHash, *PrepareMessage.StateHash);
+        return false;
+    }
+
+    FRship2110ClusterState Candidate = PrepareMessage.ClusterState;
+    Candidate.ActiveAuthorityNodeId = PrepareMessage.AuthorityNodeId;
+    Candidate.Epoch = PrepareMessage.Epoch;
+    Candidate.Version = PrepareMessage.Version;
+    Candidate.ApplyFrame = PrepareMessage.ApplyFrame;
+    Candidate.RequiredAckCount = PrepareMessage.RequiredAckCount;
+
+    if (IsClusterStateStale(Candidate))
+    {
+        return false;
+    }
+
+    const FString StateKey = MakePreparedStateKey(PrepareMessage.Epoch, PrepareMessage.Version, PrepareMessage.StateHash);
+    FPreparedClusterStateEntry Entry;
+    Entry.Prepare = PrepareMessage;
+    Entry.Prepare.ClusterState = Candidate;
+    Entry.Prepare.RequiredAckCount = Candidate.RequiredAckCount;
+    Entry.CreatedTimeSeconds = FPlatformTime::Seconds();
+    Entry.bAutoCommitOnQuorum = false;
+
+    if (const FPreparedClusterStateEntry* Existing = PreparedClusterStates.Find(StateKey))
+    {
+        Entry = *Existing;
+        Entry.Prepare = PrepareMessage;
+        Entry.Prepare.ClusterState = Candidate;
+        Entry.CreatedTimeSeconds = FPlatformTime::Seconds();
+    }
+
+    if (!LocalClusterNodeId.IsEmpty())
+    {
+        Entry.AckedNodeIds.Add(LocalClusterNodeId);
+    }
+    PreparedClusterStates.Add(StateKey, Entry);
+
+    if (!LocalClusterNodeId.IsEmpty())
+    {
+        FRship2110ClusterAckMessage AckMessage;
+        AckMessage.NodeId = LocalClusterNodeId;
+        AckMessage.AuthorityNodeId = PrepareMessage.AuthorityNodeId;
+        AckMessage.Epoch = PrepareMessage.Epoch;
+        AckMessage.Version = PrepareMessage.Version;
+        AckMessage.StateHash = PrepareMessage.StateHash;
+        OnClusterAckOutbound.Broadcast(AckMessage);
+    }
+
+    return true;
+}
+
+bool URship2110Subsystem::ReceiveClusterStateAck(const FRship2110ClusterAckMessage& AckMessage)
+{
+    if (!IsLocalNodeAuthority())
+    {
+        return false;
+    }
+    if (AckMessage.NodeId.IsEmpty() || AckMessage.StateHash.IsEmpty())
+    {
+        return false;
+    }
+    if (AckMessage.AuthorityNodeId != LocalClusterNodeId)
+    {
+        return false;
+    }
+
+    const FString StateKey = MakePreparedStateKey(AckMessage.Epoch, AckMessage.Version, AckMessage.StateHash);
+    FPreparedClusterStateEntry* Entry = PreparedClusterStates.Find(StateKey);
+    if (!Entry)
+    {
+        return false;
+    }
+    Entry->AckedNodeIds.Add(AckMessage.NodeId);
+
+    if (Entry->bAutoCommitOnQuorum)
+    {
+        FinalizePreparedStateCommit(StateKey);
+    }
+    return true;
+}
+
+bool URship2110Subsystem::ReceiveClusterStateCommit(const FRship2110ClusterCommitMessage& CommitMessage)
+{
+    if (CommitMessage.AuthorityNodeId.IsEmpty() || CommitMessage.StateHash.IsEmpty())
+    {
+        return false;
+    }
+
+    const FString StateKey = MakePreparedStateKey(CommitMessage.Epoch, CommitMessage.Version, CommitMessage.StateHash);
+    const FPreparedClusterStateEntry* Entry = PreparedClusterStates.Find(StateKey);
+    if (!Entry)
+    {
+        return false;
+    }
+    if (Entry->Prepare.AuthorityNodeId != CommitMessage.AuthorityNodeId)
+    {
+        return false;
+    }
+
+    FRship2110ClusterState StateToApply = Entry->Prepare.ClusterState;
+    StateToApply.Epoch = CommitMessage.Epoch;
+    StateToApply.Version = CommitMessage.Version;
+    StateToApply.ApplyFrame = CommitMessage.ApplyFrame;
+    StateToApply.ActiveAuthorityNodeId = CommitMessage.AuthorityNodeId;
+
+    const bool bQueued = QueueClusterStateUpdate(StateToApply);
+    if (bQueued)
+    {
+        PreparedClusterStates.Remove(StateKey);
+    }
+    return bQueued;
+}
+
+bool URship2110Subsystem::SubmitAuthorityClusterDataMessage(const FString& Payload, int64 ApplyFrame)
+{
+    return SubmitAuthorityClusterDataMessageForDomain(Payload, ActiveSyncDomainId, ApplyFrame);
+}
+
+bool URship2110Subsystem::SubmitAuthorityClusterDataMessageForDomain(const FString& Payload, const FString& SyncDomainId, int64 ApplyFrame)
+{
+    if (!IsLocalNodeAuthority())
+    {
+        return false;
+    }
+
+    const FString TrimmedPayload = Payload.TrimStartAndEnd();
+    if (TrimmedPayload.IsEmpty())
+    {
+        return false;
+    }
+
+    FRship2110ClusterDataMessage DataMessage;
+    const FString ResolvedSyncDomainId = ResolveSyncDomainId(SyncDomainId.IsEmpty() ? ActiveSyncDomainId : SyncDomainId);
+    FRship2110SyncDomainRuntime& SyncDomain = GetOrCreateSyncDomain(ResolvedSyncDomainId);
+    const int64 DomainFrameCounter = ResolvedSyncDomainId.Equals(DefaultSyncDomainId, ESearchCase::IgnoreCase)
+        ? ClusterFrameCounter
+        : SyncDomain.FrameCounter;
+    const URshipSubsystem* RshipSubsystem = GetRshipSubsystem();
+    const bool bRequireExactFrame = RshipSubsystem ? RshipSubsystem->IsInboundRequireExactFrame() : false;
+
+    DataMessage.AuthorityNodeId = LocalClusterNodeId;
+    DataMessage.Epoch = ActiveClusterState.Epoch;
+    DataMessage.Sequence = ++ClusterDataSequenceCounter;
+    DataMessage.SyncDomainId = ResolvedSyncDomainId;
+    DataMessage.bApplyFrameWasExplicit = (ApplyFrame != INDEX_NONE);
+    DataMessage.ApplyFrame = (ApplyFrame == INDEX_NONE)
+        ? (DomainFrameCounter + 1)
+        : (bRequireExactFrame ? ApplyFrame : FMath::Max<int64>(ApplyFrame, DomainFrameCounter + 1));
+    DataMessage.Payload = TrimmedPayload;
+
+    OnClusterDataOutbound.Broadcast(DataMessage);
+    return true;
+}
+
+bool URship2110Subsystem::ReceiveClusterDataMessage(const FRship2110ClusterDataMessage& DataMessage)
+{
+    if (DataMessage.AuthorityNodeId.IsEmpty()
+        || DataMessage.Payload.IsEmpty()
+        || DataMessage.Epoch <= 0
+        || DataMessage.Sequence <= 0)
+    {
+        return false;
+    }
+
+    if (DataMessage.Epoch < ActiveClusterState.Epoch)
+    {
+        return false;
+    }
+
+    if (!ActiveClusterState.ActiveAuthorityNodeId.IsEmpty()
+        && DataMessage.AuthorityNodeId != ActiveClusterState.ActiveAuthorityNodeId)
+    {
+        return false;
+    }
+
+    if (!DataMessage.TargetNodeId.IsEmpty()
+        && !LocalClusterNodeId.IsEmpty()
+        && !DataMessage.TargetNodeId.Equals(LocalClusterNodeId, ESearchCase::IgnoreCase))
+    {
+        return false;
+    }
+
+    if (DataMessage.AuthorityNodeId == LocalClusterNodeId)
+    {
+        // Local authority already applied this payload through local ingest path.
+        return false;
+    }
+
+    const FString ResolvedSyncDomainId = ResolveSyncDomainId(DataMessage.SyncDomainId);
+    FRship2110SyncDomainRuntime& SyncDomain = GetOrCreateSyncDomain(ResolvedSyncDomainId);
+    const int64 LastAppliedSequence = SyncDomain.LastAppliedSequenceByAuthority.FindRef(DataMessage.AuthorityNodeId);
+    if (DataMessage.Sequence <= LastAppliedSequence)
+    {
+        return false;
+    }
+
+    FRship2110ClusterDataMessage Queued = DataMessage;
+    Queued.SyncDomainId = ResolvedSyncDomainId;
+
+    const int64 DomainFrameCounter = ResolvedSyncDomainId.Equals(DefaultSyncDomainId, ESearchCase::IgnoreCase)
+        ? ClusterFrameCounter
+        : SyncDomain.FrameCounter;
+    const URshipSubsystem* RshipSubsystem = GetRshipSubsystem();
+    const bool bRequireExactFrame = RshipSubsystem ? RshipSubsystem->IsInboundRequireExactFrame() : false;
+    if (!Queued.bApplyFrameWasExplicit || !bRequireExactFrame)
+    {
+        if (Queued.ApplyFrame <= DomainFrameCounter)
+        {
+            Queued.ApplyFrame = DomainFrameCounter + 1;
+        }
+    }
+
+    auto IsQueuedDataMessageLess = [](const FRship2110ClusterDataMessage& A, const FRship2110ClusterDataMessage& B)
+    {
+        if (A.ApplyFrame != B.ApplyFrame)
+        {
+            return A.ApplyFrame < B.ApplyFrame;
+        }
+        if (A.AuthorityNodeId != B.AuthorityNodeId)
+        {
+            return A.AuthorityNodeId < B.AuthorityNodeId;
+        }
+        return A.Sequence < B.Sequence;
+    };
+
+    for (int32 Index = SyncDomain.PendingDataMessages.Num() - 1; Index >= 0; --Index)
+    {
+        const FRship2110ClusterDataMessage& Existing = SyncDomain.PendingDataMessages[Index];
+        if (Existing.AuthorityNodeId == Queued.AuthorityNodeId && Existing.Sequence == Queued.Sequence)
+        {
+            SyncDomain.PendingDataMessages.RemoveAt(Index);
+        }
+    }
+
+    int32 Low = 0;
+    int32 High = SyncDomain.PendingDataMessages.Num();
+    while (Low < High)
+    {
+        const int32 Mid = (Low + High) / 2;
+        if (IsQueuedDataMessageLess(SyncDomain.PendingDataMessages[Mid], Queued))
+        {
+            Low = Mid + 1;
+        }
+        else
+        {
+            High = Mid;
+        }
+    }
+
+    SyncDomain.PendingDataMessages.Insert(MoveTemp(Queued), FMath::Clamp(Low, 0, SyncDomain.PendingDataMessages.Num()));
+    return true;
+}
+
+FString URship2110Subsystem::MakePreparedStateKey(int32 Epoch, int32 Version, const FString& StateHash) const
+{
+    return FString::Printf(TEXT("%d:%d:%s"), Epoch, Version, *StateHash);
+}
+
+FString URship2110Subsystem::BuildClusterStateCanonicalString(const FRship2110ClusterState& ClusterState) const
+{
+    FString Canonical;
+    Canonical += FString::Printf(
+        TEXT("e=%d|v=%d|f=%lld|a=%s|strict=%d|fo=%d|to=%.4f|auto=%d|acks=%d|pto=%.4f|"),
+        ClusterState.Epoch,
+        ClusterState.Version,
+        ClusterState.ApplyFrame,
+        *ClusterState.ActiveAuthorityNodeId,
+        ClusterState.bStrictNodeOwnership ? 1 : 0,
+        ClusterState.bFailoverEnabled ? 1 : 0,
+        ClusterState.FailoverTimeoutSeconds,
+        ClusterState.bAllowAutoPromotion ? 1 : 0,
+        ClusterState.RequiredAckCount,
+        ClusterState.PrepareTimeoutSeconds);
+
+    TArray<FString> Priority = ClusterState.FailoverPriority;
+    Priority.Sort();
+    Canonical += TEXT("prio=");
+    for (const FString& NodeId : Priority)
+    {
+        Canonical += NodeId;
+        Canonical += TEXT(",");
+    }
+    Canonical += TEXT("|assign=");
+
+    TArray<FRship2110ClusterNodeStreams> Assignments = ClusterState.NodeStreamAssignments;
+    Assignments.Sort([](const FRship2110ClusterNodeStreams& A, const FRship2110ClusterNodeStreams& B)
+    {
+        return A.NodeId < B.NodeId;
+    });
+
+    for (const FRship2110ClusterNodeStreams& Assignment : Assignments)
+    {
+        Canonical += Assignment.NodeId;
+        Canonical += TEXT(":");
+
+        TArray<FString> StreamIds = Assignment.StreamIds;
+        StreamIds.Sort();
+        for (const FString& StreamId : StreamIds)
+        {
+            Canonical += StreamId;
+            Canonical += TEXT(",");
+        }
+        Canonical += TEXT(";");
+    }
+
+    return Canonical;
+}
+
+int32 URship2110Subsystem::GetDiscoveredClusterNodeCount(const FRship2110ClusterState& ClusterState) const
+{
+    TSet<FString> NodeIds;
+    if (!LocalClusterNodeId.IsEmpty())
+    {
+        NodeIds.Add(LocalClusterNodeId);
+    }
+    if (!ClusterState.ActiveAuthorityNodeId.IsEmpty())
+    {
+        NodeIds.Add(ClusterState.ActiveAuthorityNodeId);
+    }
+    for (const FString& NodeId : ClusterState.FailoverPriority)
+    {
+        if (!NodeId.IsEmpty())
+        {
+            NodeIds.Add(NodeId);
+        }
+    }
+    for (const FRship2110ClusterNodeStreams& Assignment : ClusterState.NodeStreamAssignments)
+    {
+        if (!Assignment.NodeId.IsEmpty())
+        {
+            NodeIds.Add(Assignment.NodeId);
+        }
+    }
+    return NodeIds.Num();
+}
+
+int32 URship2110Subsystem::ResolveRequiredAckCount(const FRship2110ClusterPrepareMessage& PrepareMessage) const
+{
+    const int32 DiscoveredNodeCount = FMath::Max(1, GetDiscoveredClusterNodeCount(PrepareMessage.ClusterState));
+    if (PrepareMessage.RequiredAckCount > 0)
+    {
+        return FMath::Clamp(PrepareMessage.RequiredAckCount, 1, DiscoveredNodeCount);
+    }
+    return DiscoveredNodeCount;
+}
+
+bool URship2110Subsystem::HasPrepareAckQuorum(const FPreparedClusterStateEntry& PreparedEntry) const
+{
+    return PreparedEntry.AckedNodeIds.Num() >= ResolveRequiredAckCount(PreparedEntry.Prepare);
+}
+
+bool URship2110Subsystem::FinalizePreparedStateCommit(const FString& StateKey)
+{
+    FPreparedClusterStateEntry* Entry = PreparedClusterStates.Find(StateKey);
+    if (!Entry || Entry->bCommitBroadcast || !HasPrepareAckQuorum(*Entry))
+    {
+        return false;
+    }
+
+    FRship2110ClusterCommitMessage CommitMessage;
+    CommitMessage.AuthorityNodeId = Entry->Prepare.AuthorityNodeId;
+    CommitMessage.Epoch = Entry->Prepare.Epoch;
+    CommitMessage.Version = Entry->Prepare.Version;
+    CommitMessage.ApplyFrame = Entry->Prepare.ApplyFrame;
+    CommitMessage.StateHash = Entry->Prepare.StateHash;
+
+    Entry->bCommitBroadcast = true;
+    OnClusterCommitOutbound.Broadcast(CommitMessage);
+    ReceiveClusterStateCommit(CommitMessage);
+    return true;
+}
+
+void URship2110Subsystem::PurgeExpiredPreparedStates()
+{
+    if (PreparedClusterStates.Num() == 0)
+    {
+        return;
+    }
+
+    const double Now = FPlatformTime::Seconds();
+    TArray<FString> ExpiredKeys;
+    for (const TPair<FString, FPreparedClusterStateEntry>& Pair : PreparedClusterStates)
+    {
+        const float Timeout = FMath::Max(0.1f, Pair.Value.Prepare.ClusterState.PrepareTimeoutSeconds);
+        if ((Now - Pair.Value.CreatedTimeSeconds) >= static_cast<double>(Timeout))
+        {
+            ExpiredKeys.Add(Pair.Key);
+        }
+    }
+
+    for (const FString& Key : ExpiredKeys)
+    {
+        PreparedClusterStates.Remove(Key);
+    }
+}
+
+void URship2110Subsystem::InitializeClusterState()
+{
+    LocalClusterNodeId = ResolveLocalClusterNodeId();
+
+    ActiveClusterState = FRship2110ClusterState();
+    ActiveClusterState.Epoch = 1;
+    ActiveClusterState.Version = 1;
+    ActiveClusterState.ApplyFrame = 0;
+    ActiveClusterState.ActiveAuthorityNodeId = LocalClusterNodeId;
+    ActiveClusterState.bStrictNodeOwnership = true;
+    ActiveClusterState.bFailoverEnabled = true;
+    ActiveClusterState.FailoverTimeoutSeconds = 2.0f;
+    ActiveClusterState.bAllowAutoPromotion = true;
+    ActiveClusterState.RequiredAckCount = 0;
+    ActiveClusterState.PrepareTimeoutSeconds = 3.0f;
+    ActiveClusterState.FailoverPriority = { LocalClusterNodeId };
+
+    PendingClusterStates.Empty();
+    SyncDomains.Empty();
+    PreparedClusterStates.Empty();
+    FRship2110SyncDomainRuntime& DefaultDomain = GetOrCreateSyncDomain(DefaultSyncDomainId);
+    DefaultDomain.SyncRateHz = ClusterSyncRateHz;
+    DefaultDomain.FrameCounter = 0;
+    DefaultDomain.FrameAccumulator = 0.0;
+    DefaultDomain.PendingDataMessages.Empty();
+    DefaultDomain.LastAppliedSequenceByAuthority.Empty();
+    ActiveSyncDomainId = DefaultSyncDomainId;
+    ClusterFrameCounter = 0;
+    ClusterDataSequenceCounter = 0;
+    LastAuthorityHeartbeatTime = FPlatformTime::Seconds();
+    RebuildStreamOwnershipCache();
+
+    UE_LOG(LogRship2110, Log, TEXT("Cluster state initialized. Node=%s Authority=%s"),
+        *LocalClusterNodeId, *ActiveClusterState.ActiveAuthorityNodeId);
+}
+
+FString URship2110Subsystem::ResolveLocalClusterNodeId() const
+{
+    FString CommandLineNodeId;
+    if (FParse::Value(FCommandLine::Get(), TEXT("dc_node="), CommandLineNodeId)
+        || FParse::Value(FCommandLine::Get(), TEXT("DC_NODE="), CommandLineNodeId)
+        || FParse::Value(FCommandLine::Get(), TEXT("rship_node="), CommandLineNodeId))
+    {
+        CommandLineNodeId = CommandLineNodeId.TrimStartAndEnd();
+        if (!CommandLineNodeId.IsEmpty())
+        {
+            return CommandLineNodeId;
+        }
+    }
+
+    const FString EnvNodeId = FPlatformMisc::GetEnvironmentVariable(TEXT("RSHIP_CLUSTER_NODE_ID")).TrimStartAndEnd();
+    if (!EnvNodeId.IsEmpty())
+    {
+        return EnvNodeId;
+    }
+
+    const FString SessionName = FApp::GetSessionName().TrimStartAndEnd();
+    if (!SessionName.IsEmpty())
+    {
+        return SessionName;
+    }
+
+    return FPlatformProcess::ComputerName();
+}
+
+FString URship2110Subsystem::ResolveSyncDomainId(const FString& SyncDomainId) const
+{
+    const FString Trimmed = SyncDomainId.TrimStartAndEnd();
+    return Trimmed.IsEmpty() ? DefaultSyncDomainId : Trimmed;
+}
+
+URship2110Subsystem::FRship2110SyncDomainRuntime& URship2110Subsystem::GetOrCreateSyncDomain(const FString& SyncDomainId)
+{
+    const FString ResolvedSyncDomainId = ResolveSyncDomainId(SyncDomainId);
+    FRship2110SyncDomainRuntime& Domain = SyncDomains.FindOrAdd(ResolvedSyncDomainId);
+    if (Domain.SyncRateHz <= 0.0f)
+    {
+        Domain.SyncRateHz = ClusterSyncRateHz;
+    }
+    return Domain;
+}
+
+const URship2110Subsystem::FRship2110SyncDomainRuntime* URship2110Subsystem::FindSyncDomain(const FString& SyncDomainId) const
+{
+    return SyncDomains.Find(ResolveSyncDomainId(SyncDomainId));
+}
+
+void URship2110Subsystem::TickNonDefaultSyncDomains(float DeltaTime)
+{
+    for (TPair<FString, FRship2110SyncDomainRuntime>& Pair : SyncDomains)
+    {
+        if (Pair.Key.Equals(DefaultSyncDomainId, ESearchCase::IgnoreCase))
+        {
+            continue;
+        }
+
+        FRship2110SyncDomainRuntime& Domain = Pair.Value;
+        const double DomainRateHz = FMath::Max(1.0, static_cast<double>(Domain.SyncRateHz));
+        Domain.FrameAccumulator += static_cast<double>(DeltaTime) * DomainRateHz;
+
+        const int32 RawSyncSteps = FMath::FloorToInt(Domain.FrameAccumulator);
+        const int32 MaxSteps = FMath::Max(1, MaxSyncCatchupSteps);
+        const int32 SyncSteps = FMath::Min(RawSyncSteps, MaxSteps);
+
+        if (RawSyncSteps > MaxSteps)
+        {
+            Domain.FrameAccumulator = 0.0;
+        }
+        else
+        {
+            Domain.FrameAccumulator -= static_cast<double>(SyncSteps);
+        }
+
+        Domain.FrameCounter += SyncSteps;
+        ProcessPendingClusterDataMessagesForDomain(Pair.Key, Domain);
+    }
+}
+
+int64 URship2110Subsystem::GetClusterFrameCounterForDomain(const FString& SyncDomainId) const
+{
+    const FString ResolvedSyncDomainId = ResolveSyncDomainId(SyncDomainId);
+    if (ResolvedSyncDomainId.Equals(DefaultSyncDomainId, ESearchCase::IgnoreCase))
+    {
+        return ClusterFrameCounter;
+    }
+
+    const FRship2110SyncDomainRuntime* Domain = FindSyncDomain(ResolvedSyncDomainId);
+    return Domain ? Domain->FrameCounter : 0;
+}
+
+void URship2110Subsystem::SetClusterSyncRateHz(float InSyncRateHz)
+{
+    ClusterSyncRateHz = FMath::Max(1.0f, InSyncRateHz);
+    FRship2110SyncDomainRuntime& DefaultDomain = GetOrCreateSyncDomain(DefaultSyncDomainId);
+    DefaultDomain.SyncRateHz = ClusterSyncRateHz;
+}
+
+void URship2110Subsystem::SetLocalRenderSubsteps(int32 InSubsteps)
+{
+    LocalRenderSubsteps = FMath::Max(1, InSubsteps);
+}
+
+void URship2110Subsystem::SetMaxSyncCatchupSteps(int32 InMaxSteps)
+{
+    MaxSyncCatchupSteps = FMath::Max(1, InMaxSteps);
+}
+
+void URship2110Subsystem::SetActiveSyncDomainId(const FString& SyncDomainId)
+{
+    ActiveSyncDomainId = ResolveSyncDomainId(SyncDomainId);
+    GetOrCreateSyncDomain(ActiveSyncDomainId);
+}
+
+bool URship2110Subsystem::SetSyncDomainRateHz(const FString& SyncDomainId, float SyncRateHz)
+{
+    if (SyncRateHz <= 0.0f)
+    {
+        return false;
+    }
+
+    const FString ResolvedSyncDomainId = ResolveSyncDomainId(SyncDomainId);
+    if (ResolvedSyncDomainId.Equals(DefaultSyncDomainId, ESearchCase::IgnoreCase))
+    {
+        SetClusterSyncRateHz(SyncRateHz);
+        return true;
+    }
+
+    FRship2110SyncDomainRuntime& Domain = GetOrCreateSyncDomain(ResolvedSyncDomainId);
+    Domain.SyncRateHz = FMath::Max(1.0f, SyncRateHz);
+    return true;
+}
+
+float URship2110Subsystem::GetSyncDomainRateHz(const FString& SyncDomainId) const
+{
+    const FString ResolvedSyncDomainId = ResolveSyncDomainId(SyncDomainId);
+    if (ResolvedSyncDomainId.Equals(DefaultSyncDomainId, ESearchCase::IgnoreCase))
+    {
+        return ClusterSyncRateHz;
+    }
+
+    const FRship2110SyncDomainRuntime* Domain = FindSyncDomain(ResolvedSyncDomainId);
+    return Domain ? Domain->SyncRateHz : 0.0f;
+}
+
+TArray<FString> URship2110Subsystem::GetSyncDomainIds() const
+{
+    TArray<FString> DomainIds;
+    SyncDomains.GetKeys(DomainIds);
+    DomainIds.Sort();
+    return DomainIds;
+}
+
+void URship2110Subsystem::ProcessPendingClusterStates()
+{
+    if (PendingClusterStates.Num() == 0)
+    {
+        return;
+    }
+
+    int32 ApplyCount = 0;
+    const int32 NumPending = PendingClusterStates.Num();
+    for (int32 Index = 0; Index < NumPending; ++Index)
+    {
+        if (PendingClusterStates[Index].ApplyFrame > ClusterFrameCounter)
+        {
+            break;
+        }
+
+        ApplyClusterStateNow(PendingClusterStates[Index]);
+        ++ApplyCount;
+    }
+
+    if (ApplyCount > 0)
+    {
+        PendingClusterStates.RemoveAt(0, ApplyCount, false);
+    }
+}
+
+void URship2110Subsystem::ProcessPendingClusterDataMessages()
+{
+    FRship2110SyncDomainRuntime& DefaultDomain = GetOrCreateSyncDomain(DefaultSyncDomainId);
+    DefaultDomain.SyncRateHz = ClusterSyncRateHz;
+    DefaultDomain.FrameCounter = ClusterFrameCounter;
+    ProcessPendingClusterDataMessagesForDomain(DefaultSyncDomainId, DefaultDomain);
+}
+
+void URship2110Subsystem::ProcessPendingClusterDataMessagesForDomain(const FString& SyncDomainId, FRship2110SyncDomainRuntime& DomainRuntime)
+{
+    if (DomainRuntime.PendingDataMessages.Num() == 0)
+    {
+        return;
+    }
+
+    const bool bIsDefaultDomain = ResolveSyncDomainId(SyncDomainId).Equals(DefaultSyncDomainId, ESearchCase::IgnoreCase);
+    const int64 DomainFrameCounter = bIsDefaultDomain ? ClusterFrameCounter : DomainRuntime.FrameCounter;
+    URshipSubsystem* RshipSubsystem = GetRshipSubsystem();
+    if (!RshipSubsystem)
+    {
+        return;
+    }
+
+    int32 ApplyCount = 0;
+    const int32 NumPending = DomainRuntime.PendingDataMessages.Num();
+    for (int32 Index = 0; Index < NumPending; ++Index)
+    {
+        const FRship2110ClusterDataMessage& DataMessage = DomainRuntime.PendingDataMessages[Index];
+        if (DataMessage.ApplyFrame > DomainFrameCounter)
+        {
+            break;
+        }
+
+        const bool bTargetApplyFrameWasExplicit = bIsDefaultDomain && DataMessage.bApplyFrameWasExplicit;
+        const int64 RshipApplyFrame = bIsDefaultDomain ? DataMessage.ApplyFrame : INDEX_NONE;
+        RshipSubsystem->EnqueueReplicatedInboundMessage(DataMessage.Payload, RshipApplyFrame, bTargetApplyFrameWasExplicit);
+        DomainRuntime.LastAppliedSequenceByAuthority.Add(DataMessage.AuthorityNodeId, DataMessage.Sequence);
+        OnClusterDataApplied.Broadcast(
+            DataMessage.AuthorityNodeId,
+            DataMessage.Epoch,
+            DataMessage.Sequence,
+            DataMessage.ApplyFrame);
+
+        ++ApplyCount;
+    }
+
+    if (ApplyCount > 0)
+    {
+        DomainRuntime.PendingDataMessages.RemoveAt(0, ApplyCount, false);
+    }
+}
+
+bool URship2110Subsystem::ApplyClusterStateNow(const FRship2110ClusterState& ClusterState)
+{
+    if (IsClusterStateStale(ClusterState))
+    {
+        return false;
+    }
+
+    ActiveClusterState = ClusterState;
+    if (ActiveClusterState.FailoverTimeoutSeconds < 0.1f)
+    {
+        ActiveClusterState.FailoverTimeoutSeconds = 0.1f;
+    }
+    if (ActiveClusterState.ActiveAuthorityNodeId.IsEmpty())
+    {
+        ActiveClusterState.ActiveAuthorityNodeId = LocalClusterNodeId;
+    }
+    if (!ActiveClusterState.FailoverPriority.Contains(ActiveClusterState.ActiveAuthorityNodeId))
+    {
+        ActiveClusterState.FailoverPriority.Insert(ActiveClusterState.ActiveAuthorityNodeId, 0);
+    }
+
+    TArray<FString> ConsumedPrepareKeys;
+    for (const TPair<FString, FPreparedClusterStateEntry>& Pair : PreparedClusterStates)
+    {
+        const FRship2110ClusterPrepareMessage& Prepare = Pair.Value.Prepare;
+        if (Prepare.Epoch < ActiveClusterState.Epoch
+            || (Prepare.Epoch == ActiveClusterState.Epoch && Prepare.Version <= ActiveClusterState.Version))
+        {
+            ConsumedPrepareKeys.Add(Pair.Key);
+        }
+    }
+    for (const FString& Key : ConsumedPrepareKeys)
+    {
+        PreparedClusterStates.Remove(Key);
+    }
+
+    RebuildStreamOwnershipCache();
+    LastAuthorityHeartbeatTime = FPlatformTime::Seconds();
+
+    const TArray<FString> ActiveStreams = GetActiveStreamIds();
+    for (const FString& StreamId : ActiveStreams)
+    {
+        URship2110VideoSender* Sender = GetVideoSender(StreamId);
+        if (Sender && Sender->IsStreaming() && !IsStreamOwnedByLocalNode(StreamId))
+        {
+            Sender->StopStream();
+        }
+    }
+
+    OnClusterStateApplied.Broadcast(
+        ActiveClusterState.Epoch,
+        ActiveClusterState.Version,
+        ActiveClusterState.ApplyFrame,
+        ActiveClusterState.ActiveAuthorityNodeId);
+
+    UE_LOG(LogRship2110, Log, TEXT("Applied cluster state epoch=%d version=%d frame=%lld authority=%s"),
+        ActiveClusterState.Epoch,
+        ActiveClusterState.Version,
+        ActiveClusterState.ApplyFrame,
+        *ActiveClusterState.ActiveAuthorityNodeId);
+    return true;
+}
+
+bool URship2110Subsystem::IsClusterStateStale(const FRship2110ClusterState& ClusterState) const
+{
+    if (ClusterState.Epoch < ActiveClusterState.Epoch)
+    {
+        return true;
+    }
+    if (ClusterState.Epoch == ActiveClusterState.Epoch && ClusterState.Version <= ActiveClusterState.Version)
+    {
+        return true;
+    }
+    return false;
+}
+
+void URship2110Subsystem::RebuildStreamOwnershipCache()
+{
+    StreamOwnerNodeCache.Empty();
+    for (const FRship2110ClusterNodeStreams& Assignment : ActiveClusterState.NodeStreamAssignments)
+    {
+        if (Assignment.NodeId.IsEmpty())
+        {
+            continue;
+        }
+        for (const FString& StreamId : Assignment.StreamIds)
+        {
+            if (!StreamId.IsEmpty())
+            {
+                StreamOwnerNodeCache.Add(StreamId, Assignment.NodeId);
+            }
+        }
+    }
+}
+
+bool URship2110Subsystem::IsStreamOwnedByLocalNode(const FString& StreamId) const
+{
+    if (!ActiveClusterState.bStrictNodeOwnership)
+    {
+        return true;
+    }
+    if (LocalClusterNodeId.IsEmpty())
+    {
+        return false;
+    }
+    const FString* OwnerNode = StreamOwnerNodeCache.Find(StreamId);
+    if (!OwnerNode)
+    {
+        return false;
+    }
+    return *OwnerNode == LocalClusterNodeId;
+}
+
+void URship2110Subsystem::HandleAuthoritativeRshipInbound(const FString& Payload, int64 SuggestedApplyFrame)
+{
+    const FString PayloadSyncDomainId = ResolveSyncDomainId(ExtractSyncDomainIdFromPayload(Payload));
+    const int64 DomainApplyFrame = PayloadSyncDomainId.Equals(DefaultSyncDomainId, ESearchCase::IgnoreCase)
+        ? SuggestedApplyFrame
+        : INDEX_NONE;
+    SubmitAuthorityClusterDataMessageForDomain(Payload, PayloadSyncDomainId, DomainApplyFrame);
+}
+
+FString URship2110Subsystem::GetFailoverCandidateNodeId(const FRship2110ClusterState& ClusterState) const
+{
+    for (const FString& NodeId : ClusterState.FailoverPriority)
+    {
+        if (!NodeId.IsEmpty())
+        {
+            return NodeId;
+        }
+    }
+
+    TSet<FString> UniqueNodes;
+    if (!ClusterState.ActiveAuthorityNodeId.IsEmpty())
+    {
+        UniqueNodes.Add(ClusterState.ActiveAuthorityNodeId);
+    }
+    for (const FRship2110ClusterNodeStreams& Assignment : ClusterState.NodeStreamAssignments)
+    {
+        if (!Assignment.NodeId.IsEmpty())
+        {
+            UniqueNodes.Add(Assignment.NodeId);
+        }
+    }
+
+    TArray<FString> Nodes = UniqueNodes.Array();
+    Nodes.Sort();
+    if (Nodes.Num() > 0)
+    {
+        return Nodes[0];
+    }
+
+    return LocalClusterNodeId;
+}
+
+void URship2110Subsystem::EvaluateClusterFailover()
+{
+    if (!ActiveClusterState.bFailoverEnabled || !ActiveClusterState.bAllowAutoPromotion)
+    {
+        return;
+    }
+    if (IsLocalNodeAuthority())
+    {
+        return;
+    }
+    if (ActiveClusterState.ActiveAuthorityNodeId.IsEmpty())
+    {
+        return;
+    }
+
+    const double TimeoutSeconds = FMath::Max(0.1, static_cast<double>(ActiveClusterState.FailoverTimeoutSeconds));
+    const double Now = FPlatformTime::Seconds();
+    if ((Now - LastAuthorityHeartbeatTime) < TimeoutSeconds)
+    {
+        return;
+    }
+
+    const FString CandidateNode = GetFailoverCandidateNodeId(ActiveClusterState);
+    if (CandidateNode != LocalClusterNodeId)
+    {
+        return;
+    }
+
+    UE_LOG(LogRship2110, Warning, TEXT("Authority heartbeat timeout. Promoting local node %s"), *LocalClusterNodeId);
+    PromoteLocalNodeToPrimary(true);
+    LastAuthorityHeartbeatTime = Now;
 }
 
 void URship2110Subsystem::InitializePTPService()

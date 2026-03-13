@@ -18,13 +18,13 @@ set OUTPUT_DIR=%2
 if "%OUTPUT_DIR%"=="" set OUTPUT_DIR=%REPO_ROOT%\dist
 
 set PLUGIN_DIR=%REPO_ROOT%\Plugins\RshipExec
-set UE_ROOT=C:\Program Files\Epic Games\UE_%UE_VERSION%
+if "%UE_ROOT%"=="" set UE_ROOT=C:\Program Files\Epic Games\UE_%UE_VERSION%
 set UAT=%UE_ROOT%\Engine\Build\BatchFiles\RunUAT.bat
 
 REM Verify UE installation
 if not exist "%UAT%" (
     echo Error: Unreal Engine %UE_VERSION% not found at %UE_ROOT%
-    echo Please install UE %UE_VERSION% or specify correct path
+    echo Please install UE %UE_VERSION% or set UE_ROOT to your engine path
     exit /b 1
 )
 
@@ -32,6 +32,12 @@ REM Verify plugin exists
 if not exist "%PLUGIN_DIR%\RshipExec.uplugin" (
     echo Error: RshipExec.uplugin not found at %PLUGIN_DIR%
     exit /b 1
+)
+
+REM Verify content-mapping runtime readiness before packaging.
+if exist "%SCRIPT_DIR%verify-content-mapping-readiness.bat" (
+    call "%SCRIPT_DIR%verify-content-mapping-readiness.bat"
+    if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
 )
 
 REM Create output directory

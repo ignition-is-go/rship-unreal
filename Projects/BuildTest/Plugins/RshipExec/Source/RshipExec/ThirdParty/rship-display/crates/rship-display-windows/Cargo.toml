@@ -1,0 +1,19 @@
+[package]
+name = "rship-display-windows"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+rship-display-core = { path = "../rship-display-core" }
+rship-display-vendor-nv = { path = "../rship-display-vendor-nv" }
+serde_json.workspace = true
+thiserror.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Gdi",
+  "Win32_UI_WindowsAndMessaging",
+] }

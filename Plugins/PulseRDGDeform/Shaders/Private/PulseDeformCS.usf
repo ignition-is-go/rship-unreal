@@ -1,0 +1,80 @@
+#include "/Engine/Private/Common.ush"
+
+Texture2D<float4> RestPositionTex;
+Texture2D<float4> RestNormalTex;
+Texture2D<float> MaskTex;
+RWTexture2D<float4> OutDeformedPositionTex;
+
+Texture2D<float4> DeformedPositionTex;
+RWTexture2D<float4> OutDeformedNormalTex;
+
+int2 GridSize;
+float TimeSeconds;
+float Speed;
+float Amplitude;
+float HeightFrequency;
+float InvCenterWidth;
+
+float3 SafeNormalize(float3 V, float3 Fallback)
+{
+    const float LenSq = dot(V, V);
+    if (LenSq < 1e-10f)
+    {
+        return Fallback;
+    }
+    return V * rsqrt(LenSq);
+}
+
+[numthreads(THREADGROUP_SIZE_X, THREADGROUP_SIZE_Y, 1)]
+void MainDeformCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+    const int2 Pixel = int2(DispatchThreadId.xy);
+    if (Pixel.x >= GridSize.x || Pixel.y >= GridSize.y)
+    {
+        return;
+    }
+
+    const float2 UV = (float2(Pixel) + 0.5f) / float2(GridSize);
+
+    const float3 RestPos = RestPositionTex.Load(int3(Pixel, 0)).xyz;
+    const float3 RestNormal = SafeNormalize(RestNormalTex.Load(int3(Pixel, 0)).xyz, float3(0.0f, 0.0f, 1.0f));
+    const float ColorMask = saturate(MaskTex.Load(int3(Pixel, 0)));
+
+    const float Phase = TimeSeconds * Speed;
+    const float VerticalWave = sin(RestPos.z * HeightFrequency + Phase);
+    const float BaseWave = sin(Phase) * Amplitude;
+
+    const float MidMask = 1.0f - abs(2.0f * UV.y - 1.0f);
+    const float SmoothMask = saturate(MidMask * InvCenterWidth);
+
+    const float FinalOffset = (VerticalWave + BaseWave) * SmoothMask * ColorMask;
+    const float3 DeformedPos = RestPos + RestNormal * FinalOffset;
+
+    OutDeformedPositionTex[Pixel] = float4(DeformedPos, 1.0f);
+}
+
+[numthreads(THREADGROUP_SIZE_X, THREADGROUP_SIZE_Y, 1)]
+void MainNormalCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+    const int2 Pixel = int2(DispatchThreadId.xy);
+    if (Pixel.x >= GridSize.x || Pixel.y >= GridSize.y)
+    {
+        return;
+    }
+
+    const int2 Left = int2(max(Pixel.x - 1, 0), Pixel.y);
+    const int2 Right = int2(min(Pixel.x + 1, GridSize.x - 1), Pixel.y);
+    const int2 Down = int2(Pixel.x, max(Pixel.y - 1, 0));
+    const int2 Up = int2(Pixel.x, min(Pixel.y + 1, GridSize.y - 1));
+
+    const float3 PosL = DeformedPositionTex.Load(int3(Left, 0)).xyz;
+    const float3 PosR = DeformedPositionTex.Load(int3(Right, 0)).xyz;
+    const float3 PosD = DeformedPositionTex.Load(int3(Down, 0)).xyz;
+    const float3 PosU = DeformedPositionTex.Load(int3(Up, 0)).xyz;
+
+    const float3 Dx = PosR - PosL;
+    const float3 Dy = PosU - PosD;
+    const float3 Normal = SafeNormalize(cross(Dx, Dy), float3(0.0f, 0.0f, 1.0f));
+
+    OutDeformedNormalTex[Pixel] = float4(Normal, 1.0f);
+}

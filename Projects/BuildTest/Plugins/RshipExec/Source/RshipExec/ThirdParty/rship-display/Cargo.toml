@@ -1,0 +1,23 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/rship-display-core",
+  "crates/rship-display-windows",
+  "crates/rship-display-vendor-nv",
+  "crates/rship-display-ffi",
+  "crates/rship-display-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Rocketship"]
+license = "MIT"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde", "clock"] }
+clap = { version = "4", features = ["derive"] }

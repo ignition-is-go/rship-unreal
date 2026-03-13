@@ -51,7 +51,7 @@
 
 #include "CoreMinimal.h"
 #include "HAL/CriticalSection.h"
-#include "Containers/Queue.h"
+#include "HAL/PlatformTime.h"
 #include "Dom/JsonObject.h"
 
 // ============================================================================
@@ -186,6 +186,7 @@ struct FRshipRateLimiterConfig
     float InitialBackoffSeconds = 1.0f;
     float MaxBackoffSeconds = 60.0f;
     float BackoffMultiplier = 2.0f;
+    float BackoffJitterPercent = 10.0f;
     int32 MaxRetryCount = 5;
     bool bCriticalBypassBackoff = false;
 
@@ -405,7 +406,31 @@ private:
     // ========================================================================
 
     TArray<FRshipQueuedMessage> MessageQueue;
+    int32 MessageQueueHead = 0;
     int32 QueueBytesEstimate;         // Estimated total bytes in queue
+
+    FORCEINLINE int32 GetActiveMessageQueueCount() const
+    {
+        return MessageQueue.Num() - MessageQueueHead;
+    }
+
+    void CompactMessageQueue_NoLock()
+    {
+        if (MessageQueueHead == 0)
+        {
+            return;
+        }
+
+        if (MessageQueueHead >= MessageQueue.Num())
+        {
+            MessageQueue.Reset();
+            MessageQueueHead = 0;
+            return;
+        }
+
+        MessageQueue.RemoveAt(0, MessageQueueHead, EAllowShrinking::No);
+        MessageQueueHead = 0;
+    }
 
     // ========================================================================
     // BATCHING STATE
@@ -464,14 +489,14 @@ private:
 
     // Queue operations
     void DropExpiredMessages();
-    void CoalesceMessages();
-    void SortQueueByPriority();
     bool ShouldDownsample(const FRshipQueuedMessage& Msg);
     int32 EstimateMessageBytes(const TSharedPtr<FJsonObject>& Payload);
 
     // Batching
     bool FlushBatch();
     bool ShouldFlushBatch() const;
+    bool HasSufficientBatchAppendTokens(const FRshipQueuedMessage& Msg) const;
+    bool HasSufficientBatchTokens() const;
     void AddToBatch(FRshipQueuedMessage& Msg);
 
     // Adaptive rate control

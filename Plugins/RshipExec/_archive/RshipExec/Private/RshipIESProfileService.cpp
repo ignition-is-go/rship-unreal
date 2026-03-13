@@ -11,6 +11,7 @@
 #include "HAL/PlatformFileManager.h"
 #include "Engine/Texture2D.h"
 #include "Engine/TextureLightProfile.h"
+#include "TextureResource.h"
 
 // ============================================================================
 // FRshipIESProfile Implementation
