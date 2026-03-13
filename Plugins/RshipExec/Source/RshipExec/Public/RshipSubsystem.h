@@ -256,6 +256,7 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     void OnWebSocketConnectionError(const FString& Error);
     void OnWebSocketClosed(int32 StatusCode, const FString& Reason, bool bWasClean);
     void OnWebSocketMessage(const FString& Message);
+    void OnWebSocketBinaryMessage(const TArray<uint8>& Message);
 
     void MaybeLogWebSocketSendStats();
     void StartTopologySync(const FString& Reason);

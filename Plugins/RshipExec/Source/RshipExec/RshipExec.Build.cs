@@ -212,6 +212,12 @@ public class RshipExec : ModuleRules
 			}
 		);
 
+		string MsgPackIncludePath = Path.Combine(ModuleDirectory, "ThirdParty", "MsgPack", "include");
+		if (Directory.Exists(MsgPackIncludePath))
+		{
+			PrivateIncludePaths.Add(MsgPackIncludePath);
+		}
+
 		// Editor-only dependencies for viewport selection sync
 		if (Target.bBuildEditor)
 		{

@@ -588,7 +588,16 @@ void URshipSubsystem::Reconnect()
         bIsDisplayClusterProcess ? TEXT("true") : TEXT("false"),
         *InstanceNodeSuffix,
         *InstanceId);
-    ClusterId = ServiceId;
+    ClusterId = FPlatformMisc::GetEnvironmentVariable(TEXT("RS_CLUSTER_ID"));
+    ClusterId.TrimStartAndEndInline();
+    if (ClusterId.IsEmpty())
+    {
+        UE_LOG(LogRshipExec, Log, TEXT("ClusterId unset (RS_CLUSTER_ID not provided)"));
+    }
+    else
+    {
+        UE_LOG(LogRshipExec, Log, TEXT("ClusterId resolved from RS_CLUSTER_ID='%s'"), *ClusterId);
+    }
 
     const URshipSettings *Settings = GetDefault<URshipSettings>();
     FString rshipHostAddress = Settings->rshipHostAddress;
@@ -638,6 +647,7 @@ void URshipSubsystem::Reconnect()
     WebSocket->OnConnectionError.BindUObject(this, &URshipSubsystem::OnWebSocketConnectionError);
     WebSocket->OnClosed.BindUObject(this, &URshipSubsystem::OnWebSocketClosed);
     WebSocket->OnMessage.BindUObject(this, &URshipSubsystem::OnWebSocketMessage);
+    WebSocket->OnBinaryMessage.BindUObject(this, &URshipSubsystem::OnWebSocketBinaryMessage);
 
     // Configure and connect
     FRshipWebSocketConfig Config;
@@ -826,6 +836,18 @@ void URshipSubsystem::OnWebSocketClosed(int32 StatusCode, const FString &Reason,
 void URshipSubsystem::OnWebSocketMessage(const FString &Message)
 {
     ProcessMessage(Message);
+}
+
+void URshipSubsystem::OnWebSocketBinaryMessage(const TArray<uint8>& Message)
+{
+    FString JsonMessage;
+    if (!FRshipMykoTransport::DecodeMsgPackToJsonString(Message, JsonMessage))
+    {
+        UE_LOG(LogRshipExec, Warning, TEXT("Failed to decode msgpack websocket message (%d bytes)"), Message.Num());
+        return;
+    }
+
+    ProcessMessage(JsonMessage);
 }
 
 void URshipSubsystem::ScheduleReconnect()
@@ -1428,8 +1450,9 @@ bool URshipSubsystem::SendJsonDirect(const FString& JsonString)
         return false;
     }
 
-    UE_LOG(LogRshipExec, Verbose, TEXT("Sending: %s"), *JsonString);
+    UE_LOG(LogRshipExec, Verbose, TEXT("Sending json frame (%d chars)"), JsonString.Len());
     const bool bSent = WebSocket->Send(JsonString);
+
     if (bSent)
     {
         ++WebSocketSendSuccessSinceLastLog;
