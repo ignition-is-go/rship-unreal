@@ -248,6 +248,179 @@ bool IsDisplayClusterProcessBestEffort()
 }
 #endif
 
+TSharedPtr<FJsonValue> CloneJsonValueWithoutVolatileFields(const TSharedPtr<FJsonValue>& Value);
+
+TSharedPtr<FJsonObject> CloneJsonObjectWithoutVolatileFields(const TSharedPtr<FJsonObject>& Object)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    if (!Object.IsValid())
+    {
+        return Result;
+    }
+
+    TArray<FString> Keys;
+    Object->Values.GetKeys(Keys);
+    Keys.Sort();
+
+    for (const FString& Key : Keys)
+    {
+        if (Key == TEXT("hash") || Key == TEXT("tx") || Key == TEXT("createdAt") || Key == TEXT("sourceId"))
+        {
+            continue;
+        }
+
+        const TSharedPtr<FJsonValue>* FieldValue = Object->Values.Find(Key);
+        if (!FieldValue || !FieldValue->IsValid())
+        {
+            continue;
+        }
+
+        Result->SetField(Key, CloneJsonValueWithoutVolatileFields(*FieldValue));
+    }
+
+    return Result;
+}
+
+TSharedPtr<FJsonValue> CloneJsonValueWithoutVolatileFields(const TSharedPtr<FJsonValue>& Value)
+{
+    if (!Value.IsValid())
+    {
+        return MakeShared<FJsonValueNull>();
+    }
+
+    switch (Value->Type)
+    {
+    case EJson::Object:
+        return MakeShared<FJsonValueObject>(CloneJsonObjectWithoutVolatileFields(Value->AsObject()));
+    case EJson::Array:
+    {
+        TArray<TSharedPtr<FJsonValue>> Values;
+        for (const TSharedPtr<FJsonValue>& Elem : Value->AsArray())
+        {
+            Values.Add(CloneJsonValueWithoutVolatileFields(Elem));
+        }
+        return MakeShared<FJsonValueArray>(Values);
+    }
+    case EJson::String:
+        return MakeShared<FJsonValueString>(Value->AsString());
+    case EJson::Number:
+        return MakeShared<FJsonValueNumber>(Value->AsNumber());
+    case EJson::Boolean:
+        return MakeShared<FJsonValueBoolean>(Value->AsBool());
+    case EJson::Null:
+    default:
+        return MakeShared<FJsonValueNull>();
+    }
+}
+
+FString CanonicalizeJsonObject(const TSharedPtr<FJsonObject>& Object)
+{
+    FString Output;
+    TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Output);
+    FJsonSerializer::Serialize(CloneJsonObjectWithoutVolatileFields(Object).ToSharedRef(), Writer);
+    return Output;
+}
+
+void AddRemoteItemsById(
+    const TArray<TSharedPtr<FJsonValue>>& Upserts,
+    TMap<FString, TSharedPtr<FJsonObject>>& OutItems)
+{
+    for (const TSharedPtr<FJsonValue>& WrappedValue : Upserts)
+    {
+        if (!WrappedValue.IsValid() || WrappedValue->Type != EJson::Object)
+        {
+            continue;
+        }
+
+        TSharedPtr<FJsonObject> Wrapped = WrappedValue->AsObject();
+        if (!Wrapped.IsValid())
+        {
+            continue;
+        }
+
+        const TSharedPtr<FJsonObject>* ItemPtr = nullptr;
+        if (!Wrapped->TryGetObjectField(TEXT("item"), ItemPtr) || !ItemPtr || !ItemPtr->IsValid())
+        {
+            continue;
+        }
+
+        FString ItemId;
+        if (!(*ItemPtr)->TryGetStringField(TEXT("id"), ItemId) || ItemId.IsEmpty())
+        {
+            continue;
+        }
+
+        OutItems.Add(ItemId, *ItemPtr);
+    }
+}
+
+int32 EstimateJsonValueSize(const TSharedPtr<FJsonValue>& Value)
+{
+    FString Output;
+    TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Output);
+    FJsonSerializer::Serialize(Value.ToSharedRef(), TEXT(""), Writer);
+    return Output.Len();
+}
+
+TArray<TSharedPtr<FJsonObject>> BuildChunkedEventBatches(
+    const TArray<TSharedPtr<FJsonValue>>& PayloadArray)
+{
+    TArray<TSharedPtr<FJsonObject>> Result;
+    if (PayloadArray.Num() == 0)
+    {
+        return Result;
+    }
+
+    const URshipSettings* Settings = GetDefault<URshipSettings>();
+    const int32 MaxBatchBytes = Settings ? FMath::Max(Settings->MaxBatchBytes, 16 * 1024) : 64 * 1024;
+    const int32 WrapperOverheadBytes = 128;
+
+    TArray<TSharedPtr<FJsonValue>> CurrentChunk;
+    int32 CurrentChunkBytes = WrapperOverheadBytes;
+
+    auto FlushChunk = [&]()
+    {
+        if (CurrentChunk.Num() == 0)
+        {
+            return;
+        }
+
+        TSharedPtr<FJsonObject> BatchWrapper = MakeShareable(new FJsonObject);
+        BatchWrapper->SetStringField(TEXT("event"), RshipMykoEventNames::EventBatch);
+        BatchWrapper->SetArrayField(TEXT("data"), CurrentChunk);
+        Result.Add(BatchWrapper);
+
+        CurrentChunk.Reset();
+        CurrentChunkBytes = WrapperOverheadBytes;
+    };
+
+    for (const TSharedPtr<FJsonValue>& EventValue : PayloadArray)
+    {
+        if (!EventValue.IsValid())
+        {
+            continue;
+        }
+
+        const int32 EventBytes = EstimateJsonValueSize(EventValue);
+        const bool bWouldOverflow = CurrentChunk.Num() > 0 && (CurrentChunkBytes + EventBytes + 1) > MaxBatchBytes;
+        if (bWouldOverflow)
+        {
+            FlushChunk();
+        }
+
+        CurrentChunk.Add(EventValue);
+        CurrentChunkBytes += EventBytes + 1;
+
+        if (CurrentChunkBytes >= MaxBatchBytes)
+        {
+            FlushChunk();
+        }
+    }
+
+    FlushChunk();
+    return Result;
+}
+
 }
 
 void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
@@ -278,7 +451,7 @@ void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
 
     // Start queue processing ticker (works in editor without a world)
     const URshipSettings *Settings = GetDefault<URshipSettings>();
-    if (Settings->bEnableRateLimiting)
+    if (!QueueProcessTickerHandle.IsValid())
     {
         QueueProcessTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
             FTickerDelegate::CreateUObject(this, &URshipSubsystem::OnQueueProcessTick),
@@ -301,70 +474,12 @@ void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
 
 void URshipSubsystem::InitializeRateLimiter()
 {
-    const URshipSettings *Settings = GetDefault<URshipSettings>();
-
-    RateLimiter = MakeUnique<FRshipRateLimiter>();
-
-    FRshipRateLimiterConfig Config;
-
-    // Token bucket (messages)
-    Config.MaxMessagesPerSecond = Settings->MaxMessagesPerSecond;
-    Config.MaxBurstSize = Settings->MaxBurstSize;
-
-    // Token bucket (bytes)
-    Config.bEnableBytesRateLimiting = Settings->bEnableBytesRateLimiting;
-    Config.MaxBytesPerSecond = Settings->MaxBytesPerSecond;
-    Config.MaxBurstBytes = Settings->MaxBurstBytes;
-
-    // Queue settings
-    Config.MaxQueueLength = Settings->MaxQueueLength;
-    Config.MessageTimeoutSeconds = Settings->MessageTimeoutSeconds;
-    Config.bEnableCoalescing = Settings->bEnableCoalescing;
-
-    // Batching settings
-    Config.bEnableBatching = Settings->bEnableBatching;
-    Config.MaxBatchMessages = Settings->MaxBatchMessages;
-    Config.MaxBatchBytes = Settings->MaxBatchBytes;
-    Config.MaxBatchIntervalMs = Settings->MaxBatchIntervalMs;
-    Config.bCriticalBypassBatching = Settings->bCriticalBypassBatching;
-
-    // Downsampling settings
-    Config.bEnableDownsampling = Settings->bEnableDownsampling;
-    Config.LowPrioritySampleRate = Settings->LowPrioritySampleRate;
-    Config.NormalPrioritySampleRate = Settings->NormalPrioritySampleRate;
-    Config.QueuePressureThreshold = Settings->QueuePressureThreshold;
-
-    // Adaptive rate control
-    Config.bEnableAdaptiveRate = Settings->bEnableAdaptiveRate;
-    Config.RateIncreaseFactor = Settings->RateIncreaseFactor;
-    Config.RateDecreaseFactor = Settings->RateDecreaseFactor;
-    Config.MinRateFraction = Settings->MinRateFraction;
-    Config.RateAdjustmentInterval = Settings->RateAdjustmentInterval;
-
-    // Backoff settings
-    Config.InitialBackoffSeconds = Settings->InitialBackoffSeconds;
-    Config.MaxBackoffSeconds = Settings->MaxBackoffSeconds;
-    Config.BackoffMultiplier = Settings->BackoffMultiplier;
-    Config.MaxRetryCount = Settings->MaxRetryCount;
-    Config.bCriticalBypassBackoff = Settings->bCriticalBypassBackoff;
-
-    // Diagnostics settings
-    Config.LogVerbosity = Settings->LogVerbosity;
-    Config.bEnableMetrics = Settings->bEnableMetrics;
-    Config.MetricsLogInterval = Settings->MetricsLogInterval;
-    Config.bLogRateLimitEvents = Settings->bLogRateLimitEvents;
-    Config.bLogBatchDetails = Settings->bLogBatchDetails;
-
-    RateLimiter->Initialize(Config);
-
-    // Bind the send callback
-    RateLimiter->OnMessageReadyToSend.BindUObject(this, &URshipSubsystem::SendJsonDirect);
-    RateLimiter->OnRateLimiterStatus.BindUObject(this, &URshipSubsystem::OnRateLimiterStatusChanged);
-
-    UE_LOG(LogRshipExec, Log, TEXT("Rate limiter initialized: %.1f msg/s, burst=%d, queue=%d, batching=%s, adaptive=%s"),
-        Config.MaxMessagesPerSecond, Config.MaxBurstSize, Config.MaxQueueLength,
-        Config.bEnableBatching ? TEXT("ON") : TEXT("OFF"),
-        Config.bEnableAdaptiveRate ? TEXT("ON") : TEXT("OFF"));
+    RateLimiter.Reset();
+    PendingOutboundMessages.Reset();
+    PendingOutboundBytes = 0;
+    MessagesSentPerSecondSnapshot = 0;
+    BytesSentPerSecondSnapshot = 0;
+    UE_LOG(LogRshipExec, Log, TEXT("Outbound pipeline initialized: rate limiting removed, direct send when connected, lossless queue while disconnected"));
 }
 
 void URshipSubsystem::Reconnect()
@@ -473,7 +588,16 @@ void URshipSubsystem::Reconnect()
         bIsDisplayClusterProcess ? TEXT("true") : TEXT("false"),
         *InstanceNodeSuffix,
         *InstanceId);
-    ClusterId = ServiceId;
+    ClusterId = FPlatformMisc::GetEnvironmentVariable(TEXT("RS_CLUSTER_ID"));
+    ClusterId.TrimStartAndEndInline();
+    if (ClusterId.IsEmpty())
+    {
+        UE_LOG(LogRshipExec, Log, TEXT("ClusterId unset (RS_CLUSTER_ID not provided)"));
+    }
+    else
+    {
+        UE_LOG(LogRshipExec, Log, TEXT("ClusterId resolved from RS_CLUSTER_ID='%s'"), *ClusterId);
+    }
 
     const URshipSettings *Settings = GetDefault<URshipSettings>();
     FString rshipHostAddress = Settings->rshipHostAddress;
@@ -523,12 +647,14 @@ void URshipSubsystem::Reconnect()
     WebSocket->OnConnectionError.BindUObject(this, &URshipSubsystem::OnWebSocketConnectionError);
     WebSocket->OnClosed.BindUObject(this, &URshipSubsystem::OnWebSocketClosed);
     WebSocket->OnMessage.BindUObject(this, &URshipSubsystem::OnWebSocketMessage);
+    WebSocket->OnBinaryMessage.BindUObject(this, &URshipSubsystem::OnWebSocketBinaryMessage);
 
     // Configure and connect
     FRshipWebSocketConfig Config;
     Config.bTcpNoDelay = Settings->bTcpNoDelay;
     Config.bDisableCompression = Settings->bDisableCompression;
-    Config.PingIntervalSeconds = Settings->PingIntervalSeconds;
+    // Disable client-side heartbeat during topology replay and bulk sends.
+    Config.PingIntervalSeconds = 0;
     Config.bAutoReconnect = false;  // We handle reconnection ourselves
 
     WebSocket->Connect(WebSocketUrl, Config);
@@ -564,10 +690,7 @@ void URshipSubsystem::SetRemoteCommunicationEnabled(bool bEnabled)
         }
         ConnectionState = ERshipConnectionState::Disconnected;
         ReconnectAttempts = 0;
-        if (RateLimiter)
-        {
-            RateLimiter->ClearQueue();
-        }
+        UE_LOG(LogRshipExec, Log, TEXT("Preserving outbound queue while remote communication is disabled"));
     }
     else
     {
@@ -606,6 +729,15 @@ void URshipSubsystem::ConnectTo(const FString& Host, int32 Port)
     }
 }
 
+void URshipSubsystem::RefreshTargetCache()
+{
+    UE_LOG(LogRshipExec, Log, TEXT("RefreshTargetCache: rebuilding tracked target/action/emitter state"));
+
+    RefreshAllTargetComponents(TEXT("ManualRefresh"));
+    SendInstanceInfo();
+    StartTopologySync(TEXT("ManualRefresh"));
+}
+
 FString URshipSubsystem::GetServerAddress() const
 {
     const URshipSettings* Settings = GetDefault<URshipSettings>();
@@ -624,12 +756,11 @@ void URshipSubsystem::OnWebSocketConnected()
 
     ConnectionState = ERshipConnectionState::Connected;
     ReconnectAttempts = 0;
-
-    // Notify rate limiter of successful connection
-    if (RateLimiter)
-    {
-        RateLimiter->OnConnectionSuccess();
-    }
+    LastWebSocketSendStatsLogTime = FPlatformTime::Seconds();
+    WebSocketSendAttemptsSinceLastLog = 0;
+    WebSocketSendSuccessSinceLastLog = 0;
+    WebSocketSendFailuresSinceLastLog = 0;
+    WebSocketSendBytesSinceLastLog = 0;
 
     // Clear any pending reconnect ticker and connection timeout
     if (ReconnectTickerHandle.IsValid())
@@ -643,44 +774,17 @@ void URshipSubsystem::OnWebSocketConnected()
         ConnectionTimeoutTickerHandle.Reset();
     }
 
-    // DIAGNOSTIC: Send a ping immediately to verify WebSocket send path works
-    // The server will echo this back as ws:m:ping - if we receive it, send/receive is working
-    bPingResponseReceived = false;
-    {
-        int64 Timestamp = FDateTime::UtcNow().ToUnixTimestamp() * 1000 + FDateTime::UtcNow().GetMillisecond();
+    // Send instance identity immediately, then query server state before replaying topology.
+    SendInstanceInfo();
+    StartTopologySync(TEXT("OnWebSocketConnected"));
 
-        TSharedPtr<FJsonObject> PingData = MakeShareable(new FJsonObject);
-        PingData->SetStringField(TEXT("id"), FRshipMykoTransport::GenerateTransactionId());
-        PingData->SetNumberField(TEXT("timestamp"), (double)Timestamp);
-
-        TSharedPtr<FJsonObject> PingPayload = MakeShareable(new FJsonObject);
-        PingPayload->SetStringField(TEXT("event"), TEXT("ws:m:ping"));
-        PingPayload->SetObjectField(TEXT("data"), PingData);
-
-        FString PingJson;
-        TSharedRef<TJsonWriter<>> JsonWriter = TJsonWriterFactory<>::Create(&PingJson);
-        FJsonSerializer::Serialize(PingPayload.ToSharedRef(), JsonWriter);
-
-        UE_LOG(LogRshipExec, Log, TEXT("*** SENDING DIAGNOSTIC PING *** %s"), *PingJson);
-
-        // Send directly to bypass rate limiter for diagnostic
-        if (WebSocket.IsValid())
-        {
-            WebSocket->Send(PingJson);
-        }
-    }
-
-    // Send registration data
-    SendAll();
-
-    // Force immediate queue processing - the timer may not be running yet
-    // (world timer manager may not be ready at subsystem init time)
-    UE_LOG(LogRshipExec, Log, TEXT("Forcing immediate queue processing after SendAll"));
+    // Force immediate queue processing - the timer may not be running yet.
+    UE_LOG(LogRshipExec, Log, TEXT("Forcing immediate queue processing after topology sync start"));
     ProcessMessageQueue();
 
     // Ensure queue processing ticker is running (may have failed during early init)
     const URshipSettings* Settings = GetDefault<URshipSettings>();
-    if (Settings->bEnableRateLimiting && !QueueProcessTickerHandle.IsValid())
+    if (!QueueProcessTickerHandle.IsValid())
     {
         UE_LOG(LogRshipExec, Log, TEXT("Starting queue processing ticker (was not running)"));
         QueueProcessTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
@@ -695,6 +799,7 @@ void URshipSubsystem::OnWebSocketConnectionError(const FString &Error)
     UE_LOG(LogRshipExec, Warning, TEXT("WebSocket connection error: %s"), *Error);
 
     ConnectionState = ERshipConnectionState::Disconnected;
+    TopologySyncState = FRshipTopologySyncState();
 
     // Clear connection timeout
     if (ConnectionTimeoutTickerHandle.IsValid())
@@ -703,15 +808,9 @@ void URshipSubsystem::OnWebSocketConnectionError(const FString &Error)
         ConnectionTimeoutTickerHandle.Reset();
     }
 
-    // Notify rate limiter
-    if (RateLimiter)
-    {
-        RateLimiter->OnConnectionError();
-    }
-
     // Schedule reconnection if enabled
     const URshipSettings *Settings = GetDefault<URshipSettings>();
-    if (Settings->bAutoReconnect && bRemoteCommunicationEnabled)
+    if (Settings->bAutoReconnect && bRemoteCommunicationEnabled && !bIsManuallyReconnecting)
     {
         ScheduleReconnect();
     }
@@ -723,21 +822,12 @@ void URshipSubsystem::OnWebSocketClosed(int32 StatusCode, const FString &Reason,
         StatusCode, *Reason, bWasClean);
 
     ConnectionState = ERshipConnectionState::Disconnected;
+    TopologySyncState = FRshipTopologySyncState();
 
-    // Handle rate limit response (HTTP 429 or similar status codes indicating rate limiting)
-    if (StatusCode == 429 || StatusCode == 1008)  // 1008 = Policy Violation
-    {
-        UE_LOG(LogRshipExec, Warning, TEXT("Rate limit detected from server (code %d)"), StatusCode);
-        if (RateLimiter)
-        {
-            RateLimiter->OnRateLimitError();
-        }
-    }
-
-    // Schedule reconnection if enabled and this wasn't a clean close
-    // Skip if we're in the middle of a manual reconnect (user called Reconnect())
+    // Schedule reconnection for any socket close while remote communication is enabled.
+    // Skip only if we're in the middle of a manual reconnect (user called Reconnect()).
     const URshipSettings *Settings = GetDefault<URshipSettings>();
-    if (Settings->bAutoReconnect && bRemoteCommunicationEnabled && !bWasClean && !bIsManuallyReconnecting)
+    if (Settings->bAutoReconnect && bRemoteCommunicationEnabled && !bIsManuallyReconnecting)
     {
         ScheduleReconnect();
     }
@@ -746,6 +836,18 @@ void URshipSubsystem::OnWebSocketClosed(int32 StatusCode, const FString &Reason,
 void URshipSubsystem::OnWebSocketMessage(const FString &Message)
 {
     ProcessMessage(Message);
+}
+
+void URshipSubsystem::OnWebSocketBinaryMessage(const TArray<uint8>& Message)
+{
+    FString JsonMessage;
+    if (!FRshipMykoTransport::DecodeMsgPackToJsonString(Message, JsonMessage))
+    {
+        UE_LOG(LogRshipExec, Warning, TEXT("Failed to decode msgpack websocket message (%d bytes)"), Message.Num());
+        return;
+    }
+
+    ProcessMessage(JsonMessage);
 }
 
 void URshipSubsystem::ScheduleReconnect()
@@ -757,24 +859,19 @@ void URshipSubsystem::ScheduleReconnect()
     }
     const URshipSettings *Settings = GetDefault<URshipSettings>();
 
-    // Check max reconnect attempts
-    if (Settings->MaxReconnectAttempts > 0 && ReconnectAttempts >= Settings->MaxReconnectAttempts)
-    {
-        UE_LOG(LogRshipExec, Error, TEXT("Max reconnect attempts (%d) reached, giving up"), Settings->MaxReconnectAttempts);
-        ConnectionState = ERshipConnectionState::Disconnected;
-        return;
-    }
-
     // Calculate backoff delay
-    float BackoffDelay = Settings->InitialBackoffSeconds *
-        FMath::Pow(Settings->BackoffMultiplier, static_cast<float>(ReconnectAttempts));
-    BackoffDelay = FMath::Min(BackoffDelay, Settings->MaxBackoffSeconds);
+    constexpr float MaxReconnectBackoffSeconds = 5.0f;
+    const float InitialBackoffSeconds = Settings ? FMath::Max(Settings->InitialBackoffSeconds, 0.1f) : 1.0f;
+    const float BackoffMultiplier = Settings ? FMath::Max(Settings->BackoffMultiplier, 1.0f) : 2.0f;
+    float BackoffDelay = InitialBackoffSeconds *
+        FMath::Pow(BackoffMultiplier, static_cast<float>(ReconnectAttempts));
+    BackoffDelay = FMath::Min(BackoffDelay, MaxReconnectBackoffSeconds);
 
     ReconnectAttempts++;
     ConnectionState = ERshipConnectionState::BackingOff;
 
-    UE_LOG(LogRshipExec, Log, TEXT("Scheduling reconnect attempt %d in %.1f seconds"),
-        ReconnectAttempts, BackoffDelay);
+    UE_LOG(LogRshipExec, Log, TEXT("Scheduling reconnect attempt %d in %.1f seconds (continuous retry, capped at %.1fs)"),
+        ReconnectAttempts, BackoffDelay, MaxReconnectBackoffSeconds);
 
     // Schedule reconnect using ticker (works in editor without a world)
     if (ReconnectTickerHandle.IsValid())
@@ -816,7 +913,7 @@ void URshipSubsystem::OnConnectionTimeout()
 
     // Schedule reconnection if enabled
     const URshipSettings* Settings = GetDefault<URshipSettings>();
-    if (Settings->bAutoReconnect && bRemoteCommunicationEnabled)
+    if (Settings->bAutoReconnect && bRemoteCommunicationEnabled && !bIsManuallyReconnecting)
     {
         ScheduleReconnect();
     }
@@ -977,18 +1074,6 @@ void URshipSubsystem::HandleBlueprintCompiled()
 }
 #endif
 
-void URshipSubsystem::OnRateLimiterStatusChanged(bool bIsBackingOff, float BackoffSeconds)
-{
-    if (bIsBackingOff)
-    {
-        UE_LOG(LogRshipExec, Warning, TEXT("Rate limiter backing off for %.1f seconds"), BackoffSeconds);
-    }
-    else
-    {
-        UE_LOG(LogRshipExec, Log, TEXT("Rate limiter backoff ended"));
-    }
-}
-
 // Ticker callbacks - return true to keep ticking, false to stop
 // These check IsValid() to handle hot reload safely
 
@@ -1036,15 +1121,9 @@ bool URshipSubsystem::OnConnectionTimeoutTick(float DeltaTime)
 
 void URshipSubsystem::ProcessMessageQueue()
 {
-    if (!RateLimiter)
-    {
-        return;
-    }
-
-    // Use actual WebSocket connection state, not internal enum (they can get out of sync)
     if (!IsConnected())
     {
-        int32 QueueSize = RateLimiter->GetQueueLength();
+        const int32 QueueSize = PendingOutboundMessages.Num();
         if (QueueSize > 0)
         {
             UE_LOG(LogRshipExec, Warning, TEXT("ProcessMessageQueue: Not connected (State=%d), %d messages waiting"),
@@ -1053,17 +1132,38 @@ void URshipSubsystem::ProcessMessageQueue()
         return;
     }
 
-    int32 QueueSize = RateLimiter->GetQueueLength();
+    const int32 QueueSize = PendingOutboundMessages.Num();
     if (QueueSize > 0)
     {
         UE_LOG(LogRshipExec, VeryVerbose, TEXT("ProcessMessageQueue: Queue has %d messages, processing..."), QueueSize);
     }
 
-    int32 Sent = RateLimiter->ProcessQueue();
+    int32 Sent = 0;
+    while (PendingOutboundMessages.Num() > 0)
+    {
+        FRshipQueuedMessage Message = PendingOutboundMessages[0];
+        FString JsonString;
+        TSharedRef<TJsonWriter<>> JsonWriter = TJsonWriterFactory<>::Create(&JsonString);
+        if (!Message.Payload.IsValid() || !FJsonSerializer::Serialize(Message.Payload.ToSharedRef(), JsonWriter))
+        {
+            PendingOutboundBytes = FMath::Max(0, PendingOutboundBytes - Message.EstimatedBytes);
+            PendingOutboundMessages.RemoveAt(0);
+            continue;
+        }
+
+        if (!SendJsonDirect(JsonString))
+        {
+            break;
+        }
+
+        PendingOutboundBytes = FMath::Max(0, PendingOutboundBytes - Message.EstimatedBytes);
+        PendingOutboundMessages.RemoveAt(0);
+        ++Sent;
+    }
 
     if (Sent > 0 || QueueSize > 0)
     {
-        UE_LOG(LogRshipExec, VeryVerbose, TEXT("ProcessMessageQueue: Sent %d messages, %d remaining"), Sent, RateLimiter->GetQueueLength());
+        UE_LOG(LogRshipExec, VeryVerbose, TEXT("ProcessMessageQueue: Sent %d messages, %d remaining"), Sent, PendingOutboundMessages.Num());
     }
 }
 
@@ -1083,6 +1183,8 @@ void URshipSubsystem::TickSubsystems()
 #if RSHIP_HAS_DISPLAY_CLUSTER
     UpdateRenderDomainMetadata();
 #endif
+
+    CheckTopologySyncTimeout();
 
     // Process message queue every tick to ensure messages are sent
     ProcessMessageQueue();
@@ -1294,49 +1396,43 @@ void URshipSubsystem::ProcessPendingExecTargetActions()
 void URshipSubsystem::QueueMessage(TSharedPtr<FJsonObject> Payload, ERshipMessagePriority Priority,
                                     ERshipMessageType Type, const FString& CoalesceKey)
 {
-    if (!bRemoteCommunicationEnabled)
-    {
-        return;
-    }
-    const URshipSettings *Settings = GetDefault<URshipSettings>();
-
-    // If rate limiting is disabled, send directly
-    if (!Settings->bEnableRateLimiting || !RateLimiter)
+    if (IsConnected())
     {
         FString JsonString;
         TSharedRef<TJsonWriter<>> JsonWriter = TJsonWriterFactory<>::Create(&JsonString);
-        if (FJsonSerializer::Serialize(Payload.ToSharedRef(), JsonWriter))
+        if (FJsonSerializer::Serialize(Payload.ToSharedRef(), JsonWriter) && SendJsonDirect(JsonString))
         {
-            SendJsonDirect(JsonString);
+            return;
         }
-        return;
     }
 
-    // Queue through rate limiter
-    if (!RateLimiter->EnqueueMessage(Payload, Priority, Type, CoalesceKey))
+    FRshipQueuedMessage Message(Payload, Priority, Type, CoalesceKey);
+    FString JsonString;
+    TSharedRef<TJsonWriter<>> JsonWriter = TJsonWriterFactory<>::Create(&JsonString);
+    if (Payload.IsValid() && FJsonSerializer::Serialize(Payload.ToSharedRef(), JsonWriter))
     {
-        UE_LOG(LogRshipExec, Warning, TEXT("Failed to enqueue message (queue full)"));
+        Message.EstimatedBytes = JsonString.Len();
     }
-    else
-    {
-        UE_LOG(LogRshipExec, VeryVerbose, TEXT("Enqueued message (Key=%s, QueueLen=%d)"), *CoalesceKey, RateLimiter->GetQueueLength());
-    }
+    PendingOutboundBytes += Message.EstimatedBytes;
+    PendingOutboundMessages.Add(MoveTemp(Message));
+    UE_LOG(LogRshipExec, VeryVerbose, TEXT("Enqueued message (Key=%s, QueueLen=%d)"), *CoalesceKey, PendingOutboundMessages.Num());
 
-    // If the queue processing ticker isn't running, immediately process the queue
-    // Use IsConnected() to check actual WebSocket state
     if (!QueueProcessTickerHandle.IsValid() && IsConnected())
     {
         ProcessMessageQueue();
     }
 }
 
-void URshipSubsystem::SendJsonDirect(const FString& JsonString)
+bool URshipSubsystem::SendJsonDirect(const FString& JsonString)
 {
     if (!bRemoteCommunicationEnabled)
     {
-        return;
+        ++WebSocketSendFailuresSinceLastLog;
+        MaybeLogWebSocketSendStats();
+        return false;
     }
     bool bConnected = WebSocket.IsValid() && WebSocket->IsConnected();
+    ++WebSocketSendAttemptsSinceLastLog;
 
     if (!bConnected)
     {
@@ -1349,12 +1445,463 @@ void URshipSubsystem::SendJsonDirect(const FString& JsonString)
                 ScheduleReconnect();
             }
         }
+        ++WebSocketSendFailuresSinceLastLog;
+        MaybeLogWebSocketSendStats();
+        return false;
+    }
+
+    UE_LOG(LogRshipExec, Verbose, TEXT("Sending json frame (%d chars)"), JsonString.Len());
+    const bool bSent = WebSocket->Send(JsonString);
+
+    if (bSent)
+    {
+        ++WebSocketSendSuccessSinceLastLog;
+        WebSocketSendBytesSinceLastLog += JsonString.Len();
+    }
+    else
+    {
+        ++WebSocketSendFailuresSinceLastLog;
+    }
+    MaybeLogWebSocketSendStats();
+    return bSent;
+}
+
+void URshipSubsystem::MaybeLogWebSocketSendStats()
+{
+    const double Now = FPlatformTime::Seconds();
+    if (LastWebSocketSendStatsLogTime <= 0.0)
+    {
+        LastWebSocketSendStatsLogTime = Now;
         return;
     }
 
-    UE_LOG(LogRshipExec, Verbose, TEXT("Sending: %s"), *JsonString);
+    const double Elapsed = Now - LastWebSocketSendStatsLogTime;
+    if (Elapsed < 1.0)
+    {
+        return;
+    }
 
-    WebSocket->Send(JsonString);
+    UE_LOG(
+        LogRshipExec,
+        Log,
+        TEXT("WebSocket send last_%0.1fs attempts=%lld success=%lld failed=%lld bytes=%lld queue=%d pending_socket=%d state=%d"),
+        Elapsed,
+        WebSocketSendAttemptsSinceLastLog,
+        WebSocketSendSuccessSinceLastLog,
+        WebSocketSendFailuresSinceLastLog,
+        WebSocketSendBytesSinceLastLog,
+        PendingOutboundMessages.Num(),
+        WebSocket.IsValid() ? WebSocket->GetPendingSendCount() : 0,
+        static_cast<int32>(ConnectionState)
+    );
+
+    LastWebSocketSendStatsLogTime = Now;
+    MessagesSentPerSecondSnapshot = static_cast<int32>(WebSocketSendSuccessSinceLastLog);
+    BytesSentPerSecondSnapshot = static_cast<int32>(WebSocketSendBytesSinceLastLog);
+    WebSocketSendAttemptsSinceLastLog = 0;
+    WebSocketSendSuccessSinceLastLog = 0;
+    WebSocketSendFailuresSinceLastLog = 0;
+    WebSocketSendBytesSinceLastLog = 0;
+}
+
+void URshipSubsystem::StartTopologySync(const FString& Reason)
+{
+    if (!IsConnected())
+    {
+        UE_LOG(LogRshipExec, Warning, TEXT("Topology sync skipped: socket not connected (reason=%s); falling back to SendAll"), *Reason);
+        SendAll();
+        return;
+    }
+
+    if (TopologySyncState.bInFlight)
+    {
+        TopologySyncState.PendingReason = Reason;
+        UE_LOG(LogRshipExec, Log, TEXT("Topology sync already in flight; queued follow-up reason=%s current=%s"),
+            *Reason, *TopologySyncState.Reason);
+        return;
+    }
+
+    TopologySyncState = FRshipTopologySyncState();
+    TopologySyncState.bInFlight = true;
+    TopologySyncState.Reason = Reason;
+    TopologySyncState.StartedAtSeconds = FPlatformTime::Seconds();
+    TopologySyncSnapshot = FRshipTopologySyncSnapshot();
+    TopologySyncSnapshot.bInFlight = true;
+    TopologySyncSnapshot.bLastSyncSucceeded = false;
+    TopologySyncSnapshot.Reason = Reason;
+    TopologySyncSnapshot.StartedAtSeconds = TopologySyncState.StartedAtSeconds;
+
+    TSharedRef<FJsonObject> TargetsQuery = MakeShared<FJsonObject>();
+    TargetsQuery->SetStringField(TEXT("serviceId"), ServiceId);
+
+    TSharedRef<FJsonObject> ActionsQuery = MakeShared<FJsonObject>();
+    ActionsQuery->SetStringField(TEXT("serviceId"), ServiceId);
+
+    TSharedRef<FJsonObject> EmittersQuery = MakeShared<FJsonObject>();
+    EmittersQuery->SetStringField(TEXT("serviceId"), ServiceId);
+
+    TSharedRef<FJsonObject> StatusQuery = MakeShared<FJsonObject>();
+    StatusQuery->SetStringField(TEXT("instanceId"), InstanceId);
+
+    const bool bSentAll =
+        SendQueryRequest(TEXT("GetTargetsByQuery"), TEXT("Target"), TargetsQuery, ERshipSyncQueryKind::Targets) &&
+        SendQueryRequest(TEXT("GetActionsByQuery"), TEXT("Action"), ActionsQuery, ERshipSyncQueryKind::Actions) &&
+        SendQueryRequest(TEXT("GetEmittersByQuery"), TEXT("Emitter"), EmittersQuery, ERshipSyncQueryKind::Emitters) &&
+        SendQueryRequest(TEXT("GetTargetStatussByQuery"), TEXT("TargetStatus"), StatusQuery, ERshipSyncQueryKind::TargetStatuses);
+
+    if (!bSentAll)
+    {
+        FailTopologySync(TEXT("Failed to send one or more topology queries"));
+        return;
+    }
+
+    UE_LOG(LogRshipExec, Log, TEXT("Topology sync started: reason=%s queries=%d service=%s instance=%s"),
+        *Reason, TopologySyncState.PendingQueries.Num(), *ServiceId, *InstanceId);
+}
+
+bool URshipSubsystem::SendQueryRequest(
+    const FString& QueryId,
+    const FString& QueryItemType,
+    const TSharedRef<FJsonObject>& QueryPayload,
+    ERshipSyncQueryKind Kind)
+{
+    const FString TxId = FRshipMykoTransport::GenerateTransactionId();
+    QueryPayload->SetStringField(TEXT("tx"), TxId);
+    QueryPayload->SetStringField(TEXT("createdAt"), FRshipMykoTransport::GetIso8601Timestamp());
+
+    TSharedPtr<FJsonObject> Data = MakeShared<FJsonObject>();
+    Data->SetStringField(TEXT("queryId"), QueryId);
+    Data->SetStringField(TEXT("queryItemType"), QueryItemType);
+    Data->SetObjectField(TEXT("query"), QueryPayload);
+
+    TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+    Payload->SetStringField(TEXT("event"), RshipMykoEventNames::Query);
+    Payload->SetObjectField(TEXT("data"), Data);
+
+    FString JsonString;
+    TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&JsonString);
+    FJsonSerializer::Serialize(Payload.ToSharedRef(), Writer);
+
+    FRshipPendingSyncQuery Pending;
+    Pending.TxId = TxId;
+    Pending.QueryId = QueryId;
+    Pending.QueryItemType = QueryItemType;
+    Pending.Kind = Kind;
+    Pending.StartedAtSeconds = FPlatformTime::Seconds();
+    TopologySyncState.PendingQueries.Add(TxId, Pending);
+
+    const bool bSent = SendJsonDirect(JsonString);
+    if (!bSent)
+    {
+        TopologySyncState.PendingQueries.Remove(TxId);
+        UE_LOG(LogRshipExec, Warning, TEXT("Topology query send failed: queryId=%s tx=%s"), *QueryId, *TxId);
+    }
+
+    return bSent;
+}
+
+void URshipSubsystem::CancelQuerySubscription(const FString& TxId)
+{
+    if (TxId.IsEmpty())
+    {
+        return;
+    }
+
+    TSharedPtr<FJsonObject> Data = MakeShared<FJsonObject>();
+    Data->SetStringField(TEXT("tx"), TxId);
+
+    TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+    Payload->SetStringField(TEXT("event"), RshipMykoEventNames::QueryCancel);
+    Payload->SetObjectField(TEXT("data"), Data);
+
+    FString JsonString;
+    TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&JsonString);
+    FJsonSerializer::Serialize(Payload.ToSharedRef(), Writer);
+    SendJsonDirect(JsonString);
+}
+
+void URshipSubsystem::HandleQueryResponse(const TSharedPtr<FJsonObject>& DataObj)
+{
+    if (!TopologySyncState.bInFlight || !DataObj.IsValid())
+    {
+        return;
+    }
+
+    FString TxId;
+    if (!DataObj->TryGetStringField(TEXT("tx"), TxId) || TxId.IsEmpty())
+    {
+        return;
+    }
+
+    FRshipPendingSyncQuery* Pending = TopologySyncState.PendingQueries.Find(TxId);
+    if (!Pending || Pending->bCompleted)
+    {
+        return;
+    }
+
+    const TArray<TSharedPtr<FJsonValue>>* Upserts = nullptr;
+    if (DataObj->TryGetArrayField(TEXT("upserts"), Upserts) && Upserts)
+    {
+        switch (Pending->Kind)
+        {
+        case ERshipSyncQueryKind::Targets:
+            AddRemoteItemsById(*Upserts, TopologySyncState.RemoteTargets);
+            break;
+        case ERshipSyncQueryKind::Actions:
+            AddRemoteItemsById(*Upserts, TopologySyncState.RemoteActions);
+            break;
+        case ERshipSyncQueryKind::Emitters:
+            AddRemoteItemsById(*Upserts, TopologySyncState.RemoteEmitters);
+            break;
+        case ERshipSyncQueryKind::TargetStatuses:
+            AddRemoteItemsById(*Upserts, TopologySyncState.RemoteTargetStatuses);
+            break;
+        }
+    }
+
+    Pending->bCompleted = true;
+    UE_LOG(LogRshipExec, Log, TEXT("Topology query response: reason=%s queryId=%s tx=%s upserts=%d"),
+        *TopologySyncState.Reason, *Pending->QueryId, *TxId, Upserts ? Upserts->Num() : 0);
+    CancelQuerySubscription(TxId);
+    CompleteTopologySyncIfReady();
+}
+
+void URshipSubsystem::HandleQueryError(const TSharedPtr<FJsonObject>& DataObj)
+{
+    if (!TopologySyncState.bInFlight || !DataObj.IsValid())
+    {
+        return;
+    }
+
+    FString TxId;
+    FString Message;
+    DataObj->TryGetStringField(TEXT("tx"), TxId);
+    DataObj->TryGetStringField(TEXT("message"), Message);
+
+    FRshipPendingSyncQuery* Pending = TopologySyncState.PendingQueries.Find(TxId);
+    if (!Pending)
+    {
+        return;
+    }
+
+    FailTopologySync(FString::Printf(TEXT("Query error for %s: %s"), *Pending->QueryId, *Message));
+}
+
+void URshipSubsystem::FailTopologySync(const FString& Reason)
+{
+    const FString CurrentReason = TopologySyncState.Reason;
+    TArray<FString> PendingTxIds;
+    TopologySyncState.PendingQueries.GetKeys(PendingTxIds);
+    for (const FString& TxId : PendingTxIds)
+    {
+        CancelQuerySubscription(TxId);
+    }
+
+    const FString QueuedReason = TopologySyncState.PendingReason;
+    TopologySyncSnapshot.bInFlight = false;
+    TopologySyncSnapshot.bLastSyncSucceeded = false;
+    TopologySyncSnapshot.Reason = CurrentReason;
+    TopologySyncSnapshot.Detail = Reason;
+    TopologySyncSnapshot.CompletedAtSeconds = FPlatformTime::Seconds();
+    TopologySyncState = FRshipTopologySyncState();
+
+    UE_LOG(LogRshipExec, Warning, TEXT("Topology sync failed: reason=%s detail=%s; falling back to SendAll"),
+        *CurrentReason, *Reason);
+    SendAll();
+
+    if (!QueuedReason.IsEmpty())
+    {
+        StartTopologySync(QueuedReason);
+    }
+}
+
+void URshipSubsystem::CompleteTopologySyncIfReady()
+{
+    if (!TopologySyncState.bInFlight)
+    {
+        return;
+    }
+
+    for (const TPair<FString, FRshipPendingSyncQuery>& Pair : TopologySyncState.PendingQueries)
+    {
+        if (!Pair.Value.bCompleted)
+        {
+            return;
+        }
+    }
+
+    FlushTopologyDiff();
+
+    const FString QueuedReason = TopologySyncState.PendingReason;
+    TopologySyncState = FRshipTopologySyncState();
+    if (!QueuedReason.IsEmpty())
+    {
+        StartTopologySync(QueuedReason);
+    }
+}
+
+void URshipSubsystem::FlushTopologyDiff()
+{
+    TMap<FString, TSharedPtr<FJsonObject>> DesiredTargets;
+    TMap<FString, TSharedPtr<FJsonObject>> DesiredActions;
+    TMap<FString, TSharedPtr<FJsonObject>> DesiredEmitters;
+    TMap<FString, TSharedPtr<FJsonObject>> DesiredStatuses;
+
+    const URshipSettings* Settings = GetDefault<URshipSettings>();
+    const FColor SRGBColor = Settings->ServiceColor.ToFColor(true);
+    const FString ColorHex = FString::Printf(TEXT("#%02X%02X%02X"), SRGBColor.R, SRGBColor.G, SRGBColor.B);
+
+    for (const TPair<Target*, FManagedTargetSnapshot>& Pair : ManagedTargetSnapshots)
+    {
+        Target* ManagedTarget = Pair.Key;
+        if (!ManagedTarget)
+        {
+            continue;
+        }
+
+        TArray<FString> ActionIds;
+        TArray<FString> EmitterIds;
+        ActionIds.Reserve(ManagedTarget->GetActions().Num());
+        EmitterIds.Reserve(ManagedTarget->GetEmitters().Num());
+
+        for (const auto& ActionPair : ManagedTarget->GetActions())
+        {
+            FRshipActionRecord Record;
+            Record.Id = ActionPair.Value.Id;
+            Record.Name = ActionPair.Value.Name;
+            Record.TargetId = ManagedTarget->GetId();
+            Record.ServiceId = ServiceId;
+            Record.Schema = ActionPair.Value.GetSchema();
+            DesiredActions.Add(Record.Id, FRshipEntitySerializer::ToJson(Record));
+            ActionIds.Add(Record.Id);
+        }
+
+        for (const auto& EmitterPair : ManagedTarget->GetEmitters())
+        {
+            FRshipEmitterRecord Record;
+            Record.Id = EmitterPair.Value.Id;
+            Record.Name = EmitterPair.Value.Name;
+            Record.TargetId = ManagedTarget->GetId();
+            Record.ServiceId = ServiceId;
+            Record.Schema = EmitterPair.Value.GetSchema();
+            DesiredEmitters.Add(Record.Id, FRshipEntitySerializer::ToJson(Record));
+            EmitterIds.Add(Record.Id);
+        }
+
+        ActionIds.Sort();
+        EmitterIds.Sort();
+
+        FRshipTargetRecord TargetRecord;
+        TargetRecord.Id = ManagedTarget->GetId();
+        TargetRecord.Name = ManagedTarget->GetName();
+        TargetRecord.ServiceId = ServiceId;
+        TargetRecord.Category = TEXT("default");
+        TargetRecord.ForegroundColor = ColorHex;
+        TargetRecord.BackgroundColor = ColorHex;
+        TargetRecord.ActionIds = ActionIds;
+        TargetRecord.EmitterIds = EmitterIds;
+        TargetRecord.ParentTargetIds = ManagedTarget->GetParentTargetIds();
+        TargetRecord.bRootLevel = TargetRecord.ParentTargetIds.Num() == 0;
+
+        if (URshipActorRegistrationComponent* TargetComp = ManagedTarget->GetBoundTargetComponent())
+        {
+            TargetRecord.Category = TargetComp->Category.IsEmpty() ? TEXT("default") : TargetComp->Category;
+            TargetRecord.Tags = TargetComp->Tags;
+            TargetRecord.GroupIds = TargetComp->GroupIds;
+            TargetRecord.Tags.Sort();
+            TargetRecord.GroupIds.Sort();
+        }
+
+        DesiredTargets.Add(TargetRecord.Id, FRshipEntitySerializer::ToJson(TargetRecord));
+
+        FRshipTargetStatusRecord StatusRecord;
+        StatusRecord.Id = ManagedTarget->GetId();
+        StatusRecord.TargetId = ManagedTarget->GetId();
+        StatusRecord.InstanceId = InstanceId;
+        StatusRecord.Status = TEXT("online");
+        DesiredStatuses.Add(StatusRecord.Id, FRshipEntitySerializer::ToJson(StatusRecord));
+    }
+
+    int32 TargetsSent = 0;
+    int32 ActionsSent = 0;
+    int32 EmittersSent = 0;
+    int32 StatusesSent = 0;
+
+    BeginRegistrationBatch();
+
+    for (const TPair<FString, TSharedPtr<FJsonObject>>& Pair : DesiredTargets)
+    {
+        const TSharedPtr<FJsonObject>* Remote = TopologySyncState.RemoteTargets.Find(Pair.Key);
+        if (!Remote || CanonicalizeJsonObject(*Remote) != CanonicalizeJsonObject(Pair.Value))
+        {
+            SetItem(TEXT("Target"), Pair.Value, ERshipMessagePriority::High, Pair.Key);
+            ++TargetsSent;
+        }
+    }
+
+    for (const TPair<FString, TSharedPtr<FJsonObject>>& Pair : DesiredActions)
+    {
+        const TSharedPtr<FJsonObject>* Remote = TopologySyncState.RemoteActions.Find(Pair.Key);
+        if (!Remote || CanonicalizeJsonObject(*Remote) != CanonicalizeJsonObject(Pair.Value))
+        {
+            SetItem(TEXT("Action"), Pair.Value, ERshipMessagePriority::High, Pair.Key);
+            ++ActionsSent;
+        }
+    }
+
+    for (const TPair<FString, TSharedPtr<FJsonObject>>& Pair : DesiredEmitters)
+    {
+        const TSharedPtr<FJsonObject>* Remote = TopologySyncState.RemoteEmitters.Find(Pair.Key);
+        if (!Remote || CanonicalizeJsonObject(*Remote) != CanonicalizeJsonObject(Pair.Value))
+        {
+            SetItem(TEXT("Emitter"), Pair.Value, ERshipMessagePriority::High, Pair.Key);
+            ++EmittersSent;
+        }
+    }
+
+    for (const TPair<FString, TSharedPtr<FJsonObject>>& Pair : DesiredStatuses)
+    {
+        const TSharedPtr<FJsonObject>* Remote = TopologySyncState.RemoteTargetStatuses.Find(Pair.Key);
+        if (!Remote || CanonicalizeJsonObject(*Remote) != CanonicalizeJsonObject(Pair.Value))
+        {
+            SetItem(TEXT("TargetStatus"), Pair.Value, ERshipMessagePriority::High, Pair.Key + TEXT(":status"));
+            ++StatusesSent;
+        }
+    }
+
+    EndRegistrationBatch();
+    ProcessMessageQueue();
+
+    TopologySyncSnapshot.bInFlight = false;
+    TopologySyncSnapshot.bLastSyncSucceeded = true;
+    TopologySyncSnapshot.Reason = TopologySyncState.Reason;
+    TopologySyncSnapshot.Detail = TEXT("Sync complete");
+    TopologySyncSnapshot.CompletedAtSeconds = FPlatformTime::Seconds();
+    TopologySyncSnapshot.LocalTargets = DesiredTargets.Num();
+    TopologySyncSnapshot.RemoteTargets = TopologySyncState.RemoteTargets.Num();
+    TopologySyncSnapshot.SentTargets = TargetsSent;
+    TopologySyncSnapshot.LocalActions = DesiredActions.Num();
+    TopologySyncSnapshot.RemoteActions = TopologySyncState.RemoteActions.Num();
+    TopologySyncSnapshot.SentActions = ActionsSent;
+    TopologySyncSnapshot.LocalEmitters = DesiredEmitters.Num();
+    TopologySyncSnapshot.RemoteEmitters = TopologySyncState.RemoteEmitters.Num();
+    TopologySyncSnapshot.SentEmitters = EmittersSent;
+    TopologySyncSnapshot.LocalTargetStatuses = DesiredStatuses.Num();
+    TopologySyncSnapshot.RemoteTargetStatuses = TopologySyncState.RemoteTargetStatuses.Num();
+    TopologySyncSnapshot.SentTargetStatuses = StatusesSent;
+
+    UE_LOG(LogRshipExec, Log, TEXT("Topology sync complete: reason=%s targets=%d/%d actions=%d/%d emitters=%d/%d statuses=%d/%d"),
+        *TopologySyncState.Reason,
+        TargetsSent, DesiredTargets.Num(),
+        ActionsSent, DesiredActions.Num(),
+        EmittersSent, DesiredEmitters.Num(),
+        StatusesSent, DesiredStatuses.Num());
+}
+
+void URshipSubsystem::CheckTopologySyncTimeout()
+{
+    // Topology sync is query-driven and authoritative. Do not apply a local timeout:
+    // wait for query completion or an actual socket/query error.
 }
 
 void URshipSubsystem::ProcessMessage(const FString &message)
@@ -1371,21 +1918,6 @@ void URshipSubsystem::ProcessMessage(const FString &message)
 
     FString type = objRef->GetStringField(TEXT("event"));
     UE_LOG(LogRshipExec, VeryVerbose, TEXT("Received message: event=%s"), *type);
-
-    // Handle ping response - diagnostic for verifying WebSocket send/receive path
-    if (type == "ws:m:ping")
-    {
-        TSharedPtr<FJsonObject> data = obj->GetObjectField(TEXT("data"));
-        if (data.IsValid())
-        {
-            int64 SentTimestamp = (int64)data->GetNumberField(TEXT("timestamp"));
-            int64 NowTimestamp = FDateTime::UtcNow().ToUnixTimestamp() * 1000 + FDateTime::UtcNow().GetMillisecond();
-            int64 RoundTripMs = NowTimestamp - SentTimestamp;
-            UE_LOG(LogRshipExec, Log, TEXT("*** PING RESPONSE RECEIVED *** Round-trip: %lldms - WebSocket send/receive verified!"), RoundTripMs);
-            bPingResponseReceived = true;
-        }
-        return;
-    }
 
     if (type == "ws:m:command")
     {
@@ -1423,16 +1955,8 @@ void URshipSubsystem::ProcessMessage(const FString &message)
 
         if (CommandId == "SetClientId")
         {
-            FString NewClientId;
-            if (!CommandObj->TryGetStringField(TEXT("clientId"), NewClientId) || NewClientId.IsEmpty())
-            {
-                QueueCommandResponse(TxId, false, CommandId, TEXT("Missing clientId"));
-                return;
-            }
-
-            ClientId = NewClientId;
-            UE_LOG(LogRshipExec, Warning, TEXT("Received ClientId %s"), *ClientId);
-            SendAll();
+            UE_LOG(LogRshipExec, Warning, TEXT("Ignoring deprecated SetClientId command"));
+            QueueCommandResponse(TxId, true, CommandId, TEXT("SetClientId ignored"));
             return;
         }
 
@@ -1562,6 +2086,24 @@ void URshipSubsystem::ProcessMessage(const FString &message)
 
         obj.Reset();
     }
+    else if (type == RshipMykoEventNames::QueryResponse)
+    {
+        const TSharedPtr<FJsonObject>* DataPtr = nullptr;
+        if (obj->TryGetObjectField(TEXT("data"), DataPtr) && DataPtr && DataPtr->IsValid())
+        {
+            HandleQueryResponse(*DataPtr);
+        }
+        return;
+    }
+    else if (type == RshipMykoEventNames::QueryError)
+    {
+        const TSharedPtr<FJsonObject>* DataPtr = nullptr;
+        if (obj->TryGetObjectField(TEXT("data"), DataPtr) && DataPtr && DataPtr->IsValid())
+        {
+            HandleQueryError(*DataPtr);
+        }
+        return;
+    }
     auto ProcessEntityEvent = [this](const TSharedPtr<FJsonObject>& data) -> void
     {
         if (!data.IsValid())
@@ -1677,6 +2219,7 @@ bool URshipSubsystem::ExecuteTargetAction(const FString& TargetId, const FString
 void URshipSubsystem::Deinitialize()
 {
     UE_LOG(LogRshipExec, Log, TEXT("RshipSubsystem::Deinitialize"));
+    TopologySyncState = FRshipTopologySyncState();
 
     // Remove tickers
     if (QueueProcessTickerHandle.IsValid())
@@ -1704,12 +2247,9 @@ void URshipSubsystem::Deinitialize()
         FTSTicker::GetCoreTicker().RemoveTicker(DeferredOnDataReceivedTickerHandle);
         DeferredOnDataReceivedTickerHandle.Reset();
     }
-    // Clear rate limiter
-    if (RateLimiter)
-    {
-        RateLimiter->ClearQueue();
-        RateLimiter.Reset();
-    }
+    PendingOutboundMessages.Reset();
+    PendingOutboundBytes = 0;
+    RateLimiter.Reset();
 
     // Close WebSocket
     if (WebSocket)
@@ -1731,6 +2271,7 @@ void URshipSubsystem::Deinitialize()
 void URshipSubsystem::BeginDestroy()
 {
     UE_LOG(LogRshipExec, Log, TEXT("BeginDestroy called - cleaning up tickers and connections"));
+    TopologySyncState = FRshipTopologySyncState();
 
     // Remove all tickers before destruction (critical for live coding re-instancing)
     if (QueueProcessTickerHandle.IsValid())
@@ -1779,6 +2320,7 @@ void URshipSubsystem::BeginDestroy()
 void URshipSubsystem::PrepareForHotReload()
 {
     UE_LOG(LogRshipExec, Log, TEXT("PrepareForHotReload - cleaning up tickers and connections before module reload"));
+    TopologySyncState = FRshipTopologySyncState();
 
     // Remove all tickers - these hold function pointers that will become invalid after hot reload
     if (QueueProcessTickerHandle.IsValid())
@@ -1821,11 +2363,7 @@ void URshipSubsystem::PrepareForHotReload()
         WebSocket.Reset();
     }
 
-    // Clear rate limiter callback
-    if (RateLimiter)
-    {
-        RateLimiter->OnMessageReadyToSend.Unbind();
-    }
+    RateLimiter.Reset();
 
     ConnectionState = ERshipConnectionState::Disconnected;
 
@@ -1839,7 +2377,7 @@ void URshipSubsystem::ReinitializeAfterHotReload()
     const URshipSettings* Settings = GetDefault<URshipSettings>();
 
     // Restart queue processing ticker
-    if (Settings->bEnableRateLimiting && !QueueProcessTickerHandle.IsValid())
+    if (!QueueProcessTickerHandle.IsValid())
     {
         QueueProcessTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
             FTickerDelegate::CreateUObject(this, &URshipSubsystem::OnQueueProcessTick),
@@ -1858,11 +2396,7 @@ void URshipSubsystem::ReinitializeAfterHotReload()
         UE_LOG(LogRshipExec, Log, TEXT("Restarted subsystem ticker"));
     }
 
-    // Rebind rate limiter callback
-    if (RateLimiter)
-    {
-        RateLimiter->OnMessageReadyToSend.BindUObject(this, &URshipSubsystem::SendJsonDirect);
-    }
+    RateLimiter.Reset();
 
     // Reconnect to server
     Reconnect();
@@ -1914,6 +2448,9 @@ void URshipSubsystem::SendTarget(Target *target)
         BatchEvents.Add(FRshipMykoTransport::MakeSet("Emitter", FRshipEntitySerializer::ToJson(Record), MachineId));
     }
 
+    ActionIds.Sort();
+    EmitterIds.Sort();
+
     const URshipSettings *Settings = GetDefault<URshipSettings>();
 
     FColor SRGBColor = Settings->ServiceColor.ToFColor(true);
@@ -1937,6 +2474,8 @@ void URshipSubsystem::SendTarget(Target *target)
         TargetRecord.Category = TargetComp->Category.IsEmpty() ? TEXT("default") : TargetComp->Category;
         TargetRecord.Tags = TargetComp->Tags;
         TargetRecord.GroupIds = TargetComp->GroupIds;
+        TargetRecord.Tags.Sort();
+        TargetRecord.GroupIds.Sort();
     }
 
     TSharedPtr<FJsonObject> TargetJson = FRshipEntitySerializer::ToJson(TargetRecord);
@@ -2053,11 +2592,10 @@ void URshipSubsystem::QueueEventBatch(const TArray<TSharedPtr<FJsonObject>>& Eve
         return;
     }
 
-    TSharedPtr<FJsonObject> BatchWrapper = MakeShareable(new FJsonObject);
-    BatchWrapper->SetStringField(TEXT("event"), RshipMykoEventNames::EventBatch);
-    BatchWrapper->SetArrayField(TEXT("data"), PayloadArray);
-
-    QueueMessage(BatchWrapper, Priority, Type, CoalesceKey);
+    for (const TSharedPtr<FJsonObject>& BatchWrapper : BuildChunkedEventBatches(PayloadArray))
+    {
+        QueueMessage(BatchWrapper, Priority, Type, CoalesceKey);
+    }
 }
 
 void URshipSubsystem::BeginRegistrationBatch()
@@ -2190,11 +2728,10 @@ void URshipSubsystem::EndRegistrationBatch()
         return;
     }
 
-    TSharedPtr<FJsonObject> BatchWrapper = MakeShareable(new FJsonObject);
-    BatchWrapper->SetStringField(TEXT("event"), RshipMykoEventNames::EventBatch);
-    BatchWrapper->SetArrayField(TEXT("data"), PayloadArray);
-
-    QueueMessage(BatchWrapper, ERshipMessagePriority::High, ERshipMessageType::Registration, TEXT(""));
+    for (const TSharedPtr<FJsonObject>& BatchWrapper : BuildChunkedEventBatches(PayloadArray))
+    {
+        QueueMessage(BatchWrapper, ERshipMessagePriority::High, ERshipMessageType::Registration, TEXT(""));
+    }
 }
 
 void URshipSubsystem::SendTargetStatus(Target *target, bool online)
@@ -3020,8 +3557,10 @@ bool URshipSubsystem::RegisterFunctionActionForTarget(const FString& FullTargetI
         return false;
     }
 
-    Target* const* TargetPtr = RegisteredTargetsById.Find(FullTargetId);
-    if (!TargetPtr || !*TargetPtr)
+    TArray<Target*> MatchingTargets;
+    RegisteredTargetsById.MultiFind(FullTargetId, MatchingTargets);
+    MatchingTargets.RemoveAll([](Target* Candidate) { return Candidate == nullptr; });
+    if (MatchingTargets.Num() == 0)
     {
         UE_LOG(LogRshipExec, Warning, TEXT("RegisterFunctionActionForTarget failed: target not found (%s)"), *FullTargetId);
         return false;
@@ -3045,37 +3584,52 @@ bool URshipSubsystem::RegisterFunctionActionForTarget(const FString& FullTargetI
     const FString FinalName = ExposedActionName.IsEmpty() ? RawName : ExposedActionName;
     const FString FullActionId = FullTargetId + TEXT(":") + FinalName;
 
-    Target* TargetRef = *TargetPtr;
-    if (const FRshipActionProxy* ExistingAction = TargetRef->GetActions().Find(FullActionId))
+    bool bRegisteredAny = false;
+    bool bFoundDuplicateOnly = false;
+
+    for (Target* TargetRef : MatchingTargets)
     {
-        UObject* ExistingOwner = ExistingAction->GetOwnerObject();
-        const bool bExistingOwnerValid = IsValid(ExistingOwner);
-        if (!bExistingOwnerValid || ExistingOwner != Owner)
+        if (const FRshipActionProxy* ExistingAction = TargetRef->GetActions().Find(FullActionId))
         {
-            if (!bExistingOwnerValid)
+            UObject* ExistingOwner = ExistingAction->GetOwnerObject();
+            const bool bExistingOwnerValid = IsValid(ExistingOwner);
+            if (!bExistingOwnerValid || ExistingOwner != Owner)
             {
-                UE_LOG(LogRshipExec, Verbose,
-                    TEXT("RegisterFunctionActionForTarget replacing stale action '%s' (invalid owner)."),
-                    *FullActionId);
+                if (!bExistingOwnerValid)
+                {
+                    UE_LOG(LogRshipExec, Verbose,
+                        TEXT("RegisterFunctionActionForTarget replacing stale action '%s' (invalid owner)."),
+                        *FullActionId);
+                }
+                else
+                {
+                    UE_LOG(LogRshipExec, Warning,
+                        TEXT("RegisterFunctionActionForTarget replacing action '%s' owned by '%s' with new owner '%s'."),
+                        *FullActionId,
+                        *GetNameSafe(ExistingOwner),
+                        *GetNameSafe(Owner));
+                }
+
+                TargetRef->AddAction(FRshipActionProxy::FromFunction(FullActionId, FinalName, Func, Owner));
+                bRegisteredAny = true;
             }
             else
             {
-                UE_LOG(LogRshipExec, Warning,
-                    TEXT("RegisterFunctionActionForTarget replacing action '%s' owned by '%s' with new owner '%s'."),
-                    *FullActionId,
-                    *GetNameSafe(ExistingOwner),
-                    *GetNameSafe(Owner));
+                bFoundDuplicateOnly = true;
             }
-            TargetRef->AddAction(FRshipActionProxy::FromFunction(FullActionId, FinalName, Func, Owner));
-            return true;
+            continue;
         }
 
-        UE_LOG(LogRshipExec, Verbose, TEXT("RegisterFunctionActionForTarget skipped duplicate action '%s'"), *FullActionId);
-        return false;
+        TargetRef->AddAction(FRshipActionProxy::FromFunction(FullActionId, FinalName, Func, Owner));
+        bRegisteredAny = true;
     }
 
-    TargetRef->AddAction(FRshipActionProxy::FromFunction(FullActionId, FinalName, Func, Owner));
-    return true;
+    if (!bRegisteredAny && bFoundDuplicateOnly)
+    {
+        UE_LOG(LogRshipExec, Verbose, TEXT("RegisterFunctionActionForTarget skipped duplicate action '%s'"), *FullActionId);
+    }
+
+    return bRegisteredAny;
 }
 
 bool URshipSubsystem::RegisterPropertyActionForTarget(const FString& FullTargetId, UObject* Owner, const FName& PropertyName, const FString& ExposedActionName)
@@ -3087,8 +3641,10 @@ bool URshipSubsystem::RegisterPropertyActionForTarget(const FString& FullTargetI
         return false;
     }
 
-    Target* const* TargetPtr = RegisteredTargetsById.Find(FullTargetId);
-    if (!TargetPtr || !*TargetPtr)
+    TArray<Target*> MatchingTargets;
+    RegisteredTargetsById.MultiFind(FullTargetId, MatchingTargets);
+    MatchingTargets.RemoveAll([](Target* Candidate) { return Candidate == nullptr; });
+    if (MatchingTargets.Num() == 0)
     {
         UE_LOG(LogRshipExec, Warning, TEXT("RegisterPropertyActionForTarget failed: target not found (%s)"), *FullTargetId);
         return false;
@@ -3106,37 +3662,52 @@ bool URshipSubsystem::RegisterPropertyActionForTarget(const FString& FullTargetI
     const FString FinalName = ExposedActionName.IsEmpty() ? RawName : ExposedActionName;
     const FString FullActionId = FullTargetId + TEXT(":") + FinalName;
 
-    Target* TargetRef = *TargetPtr;
-    if (const FRshipActionProxy* ExistingAction = TargetRef->GetActions().Find(FullActionId))
+    bool bRegisteredAny = false;
+    bool bFoundDuplicateOnly = false;
+
+    for (Target* TargetRef : MatchingTargets)
     {
-        UObject* ExistingOwner = ExistingAction->GetOwnerObject();
-        const bool bExistingOwnerValid = IsValid(ExistingOwner);
-        if (!bExistingOwnerValid || ExistingOwner != Owner)
+        if (const FRshipActionProxy* ExistingAction = TargetRef->GetActions().Find(FullActionId))
         {
-            if (!bExistingOwnerValid)
+            UObject* ExistingOwner = ExistingAction->GetOwnerObject();
+            const bool bExistingOwnerValid = IsValid(ExistingOwner);
+            if (!bExistingOwnerValid || ExistingOwner != Owner)
             {
-                UE_LOG(LogRshipExec, Verbose,
-                    TEXT("RegisterPropertyActionForTarget replacing stale action '%s' (invalid owner)."),
-                    *FullActionId);
+                if (!bExistingOwnerValid)
+                {
+                    UE_LOG(LogRshipExec, Verbose,
+                        TEXT("RegisterPropertyActionForTarget replacing stale action '%s' (invalid owner)."),
+                        *FullActionId);
+                }
+                else
+                {
+                    UE_LOG(LogRshipExec, Warning,
+                        TEXT("RegisterPropertyActionForTarget replacing action '%s' owned by '%s' with new owner '%s'."),
+                        *FullActionId,
+                        *GetNameSafe(ExistingOwner),
+                        *GetNameSafe(Owner));
+                }
+
+                TargetRef->AddAction(FRshipActionProxy::FromProperty(FullActionId, FinalName, Prop, Owner));
+                bRegisteredAny = true;
             }
             else
             {
-                UE_LOG(LogRshipExec, Warning,
-                    TEXT("RegisterPropertyActionForTarget replacing action '%s' owned by '%s' with new owner '%s'."),
-                    *FullActionId,
-                    *GetNameSafe(ExistingOwner),
-                    *GetNameSafe(Owner));
+                bFoundDuplicateOnly = true;
             }
-            TargetRef->AddAction(FRshipActionProxy::FromProperty(FullActionId, FinalName, Prop, Owner));
-            return true;
+            continue;
         }
 
-        UE_LOG(LogRshipExec, Verbose, TEXT("RegisterPropertyActionForTarget skipped duplicate action '%s'"), *FullActionId);
-        return false;
+        TargetRef->AddAction(FRshipActionProxy::FromProperty(FullActionId, FinalName, Prop, Owner));
+        bRegisteredAny = true;
     }
 
-    TargetRef->AddAction(FRshipActionProxy::FromProperty(FullActionId, FinalName, Prop, Owner));
-    return true;
+    if (!bRegisteredAny && bFoundDuplicateOnly)
+    {
+        UE_LOG(LogRshipExec, Verbose, TEXT("RegisterPropertyActionForTarget skipped duplicate action '%s'"), *FullActionId);
+    }
+
+    return bRegisteredAny;
 }
 
 bool URshipSubsystem::RegisterEmitterForTarget(const FString& FullTargetId, UObject* Owner, const FName& DelegateName, const FString& ExposedEmitterName)
@@ -3148,8 +3719,10 @@ bool URshipSubsystem::RegisterEmitterForTarget(const FString& FullTargetId, UObj
         return false;
     }
 
-    Target* const* TargetPtr = RegisteredTargetsById.Find(FullTargetId);
-    if (!TargetPtr || !*TargetPtr)
+    TArray<Target*> MatchingTargets;
+    RegisteredTargetsById.MultiFind(FullTargetId, MatchingTargets);
+    MatchingTargets.RemoveAll([](Target* Candidate) { return Candidate == nullptr; });
+    if (MatchingTargets.Num() == 0)
     {
         UE_LOG(LogRshipExec, Warning, TEXT("RegisterEmitterForTarget failed: target not found (%s)"), *FullTargetId);
         return false;
@@ -3168,15 +3741,27 @@ bool URshipSubsystem::RegisterEmitterForTarget(const FString& FullTargetId, UObj
     const FString FinalName = ExposedEmitterName.IsEmpty() ? RawName : ExposedEmitterName;
     const FString FullEmitterId = FullTargetId + TEXT(":") + FinalName;
 
-    Target* TargetRef = *TargetPtr;
-    if (TargetRef->GetEmitters().Contains(FullEmitterId))
+    bool bRegisteredAny = false;
+    bool bFoundDuplicateOnly = false;
+
+    for (Target* TargetRef : MatchingTargets)
     {
-        UE_LOG(LogRshipExec, Verbose, TEXT("RegisterEmitterForTarget skipped duplicate emitter '%s'"), *FullEmitterId);
-        return false;
+        if (TargetRef->GetEmitters().Contains(FullEmitterId))
+        {
+            bFoundDuplicateOnly = true;
+            continue;
+        }
+
+        TargetRef->AddEmitter(FRshipEmitterProxy::FromDelegateProperty(FullEmitterId, FinalName, EmitterProp));
+        bRegisteredAny = true;
     }
 
-    TargetRef->AddEmitter(FRshipEmitterProxy::FromDelegateProperty(FullEmitterId, FinalName, EmitterProp));
-    return true;
+    if (!bRegisteredAny && bFoundDuplicateOnly)
+    {
+        UE_LOG(LogRshipExec, Verbose, TEXT("RegisterEmitterForTarget skipped duplicate emitter '%s'"), *FullEmitterId);
+    }
+
+    return bRegisteredAny;
 }
 
 void URshipSubsystem::GetManagedTargetsSnapshot(TArray<FRshipManagedTargetView>& OutTargets) const
@@ -3253,6 +3838,8 @@ void URshipSubsystem::SendAll()
 {
     UE_LOG(LogRshipExec, Log, TEXT("SendAll: %d managed targets registered"), ManagedTargetSnapshots.Num());
 
+    BeginRegistrationBatch();
+
     // Send Machine and Instance info first
     SendInstanceInfo();
 
@@ -3264,6 +3851,8 @@ void URshipSubsystem::SendAll()
             SendTarget(Pair.Key);
         }
     }
+
+    EndRegistrationBatch();
 
     // Force immediate queue processing to ensure messages are sent
     // This is especially important when called from Register()/SetTargetId()
@@ -3330,20 +3919,24 @@ void URshipSubsystem::PulseEmitter(FString targetId, FString emitterId, TSharedP
 
 const FRshipEmitterProxy* URshipSubsystem::GetEmitterInfo(FString fullTargetId, FString emitterId)
 {
-    Target* FoundTarget = nullptr;
-    if (Target* const* FoundPtr = RegisteredTargetsById.Find(fullTargetId))
+    TArray<Target*> MatchingTargets;
+    RegisteredTargetsById.MultiFind(fullTargetId, MatchingTargets);
+
+    const FString fullEmitterId = fullTargetId + ":" + emitterId;
+    for (Target* FoundTarget : MatchingTargets)
     {
-        FoundTarget = *FoundPtr;
+        if (!FoundTarget)
+        {
+            continue;
+        }
+
+        if (const FRshipEmitterProxy* FoundEmitter = FoundTarget->GetEmitters().Find(fullEmitterId))
+        {
+            return FoundEmitter;
+        }
     }
 
-    if (!FoundTarget)
-    {
-        return nullptr;
-    }
-
-    FString fullEmitterId = fullTargetId + ":" + emitterId;
-
-    return FoundTarget->GetEmitters().Find(fullEmitterId);
+    return nullptr;
 }
 
 FString URshipSubsystem::GetServiceId()
@@ -3366,94 +3959,161 @@ bool URshipSubsystem::IsConnected() const
     return bRemoteCommunicationEnabled && WebSocket.IsValid() && WebSocket->IsConnected();
 }
 
+uint8 URshipSubsystem::GetConnectionStateValue() const
+{
+    return static_cast<uint8>(ConnectionState);
+}
+
+bool URshipSubsystem::IsTopologySyncInFlight() const
+{
+    return TopologySyncState.bInFlight;
+}
+
+FString URshipSubsystem::GetTopologySyncReason() const
+{
+    return TopologySyncState.bInFlight ? TopologySyncState.Reason : TopologySyncSnapshot.Reason;
+}
+
+FString URshipSubsystem::GetTopologySyncDetail() const
+{
+    if (TopologySyncState.bInFlight)
+    {
+        return FString::Printf(TEXT("Waiting for %d query response(s)"), TopologySyncState.PendingQueries.Num());
+    }
+    return TopologySyncSnapshot.Detail;
+}
+
+float URshipSubsystem::GetTopologySyncAgeSeconds() const
+{
+    const double StartedAt = TopologySyncState.bInFlight ? TopologySyncState.StartedAtSeconds : TopologySyncSnapshot.StartedAtSeconds;
+    if (StartedAt <= 0.0)
+    {
+        return 0.0f;
+    }
+    const double EndedAt = (!TopologySyncState.bInFlight && TopologySyncSnapshot.CompletedAtSeconds > StartedAt)
+        ? TopologySyncSnapshot.CompletedAtSeconds
+        : FPlatformTime::Seconds();
+    return static_cast<float>(FMath::Max(0.0, EndedAt - StartedAt));
+}
+
+int32 URshipSubsystem::GetLocalTargetCount() const
+{
+    return TopologySyncState.bInFlight ? ManagedTargetSnapshots.Num() : TopologySyncSnapshot.LocalTargets;
+}
+
+int32 URshipSubsystem::GetRemoteTargetCount() const
+{
+    return TopologySyncState.bInFlight ? TopologySyncState.RemoteTargets.Num() : TopologySyncSnapshot.RemoteTargets;
+}
+
+int32 URshipSubsystem::GetLocalActionCount() const
+{
+    if (!TopologySyncState.bInFlight)
+    {
+        return TopologySyncSnapshot.LocalActions;
+    }
+
+    int32 Count = 0;
+    for (const TPair<Target*, FManagedTargetSnapshot>& Pair : ManagedTargetSnapshots)
+    {
+        if (Pair.Key)
+        {
+            Count += Pair.Key->GetActions().Num();
+        }
+    }
+    return Count;
+}
+
+int32 URshipSubsystem::GetRemoteActionCount() const
+{
+    return TopologySyncState.bInFlight ? TopologySyncState.RemoteActions.Num() : TopologySyncSnapshot.RemoteActions;
+}
+
+int32 URshipSubsystem::GetLocalEmitterCount() const
+{
+    if (!TopologySyncState.bInFlight)
+    {
+        return TopologySyncSnapshot.LocalEmitters;
+    }
+
+    int32 Count = 0;
+    for (const TPair<Target*, FManagedTargetSnapshot>& Pair : ManagedTargetSnapshots)
+    {
+        if (Pair.Key)
+        {
+            Count += Pair.Key->GetEmitters().Num();
+        }
+    }
+    return Count;
+}
+
+int32 URshipSubsystem::GetRemoteEmitterCount() const
+{
+    return TopologySyncState.bInFlight ? TopologySyncState.RemoteEmitters.Num() : TopologySyncSnapshot.RemoteEmitters;
+}
+
+int32 URshipSubsystem::GetLocalTargetStatusCount() const
+{
+    return TopologySyncState.bInFlight ? ManagedTargetSnapshots.Num() : TopologySyncSnapshot.LocalTargetStatuses;
+}
+
+int32 URshipSubsystem::GetRemoteTargetStatusCount() const
+{
+    return TopologySyncState.bInFlight ? TopologySyncState.RemoteTargetStatuses.Num() : TopologySyncSnapshot.RemoteTargetStatuses;
+}
+
 int32 URshipSubsystem::GetQueueLength() const
 {
-    if (RateLimiter)
-    {
-        return RateLimiter->GetQueueLength();
-    }
-    return 0;
+    return PendingOutboundMessages.Num();
 }
 
 int32 URshipSubsystem::GetQueueBytes() const
 {
-    if (RateLimiter)
-    {
-        return RateLimiter->GetQueueBytes();
-    }
-    return 0;
+    return PendingOutboundBytes;
 }
 
 float URshipSubsystem::GetQueuePressure() const
 {
-    if (RateLimiter)
-    {
-        return RateLimiter->GetQueuePressure();
-    }
-    return 0.0f;
+    const URshipSettings* Settings = GetDefault<URshipSettings>();
+    const int32 MaxQueueLength = Settings ? FMath::Max(Settings->MaxQueueLength, 1) : 1;
+    return static_cast<float>(PendingOutboundMessages.Num()) / static_cast<float>(MaxQueueLength);
 }
 
 int32 URshipSubsystem::GetMessagesSentPerSecond() const
 {
-    if (RateLimiter)
-    {
-        return RateLimiter->GetMessagesSentLastSecond();
-    }
-    return 0;
+    return MessagesSentPerSecondSnapshot;
 }
 
 int32 URshipSubsystem::GetBytesSentPerSecond() const
 {
-    if (RateLimiter)
-    {
-        return RateLimiter->GetBytesSentLastSecond();
-    }
-    return 0;
+    return BytesSentPerSecondSnapshot;
 }
 
 int32 URshipSubsystem::GetMessagesDropped() const
 {
-    if (RateLimiter)
-    {
-        return RateLimiter->GetMessagesDropped();
-    }
     return 0;
 }
 
 bool URshipSubsystem::IsRateLimiterBackingOff() const
 {
-    if (RateLimiter)
-    {
-        return RateLimiter->IsBackingOff();
-    }
     return false;
 }
 
 float URshipSubsystem::GetBackoffRemaining() const
 {
-    if (RateLimiter)
-    {
-        return RateLimiter->GetBackoffRemaining();
-    }
     return 0.0f;
 }
 
 float URshipSubsystem::GetCurrentRateLimit() const
 {
-    if (RateLimiter)
-    {
-        return RateLimiter->GetCurrentRateLimit();
-    }
     return 0.0f;
 }
 
 void URshipSubsystem::ResetRateLimiterStats()
 {
-    if (RateLimiter)
-    {
-        RateLimiter->ResetStats();
-        UE_LOG(LogRshipExec, Log, TEXT("Rate limiter statistics reset"));
-    }
+    MessagesSentPerSecondSnapshot = 0;
+    BytesSentPerSecondSnapshot = 0;
+    UE_LOG(LogRshipExec, Log, TEXT("Outbound statistics reset"));
 }
 
 URshipSpatialAudioManager* URshipSubsystem::GetSpatialAudioManager()

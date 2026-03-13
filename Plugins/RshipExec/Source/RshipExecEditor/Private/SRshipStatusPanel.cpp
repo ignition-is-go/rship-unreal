@@ -50,6 +50,27 @@
 
 #define LOCTEXT_NAMESPACE "SRshipStatusPanel"
 
+namespace
+{
+    static FText ConnectionStateToText(uint8 StateValue)
+    {
+        switch (static_cast<ERshipConnectionState>(StateValue))
+        {
+        case ERshipConnectionState::Connecting:
+            return LOCTEXT("ConnectionStateConnecting", "Connecting");
+        case ERshipConnectionState::Connected:
+            return LOCTEXT("ConnectionStateConnected", "Connected");
+        case ERshipConnectionState::Reconnecting:
+            return LOCTEXT("ConnectionStateReconnecting", "Reconnecting");
+        case ERshipConnectionState::BackingOff:
+            return LOCTEXT("ConnectionStateBackingOff", "Backing Off");
+        case ERshipConnectionState::Disconnected:
+        default:
+            return LOCTEXT("ConnectionStateDisconnected", "Disconnected");
+        }
+    }
+}
+
 namespace RshipStatusOutliner
 {
     static uint64 MakeStableItemId(const FString& FullTargetId)
@@ -343,12 +364,12 @@ void SRshipStatusPanel::Construct(const FArguments& InArgs)
                 SNew(SSeparator)
             ]
 
-            // Targets Section
+            // Diagnostics Section
             + SVerticalBox::Slot()
-            .FillHeight(1.0f)
+            .AutoHeight()
             .Padding(0.0f, 8.0f, 0.0f, 8.0f)
             [
-                BuildTargetsSection()
+                BuildDiagnosticsSection()
             ]
 
             // Separator
@@ -359,12 +380,12 @@ void SRshipStatusPanel::Construct(const FArguments& InArgs)
                 SNew(SSeparator)
             ]
 
-            // Diagnostics Section
+            // Targets Section
             + SVerticalBox::Slot()
-            .AutoHeight()
+            .FillHeight(1.0f)
             .Padding(0.0f, 8.0f, 0.0f, 8.0f)
             [
-                BuildDiagnosticsSection()
+                BuildTargetsSection()
             ]
 
             // Separator
@@ -605,6 +626,15 @@ TSharedRef<SWidget> SRshipStatusPanel::BuildConnectionSection()
                 .Text(LOCTEXT("ReconnectButton", "Reconnect"))
                 .IsEnabled(this, &SRshipStatusPanel::IsRemoteControlsEnabled)
                 .OnClicked(this, &SRshipStatusPanel::OnReconnectClicked)
+            ]
+
+            + SHorizontalBox::Slot()
+            .AutoWidth()
+            .Padding(0.0f, 0.0f, 4.0f, 0.0f)
+            [
+                SNew(SButton)
+                .Text(LOCTEXT("RefreshCacheButton", "Refresh Cache"))
+                .OnClicked(this, &SRshipStatusPanel::OnRefreshTargetsClicked)
             ]
 
             + SHorizontalBox::Slot()
@@ -887,6 +917,46 @@ TSharedRef<SWidget> SRshipStatusPanel::BuildDiagnosticsSection()
             SAssignNew(BackoffText, STextBlock)
             .Text(LOCTEXT("BackoffNone", ""))
             .ColorAndOpacity(FLinearColor(0.9f, 0.5f, 0.0f, 1.0f))
+        ]
+
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 8.0f, 0.0f, 0.0f)
+        [
+            SAssignNew(SyncStatusText, STextBlock)
+            .Text(LOCTEXT("SyncStatusDefault", "Sync: idle"))
+        ]
+
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 2.0f)
+        [
+            SAssignNew(TargetSyncText, STextBlock)
+            .Text(LOCTEXT("TargetSyncDefault", "Targets: 0 local / 0 remote"))
+        ]
+
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 2.0f)
+        [
+            SAssignNew(ActionSyncText, STextBlock)
+            .Text(LOCTEXT("ActionSyncDefault", "Actions: 0 local / 0 remote"))
+        ]
+
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 2.0f)
+        [
+            SAssignNew(EmitterSyncText, STextBlock)
+            .Text(LOCTEXT("EmitterSyncDefault", "Emitters: 0 local / 0 remote"))
+        ]
+
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 2.0f)
+        [
+            SAssignNew(StatusSyncText, STextBlock)
+            .Text(LOCTEXT("StatusSyncDefault", "Status: 0 local / 0 remote"))
         ];
 }
 
@@ -1308,7 +1378,7 @@ void SRshipStatusPanel::UpdateConnectionStatus()
     }
     else if (bConnected)
     {
-        StatusText = LOCTEXT("StatusConnected", "Connected");
+        StatusText = ConnectionStateToText(Subsystem->GetConnectionStateValue());
         BrushName = "Rship.Status.Connected";
     }
     else if (bBackingOff)
@@ -1319,7 +1389,7 @@ void SRshipStatusPanel::UpdateConnectionStatus()
     }
     else
     {
-        StatusText = LOCTEXT("StatusDisconnected", "Disconnected");
+        StatusText = ConnectionStateToText(Subsystem->GetConnectionStateValue());
         BrushName = "Rship.Status.Disconnected";
     }
 
@@ -1377,6 +1447,69 @@ void SRshipStatusPanel::UpdateDiagnostics()
             BackoffText->SetText(FText::GetEmpty());
         }
     }
+
+    const FText SyncReason = FText::FromString(Subsystem->GetTopologySyncReason());
+    const FText SyncDetail = FText::FromString(Subsystem->GetTopologySyncDetail());
+    const FText SyncAge = FText::AsNumber(FMath::RoundToInt(Subsystem->GetTopologySyncAgeSeconds() * 10.0f) / 10.0f);
+
+    if (SyncStatusText.IsValid())
+    {
+        if (Subsystem->IsTopologySyncInFlight())
+        {
+            SyncStatusText->SetText(FText::Format(
+                LOCTEXT("SyncStatusInFlight", "Syncing {0} ({1}s)  {2}"),
+                SyncReason,
+                SyncAge,
+                SyncDetail));
+            SyncStatusText->SetColorAndOpacity(FLinearColor(0.95f, 0.8f, 0.2f, 1.0f));
+        }
+        else if (!SyncReason.IsEmpty())
+        {
+            SyncStatusText->SetText(FText::Format(
+                LOCTEXT("SyncStatusLast", "Last sync {0} ({1}s)  {2}"),
+                SyncReason,
+                SyncAge,
+                SyncDetail));
+            SyncStatusText->SetColorAndOpacity(FSlateColor::UseForeground());
+        }
+        else
+        {
+            SyncStatusText->SetText(LOCTEXT("SyncStatusIdle", "Sync: idle"));
+            SyncStatusText->SetColorAndOpacity(FSlateColor::UseForeground());
+        }
+    }
+
+    if (TargetSyncText.IsValid())
+    {
+        TargetSyncText->SetText(FText::Format(
+            LOCTEXT("TargetSyncFmt", "Targets: {0} local / {1} remote"),
+            FText::AsNumber(Subsystem->GetLocalTargetCount()),
+            FText::AsNumber(Subsystem->GetRemoteTargetCount())));
+    }
+
+    if (ActionSyncText.IsValid())
+    {
+        ActionSyncText->SetText(FText::Format(
+            LOCTEXT("ActionSyncFmt", "Actions: {0} local / {1} remote"),
+            FText::AsNumber(Subsystem->GetLocalActionCount()),
+            FText::AsNumber(Subsystem->GetRemoteActionCount())));
+    }
+
+    if (EmitterSyncText.IsValid())
+    {
+        EmitterSyncText->SetText(FText::Format(
+            LOCTEXT("EmitterSyncFmt", "Emitters: {0} local / {1} remote"),
+            FText::AsNumber(Subsystem->GetLocalEmitterCount()),
+            FText::AsNumber(Subsystem->GetRemoteEmitterCount())));
+    }
+
+    if (StatusSyncText.IsValid())
+    {
+        StatusSyncText->SetText(FText::Format(
+            LOCTEXT("StatusSyncFmt", "Status: {0} local / {1} remote"),
+            FText::AsNumber(Subsystem->GetLocalTargetStatusCount()),
+            FText::AsNumber(Subsystem->GetRemoteTargetStatusCount())));
+    }
 }
 
 FReply SRshipStatusPanel::OnReconnectClicked()
@@ -1411,7 +1544,15 @@ FReply SRshipStatusPanel::OnSettingsClicked()
 
 FReply SRshipStatusPanel::OnRefreshTargetsClicked()
 {
+    if (URshipSubsystem* Subsystem = GetSubsystem())
+    {
+        Subsystem->RefreshTargetCache();
+    }
+
     RefreshTargetList();
+    RefreshActionsSection();
+    UpdateConnectionStatus();
+    UpdateDiagnostics();
     return FReply::Handled();
 }
 

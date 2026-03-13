@@ -122,103 +122,9 @@ bool FRshipRateLimiter::EnqueueMessage(TSharedPtr<FJsonObject> Payload,
 {
     FScopeLock Lock(&QueueLock);
 
-    // Calculate queue pressure
-    float QueuePressure = static_cast<float>(MessageQueue.Num()) / static_cast<float>(Config.MaxQueueLength);
-
-    // Check if we should downsample this message
-    if (Config.bEnableDownsampling && QueuePressure >= Config.QueuePressureThreshold)
-    {
-        // Create a temporary message for downsampling check
-        FRshipQueuedMessage TempMsg(Payload, Priority, Type, CoalesceKey);
-        if (ShouldDownsample(TempMsg))
-        {
-            Metrics.MessagesDownsampledTotal++;
-            LogMessage(3, FString::Printf(TEXT("Downsampled message (Priority: %d, Key: %s, Pressure: %.1f%%)"),
-                static_cast<int32>(Priority), *CoalesceKey, QueuePressure * 100.0f));
-            return false;
-        }
-    }
-
-    // Check queue capacity
-    if (MessageQueue.Num() >= Config.MaxQueueLength)
-    {
-        // Try to make room by dropping low priority messages
-        bool bDropped = false;
-        for (int32 i = MessageQueue.Num() - 1; i >= 0; --i)
-        {
-            if (MessageQueue[i].Priority > Priority)  // Lower priority (higher enum value)
-            {
-                if (Config.bLogRateLimitEvents)
-                {
-                    LogMessage(1, FString::Printf(TEXT("Dropping queued message to make room (Priority: %d -> %d, Key: %s)"),
-                        static_cast<int32>(MessageQueue[i].Priority), static_cast<int32>(Priority), *MessageQueue[i].CoalesceKey));
-                }
-
-                QueueBytesEstimate -= MessageQueue[i].EstimatedBytes;
-                MessageQueue.RemoveAt(i);
-                Metrics.MessagesDroppedTotal++;
-
-                // Track drops by priority
-                switch (MessageQueue[i].Priority)
-                {
-                case ERshipMessagePriority::Critical: Metrics.DroppedCritical++; break;
-                case ERshipMessagePriority::High: Metrics.DroppedHigh++; break;
-                case ERshipMessagePriority::Normal: Metrics.DroppedNormal++; break;
-                case ERshipMessagePriority::Low: Metrics.DroppedLow++; break;
-                }
-
-                bDropped = true;
-                break;
-            }
-        }
-
-        // If we couldn't drop anything and this isn't critical, reject the new message
-        if (!bDropped && Priority > ERshipMessagePriority::Critical)
-        {
-            if (Config.bLogRateLimitEvents)
-            {
-                LogMessage(1, FString::Printf(TEXT("Queue full, dropping incoming message (Priority: %d, Key: %s)"),
-                    static_cast<int32>(Priority), *CoalesceKey));
-            }
-
-            Metrics.MessagesDroppedTotal++;
-            RecentDropTimes.Add(FPlatformTime::Seconds());
-
-            // Track drops by priority
-            switch (Priority)
-            {
-            case ERshipMessagePriority::Critical: Metrics.DroppedCritical++; break;
-            case ERshipMessagePriority::High: Metrics.DroppedHigh++; break;
-            case ERshipMessagePriority::Normal: Metrics.DroppedNormal++; break;
-            case ERshipMessagePriority::Low: Metrics.DroppedLow++; break;
-            }
-
-            return false;
-        }
-    }
-
     // Create queued message
     FRshipQueuedMessage QueuedMsg(Payload, Priority, Type, CoalesceKey);
     QueuedMsg.EstimatedBytes = EstimateMessageBytes(Payload);
-
-    // Handle coalescing for messages with the same key
-    if (Config.bEnableCoalescing && !CoalesceKey.IsEmpty())
-    {
-        for (int32 i = 0; i < MessageQueue.Num(); ++i)
-        {
-            if (MessageQueue[i].CoalesceKey == CoalesceKey && MessageQueue[i].Type == Type)
-            {
-                // Replace older message with newer one
-                LogMessage(3, FString::Printf(TEXT("Coalescing message with key: %s"), *CoalesceKey));
-
-                QueueBytesEstimate -= MessageQueue[i].EstimatedBytes;
-                MessageQueue[i] = QueuedMsg;
-                QueueBytesEstimate += QueuedMsg.EstimatedBytes;
-                Metrics.MessagesCoalescedTotal++;
-                return true;
-            }
-        }
-    }
 
     // Add to queue
     MessageQueue.Add(QueuedMsg);
@@ -266,12 +172,21 @@ int32 FRshipRateLimiter::ProcessQueue()
                         FString JsonString = SerializeMessage(MessageQueue[i].Payload);
                         if (!JsonString.IsEmpty() && OnMessageReadyToSend.IsBound())
                         {
-                            OnMessageReadyToSend.Execute(JsonString);
+                            if (!OnMessageReadyToSend.Execute(JsonString))
+                            {
+                                bBackpressureDetected = true;
+                                break;
+                            }
+
                             CriticalSent++;
 
                             int32 BytesSent = JsonString.Len();
                             RecentSendTimes.Add(Now);
                             RecentSendBytes.Add(BytesSent);
+                        }
+                        else
+                        {
+                            break;
                         }
 
                         QueueBytesEstimate -= MessageQueue[i].EstimatedBytes;
@@ -317,7 +232,11 @@ int32 FRshipRateLimiter::ProcessQueue()
             // Flush any existing batch first
             if (CurrentBatch.Num() > 0)
             {
-                FlushBatch();
+                if (!FlushBatch())
+                {
+                    bBackpressureDetected = true;
+                    break;
+                }
             }
 
             // Send critical message immediately without batching
@@ -329,7 +248,11 @@ int32 FRshipRateLimiter::ProcessQueue()
                 FString JsonString = SerializeMessage(Msg.Payload);
                 if (!JsonString.IsEmpty() && OnMessageReadyToSend.IsBound())
                 {
-                    OnMessageReadyToSend.Execute(JsonString);
+                    if (!OnMessageReadyToSend.Execute(JsonString))
+                    {
+                        bBackpressureDetected = true;
+                        break;
+                    }
                     MessagesSent++;
 
                     int32 BytesSent = JsonString.Len();
@@ -371,7 +294,11 @@ int32 FRshipRateLimiter::ProcessQueue()
             {
                 if (CurrentBatch.Num() > 0)
                 {
-                    FlushBatch();
+                    if (!FlushBatch())
+                    {
+                        bBackpressureDetected = true;
+                        break;
+                    }
                 }
 
                 ConsumeMessageToken();
@@ -380,7 +307,11 @@ int32 FRshipRateLimiter::ProcessQueue()
                 FString JsonString = SerializeMessage(Msg.Payload);
                 if (!JsonString.IsEmpty() && OnMessageReadyToSend.IsBound())
                 {
-                    OnMessageReadyToSend.Execute(JsonString);
+                    if (!OnMessageReadyToSend.Execute(JsonString))
+                    {
+                        bBackpressureDetected = true;
+                        break;
+                    }
                     MessagesSent++;
 
                     int32 BytesSent = JsonString.Len();
@@ -398,7 +329,11 @@ int32 FRshipRateLimiter::ProcessQueue()
             {
                 if (CurrentBatch.Num() > 0)
                 {
-                    FlushBatch();
+                    if (!FlushBatch())
+                    {
+                        bBackpressureDetected = true;
+                        break;
+                    }
                 }
 
                 ConsumeMessageToken();
@@ -407,7 +342,11 @@ int32 FRshipRateLimiter::ProcessQueue()
                 FString JsonString = SerializeMessage(Msg.Payload);
                 if (!JsonString.IsEmpty() && OnMessageReadyToSend.IsBound())
                 {
-                    OnMessageReadyToSend.Execute(JsonString);
+                    if (!OnMessageReadyToSend.Execute(JsonString))
+                    {
+                        bBackpressureDetected = true;
+                        break;
+                    }
                     MessagesSent++;
 
                     int32 BytesSent = JsonString.Len();
@@ -423,7 +362,11 @@ int32 FRshipRateLimiter::ProcessQueue()
             // Check if batch should be flushed before adding this message
             if (ShouldFlushBatch())
             {
-                FlushBatch();
+                if (!FlushBatch())
+                {
+                    bBackpressureDetected = true;
+                    break;
+                }
             }
 
             // Add to batch
@@ -441,7 +384,11 @@ int32 FRshipRateLimiter::ProcessQueue()
             FString JsonString = SerializeMessage(Msg.Payload);
             if (!JsonString.IsEmpty() && OnMessageReadyToSend.IsBound())
             {
-                OnMessageReadyToSend.Execute(JsonString);
+                if (!OnMessageReadyToSend.Execute(JsonString))
+                {
+                    bBackpressureDetected = true;
+                    break;
+                }
                 MessagesSent++;
 
                 int32 BytesSent = JsonString.Len();
@@ -462,11 +409,17 @@ int32 FRshipRateLimiter::ProcessQueue()
         if (MessageQueue.Num() == 0 && CurrentBatch.Num() > 0)
         {
             LogMessage(3, TEXT("Flushing batch because queue is empty"));
-            FlushBatch();
+            if (!FlushBatch())
+            {
+                bBackpressureDetected = true;
+            }
         }
         else if (ShouldFlushBatch())
         {
-            FlushBatch();
+            if (!FlushBatch())
+            {
+                bBackpressureDetected = true;
+            }
         }
     }
 
@@ -534,11 +487,11 @@ bool FRshipRateLimiter::ShouldFlushBatch() const
     return false;
 }
 
-void FRshipRateLimiter::FlushBatch()
+bool FRshipRateLimiter::FlushBatch()
 {
     if (CurrentBatch.Num() == 0)
     {
-        return;
+        return true;
     }
 
     // Consume tokens for the batch (counts as 1 message for rate limiting)
@@ -546,6 +499,7 @@ void FRshipRateLimiter::FlushBatch()
     {
         // Should not happen if called correctly, but handle gracefully
         LogMessage(1, TEXT("FlushBatch called without available message token"));
+        return false;
     }
     ConsumeBytesTokens(CurrentBatchBytes);
 
@@ -553,7 +507,10 @@ void FRshipRateLimiter::FlushBatch()
     FString BatchJson = SerializeBatch(CurrentBatch);
     if (!BatchJson.IsEmpty() && OnMessageReadyToSend.IsBound())
     {
-        OnMessageReadyToSend.Execute(BatchJson);
+        if (!OnMessageReadyToSend.Execute(BatchJson))
+        {
+            return false;
+        }
 
         double Now = FPlatformTime::Seconds();
         int32 BytesSent = BatchJson.Len();
@@ -566,11 +523,17 @@ void FRshipRateLimiter::FlushBatch()
                 CurrentBatch.Num(), BytesSent, static_cast<float>(CurrentBatch.Num())));
         }
     }
+    else
+    {
+        return false;
+    }
 
     // Clear batch state
     CurrentBatch.Empty();
     CurrentBatchBytes = 0;
     BatchStartTime = 0.0;
+
+    return true;
 }
 
 // ============================================================================
@@ -836,45 +799,7 @@ void FRshipRateLimiter::ResetBackoff()
 
 void FRshipRateLimiter::DropExpiredMessages()
 {
-    if (Config.MessageTimeoutSeconds <= 0.0f)
-    {
-        return;
-    }
-
-    double Now = FPlatformTime::Seconds();
-    double ExpiryThreshold = Now - Config.MessageTimeoutSeconds;
-
-    for (int32 i = MessageQueue.Num() - 1; i >= 0; --i)
-    {
-        // Don't drop critical messages due to timeout
-        if (MessageQueue[i].Priority == ERshipMessagePriority::Critical)
-        {
-            continue;
-        }
-
-        if (MessageQueue[i].QueuedTime < ExpiryThreshold)
-        {
-            if (Config.bLogRateLimitEvents)
-            {
-                LogMessage(1, FString::Printf(TEXT("Dropping expired message (age: %.1fs, priority: %d, key: %s)"),
-                    Now - MessageQueue[i].QueuedTime, static_cast<int32>(MessageQueue[i].Priority), *MessageQueue[i].CoalesceKey));
-            }
-
-            // Track drops by priority
-            switch (MessageQueue[i].Priority)
-            {
-            case ERshipMessagePriority::High: Metrics.DroppedHigh++; break;
-            case ERshipMessagePriority::Normal: Metrics.DroppedNormal++; break;
-            case ERshipMessagePriority::Low: Metrics.DroppedLow++; break;
-            default: break;
-            }
-
-            QueueBytesEstimate -= MessageQueue[i].EstimatedBytes;
-            MessageQueue.RemoveAt(i);
-            Metrics.MessagesDroppedTotal++;
-            RecentDropTimes.Add(Now);
-        }
-    }
+    // Outbound messages stay queued until they are sent or explicitly cleared on shutdown.
 }
 
 void FRshipRateLimiter::CoalesceMessages()

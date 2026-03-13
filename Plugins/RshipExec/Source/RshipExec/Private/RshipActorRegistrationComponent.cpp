@@ -77,7 +77,7 @@ void URshipActorRegistrationComponent::Reconnect()
 {
 	if (URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>())
 	{
-		Subsystem->Reconnect();
+		Subsystem->RefreshTargetCache();
 	}
 }
 
@@ -114,7 +114,13 @@ FRshipTargetProxy URshipActorRegistrationComponent::GetTargetProxy() const
 		return FRshipTargetProxy();
 	}
 
-	return Subsystem->GetTargetProxyForActor(GetOwner());
+	if (TargetData)
+	{
+		return FRshipTargetProxy(Subsystem, TargetData->GetId());
+	}
+
+	const FString FullTargetId = GetFullTargetId();
+	return FullTargetId.IsEmpty() ? FRshipTargetProxy() : FRshipTargetProxy(Subsystem, FullTargetId);
 }
 
 void URshipActorRegistrationComponent::Register()
@@ -124,12 +130,6 @@ void URshipActorRegistrationComponent::Register()
 	{
 		UE_LOG(LogRshipExec, Verbose, TEXT("Skipping registration for blueprint preview actor: %s"), *targetName);
 		return;
-	}
-
-	if (TargetData != nullptr)
-	{
-		UE_LOG(LogRshipExec, Log, TEXT("Register called on already-registered target '%s', re-registering..."), *targetName);
-		Unregister();
 	}
 
 	URshipSubsystem* Subsystem = GEngine ? GEngine->GetEngineSubsystem<URshipSubsystem>() : nullptr;
@@ -172,10 +172,33 @@ void URshipActorRegistrationComponent::Register()
 	}
 
 	const FString FullTargetId = Subsystem->GetServiceId() + TEXT(":") + targetName;
+	const TArray<FString> FullParentTargetIds = BuildFullParentTargetIds(Subsystem->GetServiceId());
+
+	if (TargetData != nullptr)
+	{
+		const FString ExistingTargetId = TargetData->GetId();
+		const bool bIdentityChanged = ExistingTargetId != FullTargetId;
+		if (bIdentityChanged)
+		{
+			UE_LOG(LogRshipExec, Log, TEXT("Register detected target identity change '%s' -> '%s'; rebuilding target"), *ExistingTargetId, *FullTargetId);
+			Unregister();
+		}
+		else
+		{
+			TargetData->SetName(targetName);
+			TargetData->SetParentTargetIds(FullParentTargetIds);
+			TargetData->SetBoundTargetComponent(this);
+			Subsystem->RegisterTargetComponent(this);
+			RebindSiblingContributors();
+			Subsystem->EndRegistrationBatch();
+			UE_LOG(LogRshipExec, Verbose, TEXT("Register refreshed existing target in place: %s"), *FullTargetId);
+			return;
+		}
+	}
 
 	TargetData = new Target(FullTargetId, Subsystem);
 	TargetData->SetName(targetName);
-	TargetData->SetParentTargetIds(BuildFullParentTargetIds(Subsystem->GetServiceId()));
+	TargetData->SetParentTargetIds(FullParentTargetIds);
 	TargetData->SetBoundTargetComponent(this);
 	Subsystem->RegisterTargetComponent(this);
 

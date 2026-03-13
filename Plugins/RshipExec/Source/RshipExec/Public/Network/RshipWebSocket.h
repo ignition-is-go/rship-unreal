@@ -42,6 +42,7 @@ DECLARE_DELEGATE(FOnRshipWebSocketConnected);
 DECLARE_DELEGATE_OneParam(FOnRshipWebSocketConnectionError, const FString& /* Error */);
 DECLARE_DELEGATE_ThreeParams(FOnRshipWebSocketClosed, int32 /* Code */, const FString& /* Reason */, bool /* bWasClean */);
 DECLARE_DELEGATE_OneParam(FOnRshipWebSocketMessage, const FString& /* Message */);
+DECLARE_DELEGATE_OneParam(FOnRshipWebSocketBinaryMessage, const TArray<uint8>& /* Message */);
 DECLARE_DELEGATE_OneParam(FOnRshipWebSocketMessageSent, const FString& /* Message */);
 
 /**
@@ -56,7 +57,7 @@ struct FRshipWebSocketConfig
     bool bDisableCompression = true;
 
     // Ping interval in seconds (0 = disabled)
-    int32 PingIntervalSeconds = 30;
+    int32 PingIntervalSeconds = 0;
 
     // Enable auto-reconnect on disconnect
     bool bAutoReconnect = true;
@@ -107,6 +108,7 @@ public:
     FOnRshipWebSocketConnectionError OnConnectionError;
     FOnRshipWebSocketClosed OnClosed;
     FOnRshipWebSocketMessage OnMessage;
+    FOnRshipWebSocketBinaryMessage OnBinaryMessage;
     FOnRshipWebSocketMessageSent OnMessageSent;
 
 private:

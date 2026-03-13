@@ -253,7 +253,7 @@ struct FRshipRateLimiterMetrics
 // ============================================================================
 
 // Called when a batch is ready to send (single JSON string, may contain array)
-DECLARE_DELEGATE_OneParam(FOnMessageReadyToSend, const FString& /* JsonString */);
+DECLARE_DELEGATE_RetVal_OneParam(bool, FOnMessageReadyToSend, const FString& /* JsonString */);
 
 // Called when rate limiter status changes (backoff, rate adjustment)
 DECLARE_DELEGATE_TwoParams(FOnRateLimiterStatus, bool /* bIsBackingOff */, float /* CurrentBackoffSeconds */);
@@ -470,7 +470,7 @@ private:
     int32 EstimateMessageBytes(const TSharedPtr<FJsonObject>& Payload);
 
     // Batching
-    void FlushBatch();
+    bool FlushBatch();
     bool ShouldFlushBatch() const;
     void AddToBatch(FRshipQueuedMessage& Msg);
 
