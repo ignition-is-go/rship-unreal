@@ -154,6 +154,11 @@ private:
     TSharedPtr<STextBlock> ByteRateText;
     TSharedPtr<STextBlock> DroppedText;
     TSharedPtr<STextBlock> BackoffText;
+    TSharedPtr<STextBlock> SyncStatusText;
+    TSharedPtr<STextBlock> TargetSyncText;
+    TSharedPtr<STextBlock> ActionSyncText;
+    TSharedPtr<STextBlock> EmitterSyncText;
+    TSharedPtr<STextBlock> StatusSyncText;
 
     // Refresh timer
     float RefreshTimer = 0.0f;

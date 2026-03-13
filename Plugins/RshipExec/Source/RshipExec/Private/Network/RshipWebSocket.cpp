@@ -224,11 +224,15 @@ void FRshipWebSocket::SetupIXWebSocket(const FRshipWebSocketConfig& Config)
         IXSocket->disablePerMessageDeflate();
     }
 
-    // Set ping interval
     if (Config.PingIntervalSeconds > 0)
     {
         UE_LOG(LogRshipExec, Log, TEXT("RshipWebSocket: Setting ping interval to %d seconds"), Config.PingIntervalSeconds);
         IXSocket->setPingInterval(Config.PingIntervalSeconds);
+    }
+    else
+    {
+        UE_LOG(LogRshipExec, Log, TEXT("RshipWebSocket: Protocol heartbeat disabled"));
+        IXSocket->setPingInterval(-1);
     }
 
     // Configure auto-reconnect

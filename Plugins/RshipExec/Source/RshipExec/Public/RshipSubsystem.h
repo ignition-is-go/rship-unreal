@@ -71,9 +71,62 @@ struct FRshipPendingBatchTargetAction
     TArray<FRshipPendingBatchActionItem> Actions;
 };
 
+enum class ERshipSyncQueryKind : uint8
+{
+    Targets,
+    Actions,
+    Emitters,
+    TargetStatuses
+};
+
+struct FRshipPendingSyncQuery
+{
+    FString TxId;
+    FString QueryId;
+    FString QueryItemType;
+    ERshipSyncQueryKind Kind = ERshipSyncQueryKind::Targets;
+    double StartedAtSeconds = 0.0;
+    bool bCompleted = false;
+};
+
+struct FRshipTopologySyncState
+{
+    bool bInFlight = false;
+    FString Reason;
+    FString PendingReason;
+    double StartedAtSeconds = 0.0;
+    TMap<FString, FRshipPendingSyncQuery> PendingQueries;
+    TMap<FString, TSharedPtr<FJsonObject>> RemoteTargets;
+    TMap<FString, TSharedPtr<FJsonObject>> RemoteActions;
+    TMap<FString, TSharedPtr<FJsonObject>> RemoteEmitters;
+    TMap<FString, TSharedPtr<FJsonObject>> RemoteTargetStatuses;
+};
+
+struct FRshipTopologySyncSnapshot
+{
+    bool bInFlight = false;
+    bool bLastSyncSucceeded = false;
+    FString Reason;
+    FString Detail;
+    double StartedAtSeconds = 0.0;
+    double CompletedAtSeconds = 0.0;
+    int32 LocalTargets = 0;
+    int32 RemoteTargets = 0;
+    int32 SentTargets = 0;
+    int32 LocalActions = 0;
+    int32 RemoteActions = 0;
+    int32 SentActions = 0;
+    int32 LocalEmitters = 0;
+    int32 RemoteEmitters = 0;
+    int32 SentEmitters = 0;
+    int32 LocalTargetStatuses = 0;
+    int32 RemoteTargetStatuses = 0;
+    int32 SentTargetStatuses = 0;
+};
+
 /**
  * Main subsystem for managing Rocketship WebSocket connection and message routing.
- * Uses rate limiting and message queuing to prevent overwhelming the server.
+ * Uses a lossless outbound queue while disconnected and direct sends while connected.
  */
 UCLASS()
 class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
@@ -87,7 +140,6 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
 
     // High-performance WebSocket connection
     TSharedPtr<FRshipWebSocket> WebSocket;
-    bool bPingResponseReceived = false;                  // Diagnostic: tracks if ping response came back
     bool bIsManuallyReconnecting = false;                // Prevents auto-reconnect during manual reconnect
     bool bRemoteCommunicationEnabled = true;             // Global hard gate for all remote server communication
 
@@ -98,8 +150,11 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     FString ClientId;
     FString ClusterId;
 
-    // Rate limiter for outbound messages
+    // Legacy rate limiter object retained only to avoid wider refactors; not used for runtime flow.
     TUniquePtr<FRshipRateLimiter> RateLimiter;
+    // Lossless outbound queue used only while disconnected or when a send attempt fails.
+    TArray<FRshipQueuedMessage> PendingOutboundMessages;
+    int32 PendingOutboundBytes = 0;
     // Spatial Audio manager for loudspeaker management and spatialization (lazy initialized)
     // Note: Returns nullptr if RshipSpatialAudio plugin is not enabled
     // Not a UPROPERTY because UHT requires full UCLASS definition which is only available when SpatialAudio plugin is enabled
@@ -183,7 +238,7 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
                       ERshipMessageType Type = ERshipMessageType::Generic, const FString& CoalesceKey = TEXT(""));
 
     // Direct send - only used by rate limiter callback
-    void SendJsonDirect(const FString& JsonString);
+    bool SendJsonDirect(const FString& JsonString);
 
     // Timer callbacks
     void ProcessMessageQueue();
@@ -202,10 +257,18 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     void OnWebSocketClosed(int32 StatusCode, const FString& Reason, bool bWasClean);
     void OnWebSocketMessage(const FString& Message);
 
-    // Rate limiter event handlers
-    void OnRateLimiterStatusChanged(bool bIsBackingOff, float BackoffSeconds);
+    void MaybeLogWebSocketSendStats();
+    void StartTopologySync(const FString& Reason);
+    bool SendQueryRequest(const FString& QueryId, const FString& QueryItemType, const TSharedRef<FJsonObject>& QueryPayload, ERshipSyncQueryKind Kind);
+    void HandleQueryResponse(const TSharedPtr<FJsonObject>& DataObj);
+    void HandleQueryError(const TSharedPtr<FJsonObject>& DataObj);
+    void CancelQuerySubscription(const FString& TxId);
+    void FailTopologySync(const FString& Reason);
+    void CompleteTopologySyncIfReady();
+    void FlushTopologyDiff();
+    void CheckTopologySyncTimeout();
 
-    // Initialize rate limiter from settings
+    // Initialize outbound queue behavior
     void InitializeRateLimiter();
     FManagedTargetSnapshot BuildManagedTargetSnapshot(Target* ManagedTarget) const;
     int32 PruneInvalidManagedTargetRefs(const FString& TargetId);
@@ -216,6 +279,17 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     // Registration batching state
     int32 RegistrationBatchDepth = 0;
     TArray<TSharedPtr<FJsonObject>> PendingRegistrationEvents;
+
+    // Rolling websocket send stats for diagnosing replay/backpressure behavior.
+    double LastWebSocketSendStatsLogTime = 0.0;
+    int64 WebSocketSendAttemptsSinceLastLog = 0;
+    int64 WebSocketSendSuccessSinceLastLog = 0;
+    int64 WebSocketSendFailuresSinceLastLog = 0;
+    int64 WebSocketSendBytesSinceLastLog = 0;
+    int32 MessagesSentPerSecondSnapshot = 0;
+    int32 BytesSentPerSecondSnapshot = 0;
+    FRshipTopologySyncState TopologySyncState;
+    FRshipTopologySyncSnapshot TopologySyncSnapshot;
 
 #if WITH_EDITOR
     void RegisterEditorDelegates();
@@ -269,6 +343,9 @@ public:
     /** Whether remote server communication is globally enabled. */
     UFUNCTION(BlueprintCallable, Category = "Rship|Connection")
     bool IsRemoteCommunicationEnabled() const { return bRemoteCommunicationEnabled; }
+    /** Rebuild all tracked target/action/emitter registrations and republish the current cache. */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Connection")
+    void RefreshTargetCache();
 
     void PulseEmitter(FString TargetId, FString EmitterId, TSharedPtr<FJsonObject> data);
 	void SendAll();
@@ -339,6 +416,45 @@ public:
     // Connection state
     UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
     bool IsConnected() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    uint8 GetConnectionStateValue() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    bool IsTopologySyncInFlight() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    FString GetTopologySyncReason() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    FString GetTopologySyncDetail() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    float GetTopologySyncAgeSeconds() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    int32 GetLocalTargetCount() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    int32 GetRemoteTargetCount() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    int32 GetLocalActionCount() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    int32 GetRemoteActionCount() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    int32 GetLocalEmitterCount() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    int32 GetRemoteEmitterCount() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    int32 GetLocalTargetStatusCount() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    int32 GetRemoteTargetStatusCount() const;
 
     // Queue metrics
     UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")

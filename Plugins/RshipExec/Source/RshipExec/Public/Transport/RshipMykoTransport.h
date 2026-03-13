@@ -7,6 +7,10 @@ namespace RshipMykoEventNames
 {
 	inline constexpr const TCHAR* Event = TEXT("ws:m:event");
 	inline constexpr const TCHAR* EventBatch = TEXT("ws:m:event-batch");
+	inline constexpr const TCHAR* Query = TEXT("ws:m:query");
+	inline constexpr const TCHAR* QueryResponse = TEXT("ws:m:query-response");
+	inline constexpr const TCHAR* QueryCancel = TEXT("ws:m:query-cancel");
+	inline constexpr const TCHAR* QueryError = TEXT("ws:m:query-error");
 }
 
 class RSHIPEXEC_API FRshipMykoTransport

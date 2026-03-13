@@ -56,7 +56,7 @@ struct FRshipWebSocketConfig
     bool bDisableCompression = true;
 
     // Ping interval in seconds (0 = disabled)
-    int32 PingIntervalSeconds = 30;
+    int32 PingIntervalSeconds = 0;
 
     // Enable auto-reconnect on disconnect
     bool bAutoReconnect = true;
