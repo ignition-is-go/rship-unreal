@@ -1246,22 +1246,23 @@ void URshipSubsystem::EnqueueExecTargetAction(const FString& TargetId, const FSt
     Pending.TxIds.Add(TxId);
 }
 
-void URshipSubsystem::EnqueueBatchTargetAction(const FString& TxId, TArray<FRshipPendingBatchActionItem>&& Actions)
+void URshipSubsystem::EnqueueBatchTargetAction(const FString& TxId, TArray<FRshipPendingBatchActionItem>&& Actions, const FString& CommandId)
 {
     if (TxId.IsEmpty())
     {
-        UE_LOG(LogRshipExec, Error, TEXT("BatchTargetAction enqueue failed: missing tx id."));
+        UE_LOG(LogRshipExec, Error, TEXT("%s enqueue failed: missing tx id."), *CommandId);
         return;
     }
 
     if (Actions.Num() == 0)
     {
-        UE_LOG(LogRshipExec, Error, TEXT("BatchTargetAction enqueue failed: no actions for tx '%s'."), *TxId);
+        UE_LOG(LogRshipExec, Error, TEXT("%s enqueue failed: no actions for tx '%s'."), *CommandId, *TxId);
         return;
     }
 
     FRshipPendingBatchTargetAction Pending;
     Pending.TxId = TxId;
+    Pending.CommandId = CommandId;
     Pending.Actions = MoveTemp(Actions);
     PendingBatchTargetActions.Add(MoveTemp(Pending));
 }
@@ -1346,13 +1347,19 @@ void URshipSubsystem::ProcessPendingExecTargetActions()
 
         if (PendingBatchCommand.Actions.Num() == 0)
         {
-            QueueCommandResponse(PendingBatchCommand.TxId, false, TEXT("BatchTargetAction"), TEXT("BatchTargetAction has no actions"));
+            const FString EffectiveCommandId = PendingBatchCommand.CommandId.IsEmpty()
+                ? TEXT("BatchTargetAction")
+                : PendingBatchCommand.CommandId;
+            QueueCommandResponse(PendingBatchCommand.TxId, false, EffectiveCommandId, FString::Printf(TEXT("%s has no actions"), *EffectiveCommandId));
             continue;
         }
 
         bool bAllSucceeded = true;
         int32 FailedIndex = INDEX_NONE;
         FString FailedReason;
+        const FString EffectiveCommandId = PendingBatchCommand.CommandId.IsEmpty()
+            ? TEXT("BatchTargetAction")
+            : PendingBatchCommand.CommandId;
 
         for (int32 ActionIndex = 0; ActionIndex < PendingBatchCommand.Actions.Num(); ++ActionIndex)
         {
@@ -1362,8 +1369,8 @@ void URshipSubsystem::ProcessPendingExecTargetActions()
                 bAllSucceeded = false;
                 FailedIndex = ActionIndex;
                 FailedReason = TEXT("Action payload missing");
-                UE_LOG(LogRshipExec, Error, TEXT("BatchTargetAction tx=%s failed at index=%d: payload missing."),
-                    *PendingBatchCommand.TxId, ActionIndex);
+                UE_LOG(LogRshipExec, Error, TEXT("%s tx=%s failed at index=%d: payload missing."),
+                    *EffectiveCommandId, *PendingBatchCommand.TxId, ActionIndex);
                 break;
             }
 
@@ -1374,22 +1381,22 @@ void URshipSubsystem::ProcessPendingExecTargetActions()
                 FailedIndex = ActionIndex;
                 FailedReason = FString::Printf(TEXT("Action was not handled by any target (index=%d target=%s action=%s)"),
                     ActionIndex, *ActionItem.TargetId, *ActionItem.ActionId);
-                UE_LOG(LogRshipExec, Error, TEXT("BatchTargetAction tx=%s failed at index=%d target=%s action=%s."),
-                    *PendingBatchCommand.TxId, ActionIndex, *ActionItem.TargetId, *ActionItem.ActionId);
+                UE_LOG(LogRshipExec, Error, TEXT("%s tx=%s failed at index=%d target=%s action=%s."),
+                    *EffectiveCommandId, *PendingBatchCommand.TxId, ActionIndex, *ActionItem.TargetId, *ActionItem.ActionId);
                 break;
             }
         }
 
         if (bAllSucceeded)
         {
-            QueueCommandResponse(PendingBatchCommand.TxId, true, TEXT("BatchTargetAction"));
+            QueueCommandResponse(PendingBatchCommand.TxId, true, EffectiveCommandId);
         }
         else
         {
             const FString ErrorMessage = FailedIndex == INDEX_NONE
-                ? TEXT("BatchTargetAction failed")
-                : FString::Printf(TEXT("BatchTargetAction failed at index %d: %s"), FailedIndex, *FailedReason);
-            QueueCommandResponse(PendingBatchCommand.TxId, false, TEXT("BatchTargetAction"), ErrorMessage);
+                ? FString::Printf(TEXT("%s failed"), *EffectiveCommandId)
+                : FString::Printf(TEXT("%s failed at index %d: %s"), *EffectiveCommandId, FailedIndex, *FailedReason);
+            QueueCommandResponse(PendingBatchCommand.TxId, false, EffectiveCommandId, ErrorMessage);
         }
     }
 }
@@ -2076,6 +2083,146 @@ void URshipSubsystem::ProcessMessage(const FString &message)
             }
 
             EnqueueBatchTargetAction(TxId, MoveTemp(ParsedActions));
+        }
+        else if (CommandId == "CompactBatchTargetAction")
+        {
+            const TArray<TSharedPtr<FJsonValue>>* GroupsArray = nullptr;
+            if (!CommandObj->TryGetArrayField(TEXT("groups"), GroupsArray) || GroupsArray == nullptr)
+            {
+                UE_LOG(LogRshipExec, Error, TEXT("CompactBatchTargetAction rejected: missing 'groups' array."));
+                QueueCommandResponse(TxId, false, TEXT("CompactBatchTargetAction"), TEXT("Missing groups array"));
+                return;
+            }
+
+            TArray<FRshipPendingBatchActionItem> ParsedActions;
+            bool bParseFailed = false;
+            FString ParseError = TEXT("Invalid groups payload");
+
+            for (int32 GroupIndex = 0; GroupIndex < GroupsArray->Num() && !bParseFailed; ++GroupIndex)
+            {
+                const TSharedPtr<FJsonValue>& GroupValue = (*GroupsArray)[GroupIndex];
+                if (!GroupValue.IsValid() || GroupValue->Type != EJson::Object)
+                {
+                    bParseFailed = true;
+                    ParseError = FString::Printf(TEXT("Group at index %d is not an object"), GroupIndex);
+                    break;
+                }
+
+                TSharedPtr<FJsonObject> GroupObj = GroupValue->AsObject();
+                if (!GroupObj.IsValid())
+                {
+                    bParseFailed = true;
+                    ParseError = FString::Printf(TEXT("Group at index %d is null"), GroupIndex);
+                    break;
+                }
+
+                FString ActionId;
+                if (!GroupObj->TryGetStringField(TEXT("actionId"), ActionId) || ActionId.IsEmpty())
+                {
+                    bParseFailed = true;
+                    ParseError = FString::Printf(TEXT("Group at index %d missing string field 'actionId'"), GroupIndex);
+                    break;
+                }
+
+                const TArray<TSharedPtr<FJsonValue>>* PayloadsArray = nullptr;
+                if (!GroupObj->TryGetArrayField(TEXT("payloads"), PayloadsArray) || PayloadsArray == nullptr)
+                {
+                    bParseFailed = true;
+                    ParseError = FString::Printf(TEXT("Group at index %d missing 'payloads' array"), GroupIndex);
+                    break;
+                }
+
+                TArray<TSharedPtr<FJsonObject>> PayloadObjects;
+                PayloadObjects.Reserve(PayloadsArray->Num());
+                for (int32 PayloadIndex = 0; PayloadIndex < PayloadsArray->Num(); ++PayloadIndex)
+                {
+                    const TSharedPtr<FJsonValue>& PayloadValue = (*PayloadsArray)[PayloadIndex];
+                    if (!PayloadValue.IsValid() || PayloadValue->Type != EJson::Object)
+                    {
+                        bParseFailed = true;
+                        ParseError = FString::Printf(TEXT("Group %d payload %d is not an object"), GroupIndex, PayloadIndex);
+                        break;
+                    }
+
+                    TSharedPtr<FJsonObject> PayloadObj = PayloadValue->AsObject();
+                    if (!PayloadObj.IsValid())
+                    {
+                        bParseFailed = true;
+                        ParseError = FString::Printf(TEXT("Group %d payload %d is null"), GroupIndex, PayloadIndex);
+                        break;
+                    }
+
+                    PayloadObjects.Add(PayloadObj);
+                }
+                if (bParseFailed)
+                {
+                    break;
+                }
+
+                const TArray<TSharedPtr<FJsonValue>>* AssignmentsArray = nullptr;
+                if (!GroupObj->TryGetArrayField(TEXT("assignments"), AssignmentsArray) || AssignmentsArray == nullptr)
+                {
+                    bParseFailed = true;
+                    ParseError = FString::Printf(TEXT("Group at index %d missing 'assignments' array"), GroupIndex);
+                    break;
+                }
+
+                for (int32 AssignmentIndex = 0; AssignmentIndex < AssignmentsArray->Num(); ++AssignmentIndex)
+                {
+                    const TSharedPtr<FJsonValue>& AssignmentValue = (*AssignmentsArray)[AssignmentIndex];
+                    if (!AssignmentValue.IsValid() || AssignmentValue->Type != EJson::Object)
+                    {
+                        bParseFailed = true;
+                        ParseError = FString::Printf(TEXT("Group %d assignment %d is not an object"), GroupIndex, AssignmentIndex);
+                        break;
+                    }
+
+                    TSharedPtr<FJsonObject> AssignmentObj = AssignmentValue->AsObject();
+                    if (!AssignmentObj.IsValid())
+                    {
+                        bParseFailed = true;
+                        ParseError = FString::Printf(TEXT("Group %d assignment %d is null"), GroupIndex, AssignmentIndex);
+                        break;
+                    }
+
+                    FString TargetId;
+                    int32 PayloadIndex = INDEX_NONE;
+                    if (!AssignmentObj->TryGetStringField(TEXT("targetId"), TargetId) || TargetId.IsEmpty())
+                    {
+                        bParseFailed = true;
+                        ParseError = FString::Printf(TEXT("Group %d assignment %d missing string field 'targetId'"), GroupIndex, AssignmentIndex);
+                        break;
+                    }
+                    if (!AssignmentObj->TryGetNumberField(TEXT("payloadIndex"), PayloadIndex) || PayloadIndex < 0 || PayloadIndex >= PayloadObjects.Num())
+                    {
+                        bParseFailed = true;
+                        ParseError = FString::Printf(TEXT("Group %d assignment %d has invalid payloadIndex"), GroupIndex, AssignmentIndex);
+                        break;
+                    }
+
+                    FRshipPendingBatchActionItem Parsed;
+                    Parsed.TargetId = TargetId;
+                    Parsed.ActionId = ActionId;
+                    Parsed.Data = PayloadObjects[PayloadIndex];
+                    ParsedActions.Add(MoveTemp(Parsed));
+                }
+            }
+
+            if (bParseFailed)
+            {
+                UE_LOG(LogRshipExec, Error, TEXT("CompactBatchTargetAction rejected: %s (tx=%s)."), *ParseError, *TxId);
+                QueueCommandResponse(TxId, false, TEXT("CompactBatchTargetAction"), ParseError);
+                return;
+            }
+
+            if (ParsedActions.Num() == 0)
+            {
+                UE_LOG(LogRshipExec, Error, TEXT("CompactBatchTargetAction rejected: empty actions list (tx=%s)."), *TxId);
+                QueueCommandResponse(TxId, false, TEXT("CompactBatchTargetAction"), TEXT("CompactBatchTargetAction has no actions"));
+                return;
+            }
+
+            EnqueueBatchTargetAction(TxId, MoveTemp(ParsedActions), TEXT("CompactBatchTargetAction"));
         }
         else
         {
