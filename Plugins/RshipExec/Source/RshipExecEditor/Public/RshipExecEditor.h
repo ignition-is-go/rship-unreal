@@ -21,12 +21,6 @@ public:
     /** Unregister the status panel tab spawner */
     void UnregisterStatusPanel();
 
-    /** Register the NDI panel tab spawner */
-    void RegisterNDIPanel();
-
-    /** Unregister the NDI panel tab spawner */
-    void UnregisterNDIPanel();
-
 private:
     void RegisterActorContextMenu();
     void AddRshipRegistrationToSelectedActors();
@@ -44,18 +38,6 @@ private:
 
     /** Spawn the status panel tab */
     TSharedRef<class SDockTab> SpawnStatusPanelTab(const class FSpawnTabArgs& Args);
-
-    /** Spawn the NDI panel tab */
-    TSharedRef<class SDockTab> SpawnNDIPanelTab(const class FSpawnTabArgs& Args);
-
-    /** Register the 2110 mapping panel tab spawner */
-    void Register2110MappingPanel();
-
-    /** Unregister the 2110 mapping panel tab spawner */
-    void Unregister2110MappingPanel();
-
-    /** Spawn the 2110 mapping panel tab */
-    TSharedRef<class SDockTab> Spawn2110MappingPanelTab(const class FSpawnTabArgs& Args);
 
     /** Register menu extensions */
     void UpdateToolbarStatusIcon(bool bConnected);

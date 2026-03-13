@@ -17,6 +17,10 @@
 	],
 	"Plugins": [
 		{
+			"Name": "Rship2110",
+			"Enabled": false
+		},
+		{
 			"Name": "ModelingToolsEditorMode",
 			"Enabled": true,
 			"TargetAllowList": [
@@ -38,6 +42,38 @@
 		{
 			"Name": "MultiUserClient",
 			"Enabled": true
+		},
+		{
+			"Name": "RshipExec",
+			"Enabled": true
+		},
+		{
+			"Name": "DisplayClusterLaunch",
+			"Enabled": true,
+			"SupportedTargetPlatforms": [
+				"Win64",
+				"Linux"
+			]
+		},
+		{
+			"Name": "nDisplay",
+			"Enabled": true,
+			"SupportedTargetPlatforms": [
+				"Win64",
+				"Linux"
+			]
+		},
+		{
+			"Name": "RshipNDI",
+			"Enabled": false
+		},
+		{
+			"Name": "UltimateControl",
+			"Enabled": false
+		},
+		{
+			"Name": "RshipColorManagement",
+			"Enabled": false
 		}
 	]
 }

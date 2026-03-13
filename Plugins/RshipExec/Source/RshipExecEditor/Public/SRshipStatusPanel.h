@@ -92,16 +92,6 @@ private:
     FReply OnReconnectClicked();
     FReply OnSettingsClicked();
     FReply OnRefreshTargetsClicked();
-    FReply OnApplyControlSyncRateClicked();
-    FReply OnApplyInboundLeadFramesClicked();
-    void OnRequireExactFrameChanged(ECheckBoxState NewState);
-    void SetSyncTimingStatus(const FText& Message, const FLinearColor& Color);
-    FReply OnApplySyncPresetClicked(float PresetHz);
-    FReply OnApplyRenderSubstepsPresetClicked(int32 PresetSubsteps);
-    FReply OnSaveTimingDefaultsClicked();
-    FReply OnCopyIniRolloutSnippetClicked();
-    FString BuildTimingIniSnippet() const;
-    void UpdateRolloutPreviews();
 
     // Server address editing
     void OnServerAddressCommitted(const FText& NewText, ETextCommit::Type CommitType);
@@ -137,20 +127,6 @@ private:
         const TSharedPtr<FRshipActionEntryState>& Entry,
         TSet<FName>& UsedBagNames);
 
-#if RSHIP_EDITOR_HAS_2110
-    TSharedRef<SWidget> Build2110Section();
-    FString GetDisplaySyncDomainId(const TSharedPtr<FString>& Selection) const;
-    void Update2110Status();
-    void UpdateSyncDomainOptions(const URship2110Subsystem* Subsystem);
-    FText GetActiveSyncDomainOptionText() const;
-    FText GetSyncDomainRateOptionText() const;
-    FReply OnApplyClusterSyncRateClicked();
-    FReply OnApplyRenderSubstepsClicked();
-    FReply OnApplyCatchupStepsClicked();
-    FReply OnApplyActiveSyncDomainClicked();
-    FReply OnApplySyncDomainRateClicked();
-#endif
-
     // Data
     TArray<TSharedPtr<FRshipTargetListItem>> TargetItems;
     TArray<TSharedPtr<FRshipTargetListItem>> RootTargetItems;
@@ -177,42 +153,12 @@ private:
     TSharedPtr<STextBlock> MessageRateText;
     TSharedPtr<STextBlock> ByteRateText;
     TSharedPtr<STextBlock> DroppedText;
-    TSharedPtr<STextBlock> InboundFrameCounterText;
-    TSharedPtr<STextBlock> InboundNextApplyFrameText;
-    TSharedPtr<STextBlock> InboundQueuedFrameSpanText;
-    TSharedPtr<STextBlock> ExactDroppedText;
     TSharedPtr<STextBlock> BackoffText;
-    TSharedPtr<SEditableTextBox> ControlSyncRateInput;
-    TSharedPtr<SEditableTextBox> InboundLeadFramesInput;
-    TSharedPtr<SCheckBox> InboundRequireExactFrameCheckBox;
-    TSharedPtr<STextBlock> ControlSyncRateValueText;
-    TSharedPtr<STextBlock> InboundLeadFramesValueText;
-    TSharedPtr<STextBlock> SyncTimingStatusText;
-    TSharedPtr<STextBlock> SyncTimingSummaryText;
-    TSharedPtr<STextBlock> IniRolloutText;
-
-#if RSHIP_EDITOR_HAS_2110
-    // 2110 status text blocks
-    TSharedPtr<STextBlock> RivermaxStatusText;
-    TSharedPtr<STextBlock> PTPStatusText;
-    TSharedPtr<STextBlock> IPMXStatusText;
-    TSharedPtr<STextBlock> GPUDirectStatusText;
-    TSharedPtr<STextBlock> NetworkStatusText;
-    TSharedPtr<SEditableTextBox> ClusterSyncRateInput;
-    TSharedPtr<SEditableTextBox> LocalRenderSubstepsInput;
-    TSharedPtr<SEditableTextBox> MaxSyncCatchupStepsInput;
-    TSharedPtr<STextBlock> ClusterSyncRateValueText;
-    TSharedPtr<STextBlock> LocalRenderSubstepsValueText;
-    TSharedPtr<STextBlock> MaxSyncCatchupStepsValueText;
-    TSharedPtr<STextBlock> ActiveSyncDomainValueText;
-    TSharedPtr<SEditableTextBox> SyncDomainRateInput;
-    TSharedPtr<STextBlock> SyncDomainRateValueText;
-    TSharedPtr<SComboBox<TSharedPtr<FString>>> ActiveSyncDomainCombo;
-    TSharedPtr<SComboBox<TSharedPtr<FString>>> SyncDomainRateCombo;
-    TArray<TSharedPtr<FString>> SyncDomainOptions;
-    TSharedPtr<FString> SelectedSyncDomainOption;
-    TSharedPtr<FString> SelectedSyncDomainRateOption;
-#endif
+    TSharedPtr<STextBlock> SyncStatusText;
+    TSharedPtr<STextBlock> TargetSyncText;
+    TSharedPtr<STextBlock> ActionSyncText;
+    TSharedPtr<STextBlock> EmitterSyncText;
+    TSharedPtr<STextBlock> StatusSyncText;
 
     // Refresh timer
     float RefreshTimer = 0.0f;

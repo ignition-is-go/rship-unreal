@@ -2,6 +2,7 @@
 
 using UnrealBuildTool;
 using System.IO;
+using System.Text.RegularExpressions;
 
 public class RshipExec : ModuleRules
 {
@@ -19,20 +20,12 @@ public class RshipExec : ModuleRules
 		MinSourceFilesForUnityBuildOverride = 16; // Group more files to reduce memory (RshipExec has many files)
 		NumIncludedBytesPerUnityCPPOverride = 1048576; // 1MB per unity file
 
-		// IXWebSocket is only enabled on desktop targets where we've validated this path.
-		bool bSupportsIXWebSocketPlatform =
-			Target.Platform == UnrealTargetPlatform.Win64
-			|| Target.Platform == UnrealTargetPlatform.Mac
-			|| Target.Platform == UnrealTargetPlatform.Linux;
+		// Check if IXWebSocket is available (bundled as submodule)
 		string IXWebSocketPath = Path.Combine(ModuleDirectory, "ThirdParty", "IXWebSocket", "ixwebsocket");
-		if (Directory.Exists(IXWebSocketPath) && bSupportsIXWebSocketPlatform)
+		if (Directory.Exists(IXWebSocketPath))
 		{
 			bUseIXWebSocket = true;
 			System.Console.WriteLine("RshipExec: IXWebSocket found, enabling high-performance WebSocket");
-		}
-		else if (!bSupportsIXWebSocketPlatform)
-		{
-			System.Console.WriteLine("RshipExec: IXWebSocket disabled on this platform, using UE WebSocket fallback");
 		}
 		else
 		{
@@ -65,6 +58,20 @@ public class RshipExec : ModuleRules
 
 			// Disable shadowing warnings for third-party code (IXWebSocket has variable shadowing)
 			CppCompileWarningSettings.ShadowVariableWarningLevel = WarningLevel.Off;
+
+			// Platform-specific defines
+			if (Target.Platform == UnrealTargetPlatform.Win64)
+			{
+				PublicDefinitions.Add("_WIN32");
+			}
+			else if (Target.Platform == UnrealTargetPlatform.Mac)
+			{
+				PublicDefinitions.Add("__APPLE__");
+			}
+			else if (Target.Platform == UnrealTargetPlatform.Linux)
+			{
+				PublicDefinitions.Add("__linux__");
+			}
 
 			// Enable exceptions for IXWebSocket (it uses them internally)
 			bEnableExceptions = true;
@@ -160,58 +167,38 @@ public class RshipExec : ModuleRules
 			System.Console.WriteLine("RshipExec: RshipColorManagement plugin not found, color targets disabled");
 		}
 
-		// Rust display management library (optional)
-		string RustDisplayPath = Path.Combine(ModuleDirectory, "ThirdParty", "rship-display");
-		string RustDisplayRelease = Path.Combine(RustDisplayPath, "target", "release");
-		string RustDisplayInclude = Path.Combine(RustDisplayPath, "include");
-		string RustDisplayLibFile = "";
-		string RustDisplayBuildScript = "";
+		// nDisplay / DisplayCluster support (optional)
+		string EngineRoot = Path.GetFullPath(Target.RelativeEnginePath ?? "");
+		string DisplayClusterPluginPath = Path.Combine(EngineRoot, "Plugins", "Runtime", "nDisplay");
+		bool bHasDisplayClusterPlugin = Directory.Exists(DisplayClusterPluginPath);
+		bool bProjectEnablesDisplayCluster = false;
 
-		if (Target.Platform == UnrealTargetPlatform.Win64)
+		if (Target.ProjectFile != null && File.Exists(Target.ProjectFile.FullName))
 		{
-			RustDisplayLibFile = Path.Combine(RustDisplayRelease, "rship_display.lib");
-			RustDisplayBuildScript = Path.Combine(RustDisplayPath, "build.bat");
-		}
-		else if (Target.Platform == UnrealTargetPlatform.Mac)
-		{
-			RustDisplayLibFile = Path.Combine(RustDisplayRelease, "librship_display.a");
-			RustDisplayBuildScript = Path.Combine(RustDisplayPath, "build.sh");
-		}
-		else if (Target.Platform == UnrealTargetPlatform.Linux)
-		{
-			RustDisplayLibFile = Path.Combine(RustDisplayRelease, "librship_display.a");
-			RustDisplayBuildScript = Path.Combine(RustDisplayPath, "build.sh");
+			string ProjectDescriptor = File.ReadAllText(Target.ProjectFile.FullName);
+			bProjectEnablesDisplayCluster = Regex.IsMatch(
+				ProjectDescriptor,
+				"\\{\\s*\"Name\"\\s*:\\s*\"nDisplay\"\\s*,\\s*\"Enabled\"\\s*:\\s*true",
+				RegexOptions.Singleline);
 		}
 
-		System.Console.WriteLine("RshipExec: Checking for Rust display library at: " + RustDisplayLibFile);
-		System.Console.WriteLine("RshipExec: File exists: " + File.Exists(RustDisplayLibFile));
-
-		if (File.Exists(RustDisplayLibFile))
+		bool bHasDisplayCluster = bHasDisplayClusterPlugin && bProjectEnablesDisplayCluster;
+		if (bHasDisplayCluster)
 		{
-			PublicDefinitions.Add("RSHIP_HAS_DISPLAY_RUST=1");
-			PublicIncludePaths.Add(RustDisplayInclude);
-			PublicAdditionalLibraries.Add(RustDisplayLibFile);
-
-			if (Target.Platform == UnrealTargetPlatform.Win64)
-			{
-				PublicSystemLibraries.AddRange(new string[] {
-					"User32.lib",
-					"Gdi32.lib",
-				});
-			}
-
-			System.Console.WriteLine("RshipExec: Rust display library FOUND");
+			PrivateDependencyModuleNames.AddRange(
+				new string[]
+				{
+					"DisplayCluster",
+					"DisplayClusterConfiguration",
+				}
+			);
+			PublicDefinitions.Add("RSHIP_HAS_DISPLAY_CLUSTER=1");
+			System.Console.WriteLine("RshipExec: nDisplay plugin enabled in project, instance render-domain integration enabled");
 		}
 		else
 		{
-			PublicDefinitions.Add("RSHIP_HAS_DISPLAY_RUST=0");
-			System.Console.WriteLine("");
-			System.Console.WriteLine("================================================================================");
-			System.Console.WriteLine("  RshipExec: Rust display library NOT found - display orchestration falls back");
-			System.Console.WriteLine("  Expected at: " + RustDisplayLibFile);
-			System.Console.WriteLine("  To enable: run " + RustDisplayBuildScript);
-			System.Console.WriteLine("================================================================================");
-			System.Console.WriteLine("");
+			PublicDefinitions.Add("RSHIP_HAS_DISPLAY_CLUSTER=0");
+			System.Console.WriteLine("RshipExec: nDisplay plugin not enabled in project, instance render-domain integration disabled");
 		}
 
 		PrivateDependencyModuleNames.AddRange(
@@ -222,9 +209,14 @@ public class RshipExec : ModuleRules
 				"Slate",
 				"SlateCore",
 				"Settings",
-				"ImageWrapper",
 			}
 		);
+
+		string MsgPackIncludePath = Path.Combine(ModuleDirectory, "ThirdParty", "MsgPack", "include");
+		if (Directory.Exists(MsgPackIncludePath))
+		{
+			PrivateIncludePaths.Add(MsgPackIncludePath);
+		}
 
 		// Editor-only dependencies for viewport selection sync
 		if (Target.bBuildEditor)
@@ -234,7 +226,6 @@ public class RshipExec : ModuleRules
 				{
 					"UnrealEd",
 					"LevelEditor",
-					"AssetRegistry",
 				}
 			);
 		}

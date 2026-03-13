@@ -3,7 +3,6 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Containers/Ticker.h"
 #include "Subsystems/EngineSubsystem.h"
 #include "Subsystems/SubsystemCollection.h"
 #include "Serialization/JsonReader.h"
@@ -13,8 +12,11 @@
 
 // Forward declaration for optional SpatialAudio plugin
 class URshipSpatialAudioManager;
-class URshipContentMappingManager;
-class URshipDisplayManager;
+#if RSHIP_HAS_DISPLAY_CLUSTER
+class UPrimitiveComponent;
+class USceneComponent;
+class ADisplayClusterRootActor;
+#endif
 #include "Containers/List.h"
 #include "Containers/Ticker.h"
 #include "Core/Target.h"
@@ -25,7 +27,6 @@ class URshipDisplayManager;
 
 DECLARE_DYNAMIC_DELEGATE(FRshipMessageDelegate);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnRshipSelectionChanged);
-DECLARE_MULTICAST_DELEGATE_TwoParams(FOnRshipAuthoritativeInboundQueued, const FString&, int64);
 
 // Connection state for tracking
 // Connection state for tracking
@@ -70,9 +71,62 @@ struct FRshipPendingBatchTargetAction
     TArray<FRshipPendingBatchActionItem> Actions;
 };
 
+enum class ERshipSyncQueryKind : uint8
+{
+    Targets,
+    Actions,
+    Emitters,
+    TargetStatuses
+};
+
+struct FRshipPendingSyncQuery
+{
+    FString TxId;
+    FString QueryId;
+    FString QueryItemType;
+    ERshipSyncQueryKind Kind = ERshipSyncQueryKind::Targets;
+    double StartedAtSeconds = 0.0;
+    bool bCompleted = false;
+};
+
+struct FRshipTopologySyncState
+{
+    bool bInFlight = false;
+    FString Reason;
+    FString PendingReason;
+    double StartedAtSeconds = 0.0;
+    TMap<FString, FRshipPendingSyncQuery> PendingQueries;
+    TMap<FString, TSharedPtr<FJsonObject>> RemoteTargets;
+    TMap<FString, TSharedPtr<FJsonObject>> RemoteActions;
+    TMap<FString, TSharedPtr<FJsonObject>> RemoteEmitters;
+    TMap<FString, TSharedPtr<FJsonObject>> RemoteTargetStatuses;
+};
+
+struct FRshipTopologySyncSnapshot
+{
+    bool bInFlight = false;
+    bool bLastSyncSucceeded = false;
+    FString Reason;
+    FString Detail;
+    double StartedAtSeconds = 0.0;
+    double CompletedAtSeconds = 0.0;
+    int32 LocalTargets = 0;
+    int32 RemoteTargets = 0;
+    int32 SentTargets = 0;
+    int32 LocalActions = 0;
+    int32 RemoteActions = 0;
+    int32 SentActions = 0;
+    int32 LocalEmitters = 0;
+    int32 RemoteEmitters = 0;
+    int32 SentEmitters = 0;
+    int32 LocalTargetStatuses = 0;
+    int32 RemoteTargetStatuses = 0;
+    int32 SentTargetStatuses = 0;
+};
+
 /**
  * Main subsystem for managing Rocketship WebSocket connection and message routing.
- * Uses rate limiting and message queuing to prevent overwhelming the server.
+ * Uses a lossless outbound queue while disconnected and direct sends while connected.
  */
 UCLASS()
 class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
@@ -86,7 +140,6 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
 
     // High-performance WebSocket connection
     TSharedPtr<FRshipWebSocket> WebSocket;
-    bool bPingResponseReceived = false;                  // Diagnostic: tracks if ping response came back
     bool bIsManuallyReconnecting = false;                // Prevents auto-reconnect during manual reconnect
     bool bRemoteCommunicationEnabled = true;             // Global hard gate for all remote server communication
 
@@ -94,11 +147,14 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     FString ServiceId;
     FString MachineId;
 
-    FString ClientId = "UNSET";
+    FString ClientId;
     FString ClusterId;
 
-    // Rate limiter for outbound messages
+    // Legacy rate limiter object retained only to avoid wider refactors; not used for runtime flow.
     TUniquePtr<FRshipRateLimiter> RateLimiter;
+    // Lossless outbound queue used only while disconnected or when a send attempt fails.
+    TArray<FRshipQueuedMessage> PendingOutboundMessages;
+    int32 PendingOutboundBytes = 0;
     // Spatial Audio manager for loudspeaker management and spatialization (lazy initialized)
     // Note: Returns nullptr if RshipSpatialAudio plugin is not enabled
     // Not a UPROPERTY because UHT requires full UCLASS definition which is only available when SpatialAudio plugin is enabled
@@ -107,6 +163,7 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     // Connection state management
     ERshipConnectionState ConnectionState;
     int32 ReconnectAttempts;
+    int32 DisplayClusterNodeResolveRetries = 0;
     FTSTicker::FDelegateHandle QueueProcessTickerHandle;
     FTSTicker::FDelegateHandle ReconnectTickerHandle;
     FTSTicker::FDelegateHandle SubsystemTickerHandle;
@@ -131,6 +188,29 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     TMap<Target*, FManagedTargetSnapshot> ManagedTargetSnapshots;
     TMultiMap<FString, Target*> RegisteredTargetsById;
     TMap<FString, TUniquePtr<Target>> AutomationOwnedTargets;
+
+#if RSHIP_HAS_DISPLAY_CLUSTER
+    struct FDisplayClusterRenderDomain
+    {
+        FString ViewportId;
+        FString ProjectionType;
+        TWeakObjectPtr<UPrimitiveComponent> ProjectionComponent;
+        TWeakObjectPtr<USceneComponent> ViewPointComponent;
+    };
+
+    TWeakObjectPtr<ADisplayClusterRootActor> CachedDisplayClusterRootActor;
+    FString CachedDisplayClusterNodeId;
+    bool bHasLocalDisplayClusterNodeConfig = false;
+    TArray<FDisplayClusterRenderDomain> CachedRenderDomains;
+    double LastRenderDomainRefreshTimeSeconds = 0.0;
+    double LastRenderDomainPublishTimeSeconds = 0.0;
+
+    TSharedPtr<FJsonObject> BuildRenderDomainJson() const;
+    void RefreshRenderDomains();
+    void PublishRenderDomains();
+    void UpdateRenderDomainMetadata();
+#endif
+    TSharedPtr<FJsonObject> BuildCoordinateSpaceJson() const;
 
     // Ticker callbacks (return true to keep ticking, false to stop)
     bool OnQueueProcessTick(float DeltaTime);
@@ -158,7 +238,7 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
                       ERshipMessageType Type = ERshipMessageType::Generic, const FString& CoalesceKey = TEXT(""));
 
     // Direct send - only used by rate limiter callback
-    void SendJsonDirect(const FString& JsonString);
+    bool SendJsonDirect(const FString& JsonString);
 
     // Timer callbacks
     void ProcessMessageQueue();
@@ -176,11 +256,20 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     void OnWebSocketConnectionError(const FString& Error);
     void OnWebSocketClosed(int32 StatusCode, const FString& Reason, bool bWasClean);
     void OnWebSocketMessage(const FString& Message);
+    void OnWebSocketBinaryMessage(const TArray<uint8>& Message);
 
-    // Rate limiter event handlers
-    void OnRateLimiterStatusChanged(bool bIsBackingOff, float BackoffSeconds);
+    void MaybeLogWebSocketSendStats();
+    void StartTopologySync(const FString& Reason);
+    bool SendQueryRequest(const FString& QueryId, const FString& QueryItemType, const TSharedRef<FJsonObject>& QueryPayload, ERshipSyncQueryKind Kind);
+    void HandleQueryResponse(const TSharedPtr<FJsonObject>& DataObj);
+    void HandleQueryError(const TSharedPtr<FJsonObject>& DataObj);
+    void CancelQuerySubscription(const FString& TxId);
+    void FailTopologySync(const FString& Reason);
+    void CompleteTopologySyncIfReady();
+    void FlushTopologyDiff();
+    void CheckTopologySyncTimeout();
 
-    // Initialize rate limiter from settings
+    // Initialize outbound queue behavior
     void InitializeRateLimiter();
     FManagedTargetSnapshot BuildManagedTargetSnapshot(Target* ManagedTarget) const;
     int32 PruneInvalidManagedTargetRefs(const FString& TargetId);
@@ -191,6 +280,17 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     // Registration batching state
     int32 RegistrationBatchDepth = 0;
     TArray<TSharedPtr<FJsonObject>> PendingRegistrationEvents;
+
+    // Rolling websocket send stats for diagnosing replay/backpressure behavior.
+    double LastWebSocketSendStatsLogTime = 0.0;
+    int64 WebSocketSendAttemptsSinceLastLog = 0;
+    int64 WebSocketSendSuccessSinceLastLog = 0;
+    int64 WebSocketSendFailuresSinceLastLog = 0;
+    int64 WebSocketSendBytesSinceLastLog = 0;
+    int32 MessagesSentPerSecondSnapshot = 0;
+    int32 BytesSentPerSecondSnapshot = 0;
+    FRshipTopologySyncState TopologySyncState;
+    FRshipTopologySyncSnapshot TopologySyncSnapshot;
 
 #if WITH_EDITOR
     void RegisterEditorDelegates();
@@ -244,6 +344,9 @@ public:
     /** Whether remote server communication is globally enabled. */
     UFUNCTION(BlueprintCallable, Category = "Rship|Connection")
     bool IsRemoteCommunicationEnabled() const { return bRemoteCommunicationEnabled; }
+    /** Rebuild all tracked target/action/emitter registrations and republish the current cache. */
+    UFUNCTION(BlueprintCallable, Category = "Rship|Connection")
+    void RefreshTargetCache();
 
     void PulseEmitter(FString TargetId, FString EmitterId, TSharedPtr<FJsonObject> data);
 	void SendAll();
@@ -298,42 +401,6 @@ public:
      *  Not exposed to Blueprint because UHT requires full UCLASS definition. */
     URshipSpatialAudioManager* GetSpatialAudioManager();
 
-    /** Get the Content Mapping manager object from the RshipMapping runtime module */
-    UFUNCTION(BlueprintCallable, Category = "Rship|ContentMapping")
-    UObject* GetContentMappingManager();
-
-    /** Get current content-mapping debug overlay state */
-    UFUNCTION(BlueprintCallable, Category = "Rship|ContentMapping")
-    bool IsContentMappingDebugOverlayEnabled();
-
-    /** Enable/disable content-mapping debug overlay */
-    UFUNCTION(BlueprintCallable, Category = "Rship|ContentMapping")
-    void SetContentMappingDebugOverlayEnabled(bool bEnabled);
-
-    /** Return current content-mapping render contexts as JSON for non-mapping modules */
-    UFUNCTION(BlueprintCallable, Category = "Rship|ContentMapping")
-    FString GetContentMappingRenderContextsJson();
-
-    /** Validate a pipeline graph JSON payload through content-mapping runtime */
-    UFUNCTION(BlueprintCallable, Category = "Rship|ContentMapping")
-    bool ValidateContentMappingPipelineGraphJson(const FString& PipelineGraphJson, FString& OutDiagnosticsJson);
-
-    /** Compile a pipeline graph JSON payload into deterministic runtime plan JSON */
-    UFUNCTION(BlueprintCallable, Category = "Rship|ContentMapping")
-    bool CompileContentMappingPipelineGraphJson(const FString& PipelineGraphJson, FString& OutPlanJson, FString& OutDiagnosticsJson);
-
-    /** Apply a compiled pipeline plan JSON payload atomically */
-    UFUNCTION(BlueprintCallable, Category = "Rship|ContentMapping")
-    bool ApplyContentMappingCompiledPipelinePlanJson(const FString& CompiledPlanJson, FString& OutDiagnosticsJson);
-
-    /** Roll back last compiled pipeline apply transaction */
-    UFUNCTION(BlueprintCallable, Category = "Rship|ContentMapping")
-    bool RollbackContentMappingPipelineApply(FString& OutDiagnosticsJson);
-
-    /** Get the Display manager for deterministic monitor topology and pixel routing */
-    UFUNCTION(BlueprintCallable, Category = "Rship|Display")
-    URshipDisplayManager* GetDisplayManager();
-
     // ========================================================================
     // SELECTION (for bulk operations)
     // ========================================================================
@@ -351,6 +418,45 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
     bool IsConnected() const;
 
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    uint8 GetConnectionStateValue() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    bool IsTopologySyncInFlight() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    FString GetTopologySyncReason() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    FString GetTopologySyncDetail() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    float GetTopologySyncAgeSeconds() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    int32 GetLocalTargetCount() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    int32 GetRemoteTargetCount() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    int32 GetLocalActionCount() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    int32 GetRemoteActionCount() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    int32 GetLocalEmitterCount() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    int32 GetRemoteEmitterCount() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    int32 GetLocalTargetStatusCount() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    int32 GetRemoteTargetStatusCount() const;
+
     // Queue metrics
     UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
     int32 GetQueueLength() const;
@@ -360,56 +466,6 @@ public:
 
     UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
     float GetQueuePressure() const;
-
-    // Inbound ingest/apply metrics
-    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
-    int32 GetInboundQueueLength() const;
-
-    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
-    int32 GetInboundDroppedMessages() const;
-
-    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
-    int32 GetInboundTargetFilteredMessages() const;
-
-    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
-    int32 GetInboundExactFrameDroppedMessages() const;
-
-    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
-    bool IsInboundRequireExactFrame() const;
-
-    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
-    int64 GetInboundFrameCounter() const;
-
-    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
-    int64 GetInboundNextPlannedApplyFrame() const;
-
-    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
-    int64 GetInboundQueuedOldestApplyFrame() const;
-
-    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
-    int64 GetInboundQueuedNewestApplyFrame() const;
-
-    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
-    float GetInboundAverageApplyLatencyMs() const;
-
-    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
-    bool IsAuthoritativeIngestNode() const;
-
-    // Runtime timing controls (live, no restart required)
-    UFUNCTION(BlueprintCallable, Category = "Rship|Timing")
-    void SetControlSyncRateHz(float SyncRateHz);
-
-    UFUNCTION(BlueprintCallable, Category = "Rship|Timing")
-    float GetControlSyncRateHz() const { return ControlSyncRateHz; }
-
-    UFUNCTION(BlueprintCallable, Category = "Rship|Timing")
-    void SetInboundApplyLeadFrames(int32 LeadFrames);
-
-    UFUNCTION(BlueprintCallable, Category = "Rship|Timing")
-    int32 GetInboundApplyLeadFrames() const { return InboundApplyLeadFrames; }
-
-    UFUNCTION(BlueprintCallable, Category = "Rship|Timing")
-    void SetInboundRequireExactFrame(bool bRequireExactFrame);
 
     // Throughput metrics
     UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")

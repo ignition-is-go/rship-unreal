@@ -42,8 +42,8 @@ public:
 
     UPROPERTY(EditAnywhere, config, Category = "Connection", meta = (DisplayName = "Ping Interval (Seconds)",
         ClampMin = "0", ClampMax = "300",
-        ToolTip = "WebSocket ping interval for keepalive. 0 = disabled."))
-    int32 PingIntervalSeconds = 30;
+        ToolTip = "WebSocket ping interval for keepalive. 0 = disabled. Bulk sync uses 0 to avoid heartbeat contention."))
+    int32 PingIntervalSeconds = 0;
 
     // ============================================================================
     // RATE LIMITING SETTINGS

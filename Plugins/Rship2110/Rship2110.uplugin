@@ -14,6 +14,8 @@
 	"CanContainContent": false,
 	"IsBetaVersion": true,
 	"IsExperimentalVersion": false,
+	"EnabledByDefault": false,
+	"ExplicitlyLoaded": true,
 	"Installed": false,
 	"Modules": [
 		{

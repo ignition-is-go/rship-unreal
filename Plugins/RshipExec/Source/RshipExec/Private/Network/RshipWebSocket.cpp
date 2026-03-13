@@ -82,6 +82,7 @@ void FRshipWebSocket::Close(int32 Code, const FString& Reason)
     OnConnectionError.Unbind();
     OnClosed.Unbind();
     OnMessage.Unbind();
+    OnBinaryMessage.Unbind();
     OnMessageSent.Unbind();
 
 #if RSHIP_USE_IXWEBSOCKET
@@ -225,11 +226,15 @@ void FRshipWebSocket::SetupIXWebSocket(const FRshipWebSocketConfig& Config)
         IXSocket->disablePerMessageDeflate();
     }
 
-    // Set ping interval
     if (Config.PingIntervalSeconds > 0)
     {
         UE_LOG(LogRshipExec, Log, TEXT("RshipWebSocket: Setting ping interval to %d seconds"), Config.PingIntervalSeconds);
         IXSocket->setPingInterval(Config.PingIntervalSeconds);
+    }
+    else
+    {
+        UE_LOG(LogRshipExec, Log, TEXT("RshipWebSocket: Protocol heartbeat disabled"));
+        IXSocket->setPingInterval(-1);
     }
 
     // Configure auto-reconnect
@@ -295,13 +300,27 @@ void FRshipWebSocket::SetupIXWebSocket(const FRshipWebSocketConfig& Config)
 
         case ix::WebSocketMessageType::Message:
             {
-                FString Message = UTF8_TO_TCHAR(msg->str.c_str());
-                UE_LOG(LogRshipExec, VeryVerbose, TEXT("RshipWebSocket: Received message (%d bytes)"), Message.Len());
-
-                AsyncTask(ENamedThreads::GameThread, [this, Message]()
+                if (msg->binary)
                 {
-                    OnMessage.ExecuteIfBound(Message);
-                });
+                    TArray<uint8> BinaryMessage;
+                    BinaryMessage.Append(reinterpret_cast<const uint8*>(msg->str.data()), static_cast<int32>(msg->str.size()));
+                    UE_LOG(LogRshipExec, VeryVerbose, TEXT("RshipWebSocket: Received binary message (%d bytes)"), BinaryMessage.Num());
+
+                    AsyncTask(ENamedThreads::GameThread, [this, BinaryMessage]()
+                    {
+                        OnBinaryMessage.ExecuteIfBound(BinaryMessage);
+                    });
+                }
+                else
+                {
+                    FString Message = UTF8_TO_TCHAR(msg->str.c_str());
+                    UE_LOG(LogRshipExec, VeryVerbose, TEXT("RshipWebSocket: Received message (%d bytes)"), Message.Len());
+
+                    AsyncTask(ENamedThreads::GameThread, [this, Message]()
+                    {
+                        OnMessage.ExecuteIfBound(Message);
+                    });
+                }
             }
             break;
 
@@ -378,6 +397,18 @@ void FRshipWebSocket::SetupUEWebSocket(const FString& Url)
     UEWebSocket->OnMessage().AddLambda([this](const FString& Message)
     {
         OnMessage.ExecuteIfBound(Message);
+    });
+
+    UEWebSocket->OnBinaryMessage().AddLambda([this](const void* Data, SIZE_T Size, bool bIsLastFragment)
+    {
+        if (!bIsLastFragment || Data == nullptr || Size == 0)
+        {
+            return;
+        }
+
+        TArray<uint8> BinaryMessage;
+        BinaryMessage.Append(static_cast<const uint8*>(Data), static_cast<int32>(Size));
+        OnBinaryMessage.ExecuteIfBound(BinaryMessage);
     });
 
     // Connect
