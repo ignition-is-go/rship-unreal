@@ -68,6 +68,7 @@ struct FRshipPendingBatchActionItem
 struct FRshipPendingBatchTargetAction
 {
     FString TxId;
+    FString CommandId;
     TArray<FRshipPendingBatchActionItem> Actions;
 };
 
@@ -247,7 +248,7 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     void OnConnectionTimeout();
     void FlushPendingOnDataReceived();
     void EnqueueExecTargetAction(const FString& TargetId, const FString& ActionId, const TSharedRef<FJsonObject>& Data, const FString& TxId);
-    void EnqueueBatchTargetAction(const FString& TxId, TArray<FRshipPendingBatchActionItem>&& Actions);
+    void EnqueueBatchTargetAction(const FString& TxId, TArray<FRshipPendingBatchActionItem>&& Actions, const FString& CommandId = TEXT("BatchTargetAction"));
     void ProcessPendingExecTargetActions();
     void QueueCommandResponse(const FString& TxId, bool bOk, const FString& CommandId, const FString& ErrorMessage = TEXT(""));
 
