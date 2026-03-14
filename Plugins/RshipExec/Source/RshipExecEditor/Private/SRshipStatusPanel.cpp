@@ -1244,7 +1244,6 @@ void SRshipStatusPanel::TryApplyPendingTargetSelection()
     {
         return TreeItem.GetID() == PendingId;
     });
-    TargetSceneOutliner->FrameItem(PendingId);
 
     if (const TSharedPtr<FRshipTargetListItem> SelectedItem = FindTargetItemByFullTargetId(PendingSelectionTargetId))
     {
@@ -1598,8 +1597,8 @@ void SRshipStatusPanel::OnTargetSelectionChanged(TSharedPtr<FRshipTargetListItem
             RefreshActionsSection();
         }
 
-        // Mirror panel selection to editor actor selection (for subtargets, use owning top-level actor).
-        if (!bSyncingFromEditorSelection && GEditor && SelectedTargetOwner.IsValid())
+        // Passive list refreshes should not keep reasserting the same editor selection.
+        if (bSelectionChanged && !bSyncingFromEditorSelection && GEditor && SelectedTargetOwner.IsValid())
         {
             bSyncingToEditorSelection = true;
             GEditor->SelectNone(false, true, false);
