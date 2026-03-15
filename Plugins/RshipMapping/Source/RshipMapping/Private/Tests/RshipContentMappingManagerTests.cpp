@@ -350,8 +350,7 @@ namespace
             return nullptr;
         }
 
-        UObject* ManagerObject = Subsystem->GetContentMappingManager();
-        URshipContentMappingManager* Manager = Cast<URshipContentMappingManager>(ManagerObject);
+        URshipContentMappingManager* Manager = URshipContentMappingManager::Get();
         if (!Manager)
         {
             OutIssue = TEXT("ContentMappingManager unavailable");
@@ -622,8 +621,7 @@ namespace
             return false;
         }
 
-        UObject* ManagerObject = Subsystem->GetContentMappingManager();
-        URshipContentMappingManager* Manager = Cast<URshipContentMappingManager>(ManagerObject);
+        URshipContentMappingManager* Manager = URshipContentMappingManager::Get();
         if (!Manager)
         {
             OutIssue = TEXT("ContentMappingManager unavailable");

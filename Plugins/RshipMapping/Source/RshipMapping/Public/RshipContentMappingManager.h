@@ -4,16 +4,15 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "UObject/Object.h"
+#include "Subsystems/EngineSubsystem.h"
 #include "Dom/JsonObject.h"
 #include "RshipTexturePipelineAsset.h"
 #include "RshipContentMappingManager.generated.h"
 
 class URshipSubsystem;
 class URshipAssetStoreClient;
-class ARshipCameraActor;
+class URshipContentMappingTargetProxy;
 class AActor;
-class ACameraActor;
 class UMeshComponent;
 class UMaterialInterface;
 class UMaterialInstanceDynamic;
@@ -78,10 +77,16 @@ struct RSHIPMAPPING_API FRshipRenderContextState
     bool bDepthCaptureEnabled = false;
 
     UPROPERTY(Transient)
-    TWeakObjectPtr<ARshipCameraActor> CameraActor;
+    TWeakObjectPtr<AActor> CameraActor;
 
     UPROPERTY(Transient)
-    TWeakObjectPtr<ACameraActor> SourceCameraActor;
+    TWeakObjectPtr<AActor> SourceCameraActor;
+
+    UPROPERTY(Transient)
+    TWeakObjectPtr<USceneCaptureComponent2D> CaptureComponent;
+
+    UPROPERTY(Transient)
+    TWeakObjectPtr<UTextureRenderTarget2D> CaptureRenderTarget;
 
     UPROPERTY(Transient)
     UTexture* ResolvedTexture = nullptr;
@@ -186,11 +191,16 @@ struct RSHIPMAPPING_API FRshipContentMappingState
 };
 
 UCLASS(BlueprintType)
-class RSHIPMAPPING_API URshipContentMappingManager : public UObject
+class RSHIPMAPPING_API URshipContentMappingManager : public UEngineSubsystem
 {
     GENERATED_BODY()
 
 public:
+    virtual void Initialize(FSubsystemCollectionBase& Collection) override;
+    virtual void Deinitialize() override;
+
+    static URshipContentMappingManager* Get();
+
     void Initialize(URshipSubsystem* InSubsystem);
     void Shutdown();
     void Tick(float DeltaTime);
@@ -390,6 +400,8 @@ private:
     TMap<FString, TObjectPtr<UTextureRenderTarget2D>> FeedCompositeTargets;
     UPROPERTY(Transient)
     TMap<FString, uint32> FeedCompositeStaticSignatures;
+    UPROPERTY(Transient)
+    TMap<FString, TObjectPtr<URshipContentMappingTargetProxy>> TargetProxies;
     TMap<FString, TArray<FString>> EffectiveSurfaceIdsCache;
     TMap<FString, FRenderContextRuntimeState> RenderContextRuntimeStates;
     TMap<FString, FMappingRequiredContexts> RequiredContextIdsCache;
@@ -443,6 +455,8 @@ private:
     TMap<FString, uint32> LastEmittedStateHashes;
     TMap<FString, uint32> LastEmittedStatusHashes;
 
+    void RefreshSubsystemBinding();
+    URshipContentMappingTargetProxy* EnsureTargetProxy(const FString& TargetId);
     void MarkMappingsDirty();
     void SyncRuntimeAfterMutation(bool bRequireRebuild);
     void ArmMappings();

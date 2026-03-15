@@ -46,12 +46,10 @@
 #include "Engine/Selection.h"
 #include "RshipContentMappingPreviewActor.h"
 #include "Editor.h"
-#include "RshipTargetComponent.h"
-#include "RshipCameraManager.h"
-#include "RshipSceneConverter.h"
+#include "RshipActorRegistrationComponent.h"
+#include "Controllers/RshipCameraController.h"
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
-#include "RshipCameraActor.h"
 #include "HAL/PlatformApplicationMisc.h"
 #include "ScopedTransaction.h"
 #include "UObject/Package.h"
@@ -86,7 +84,56 @@ namespace
 
 	URshipContentMappingManager* ResolveContentMappingManager(URshipSubsystem* Subsystem)
 	{
-		return Subsystem ? Cast<URshipContentMappingManager>(Subsystem->GetContentMappingManager()) : nullptr;
+		(void)Subsystem;
+		return URshipContentMappingManager::Get();
+	}
+
+	UCameraComponent* ResolveSceneCameraComponent(AActor* Actor)
+	{
+		if (!Actor)
+		{
+			return nullptr;
+		}
+
+		if (ACameraActor* CameraActor = Cast<ACameraActor>(Actor))
+		{
+			if (UCameraComponent* CameraComponent = CameraActor->GetCameraComponent())
+			{
+				return CameraComponent;
+			}
+		}
+
+		return Actor->FindComponentByClass<UCameraComponent>();
+	}
+
+	FString GetRegistrationFullId(const URshipActorRegistrationComponent* Registration)
+	{
+		if (!Registration)
+		{
+			return TEXT("");
+		}
+
+		return Registration->GetFullTargetId().TrimStartAndEnd();
+	}
+
+	FString GetRegistrationShortId(const URshipActorRegistrationComponent* Registration, AActor* Owner)
+	{
+		if (Registration)
+		{
+			const FString TargetId = Registration->GetTargetId().TrimStartAndEnd();
+			if (!TargetId.IsEmpty())
+			{
+				return TargetId;
+			}
+		}
+
+		if (!Owner)
+		{
+			return TEXT("");
+		}
+
+		const FString ActorLabel = Owner->GetActorLabel();
+		return ActorLabel.IsEmpty() ? Owner->GetName() : ActorLabel;
 	}
 
 	bool ResolveLatestMappingState(
@@ -549,12 +596,12 @@ namespace
 			return false;
 		}
 
-		if (Actor->IsA<ACameraActor>() || Actor->IsA<ARshipCameraActor>())
+		if (Actor->IsA<ACameraActor>())
 		{
 			return false;
 		}
 
-		if (Actor->FindComponentByClass<UCameraComponent>())
+		if (ResolveSceneCameraComponent(Actor))
 		{
 			return false;
 		}
@@ -848,19 +895,10 @@ FString SRshipContentMappingPanel::ResolveTargetIdInput(const FString& InText) c
 			}
 			if (Option->Actor.IsValid())
 			{
-				if (URshipTargetComponent* CreatedTarget = EnsureTargetComponentForActor(Option->Actor.Get()))
+				const FString ResolvedId = ResolveTargetIdForActor(Option->Actor.Get());
+				if (!ResolvedId.IsEmpty())
 				{
-					if (CreatedTarget->targetName.IsEmpty())
-					{
-						return Option->Id;
-					}
-					URshipSubsystem* Subsystem = GEngine ? GEngine->GetEngineSubsystem<URshipSubsystem>() : nullptr;
-					if (Subsystem)
-					{
-						const FString ServiceId = Subsystem->GetServiceId();
-						return ServiceId.IsEmpty() ? CreatedTarget->targetName : ServiceId + TEXT(":") + CreatedTarget->targetName;
-					}
-					return CreatedTarget->targetName;
+					return ResolvedId;
 				}
 			}
 			return Option->Id;
@@ -875,15 +913,10 @@ FString SRshipContentMappingPanel::ResolveTargetIdInput(const FString& InText) c
 				{
 					return Option->ResolvedId;
 				}
-				if (URshipTargetComponent* CreatedTarget = EnsureTargetComponentForActor(Option->Actor.Get()))
+				const FString ResolvedId = ResolveTargetIdForActor(Option->Actor.Get());
+				if (!ResolvedId.IsEmpty())
 				{
-					URshipSubsystem* Subsystem = GEngine ? GEngine->GetEngineSubsystem<URshipSubsystem>() : nullptr;
-					if (Subsystem)
-					{
-						const FString ServiceId = Subsystem->GetServiceId();
-						return ServiceId.IsEmpty() ? CreatedTarget->targetName : ServiceId + TEXT(":") + CreatedTarget->targetName;
-					}
-					return CreatedTarget->targetName;
+					return ResolvedId;
 				}
 				return Option->Id;
 			}
@@ -918,7 +951,18 @@ FString SRshipContentMappingPanel::ResolveTargetIdInput(const FString& InText) c
 	if (PartialMatches.Num() == 1)
 	{
 		const TSharedPtr<FRshipIdOption>& Option = PartialMatches[0];
-		return Option->ResolvedId.IsEmpty() ? Option->Id : Option->ResolvedId;
+		if (!Option->ResolvedId.IsEmpty())
+		{
+			return Option->ResolvedId;
+		}
+
+		if (Option.IsValid() && Option->Actor.IsValid())
+		{
+			const FString ResolvedId = ResolveTargetIdForActor(Option->Actor.Get());
+			return ResolvedId.IsEmpty() ? Option->Id : ResolvedId;
+		}
+
+		return Option.IsValid() ? Option->Id : TEXT("");
 	}
 
 	URshipSubsystem* Subsystem = GEngine ? GEngine->GetEngineSubsystem<URshipSubsystem>() : nullptr;
@@ -926,13 +970,13 @@ FString SRshipContentMappingPanel::ResolveTargetIdInput(const FString& InText) c
 	{
 		for (auto& Pair : *Subsystem->TargetComponents)
 		{
-			URshipTargetComponent* Component = Pair.Value;
+			URshipActorRegistrationComponent* Component = Pair.Value;
 			if (!Component)
 			{
 				continue;
 			}
 
-			const FString ShortId = Component->targetName;
+			const FString ShortId = GetRegistrationShortId(Component, Component->GetOwner());
 			if (!ShortId.IsEmpty() && ShortId.Equals(Trimmed, ESearchCase::IgnoreCase))
 			{
 				return Pair.Key;
@@ -1017,7 +1061,7 @@ FString SRshipContentMappingPanel::ResolveScreenIdInput(const FString& InText) c
 	return ResolveTargetIdInput(Trimmed);
 }
 
-URshipTargetComponent* SRshipContentMappingPanel::EnsureTargetComponentForActor(AActor* Actor) const
+URshipActorRegistrationComponent* SRshipContentMappingPanel::EnsureTargetComponentForActor(AActor* Actor) const
 {
 #if WITH_EDITOR
 	if (!Actor)
@@ -1025,7 +1069,7 @@ URshipTargetComponent* SRshipContentMappingPanel::EnsureTargetComponentForActor(
 		return nullptr;
 	}
 
-	if (URshipTargetComponent* Existing = Actor->FindComponentByClass<URshipTargetComponent>())
+	if (URshipActorRegistrationComponent* Existing = Actor->FindComponentByClass<URshipActorRegistrationComponent>())
 	{
 		return Existing;
 	}
@@ -1040,7 +1084,11 @@ URshipTargetComponent* SRshipContentMappingPanel::EnsureTargetComponentForActor(
 	const FScopedTransaction Transaction(LOCTEXT("AddRshipTargetComponentTxn", "Add Rship Target Component"));
 	Actor->Modify();
 
-	URshipTargetComponent* NewComponent = NewObject<URshipTargetComponent>(Actor, URshipTargetComponent::StaticClass(), NAME_None, RF_Transactional);
+	URshipActorRegistrationComponent* NewComponent = NewObject<URshipActorRegistrationComponent>(
+		Actor,
+		URshipActorRegistrationComponent::StaticClass(),
+		NAME_None,
+		RF_Transactional);
 	if (!NewComponent)
 	{
 		return nullptr;
@@ -1055,6 +1103,7 @@ URshipTargetComponent* SRshipContentMappingPanel::EnsureTargetComponentForActor(
 	Actor->AddInstanceComponent(NewComponent);
 	NewComponent->OnComponentCreated();
 	NewComponent->RegisterComponent();
+	Actor->MarkPackageDirty();
 	return NewComponent;
 #else
 	return nullptr;
@@ -1072,11 +1121,15 @@ FString SRshipContentMappingPanel::ResolveTargetIdForActor(AActor* Actor) const
 	{
 		if (Option.IsValid() && Option->Actor.Get() == Actor)
 		{
-			return Option->ResolvedId.IsEmpty() ? Option->Id : Option->ResolvedId;
+			if (!Option->ResolvedId.IsEmpty())
+			{
+				return Option->ResolvedId;
+			}
+			break;
 		}
 	}
 
-	URshipTargetComponent* TargetComp = Actor->FindComponentByClass<URshipTargetComponent>();
+	URshipActorRegistrationComponent* TargetComp = Actor->FindComponentByClass<URshipActorRegistrationComponent>();
 	if (!TargetComp)
 	{
 		TargetComp = EnsureTargetComponentForActor(Actor);
@@ -1084,33 +1137,83 @@ FString SRshipContentMappingPanel::ResolveTargetIdForActor(AActor* Actor) const
 
 	if (TargetComp)
 	{
-		URshipSubsystem* Subsystem = GEngine ? GEngine->GetEngineSubsystem<URshipSubsystem>() : nullptr;
-		if (Subsystem && Subsystem->TargetComponents)
+		TargetComp->Register();
+		const FString FullTargetId = GetRegistrationFullId(TargetComp);
+		if (!FullTargetId.IsEmpty())
 		{
-			for (auto& Pair : *Subsystem->TargetComponents)
-			{
-				if (Pair.Value == TargetComp)
-				{
-					return Pair.Key;
-				}
-			}
+			return FullTargetId;
 		}
 
-		if (!TargetComp->targetName.IsEmpty())
-		{
-			if (Subsystem)
-			{
-				const FString ServiceId = Subsystem->GetServiceId();
-				if (!ServiceId.IsEmpty())
-				{
-					return ServiceId + TEXT(":") + TargetComp->targetName;
-				}
-			}
-			return TargetComp->targetName;
-		}
+		return GetRegistrationShortId(TargetComp, Actor);
 	}
 
 	return TEXT("");
+}
+
+FString SRshipContentMappingPanel::SetupSceneCamera(AActor* Actor) const
+{
+#if WITH_EDITOR
+	if (!Actor || !ResolveSceneCameraComponent(Actor))
+	{
+		return TEXT("");
+	}
+
+	URshipActorRegistrationComponent* Registration = Actor->FindComponentByClass<URshipActorRegistrationComponent>();
+	URshipCameraController* CameraController = Actor->FindComponentByClass<URshipCameraController>();
+	if (!Registration || !CameraController)
+	{
+		const FScopedTransaction Transaction(LOCTEXT("SetupSceneCameraTxn", "Setup Rship Scene Camera"));
+		Actor->Modify();
+
+		if (!Registration)
+		{
+			Registration = NewObject<URshipActorRegistrationComponent>(
+				Actor,
+				URshipActorRegistrationComponent::StaticClass(),
+				NAME_None,
+				RF_Transactional);
+			if (Registration)
+			{
+				Actor->AddInstanceComponent(Registration);
+				Registration->OnComponentCreated();
+				Registration->RegisterComponent();
+			}
+		}
+
+		if (!CameraController)
+		{
+			CameraController = NewObject<URshipCameraController>(
+				Actor,
+				URshipCameraController::StaticClass(),
+				NAME_None,
+				RF_Transactional);
+			if (CameraController)
+			{
+				Actor->AddInstanceComponent(CameraController);
+				CameraController->OnComponentCreated();
+				CameraController->RegisterComponent();
+			}
+		}
+
+		Actor->MarkPackageDirty();
+	}
+
+	if (!Registration)
+	{
+		return TEXT("");
+	}
+
+	Registration->Register();
+	const FString FullTargetId = GetRegistrationFullId(Registration);
+	if (!FullTargetId.IsEmpty())
+	{
+		return FullTargetId;
+	}
+
+	return GetRegistrationShortId(Registration, Actor);
+#else
+	return TEXT("");
+#endif
 }
 
 FString SRshipContentMappingPanel::ResolveCameraIdForActor(AActor* Actor) const
@@ -1118,11 +1221,6 @@ FString SRshipContentMappingPanel::ResolveCameraIdForActor(AActor* Actor) const
 	if (!Actor)
 	{
 		return TEXT("");
-	}
-
-	if (ARshipCameraActor* RshipCamera = Cast<ARshipCameraActor>(Actor))
-	{
-		return RshipCamera->CameraId;
 	}
 
 	for (const TSharedPtr<FRshipIdOption>& Option : CameraOptions)
@@ -1134,17 +1232,21 @@ FString SRshipContentMappingPanel::ResolveCameraIdForActor(AActor* Actor) const
 
 		if (Option->Actor.Get() == Actor)
 		{
-			if (Option->bRequiresConversion)
+			if (Option->bRequiresSetup)
 			{
-				return ConvertSceneCamera(Actor);
+				const FString SetupId = SetupSceneCamera(Actor);
+				if (!SetupId.IsEmpty())
+				{
+					return SetupId;
+				}
 			}
 			return Option->ResolvedId.IsEmpty() ? Option->Id : Option->ResolvedId;
 		}
 	}
 
-	if (Actor->FindComponentByClass<UCameraComponent>())
+	if (ResolveSceneCameraComponent(Actor))
 	{
-		return ConvertSceneCamera(Actor);
+		return SetupSceneCamera(Actor);
 	}
 
 	return TEXT("");
@@ -1910,7 +2012,7 @@ void SRshipContentMappingPanel::SyncProjectionActorFromMapping(const FRshipConte
 	}
 	else if (ContextState && ContextState->CameraActor.IsValid())
 	{
-		const ARshipCameraActor* CameraActor = ContextState->CameraActor.Get();
+		const AActor* CameraActor = ContextState->CameraActor.Get();
 		Position = CameraActor->GetActorLocation();
 		Rotation = CameraActor->GetActorRotation();
 	}
@@ -2159,22 +2261,22 @@ TSharedRef<SWidget> SRshipContentMappingPanel::BuildIdPickerMenu(const TArray<TS
 				FString SelectedId = OptionId;
 				if (Option.IsValid() && Option->bIsSceneCamera)
 				{
-					if (!Option->ResolvedId.IsEmpty())
+					if (Option->bRequiresSetup)
 					{
-						SelectedId = Option->ResolvedId;
-					}
-					else if (Option->bRequiresConversion)
-					{
-						SelectedId = ConvertSceneCamera(Option->Actor.Get());
+						SelectedId = SetupSceneCamera(Option->Actor.Get());
 						if (!SelectedId.IsEmpty())
 						{
 							Option->ResolvedId = SelectedId;
-							Option->bRequiresConversion = false;
+							Option->bRequiresSetup = false;
 							Option->Id = SelectedId;
 							const FString ActorLabel = Option->Actor.IsValid() ? Option->Actor->GetActorLabel() : TEXT("Scene Camera");
 							Option->Label = FString::Printf(TEXT("Scene Camera: %s (%s)"), *ActorLabel, *SelectedId);
 							RefreshStatus();
 						}
+					}
+					else if (!Option->ResolvedId.IsEmpty())
+					{
+						SelectedId = Option->ResolvedId;
 					}
 				}
 
@@ -2224,63 +2326,36 @@ void SRshipContentMappingPanel::RebuildPickerOptions(const TArray<FRshipRenderCo
 	SurfaceOptions.Reset();
 
 	URshipSubsystem* Subsystem = GEngine ? GEngine->GetEngineSubsystem<URshipSubsystem>() : nullptr;
-	TSet<FString> ExistingCameraIds;
+	const FString ServiceId = Subsystem ? Subsystem->GetServiceId() : TEXT("");
+	TSet<const AActor*> ExistingTargetActors;
 
 	if (Subsystem && Subsystem->TargetComponents)
 	{
 		for (auto& Pair : *Subsystem->TargetComponents)
 		{
-			URshipTargetComponent* Component = Pair.Value;
-			if (!Component || !Component->IsValidLowLevel())
+			URshipActorRegistrationComponent* Component = Pair.Value;
+			AActor* Owner = Component ? Component->GetOwner() : nullptr;
+			if (!Component || !Owner || !Component->IsValidLowLevel() || ExistingTargetActors.Contains(Owner))
 			{
 				continue;
 			}
 
-			const FString TargetId = Component->targetName;
-			const FString FullTargetId = Pair.Key;
-			const FString DisplayName = Component->GetOwner() ? Component->GetOwner()->GetActorLabel() : TargetId;
+			const FString TargetId = GetRegistrationShortId(Component, Owner);
+			const FString FullTargetId = Pair.Key.IsEmpty() ? GetRegistrationFullId(Component) : Pair.Key;
+			const FString DisplayName = Owner->GetActorLabel();
 			TSharedPtr<FRshipIdOption> Opt = MakeShared<FRshipIdOption>();
 			Opt->Id = TargetId;
 			Opt->ResolvedId = FullTargetId;
-			Opt->Actor = Component->GetOwner();
-				Opt->Label = DisplayName.IsEmpty() ? TEXT("(Unnamed target)") : DisplayName;
+			Opt->Actor = Owner;
+			Opt->Label = DisplayName.IsEmpty() ? TEXT("(Unnamed target)") : DisplayName;
 			TargetOptions.Add(Opt);
-		}
-	}
-
-	if (Subsystem)
-	{
-		if (URshipCameraManager* CamMgr = Subsystem->GetCameraManager())
-		{
-			const TArray<FRshipCameraInfo> Cameras = CamMgr->GetAllCameras();
-			for (const FRshipCameraInfo& Cam : Cameras)
-			{
-				if (Cam.Id.IsEmpty())
-				{
-					continue;
-				}
-				TSharedPtr<FRshipIdOption> Opt = MakeShared<FRshipIdOption>();
-				Opt->Id = Cam.Id;
-				Opt->Label = DisplayTextOrDefault(Cam.Name, TEXT("(Unnamed camera)"));
-				CameraOptions.Add(Opt);
-				ExistingCameraIds.Add(Cam.Id);
-			}
+			ExistingTargetActors.Add(Owner);
 		}
 	}
 
 	UWorld* World = GetEditorWorld();
 	if (World)
 	{
-		TSet<const AActor*> ExistingTargetActors;
-		for (const TSharedPtr<FRshipIdOption>& ExistingTarget : TargetOptions)
-		{
-			if (ExistingTarget.IsValid() && ExistingTarget->Actor.IsValid())
-			{
-				ExistingTargetActors.Add(ExistingTarget->Actor.Get());
-			}
-		}
-
-		const FString ServiceId = Subsystem ? Subsystem->GetServiceId() : TEXT("");
 		for (TActorIterator<AActor> It(World); It; ++It)
 		{
 			AActor* Actor = *It;
@@ -2289,25 +2364,18 @@ void SRshipContentMappingPanel::RebuildPickerOptions(const TArray<FRshipRenderCo
 				continue;
 			}
 
-			URshipTargetComponent* TargetComp = Actor->FindComponentByClass<URshipTargetComponent>();
+			URshipActorRegistrationComponent* TargetComp = Actor->FindComponentByClass<URshipActorRegistrationComponent>();
 			if (!TargetComp)
 			{
 				continue;
 			}
 
-			if (TargetComp->TargetData && Subsystem && !ServiceId.IsEmpty())
-			{
-				const FString ExpectedFullId = ServiceId + TEXT(":") + TargetComp->targetName;
-				if (!Subsystem->FindTargetComponent(ExpectedFullId))
-				{
-					Subsystem->RegisterTargetComponent(TargetComp);
-				}
-			}
+			TargetComp->Register();
 
 			TSharedPtr<FRshipIdOption> DiscoveredOpt = MakeShared<FRshipIdOption>();
 			DiscoveredOpt->Actor = Actor;
-			DiscoveredOpt->Id = TargetComp->targetName.IsEmpty() ? Actor->GetName() : TargetComp->targetName;
-			DiscoveredOpt->ResolvedId = ServiceId.IsEmpty() ? DiscoveredOpt->Id : ServiceId + TEXT(":") + DiscoveredOpt->Id;
+			DiscoveredOpt->Id = GetRegistrationShortId(TargetComp, Actor);
+			DiscoveredOpt->ResolvedId = GetRegistrationFullId(TargetComp);
 			DiscoveredOpt->Label = DisplayTextOrDefault(Actor->GetActorLabel(), TEXT("(Unnamed target)"));
 			TargetOptions.Add(DiscoveredOpt);
 			ExistingTargetActors.Add(Actor);
@@ -2338,74 +2406,15 @@ void SRshipContentMappingPanel::RebuildPickerOptions(const TArray<FRshipRenderCo
 			ExistingTargetActors.Add(Actor);
 		}
 
-		URshipSceneConverter* Converter = Subsystem ? Subsystem->GetSceneConverter() : nullptr;
 		TSet<const AActor*> AddedCameraActors;
-		for (const TSharedPtr<FRshipIdOption>& Existing : CameraOptions)
-		{
-			if (Existing.IsValid() && Existing->Actor.IsValid())
-			{
-				AddedCameraActors.Add(Existing->Actor.Get());
-			}
-		}
-
-		for (TActorIterator<ACameraActor> It(World); It; ++It)
-		{
-			ACameraActor* CameraActor = *It;
-			if (!CameraActor || CameraActor->IsA<ARshipCameraActor>())
-			{
-				continue;
-			}
-			if (AddedCameraActors.Contains(CameraActor))
-			{
-				continue;
-			}
-
-			FString ConvertedId;
-			if (Converter)
-			{
-				ConvertedId = Converter->GetConvertedEntityId(CameraActor);
-			}
-			if (!ConvertedId.IsEmpty() && ExistingCameraIds.Contains(ConvertedId))
-			{
-				continue;
-			}
-
-			const FString ActorLabel = CameraActor->GetActorLabel();
-			const FString ClassName = CameraActor->GetClass() ? CameraActor->GetClass()->GetName() : TEXT("CameraActor");
-			const bool bIsCine = ClassName.Contains(TEXT("CineCameraActor"));
-			TSharedPtr<FRshipIdOption> Opt = MakeShared<FRshipIdOption>();
-			Opt->bIsSceneCamera = true;
-			Opt->Actor = CameraActor;
-			Opt->ResolvedId = ConvertedId;
-			Opt->bRequiresConversion = ConvertedId.IsEmpty();
-			Opt->Id = ConvertedId.IsEmpty() ? ActorLabel : ConvertedId;
-			const FString Prefix = bIsCine ? TEXT("Scene CineCamera") : TEXT("Scene Camera");
-			Opt->Label = ConvertedId.IsEmpty()
-				? FString::Printf(TEXT("%s: %s (convert)"), *Prefix, *ActorLabel)
-				: FString::Printf(TEXT("%s: %s (%s)"), *Prefix, *ActorLabel, *ConvertedId);
-			CameraOptions.Add(Opt);
-			AddedCameraActors.Add(CameraActor);
-		}
-
 		for (TActorIterator<AActor> It(World); It; ++It)
 		{
 			AActor* Actor = *It;
-			if (!Actor || Actor->IsA<ARshipCameraActor>() || AddedCameraActors.Contains(Actor))
+			if (!Actor || AddedCameraActors.Contains(Actor))
 			{
 				continue;
 			}
-
-			if (!Actor->FindComponentByClass<UCameraComponent>())
-			{
-				continue;
-			}
-
-			FString ConvertedId;
-			if (Converter)
-			{
-				ConvertedId = Converter->GetConvertedEntityId(Actor);
-			}
-			if (!ConvertedId.IsEmpty() && ExistingCameraIds.Contains(ConvertedId))
+			if (!ResolveSceneCameraComponent(Actor))
 			{
 				continue;
 			}
@@ -2413,16 +2422,28 @@ void SRshipContentMappingPanel::RebuildPickerOptions(const TArray<FRshipRenderCo
 			const FString ActorLabel = Actor->GetActorLabel();
 			const FString ClassName = Actor->GetClass() ? Actor->GetClass()->GetName() : TEXT("CameraActor");
 			const bool bIsCine = ClassName.Contains(TEXT("CineCamera"));
+			URshipActorRegistrationComponent* Registration = Actor->FindComponentByClass<URshipActorRegistrationComponent>();
+			URshipCameraController* CameraController = Actor->FindComponentByClass<URshipCameraController>();
+			FString ResolvedCameraId = GetRegistrationFullId(Registration);
+			if (ResolvedCameraId.IsEmpty() && Registration)
+			{
+				const FString ShortTargetId = GetRegistrationShortId(Registration, Actor);
+				ResolvedCameraId = (!ServiceId.IsEmpty() && !ShortTargetId.IsEmpty() && !ShortTargetId.Contains(TEXT(":")))
+					? (ServiceId + TEXT(":") + ShortTargetId)
+					: ShortTargetId;
+			}
+
 			TSharedPtr<FRshipIdOption> Opt = MakeShared<FRshipIdOption>();
 			Opt->bIsSceneCamera = true;
 			Opt->Actor = Actor;
-			Opt->ResolvedId = ConvertedId;
-			Opt->bRequiresConversion = ConvertedId.IsEmpty();
-			Opt->Id = ConvertedId.IsEmpty() ? ActorLabel : ConvertedId;
+			Opt->ResolvedId = ResolvedCameraId;
+			Opt->bRequiresSetup = !(Registration && CameraController && !ResolvedCameraId.IsEmpty());
+			Opt->Id = ResolvedCameraId.IsEmpty() ? DisplayTextOrDefault(ActorLabel, Actor->GetName()) : ResolvedCameraId;
 			const FString Prefix = bIsCine ? TEXT("Scene CineCamera") : TEXT("Scene Camera");
-			Opt->Label = ConvertedId.IsEmpty()
-				? FString::Printf(TEXT("%s: %s (convert)"), *Prefix, *ActorLabel)
-				: FString::Printf(TEXT("%s: %s (%s)"), *Prefix, *ActorLabel, *ConvertedId);
+			const FString DisplayName = DisplayTextOrDefault(ActorLabel, TEXT("Camera"));
+			Opt->Label = Opt->bRequiresSetup
+				? FString::Printf(TEXT("%s: %s (setup)"), *Prefix, *DisplayName)
+				: FString::Printf(TEXT("%s: %s (%s)"), *Prefix, *DisplayName, *ResolvedCameraId);
 			CameraOptions.Add(Opt);
 			AddedCameraActors.Add(Actor);
 		}
@@ -2475,54 +2496,6 @@ void SRshipContentMappingPanel::RebuildPickerOptions(const TArray<FRshipRenderCo
 		Opt->Label = AssetId;
 		AssetOptions.Add(Opt);
 	}
-}
-
-FString SRshipContentMappingPanel::ConvertSceneCamera(AActor* Actor) const
-{
-	if (!Actor || !GEngine)
-	{
-		return TEXT("");
-	}
-
-	URshipSubsystem* Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
-	if (!Subsystem)
-	{
-		return TEXT("");
-	}
-
-	URshipSceneConverter* Converter = Subsystem->GetSceneConverter();
-	if (!Converter)
-	{
-		return TEXT("");
-	}
-
-	FRshipDiscoveryOptions Options;
-	Options.bIncludeCameras = true;
-	Options.bIncludeDirectionalLights = false;
-	Options.bIncludePointLights = false;
-	Options.bIncludeRectLights = false;
-	Options.bIncludeSpotLights = false;
-	Options.bSkipAlreadyConverted = false;
-
-	Converter->DiscoverScene(Options);
-	const TArray<FRshipDiscoveredCamera> Cameras = Converter->GetDiscoveredCameras();
-	for (const FRshipDiscoveredCamera& Camera : Cameras)
-	{
-		if (Camera.CameraActor == Actor)
-		{
-			FRshipConversionOptions ConvOptions;
-			ConvOptions.bSpawnVisualizationActor = false;
-			ConvOptions.bEnableTransformSync = true;
-			FRshipConversionResult Result = Converter->ConvertCamera(Camera, ConvOptions);
-			if (Result.bSuccess)
-			{
-				return Result.EntityId;
-			}
-			return TEXT("");
-		}
-	}
-
-	return TEXT("");
 }
 void SRshipContentMappingPanel::Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime)
 {
@@ -4759,7 +4732,6 @@ bool SRshipContentMappingPanel::SaveProjectPipelineAsset(URshipTexturePipelineAs
 	FSavePackageArgs SaveArgs;
 	SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
 	SaveArgs.SaveFlags = SAVE_None;
-	SaveArgs.Error = GWarn;
 	return UPackage::SavePackage(Package, Asset, *PackageFilename, SaveArgs);
 #else
 	return false;

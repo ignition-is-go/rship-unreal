@@ -42,7 +42,7 @@ private:
 		FString Id;
 		FString Label;
 		bool bIsSceneCamera = false;
-		bool bRequiresConversion = false;
+		bool bRequiresSetup = false;
 		TWeakObjectPtr<AActor> Actor;
 		FString ResolvedId;
 	};
@@ -60,7 +60,7 @@ private:
 
 	TSharedRef<SWidget> BuildIdPickerMenu(const TArray<TSharedPtr<FRshipIdOption>>& Options, const FText& EmptyText, TSharedPtr<class SEditableTextBox> TargetInput, bool bAppend);
 	void RebuildPickerOptions(const TArray<struct FRshipRenderContextState>& Contexts, const TArray<struct FRshipMappingSurfaceState>& Surfaces);
-	FString ConvertSceneCamera(AActor* Actor) const;
+	FString SetupSceneCamera(AActor* Actor) const;
 	void RefreshStatus();
 	void PopulateContextForm(const struct FRshipRenderContextState& State);
 	void PopulateSurfaceForm(const struct FRshipMappingSurfaceState& State);
@@ -69,7 +69,7 @@ private:
 	class UWorld* GetEditorWorld() const;
 	FString ResolveTargetIdInput(const FString& InText) const;
 	FString ResolveScreenIdInput(const FString& InText) const;
-	class URshipTargetComponent* EnsureTargetComponentForActor(class AActor* Actor) const;
+	class URshipActorRegistrationComponent* EnsureTargetComponentForActor(class AActor* Actor) const;
 	FString ResolveTargetIdForActor(class AActor* Actor) const;
 	FString ResolveScreenIdForActor(class AActor* Actor) const;
 	FString ResolveCameraIdForActor(class AActor* Actor) const;

@@ -4,13 +4,14 @@
 #include "RshipSubsystem.h"
 #include "RshipSettings.h"
 #include "RshipAssetStoreClient.h"
-#include "RshipCameraActor.h"
-#include "RshipSceneConverter.h"
-#include "RshipTargetComponent.h"
+#include "RshipContentMappingTargetProxy.h"
+#include "RshipActorRegistrationComponent.h"
+#include "Controllers/RshipCameraController.h"
 #include "Logs.h"
 
 #include "Dom/JsonValue.h"
 #include "Components/MeshComponent.h"
+#include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/SceneCaptureComponent2D.h"
 #include "Engine/Texture2D.h"
@@ -679,53 +680,143 @@ namespace
         return MeshComponents.Num() > 0;
     }
 
-    ACameraActor* FindAnySourceCameraActor()
+    FString GetShortIdToken(const FString& Value);
+    FString GetActorLabelCompat(const AActor* Actor);
+
+    UCameraComponent* ResolveSourceCameraComponent(AActor* Actor)
     {
-        if (!GEngine)
+        if (!Actor)
         {
             return nullptr;
         }
 
-        for (int32 Pass = 0; Pass < 3; ++Pass)
+        if (ACameraActor* CameraActor = Cast<ACameraActor>(Actor))
         {
-            for (const FWorldContext& Context : GEngine->GetWorldContexts())
+            if (UCameraComponent* CameraComponent = CameraActor->GetCameraComponent())
             {
-                UWorld* World = Context.World();
-                if (!World || !IsRelevantContentMappingWorldType(Context.WorldType))
-                {
-                    continue;
-                }
-
-                const bool bIsPlay = IsPlayContentMappingWorldType(Context.WorldType);
-                const bool bIsEditor = IsEditorContentMappingWorldType(Context.WorldType);
-                if (Pass == 0 && !bIsPlay)
-                {
-                    continue;
-                }
-                if (Pass == 1 && !bIsEditor)
-                {
-                    continue;
-                }
-                if (Pass == 2 && (bIsPlay || bIsEditor))
-                {
-                    continue;
-                }
-
-                for (TActorIterator<ACameraActor> It(World); It; ++It)
-                {
-                    ACameraActor* Candidate = *It;
-                    if (Candidate && !Candidate->IsA<ARshipCameraActor>())
-                    {
-                        return Candidate;
-                    }
-                }
+                return CameraComponent;
             }
         }
 
-        return nullptr;
+        return Actor->FindComponentByClass<UCameraComponent>();
     }
 
-    AActor* FindAnySourceCameraAnchorActor()
+    bool IsCameraSourceActor(AActor* Actor)
+    {
+        return ResolveSourceCameraComponent(Actor) != nullptr;
+    }
+
+    int32 ScoreSourceCameraActor(AActor* Actor)
+    {
+        if (!Actor)
+        {
+            return MIN_int32;
+        }
+
+        int32 Score = 0;
+        if (Actor->FindComponentByClass<URshipCameraController>())
+        {
+            Score += 100;
+        }
+        if (Actor->FindComponentByClass<URshipActorRegistrationComponent>())
+        {
+            Score += 50;
+        }
+        if (Actor->IsA<ACameraActor>())
+        {
+            Score += 20;
+        }
+        return Score;
+    }
+
+    FString BuildActorTargetId(URshipSubsystem* Subsystem, AActor* Actor)
+    {
+        if (!Actor)
+        {
+            return FString();
+        }
+
+        if (const URshipActorRegistrationComponent* Registration = Actor->FindComponentByClass<URshipActorRegistrationComponent>())
+        {
+            const FString FullTargetId = Registration->GetFullTargetId().TrimStartAndEnd();
+            if (!FullTargetId.IsEmpty())
+            {
+                return FullTargetId;
+            }
+
+            const FString TargetId = Registration->GetTargetId().TrimStartAndEnd();
+            if (!TargetId.IsEmpty())
+            {
+                if (!TargetId.Contains(TEXT(":")) && Subsystem)
+                {
+                    const FString ServiceId = Subsystem->GetServiceId().TrimStartAndEnd();
+                    if (!ServiceId.IsEmpty())
+                    {
+                        return ServiceId + TEXT(":") + TargetId;
+                    }
+                }
+                return TargetId;
+            }
+        }
+
+        FString DisplayName = GetActorLabelCompat(Actor).TrimStartAndEnd();
+        if (DisplayName.IsEmpty())
+        {
+            DisplayName = Actor->GetName();
+        }
+
+        if (DisplayName.IsEmpty())
+        {
+            return FString();
+        }
+
+        if (Subsystem && !DisplayName.Contains(TEXT(":")))
+        {
+            const FString ServiceId = Subsystem->GetServiceId().TrimStartAndEnd();
+            if (!ServiceId.IsEmpty())
+            {
+                return ServiceId + TEXT(":") + DisplayName;
+            }
+        }
+
+        return DisplayName;
+    }
+
+    bool MatchesRequestedIdToken(const FString& Candidate, const FString& RequestedId, const FString& RequestedShortId, bool bAllowPartialMatch)
+    {
+        if (Candidate.IsEmpty())
+        {
+            return false;
+        }
+
+        return Candidate.Equals(RequestedId, ESearchCase::IgnoreCase)
+            || Candidate.Equals(RequestedShortId, ESearchCase::IgnoreCase)
+            || (bAllowPartialMatch && Candidate.Contains(RequestedId, ESearchCase::IgnoreCase))
+            || (bAllowPartialMatch && Candidate.Contains(RequestedShortId, ESearchCase::IgnoreCase));
+    }
+
+    bool DoesActorMatchRequestedId(URshipSubsystem* Subsystem, AActor* Actor, const FString& RequestedId, const FString& RequestedShortId, bool bAllowPartialMatch)
+    {
+        if (!Actor)
+        {
+            return false;
+        }
+
+        const FString CandidateName = Actor->GetName();
+        const FString CandidateLabel = GetActorLabelCompat(Actor);
+        const FString CandidateTargetId = BuildActorTargetId(Subsystem, Actor);
+        const FString CandidateShortTargetId = GetShortIdToken(CandidateTargetId);
+        const URshipActorRegistrationComponent* Registration = Actor->FindComponentByClass<URshipActorRegistrationComponent>();
+        const FString CandidateRegistrationId = Registration ? Registration->GetTargetId().TrimStartAndEnd() : FString();
+
+        return MatchesRequestedIdToken(CandidateName, RequestedId, RequestedShortId, bAllowPartialMatch)
+            || MatchesRequestedIdToken(CandidateLabel, RequestedId, RequestedShortId, bAllowPartialMatch)
+            || MatchesRequestedIdToken(CandidateTargetId, RequestedId, RequestedShortId, bAllowPartialMatch)
+            || MatchesRequestedIdToken(CandidateShortTargetId, RequestedId, RequestedShortId, bAllowPartialMatch)
+            || MatchesRequestedIdToken(CandidateRegistrationId, RequestedId, RequestedShortId, bAllowPartialMatch);
+    }
+
+    AActor* FindAnySourceCameraActor()
     {
         if (!GEngine)
         {
@@ -734,6 +825,9 @@ namespace
 
         for (int32 Pass = 0; Pass < 3; ++Pass)
         {
+            AActor* BestActor = nullptr;
+            int32 BestScore = MIN_int32;
+
             for (const FWorldContext& Context : GEngine->GetWorldContexts())
             {
                 UWorld* World = Context.World();
@@ -760,20 +854,32 @@ namespace
                 for (TActorIterator<AActor> It(World); It; ++It)
                 {
                     AActor* Candidate = *It;
-                    if (!Candidate || Candidate->IsA<ARshipCameraActor>())
+                    if (!IsCameraSourceActor(Candidate))
                     {
                         continue;
                     }
 
-                    if (Candidate->FindComponentByClass<UCameraComponent>())
+                    const int32 Score = ScoreSourceCameraActor(Candidate);
+                    if (!BestActor || Score > BestScore)
                     {
-                        return Candidate;
+                        BestActor = Candidate;
+                        BestScore = Score;
                     }
                 }
+            }
+
+            if (BestActor)
+            {
+                return BestActor;
             }
         }
 
         return nullptr;
+    }
+
+    AActor* FindAnySourceCameraAnchorActor()
+    {
+        return FindAnySourceCameraActor();
     }
 
     bool IsMeshReadyForMaterialMutation(const UMeshComponent* Mesh)
@@ -912,14 +1018,14 @@ namespace
         return Hash;
     }
 
-    ACameraActor* FindSourceCameraActorByEntityId(URshipSubsystem* Subsystem, const FString& CameraId)
+    AActor* FindSourceCameraActorByEntityId(URshipSubsystem* Subsystem, const FString& CameraId)
     {
-        if (!Subsystem || !GEngine)
+        if (!GEngine)
         {
             return nullptr;
         }
 
-        if (CameraId.IsEmpty())
+        if (CameraId.IsEmpty() || CameraId.Equals(TEXT("AUTO"), ESearchCase::IgnoreCase))
         {
             return FindAnySourceCameraActor();
         }
@@ -927,98 +1033,20 @@ namespace
         const FString RequestedId = CameraId.TrimStartAndEnd();
         const FString RequestedShortId = GetShortIdToken(RequestedId);
         const bool bAllowPartialMatch = RequestedShortId.Len() >= 4 || RequestedId.Len() >= 4;
-        URshipSceneConverter* Converter = Subsystem->GetSceneConverter();
 
-        for (int32 Pass = 0; Pass < 3; ++Pass)
+        if (Subsystem)
         {
-            for (const FWorldContext& Context : GEngine->GetWorldContexts())
+            if (URshipActorRegistrationComponent* Registration = Subsystem->FindTargetComponent(RequestedId))
             {
-                UWorld* World = Context.World();
-                if (!World || !IsRelevantContentMappingWorldType(Context.WorldType))
+                if (AActor* Owner = Registration->GetOwner())
                 {
-                    continue;
-                }
-
-                const bool bIsPlay = IsPlayContentMappingWorldType(Context.WorldType);
-                const bool bIsEditor = IsEditorContentMappingWorldType(Context.WorldType);
-                if (Pass == 0 && !bIsPlay)
-                {
-                    continue;
-                }
-                if (Pass == 1 && !bIsEditor)
-                {
-                    continue;
-                }
-                if (Pass == 2 && (bIsPlay || bIsEditor))
-                {
-                    continue;
-                }
-
-                for (TActorIterator<ACameraActor> It(World); It; ++It)
-                {
-                    ACameraActor* Candidate = *It;
-                    if (!Candidate || Candidate->IsA<ARshipCameraActor>())
+                    if (IsCameraSourceActor(Owner))
                     {
-                        continue;
-                    }
-
-                    const FString CandidateName = Candidate->GetName();
-                    const FString CandidateLabel = GetActorLabelCompat(Candidate);
-                    if (CandidateName.Equals(RequestedId, ESearchCase::IgnoreCase)
-                        || CandidateLabel.Equals(RequestedId, ESearchCase::IgnoreCase)
-                        || CandidateName.Equals(RequestedShortId, ESearchCase::IgnoreCase)
-                        || CandidateLabel.Equals(RequestedShortId, ESearchCase::IgnoreCase)
-                        || (bAllowPartialMatch && CandidateName.Contains(RequestedId, ESearchCase::IgnoreCase))
-                        || (bAllowPartialMatch && CandidateLabel.Contains(RequestedId, ESearchCase::IgnoreCase))
-                        || (bAllowPartialMatch && CandidateName.Contains(RequestedShortId, ESearchCase::IgnoreCase))
-                        || (bAllowPartialMatch && CandidateLabel.Contains(RequestedShortId, ESearchCase::IgnoreCase)))
-                    {
-                        return Candidate;
-                    }
-
-                    if (Converter)
-                    {
-                        const FString ConvertedId = Converter->GetConvertedEntityId(Candidate);
-                        const FString ConvertedShortId = GetShortIdToken(ConvertedId);
-                        if (ConvertedId.Equals(RequestedId, ESearchCase::CaseSensitive)
-                            || ConvertedId.Equals(RequestedId, ESearchCase::IgnoreCase)
-                            || ConvertedShortId.Equals(RequestedId, ESearchCase::IgnoreCase)
-                            || ConvertedId.Equals(RequestedShortId, ESearchCase::IgnoreCase)
-                            || ConvertedShortId.Equals(RequestedShortId, ESearchCase::IgnoreCase)
-                            || (bAllowPartialMatch && ConvertedId.Contains(RequestedId, ESearchCase::IgnoreCase))
-                            || (bAllowPartialMatch && ConvertedShortId.Contains(RequestedId, ESearchCase::IgnoreCase))
-                            || (bAllowPartialMatch && ConvertedId.Contains(RequestedShortId, ESearchCase::IgnoreCase))
-                            || (bAllowPartialMatch && ConvertedShortId.Contains(RequestedShortId, ESearchCase::IgnoreCase)))
-                        {
-                            return Candidate;
-                        }
+                        return Owner;
                     }
                 }
             }
         }
-
-        // If a specific camera ID was requested and could not be resolved, do not silently
-        // bind to an arbitrary camera. This avoids stale/wrong-camera output in PIE.
-        return nullptr;
-    }
-
-    AActor* FindSourceAnchorActorByEntityId(URshipSubsystem* Subsystem, const FString& SourceId)
-    {
-        if (!Subsystem || !GEngine)
-        {
-            return nullptr;
-        }
-
-        const FString RequestedId = SourceId.TrimStartAndEnd();
-        const FString RequestedShortId = GetShortIdToken(RequestedId);
-        const bool bAllowPartialMatch = RequestedShortId.Len() >= 4 || RequestedId.Len() >= 4;
-        if (RequestedId.IsEmpty())
-        {
-            return nullptr;
-        }
-
-        URshipSceneConverter* Converter = Subsystem->GetSceneConverter();
-        AActor* FirstFallback = nullptr;
 
         for (int32 Pass = 0; Pass < 3; ++Pass)
         {
@@ -1048,46 +1076,86 @@ namespace
                 for (TActorIterator<AActor> It(World); It; ++It)
                 {
                     AActor* Candidate = *It;
-                    if (!Candidate || Candidate->IsA<ARshipCameraActor>())
+                    if (!IsCameraSourceActor(Candidate))
                     {
                         continue;
                     }
 
-                    if (!FirstFallback)
-                    {
-                        FirstFallback = Candidate;
-                    }
-
-                    const FString CandidateName = Candidate->GetName();
-                    const FString CandidateLabel = GetActorLabelCompat(Candidate);
-                    if (CandidateName.Equals(RequestedId, ESearchCase::IgnoreCase)
-                        || CandidateLabel.Equals(RequestedId, ESearchCase::IgnoreCase)
-                        || CandidateName.Equals(RequestedShortId, ESearchCase::IgnoreCase)
-                        || CandidateLabel.Equals(RequestedShortId, ESearchCase::IgnoreCase)
-                        || (bAllowPartialMatch && CandidateName.Contains(RequestedId, ESearchCase::IgnoreCase))
-                        || (bAllowPartialMatch && CandidateLabel.Contains(RequestedId, ESearchCase::IgnoreCase))
-                        || (bAllowPartialMatch && CandidateName.Contains(RequestedShortId, ESearchCase::IgnoreCase))
-                        || (bAllowPartialMatch && CandidateLabel.Contains(RequestedShortId, ESearchCase::IgnoreCase)))
+                    if (DoesActorMatchRequestedId(Subsystem, Candidate, RequestedId, RequestedShortId, bAllowPartialMatch))
                     {
                         return Candidate;
                     }
+                }
+            }
+        }
 
-                    if (Converter)
+        // If a specific camera ID was requested and could not be resolved, do not silently
+        // bind to an arbitrary camera. This avoids stale/wrong-camera output in PIE.
+        return nullptr;
+    }
+
+    AActor* FindSourceAnchorActorByEntityId(URshipSubsystem* Subsystem, const FString& SourceId)
+    {
+        if (!GEngine)
+        {
+            return nullptr;
+        }
+
+        const FString RequestedId = SourceId.TrimStartAndEnd();
+        const FString RequestedShortId = GetShortIdToken(RequestedId);
+        const bool bAllowPartialMatch = RequestedShortId.Len() >= 4 || RequestedId.Len() >= 4;
+        if (RequestedId.IsEmpty())
+        {
+            return nullptr;
+        }
+
+        if (Subsystem)
+        {
+            if (URshipActorRegistrationComponent* Registration = Subsystem->FindTargetComponent(RequestedId))
+            {
+                if (AActor* Owner = Registration->GetOwner())
+                {
+                    return Owner;
+                }
+            }
+        }
+
+        for (int32 Pass = 0; Pass < 3; ++Pass)
+        {
+            for (const FWorldContext& Context : GEngine->GetWorldContexts())
+            {
+                UWorld* World = Context.World();
+                if (!World || !IsRelevantContentMappingWorldType(Context.WorldType))
+                {
+                    continue;
+                }
+
+                const bool bIsPlay = IsPlayContentMappingWorldType(Context.WorldType);
+                const bool bIsEditor = IsEditorContentMappingWorldType(Context.WorldType);
+                if (Pass == 0 && !bIsPlay)
+                {
+                    continue;
+                }
+                if (Pass == 1 && !bIsEditor)
+                {
+                    continue;
+                }
+                if (Pass == 2 && (bIsPlay || bIsEditor))
+                {
+                    continue;
+                }
+
+                for (TActorIterator<AActor> It(World); It; ++It)
+                {
+                    AActor* Candidate = *It;
+                    if (!Candidate)
                     {
-                        const FString ConvertedId = Converter->GetConvertedEntityId(Candidate);
-                        const FString ConvertedShortId = GetShortIdToken(ConvertedId);
-                        if (ConvertedId.Equals(RequestedId, ESearchCase::CaseSensitive)
-                            || ConvertedId.Equals(RequestedId, ESearchCase::IgnoreCase)
-                            || ConvertedShortId.Equals(RequestedId, ESearchCase::IgnoreCase)
-                            || ConvertedId.Equals(RequestedShortId, ESearchCase::IgnoreCase)
-                            || ConvertedShortId.Equals(RequestedShortId, ESearchCase::IgnoreCase)
-                            || (bAllowPartialMatch && ConvertedId.Contains(RequestedId, ESearchCase::IgnoreCase))
-                            || (bAllowPartialMatch && ConvertedShortId.Contains(RequestedId, ESearchCase::IgnoreCase))
-                            || (bAllowPartialMatch && ConvertedId.Contains(RequestedShortId, ESearchCase::IgnoreCase))
-                            || (bAllowPartialMatch && ConvertedShortId.Contains(RequestedShortId, ESearchCase::IgnoreCase)))
-                        {
-                            return Candidate;
-                        }
+                        continue;
+                    }
+
+                    if (DoesActorMatchRequestedId(Subsystem, Candidate, RequestedId, RequestedShortId, bAllowPartialMatch))
+                    {
+                        return Candidate;
                     }
                 }
             }
@@ -1968,6 +2036,64 @@ namespace
     }
 }
 
+URshipContentMappingManager* URshipContentMappingManager::Get()
+{
+    return GEngine ? GEngine->GetEngineSubsystem<URshipContentMappingManager>() : nullptr;
+}
+
+void URshipContentMappingManager::Initialize(FSubsystemCollectionBase& Collection)
+{
+    Super::Initialize(Collection);
+    RefreshSubsystemBinding();
+    Initialize(Subsystem);
+}
+
+void URshipContentMappingManager::Deinitialize()
+{
+    Shutdown();
+    Super::Deinitialize();
+}
+
+void URshipContentMappingManager::RefreshSubsystemBinding()
+{
+    const bool bHadSubsystem = Subsystem != nullptr;
+    if (!Subsystem && GEngine)
+    {
+        Subsystem = GEngine->GetEngineSubsystem<URshipSubsystem>();
+        if (!bHadSubsystem && Subsystem)
+        {
+            RegisterAllTargets();
+        }
+    }
+}
+
+URshipContentMappingTargetProxy* URshipContentMappingManager::EnsureTargetProxy(const FString& TargetId)
+{
+    if (TargetId.IsEmpty())
+    {
+        return nullptr;
+    }
+
+    if (TObjectPtr<URshipContentMappingTargetProxy>* Existing = TargetProxies.Find(TargetId))
+    {
+        if (*Existing)
+        {
+            (*Existing)->Initialize(this, TargetId);
+            return Existing->Get();
+        }
+    }
+
+    URshipContentMappingTargetProxy* Proxy = NewObject<URshipContentMappingTargetProxy>(this);
+    if (!Proxy)
+    {
+        return nullptr;
+    }
+
+    Proxy->Initialize(this, TargetId);
+    TargetProxies.Add(TargetId, Proxy);
+    return Proxy;
+}
+
 void URshipContentMappingManager::Initialize(URshipSubsystem* InSubsystem)
 {
     Subsystem = InSubsystem;
@@ -2005,6 +2131,7 @@ void URshipContentMappingManager::Initialize(URshipSubsystem* InSubsystem)
     LoadCache();
     RunRuntimePreflight(/*bForceMaterialResolve=*/false);
     MarkMappingsDirty();
+    RegisterAllTargets();
 }
 
 void URshipContentMappingManager::InitializeForSubsystem(URshipSubsystem* InSubsystem)
@@ -2049,10 +2176,28 @@ void URshipContentMappingManager::Shutdown()
         }
         Pair.Value.CameraActor.Reset();
         Pair.Value.SourceCameraActor.Reset();
+        Pair.Value.CaptureComponent.Reset();
+        Pair.Value.CaptureRenderTarget.Reset();
         Pair.Value.DepthCaptureComponent.Reset();
         Pair.Value.DepthRenderTarget.Reset();
         Pair.Value.ResolvedTexture = nullptr;
         Pair.Value.ResolvedDepthTexture = nullptr;
+    }
+
+    if (Subsystem)
+    {
+        for (const auto& Pair : RenderContexts)
+        {
+            DeleteTargetForPath(BuildContextTargetId(Pair.Key));
+        }
+        for (const auto& Pair : MappingSurfaces)
+        {
+            DeleteTargetForPath(BuildSurfaceTargetId(Pair.Key));
+        }
+        for (const auto& Pair : Mappings)
+        {
+            DeleteTargetForPath(BuildMappingTargetId(Pair.Key));
+        }
     }
 
     RenderContexts.Empty();
@@ -2080,6 +2225,8 @@ void URshipContentMappingManager::Shutdown()
     CacheSaveDueTimeSeconds = 0.0;
     bAutoBootstrapComplete = false;
     NextAutoBootstrapAttemptSeconds = 0.0;
+    TargetProxies.Empty();
+    Subsystem = nullptr;
 }
 
 void URshipContentMappingManager::ShutdownForSubsystem()
@@ -2089,6 +2236,7 @@ void URshipContentMappingManager::ShutdownForSubsystem()
 
 void URshipContentMappingManager::Tick(float DeltaTime)
 {
+    RefreshSubsystemBinding();
     if (!Subsystem)
     {
         return;
@@ -2333,14 +2481,10 @@ void URshipContentMappingManager::RefreshLiveMappings()
 
     auto DisableContextCapture = [](FRshipRenderContextState& ContextState)
     {
-        if (ARshipCameraActor* CameraActor = ContextState.CameraActor.Get())
+        if (USceneCaptureComponent2D* CaptureComponent = ContextState.CaptureComponent.Get())
         {
-            CameraActor->bEnableSceneCapture = false;
-            if (CameraActor->SceneCapture)
-            {
-                CameraActor->SceneCapture->bCaptureEveryFrame = false;
-                CameraActor->SceneCapture->bCaptureOnMovement = false;
-            }
+            CaptureComponent->bCaptureEveryFrame = false;
+            CaptureComponent->bCaptureOnMovement = false;
         }
         if (USceneCaptureComponent2D* DepthCapture = ContextState.DepthCaptureComponent.Get())
         {
@@ -2393,12 +2537,19 @@ void URshipContentMappingManager::RefreshLiveMappings()
 
         if (!RequiredContextIds.Contains(ContextState.Id))
         {
-            if (ARshipCameraActor* CameraActor = ContextState.CameraActor.Get())
+            DisableContextCapture(ContextState);
+            if (AActor* CameraActor = ContextState.CameraActor.Get())
             {
                 CameraActor->Destroy();
             }
+            if (USceneCaptureComponent2D* CaptureComponent = ContextState.CaptureComponent.Get())
+            {
+                CaptureComponent->DestroyComponent();
+            }
             ContextState.CameraActor.Reset();
             ContextState.SourceCameraActor.Reset();
+            ContextState.CaptureComponent.Reset();
+            ContextState.CaptureRenderTarget.Reset();
             if (USceneCaptureComponent2D* DepthCapture = ContextState.DepthCaptureComponent.Get())
             {
                 DepthCapture->DestroyComponent();
@@ -2408,7 +2559,6 @@ void URshipContentMappingManager::RefreshLiveMappings()
             ContextState.ResolvedTexture = nullptr;
             ContextState.ResolvedDepthTexture = nullptr;
             ContextState.LastError.Empty();
-            DisableContextCapture(ContextState);
             RenderContextRuntimeStates.Remove(ContextState.Id);
             continue;
         }
@@ -5044,10 +5194,6 @@ FString URshipContentMappingManager::CreateRenderContext(const FRshipRenderConte
     ResolveRenderContext(RenderContexts[NewState.Id]);
     RegisterContextTarget(RenderContexts[NewState.Id]);
     EmitContextState(RenderContexts[NewState.Id]);
-    if (Subsystem)
-    {
-        Subsystem->SetItem(TEXT("RenderContext"), BuildRenderContextJson(RenderContexts[NewState.Id]), ERshipMessagePriority::High, NewState.Id);
-    }
     MarkMappingsDirty();
     MarkCacheDirty();
     return NewState.Id;
@@ -5075,8 +5221,10 @@ bool URshipContentMappingManager::UpdateRenderContext(const FRshipRenderContextS
     RenderContextRuntimeStates.Remove(InState.Id);
 
 
-    TWeakObjectPtr<ARshipCameraActor> PreviousCamera = Stored.CameraActor;
-    TWeakObjectPtr<ACameraActor> PreviousSourceCamera = Stored.SourceCameraActor;
+    TWeakObjectPtr<AActor> PreviousCamera = Stored.CameraActor;
+    TWeakObjectPtr<AActor> PreviousSourceCamera = Stored.SourceCameraActor;
+    TWeakObjectPtr<USceneCaptureComponent2D> PreviousCapture = Stored.CaptureComponent;
+    TWeakObjectPtr<UTextureRenderTarget2D> PreviousCaptureRenderTarget = Stored.CaptureRenderTarget;
     TWeakObjectPtr<USceneCaptureComponent2D> PreviousDepthCapture = Stored.DepthCaptureComponent;
     TWeakObjectPtr<UTextureRenderTarget2D> PreviousDepthRenderTarget = Stored.DepthRenderTarget;
     const FString PreviousCameraId = Stored.CameraId;
@@ -5089,6 +5237,14 @@ bool URshipContentMappingManager::UpdateRenderContext(const FRshipRenderContextS
             if (PreviousSourceCamera.IsValid() && Stored.CameraId == PreviousCameraId)
             {
                 Stored.SourceCameraActor = PreviousSourceCamera;
+            }
+            if (PreviousCapture.IsValid())
+            {
+                Stored.CaptureComponent = PreviousCapture;
+            }
+            if (PreviousCaptureRenderTarget.IsValid())
+            {
+                Stored.CaptureRenderTarget = PreviousCaptureRenderTarget;
             }
             if (PreviousDepthCapture.IsValid())
             {
@@ -5107,10 +5263,6 @@ bool URshipContentMappingManager::UpdateRenderContext(const FRshipRenderContextS
     ResolveRenderContext(Stored);
     RegisterContextTarget(Stored);
     EmitContextState(Stored);
-    if (Subsystem)
-    {
-        Subsystem->SetItem(TEXT("RenderContext"), BuildRenderContextJson(Stored), ERshipMessagePriority::High, InState.Id);
-    }
     MarkMappingsDirty();
     MarkCacheDirty();
     return true;
@@ -5129,13 +5281,6 @@ bool URshipContentMappingManager::DeleteRenderContext(const FString& Id)
     if (Removed.CameraActor.IsValid())
     {
         Removed.CameraActor->Destroy();
-    }
-    if (Subsystem)
-    {
-        TSharedPtr<FJsonObject> Obj = MakeShared<FJsonObject>();
-        Obj->SetStringField(TEXT("id"), Id);
-        Obj->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
-        Subsystem->DelItem(TEXT("RenderContext"), Obj, ERshipMessagePriority::High, Id);
     }
     DeleteTargetForPath(BuildContextTargetId(Id));
     MarkMappingsDirty();
@@ -5157,10 +5302,6 @@ FString URshipContentMappingManager::CreateMappingSurface(const FRshipMappingSur
     ResolveMappingSurface(MappingSurfaces[NewState.Id]);
     RegisterSurfaceTarget(MappingSurfaces[NewState.Id]);
     EmitSurfaceState(MappingSurfaces[NewState.Id]);
-    if (Subsystem)
-    {
-        Subsystem->SetItem(TEXT("MappingSurface"), BuildMappingSurfaceJson(MappingSurfaces[NewState.Id]), ERshipMessagePriority::High, NewState.Id);
-    }
     MarkMappingsDirty();
     MarkCacheDirty();
     return NewState.Id;
@@ -5191,10 +5332,6 @@ bool URshipContentMappingManager::UpdateMappingSurface(const FRshipMappingSurfac
     ResolveMappingSurface(Stored);
     RegisterSurfaceTarget(Stored);
     EmitSurfaceState(Stored);
-    if (Subsystem)
-    {
-        Subsystem->SetItem(TEXT("MappingSurface"), BuildMappingSurfaceJson(Stored), ERshipMessagePriority::High, InState.Id);
-    }
     MarkMappingsDirty();
     MarkCacheDirty();
     return true;
@@ -5209,13 +5346,6 @@ bool URshipContentMappingManager::DeleteMappingSurface(const FString& Id)
     }
     ArmMappings();
 
-    if (Subsystem)
-    {
-        TSharedPtr<FJsonObject> Obj = MakeShared<FJsonObject>();
-        Obj->SetStringField(TEXT("id"), Id);
-        Obj->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
-        Subsystem->DelItem(TEXT("MappingSurface"), Obj, ERshipMessagePriority::High, Id);
-    }
     RestoreSurfaceMaterials(Removed);
     RemoveFeedCompositeTexturesForSurface(Id);
     DeleteTargetForPath(BuildSurfaceTargetId(Id));
@@ -5245,10 +5375,6 @@ FString URshipContentMappingManager::CreateMapping(const FRshipContentMappingSta
     DisableOverlappingEnabledMappings(NewState.Id);
     RegisterMappingTarget(Mappings[NewState.Id]);
     EmitMappingState(Mappings[NewState.Id]);
-    if (Subsystem)
-    {
-        Subsystem->SetItem(TEXT("Mapping"), BuildMappingJson(Mappings[NewState.Id]), ERshipMessagePriority::High, NewState.Id);
-    }
     MarkMappingsDirty();
     MarkCacheDirty();
     return NewState.Id;
@@ -5318,10 +5444,6 @@ bool URshipContentMappingManager::UpdateMapping(const FRshipContentMappingState&
     TrackPendingMappingUpsert(Mappings[InState.Id]);
     RegisterMappingTarget(Mappings[InState.Id]);
     EmitMappingState(Mappings[InState.Id]);
-    if (Subsystem)
-    {
-        Subsystem->SetItem(TEXT("Mapping"), BuildMappingJson(Mappings[InState.Id]), ERshipMessagePriority::High, InState.Id);
-    }
     MarkMappingsDirty();
     MarkCacheDirty();
     if (bRequiresImmediateRefresh || bDisabledOverlaps)
@@ -5341,14 +5463,6 @@ bool URshipContentMappingManager::DeleteMapping(const FString& Id)
     ArmMappings();
     TrackPendingMappingDelete(Id);
     RemoveFeedCompositeTexturesForMapping(Id);
-
-    if (Subsystem)
-    {
-        TSharedPtr<FJsonObject> Obj = MakeShared<FJsonObject>();
-        Obj->SetStringField(TEXT("id"), Id);
-        Obj->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
-        Subsystem->DelItem(TEXT("Mapping"), Obj, ERshipMessagePriority::High, Id);
-    }
     DeleteTargetForPath(BuildMappingTargetId(Id));
     MarkMappingsDirty();
     SyncRuntimeAfterMutation(/*bRequireRebuild=*/true);
@@ -5443,8 +5557,10 @@ void URshipContentMappingManager::ProcessRenderContextEvent(const TSharedPtr<FJs
 
     FRshipRenderContextState& Stored = RenderContexts.FindOrAdd(Id);
     RenderContextRuntimeStates.Remove(Id);
-    TWeakObjectPtr<ARshipCameraActor> PreviousCamera = Stored.CameraActor;
-    TWeakObjectPtr<ACameraActor> PreviousSourceCamera = Stored.SourceCameraActor;
+    TWeakObjectPtr<AActor> PreviousCamera = Stored.CameraActor;
+    TWeakObjectPtr<AActor> PreviousSourceCamera = Stored.SourceCameraActor;
+    TWeakObjectPtr<USceneCaptureComponent2D> PreviousCapture = Stored.CaptureComponent;
+    TWeakObjectPtr<UTextureRenderTarget2D> PreviousCaptureRenderTarget = Stored.CaptureRenderTarget;
     TWeakObjectPtr<USceneCaptureComponent2D> PreviousDepthCapture = Stored.DepthCaptureComponent;
     TWeakObjectPtr<UTextureRenderTarget2D> PreviousDepthRenderTarget = Stored.DepthRenderTarget;
     const FString PreviousCameraId = Stored.CameraId;
@@ -5457,6 +5573,14 @@ void URshipContentMappingManager::ProcessRenderContextEvent(const TSharedPtr<FJs
             if (PreviousSourceCamera.IsValid() && Stored.CameraId == PreviousCameraId)
             {
                 Stored.SourceCameraActor = PreviousSourceCamera;
+            }
+            if (PreviousCapture.IsValid())
+            {
+                Stored.CaptureComponent = PreviousCapture;
+            }
+            if (PreviousCaptureRenderTarget.IsValid())
+            {
+                Stored.CaptureRenderTarget = PreviousCaptureRenderTarget;
             }
             if (PreviousDepthCapture.IsValid())
             {
@@ -5844,10 +5968,7 @@ bool URshipContentMappingManager::DisableOverlappingEnabledMappings(const FStrin
             *PreferredMappingId);
         TrackPendingMappingUpsert(Candidate);
 
-        if (Subsystem)
-        {
-            Subsystem->SetItem(TEXT("Mapping"), BuildMappingJson(Candidate), ERshipMessagePriority::High, Candidate.Id);
-        }
+        RegisterMappingTarget(Candidate);
         EmitMappingState(Candidate);
         bDisabledAny = true;
 
@@ -6198,7 +6319,7 @@ bool URshipContentMappingManager::TryAutoBootstrapDefaults()
     for (TActorIterator<AActor> It(World); It && CandidateActors.Num() < MaxSurfaces; ++It)
     {
         AActor* Actor = *It;
-        if (!Actor || !Actor->FindComponentByClass<URshipTargetComponent>())
+        if (!Actor || !Actor->FindComponentByClass<URshipActorRegistrationComponent>())
         {
             continue;
         }
@@ -6500,22 +6621,46 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
     ContextState.ResolvedDepthTexture = nullptr;
     NormalizeRenderContextState(ContextState);
 
+    auto DisableCaptureComponent = [](USceneCaptureComponent2D* CaptureComponent)
+    {
+        if (!CaptureComponent)
+        {
+            return;
+        }
+
+        CaptureComponent->bCaptureEveryFrame = false;
+        CaptureComponent->bCaptureOnMovement = false;
+    };
+
+    auto EnsureCaptureRoot = [](AActor* Actor) -> USceneComponent*
+    {
+        if (!Actor)
+        {
+            return nullptr;
+        }
+
+        if (USceneComponent* ExistingRoot = Actor->GetRootComponent())
+        {
+            return ExistingRoot;
+        }
+
+        USceneComponent* RootComponent = NewObject<USceneComponent>(Actor, TEXT("RshipContentMappingRoot"), RF_Transient);
+        if (!RootComponent)
+        {
+            return nullptr;
+        }
+
+        Actor->AddInstanceComponent(RootComponent);
+        RootComponent->OnComponentCreated();
+        Actor->SetRootComponent(RootComponent);
+        RootComponent->RegisterComponent();
+        return RootComponent;
+    };
+
     if (!ContextState.bEnabled)
     {
-        if (ARshipCameraActor* CameraActor = ContextState.CameraActor.Get())
-        {
-            CameraActor->bEnableSceneCapture = false;
-            if (CameraActor->SceneCapture)
-            {
-                CameraActor->SceneCapture->bCaptureEveryFrame = false;
-                CameraActor->SceneCapture->bCaptureOnMovement = false;
-            }
-        }
-        if (USceneCaptureComponent2D* DepthCapture = ContextState.DepthCaptureComponent.Get())
-        {
-            DepthCapture->bCaptureEveryFrame = false;
-            DepthCapture->bCaptureOnMovement = false;
-        }
+        DisableCaptureComponent(ContextState.CaptureComponent.Get());
+        DisableCaptureComponent(ContextState.DepthCaptureComponent.Get());
         if (FRenderContextRuntimeState* RuntimeState = RenderContextRuntimeStates.Find(ContextState.Id))
         {
             RuntimeState->bHasIssuedExplicitCapture = false;
@@ -6528,9 +6673,11 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
 
     if (ContextState.SourceType.Equals(TEXT("camera"), ESearchCase::IgnoreCase))
     {
-        if (ContextState.CameraId.IsEmpty())
+        const bool bUsesAutoCameraId = ContextState.CameraId.IsEmpty()
+            || ContextState.CameraId.Equals(TEXT("AUTO"), ESearchCase::IgnoreCase);
+        if (bUsesAutoCameraId)
         {
-            if (!bAllowSemanticFallbacks)
+            if (!bAllowSemanticFallbacks && ContextState.CameraId.IsEmpty())
             {
                 ContextState.LastError = TEXT("CameraId not set");
                 return;
@@ -6544,24 +6691,12 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
 
             if (FallbackSourceActor)
             {
-                FString ResolvedCameraId;
-                if (Subsystem)
-                {
-                    if (URshipSceneConverter* Converter = Subsystem->GetSceneConverter())
-                    {
-                        ResolvedCameraId = Converter->GetConvertedEntityId(FallbackSourceActor);
-                    }
-                }
-
-                if (ResolvedCameraId.IsEmpty())
-                {
-                    ResolvedCameraId = FallbackSourceActor->GetName();
-                }
+                const FString ResolvedCameraId = BuildActorTargetId(Subsystem, FallbackSourceActor);
 
                 if (!ResolvedCameraId.IsEmpty())
                 {
                     ContextState.CameraId = ResolvedCameraId;
-                    ContextState.SourceCameraActor = Cast<ACameraActor>(FallbackSourceActor);
+                    ContextState.SourceCameraActor = FallbackSourceActor;
                     MarkCacheDirty();
                     UE_LOG(LogRshipExec, Log, TEXT("ResolveRenderContext[%s]: Auto-selected camera '%s' -> id '%s'"),
                         *ContextState.Id,
@@ -6570,7 +6705,7 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
                 }
             }
 
-            if (ContextState.CameraId.IsEmpty())
+            if (ContextState.CameraId.IsEmpty() || ContextState.CameraId.Equals(TEXT("AUTO"), ESearchCase::IgnoreCase))
             {
                 ContextState.LastError = TEXT("CameraId not set");
                 return;
@@ -6581,8 +6716,8 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
         const bool bRequirePlayWorldBinding = PreferredWorld
             && IsPlayContentMappingWorldType(PreferredWorld->WorldType);
 
-        ACameraActor* SourceCamera = ContextState.SourceCameraActor.Get();
-        if (!SourceCamera || !IsValid(SourceCamera))
+        AActor* SourceCamera = ContextState.SourceCameraActor.Get();
+        if (!SourceCamera || !IsValid(SourceCamera) || !IsCameraSourceActor(SourceCamera))
         {
             SourceCamera = FindSourceCameraActorByEntityId(Subsystem, ContextState.CameraId);
             ContextState.SourceCameraActor = SourceCamera;
@@ -6606,25 +6741,14 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
 
             if (FallbackSourceActor)
             {
-                FString ReboundCameraId;
-                if (Subsystem)
-                {
-                    if (URshipSceneConverter* Converter = Subsystem->GetSceneConverter())
-                    {
-                        ReboundCameraId = Converter->GetConvertedEntityId(FallbackSourceActor);
-                    }
-                }
-                if (ReboundCameraId.IsEmpty())
-                {
-                    ReboundCameraId = FallbackSourceActor->GetName();
-                }
+                const FString ReboundCameraId = BuildActorTargetId(Subsystem, FallbackSourceActor);
 
                 if (!ReboundCameraId.IsEmpty())
                 {
                     const FString PreviousCameraId = ContextState.CameraId;
                     ContextState.CameraId = ReboundCameraId;
-                    ContextState.SourceCameraActor = Cast<ACameraActor>(FallbackSourceActor);
-                    SourceCamera = Cast<ACameraActor>(FallbackSourceActor);
+                    ContextState.SourceCameraActor = FallbackSourceActor;
+                    SourceCamera = FallbackSourceActor;
                     MarkCacheDirty();
                     bRuntimePreparePending = true;
 
@@ -6658,7 +6782,7 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
         {
             World = PreferredWorld;
         }
-        if (ARshipCameraActor* ExistingCamera = ContextState.CameraActor.Get())
+        if (AActor* ExistingCamera = ContextState.CameraActor.Get())
         {
             if (!World)
             {
@@ -6706,20 +6830,9 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
                 RuntimeState.NextMissingSourceWarningTimeSeconds = NowSeconds + 1.0;
             }
 
-            if (ARshipCameraActor* ExistingCamera = ContextState.CameraActor.Get())
-            {
-                if (ExistingCamera->SceneCapture)
-                {
-                    ExistingCamera->SceneCapture->bCaptureEveryFrame = false;
-                    ExistingCamera->SceneCapture->bCaptureOnMovement = false;
-                }
-            }
+            DisableCaptureComponent(ContextState.CaptureComponent.Get());
             ContextState.SourceCameraActor.Reset();
-            if (USceneCaptureComponent2D* DepthCapture = ContextState.DepthCaptureComponent.Get())
-            {
-                DepthCapture->bCaptureEveryFrame = false;
-                DepthCapture->bCaptureOnMovement = false;
-            }
+            DisableCaptureComponent(ContextState.DepthCaptureComponent.Get());
             RuntimeState.bHasAppliedTransform = false;
             RuntimeState.LastAppliedFov = -1.0f;
             RuntimeState.bHasIssuedExplicitCapture = false;
@@ -6728,11 +6841,15 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
         }
         RuntimeState.NextMissingSourceWarningTimeSeconds = 0.0;
 
-        ARshipCameraActor* CameraActor = ContextState.CameraActor.Get();
+        AActor* CameraActor = ContextState.CameraActor.Get();
         if (CameraActor && CameraActor->GetWorld() != World)
         {
             CameraActor->Destroy();
             ContextState.CameraActor.Reset();
+            ContextState.CaptureComponent.Reset();
+            ContextState.CaptureRenderTarget.Reset();
+            ContextState.DepthCaptureComponent.Reset();
+            ContextState.DepthRenderTarget.Reset();
             RuntimeState.SetupHash = 0;
             RuntimeState.bHasAppliedTransform = false;
             RuntimeState.LastAppliedTransform = FTransform::Identity;
@@ -6745,12 +6862,12 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
         }
         if (!CameraActor)
         {
-            const FString DesiredActorName = FString::Printf(TEXT("RshipContentMappingCam_%s"), *ContextState.Id);
+            const FString DesiredActorName = FString::Printf(TEXT("RshipContentMappingCapture_%s"), *ContextState.Id);
 
             // Reuse an existing helper actor if one already exists for this context.
-            for (TActorIterator<ARshipCameraActor> It(World); It; ++It)
+            for (TActorIterator<AActor> It(World); It; ++It)
             {
-                ARshipCameraActor* Candidate = *It;
+                AActor* Candidate = *It;
                 if (!Candidate)
                 {
                     continue;
@@ -6768,12 +6885,14 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
         if (!CameraActor)
         {
             FActorSpawnParameters SpawnParams;
+            SpawnParams.Name = FName(*FString::Printf(TEXT("RshipContentMappingCapture_%s"), *ContextState.Id));
             SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
             SpawnParams.ObjectFlags |= RF_Transient;
 #if WITH_EDITOR
             SpawnParams.bTemporaryEditorActor = true;
 #endif
-            CameraActor = World->SpawnActor<ARshipCameraActor>(SpawnParams);
+            const FTransform SpawnTransform = FTransform::Identity;
+            CameraActor = World->SpawnActor<AActor>(AActor::StaticClass(), SpawnTransform, SpawnParams);
         }
 
         if (!CameraActor)
@@ -6782,17 +6901,43 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
             return;
         }
 
-        CameraActor->CameraId = ContextState.CameraId;
-        CameraActor->bEnableSceneCapture = true;
-        CameraActor->bShowFrustumVisualization = false;
         CameraActor->SetActorTickEnabled(false);
-        // Keep helper actor non-rendering via mesh visibility, but do not hide the actor in-game.
-        // HiddenInGame can suppress scene capture updates in PIE/Simulate.
         CameraActor->SetActorHiddenInGame(false);
-        if (CameraActor->CameraMesh)
+        USceneComponent* CaptureRoot = EnsureCaptureRoot(CameraActor);
+        if (!CaptureRoot)
         {
-            CameraActor->CameraMesh->SetVisibility(false, true);
-            CameraActor->CameraMesh->SetHiddenInGame(true);
+            ContextState.LastError = TEXT("Camera capture root missing");
+            return;
+        }
+
+        USceneCaptureComponent2D* CaptureComponent = ContextState.CaptureComponent.Get();
+        if (CaptureComponent && CaptureComponent->GetOwner() != CameraActor)
+        {
+            CaptureComponent->DestroyComponent();
+            ContextState.CaptureComponent.Reset();
+            CaptureComponent = nullptr;
+        }
+        if (!CaptureComponent)
+        {
+            CaptureComponent = NewObject<USceneCaptureComponent2D>(CameraActor, TEXT("RshipContentMappingCapture"), RF_Transient);
+            if (CaptureComponent)
+            {
+                CaptureComponent->SetupAttachment(CaptureRoot);
+                CaptureComponent->RegisterComponent();
+                ContextState.CaptureComponent = CaptureComponent;
+            }
+        }
+        if (!CaptureComponent)
+        {
+            ContextState.LastError = TEXT("Camera capture component missing");
+            return;
+        }
+
+        UTextureRenderTarget2D* CaptureRenderTarget = ContextState.CaptureRenderTarget.Get();
+        if (CaptureRenderTarget && CaptureRenderTarget->GetOuter() != CameraActor)
+        {
+            ContextState.CaptureRenderTarget.Reset();
+            CaptureRenderTarget = nullptr;
         }
 
         const ERshipCaptureQualityProfile CaptureQualityProfile = GetCaptureQualityProfile();
@@ -6833,63 +6978,52 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
         ContextSetupHash = HashCombineFast(ContextSetupHash, GetTypeHash(static_cast<int32>(CaptureSource)));
         const bool bNeedsCaptureSetup = (RuntimeState.SetupHash != ContextSetupHash);
 
-        if (CameraActor->SceneCapture)
+        CaptureComponent->SetVisibility(true, true);
+        CaptureComponent->SetHiddenInGame(false);
+        bool bNeedsExplicitCapture = false;
+        if (!CaptureComponent->bCaptureEveryFrame)
         {
-            CameraActor->SceneCapture->SetVisibility(true, true);
-            CameraActor->SceneCapture->SetHiddenInGame(false);
-            bool bNeedsExplicitCapture = false;
-            if (!CameraActor->SceneCapture->bCaptureEveryFrame)
-            {
-                CameraActor->SceneCapture->bCaptureEveryFrame = true;
-                bNeedsExplicitCapture = true;
-            }
-            if (CameraActor->SceneCapture->bCaptureOnMovement)
-            {
-                CameraActor->SceneCapture->bCaptureOnMovement = false;
-            }
-            if (!CameraActor->SceneCapture->bAlwaysPersistRenderingState)
-            {
-                CameraActor->SceneCapture->bAlwaysPersistRenderingState = true;
-            }
-
-            if (bNeedsCaptureSetup)
-            {
-                CameraActor->SceneCapture->SetRelativeLocation(FVector::ZeroVector);
-                CameraActor->SceneCapture->SetRelativeRotation(FRotator::ZeroRotator);
-                CameraActor->SceneCapture->bMainViewFamily = bUseResolvedMainViewCapture;
-                CameraActor->SceneCapture->bMainViewResolution = bUseResolvedMainViewCapture;
-                CameraActor->SceneCapture->bMainViewCamera = bUseMainViewCamera;
-                CameraActor->SceneCapture->bInheritMainViewCameraPostProcessSettings = bUseMainViewCamera;
-                CameraActor->SceneCapture->bIgnoreScreenPercentage = false;
-                CameraActor->SceneCapture->MainViewResolutionDivisor = FIntPoint(MainViewDivisor, MainViewDivisor);
-                CameraActor->SceneCapture->bRenderInMainRenderer = bUseResolvedMainViewCapture;
-                CameraActor->SceneCapture->LODDistanceFactor = CaptureLodFactor;
-                CameraActor->SceneCapture->MaxViewDistanceOverride = CaptureMaxViewDistance;
-                CameraActor->SceneCapture->CaptureSource = CaptureSource;
-                ApplyCaptureQualityProfile(CameraActor->SceneCapture, CaptureQualityProfile, false);
-                RuntimeState.SetupHash = ContextSetupHash;
-                bNeedsExplicitCapture = true;
-            }
-
-            // Avoid manual CaptureScene calls when bCaptureEveryFrame is enabled.
-            // Engine already captures every frame in this mode, and explicit calls trigger
-            // "major inefficiency" warnings and extra render cost.
-            if (bNeedsExplicitCapture)
-            {
-                RuntimeState.bHasIssuedExplicitCapture = false;
-                RuntimeState.NextExplicitCaptureTimeSeconds = 0.0;
-            }
+            CaptureComponent->bCaptureEveryFrame = true;
+            bNeedsExplicitCapture = true;
         }
-        else
+        if (CaptureComponent->bCaptureOnMovement)
         {
-            ContextState.LastError = TEXT("Camera capture component missing");
-            return;
+            CaptureComponent->bCaptureOnMovement = false;
+        }
+        if (!CaptureComponent->bAlwaysPersistRenderingState)
+        {
+            CaptureComponent->bAlwaysPersistRenderingState = true;
         }
 
-        if (CameraActor->CaptureRenderTarget)
+        if (bNeedsCaptureSetup)
         {
-            int32 Width = ContextState.Width > 0 ? ContextState.Width : CameraActor->CaptureRenderTarget->SizeX;
-            int32 Height = ContextState.Height > 0 ? ContextState.Height : CameraActor->CaptureRenderTarget->SizeY;
+            CaptureComponent->SetRelativeLocation(FVector::ZeroVector);
+            CaptureComponent->SetRelativeRotation(FRotator::ZeroRotator);
+            CaptureComponent->bMainViewFamily = bUseResolvedMainViewCapture;
+            CaptureComponent->bMainViewResolution = bUseResolvedMainViewCapture;
+            CaptureComponent->bMainViewCamera = bUseMainViewCamera;
+            CaptureComponent->bInheritMainViewCameraPostProcessSettings = bUseMainViewCamera;
+            CaptureComponent->bIgnoreScreenPercentage = false;
+            CaptureComponent->MainViewResolutionDivisor = FIntPoint(MainViewDivisor, MainViewDivisor);
+            CaptureComponent->bRenderInMainRenderer = bUseResolvedMainViewCapture;
+            CaptureComponent->LODDistanceFactor = CaptureLodFactor;
+            CaptureComponent->MaxViewDistanceOverride = CaptureMaxViewDistance;
+            CaptureComponent->CaptureSource = CaptureSource;
+            ApplyCaptureQualityProfile(CaptureComponent, CaptureQualityProfile, false);
+            RuntimeState.SetupHash = ContextSetupHash;
+            bNeedsExplicitCapture = true;
+        }
+
+        if (bNeedsExplicitCapture)
+        {
+            RuntimeState.bHasIssuedExplicitCapture = false;
+            RuntimeState.NextExplicitCaptureTimeSeconds = 0.0;
+        }
+
+        if (CaptureRenderTarget)
+        {
+            int32 Width = ContextState.Width > 0 ? ContextState.Width : CaptureRenderTarget->SizeX;
+            int32 Height = ContextState.Height > 0 ? ContextState.Height : CaptureRenderTarget->SizeY;
             if (Width <= 0)
             {
                 Width = 1920;
@@ -6899,10 +7033,10 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
                 Height = 1080;
             }
 
-            if (CameraActor->CaptureRenderTarget->SizeX != Width || CameraActor->CaptureRenderTarget->SizeY != Height)
+            if (CaptureRenderTarget->SizeX != Width || CaptureRenderTarget->SizeY != Height)
             {
-                CameraActor->CaptureRenderTarget->InitAutoFormat(Width, Height);
-                CameraActor->CaptureRenderTarget->UpdateResourceImmediate();
+                CaptureRenderTarget->InitAutoFormat(Width, Height);
+                CaptureRenderTarget->UpdateResourceImmediate();
                 RuntimeState.SetupHash = 0;
             }
 
@@ -6914,14 +7048,14 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
                 bRuntimePreparePending = true;
             }
         }
-        else if (CameraActor->SceneCapture)
+        else
         {
-            CameraActor->CaptureRenderTarget = NewObject<UTextureRenderTarget2D>(CameraActor);
+            CaptureRenderTarget = NewObject<UTextureRenderTarget2D>(CameraActor, TEXT("RshipContentMappingRenderTarget"), RF_Transient);
             const int32 Width = ContextState.Width > 0 ? ContextState.Width : 1920;
             const int32 Height = ContextState.Height > 0 ? ContextState.Height : 1080;
-            CameraActor->CaptureRenderTarget->InitAutoFormat(Width, Height);
-            CameraActor->CaptureRenderTarget->UpdateResourceImmediate();
-            CameraActor->SceneCapture->TextureTarget = CameraActor->CaptureRenderTarget;
+            CaptureRenderTarget->InitAutoFormat(Width, Height);
+            CaptureRenderTarget->UpdateResourceImmediate();
+            ContextState.CaptureRenderTarget = CaptureRenderTarget;
             RuntimeState.SetupHash = 0;
             if (ContextState.Width <= 0 || ContextState.Height <= 0)
             {
@@ -6932,45 +7066,45 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
             }
         }
 
-        // Ensure scene capture always writes into the current render target.
-            if (CameraActor->SceneCapture && CameraActor->CaptureRenderTarget)
+        if (CaptureRenderTarget)
+        {
+            ContextState.CaptureRenderTarget = CaptureRenderTarget;
+            FTransform DesiredTransform = CameraActor->GetActorTransform();
+            float DesiredFov = CaptureComponent->FOVAngle;
+            bool bHasDesiredTransform = false;
+            bool bHasDesiredFov = false;
+            bool bNeedsTransformCapture = false;
+
+            if (!bHasDesiredTransform && bPreferPlayerViewInPlay && World)
             {
-                FTransform DesiredTransform = CameraActor->GetActorTransform();
-                float DesiredFov = CameraActor->SceneCapture->FOVAngle;
-                bool bHasDesiredTransform = false;
-                bool bHasDesiredFov = false;
-                bool bNeedsExplicitCapture = false;
-
-                if (!bHasDesiredTransform && bPreferPlayerViewInPlay && World)
+                for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
                 {
-                    for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
+                    APlayerController* PC = It->Get();
+                    if (!PC)
                     {
-                        APlayerController* PC = It->Get();
-                        if (!PC)
-                        {
-                            continue;
-                        }
-
-                        FVector ViewLocation = FVector::ZeroVector;
-                        FRotator ViewRotation = FRotator::ZeroRotator;
-                        PC->GetPlayerViewPoint(ViewLocation, ViewRotation);
-                        DesiredTransform = FTransform(ViewRotation, ViewLocation);
-                        bHasDesiredTransform = true;
-
-                        if (PC->PlayerCameraManager)
-                        {
-                            DesiredFov = PC->PlayerCameraManager->GetFOVAngle();
-                            bHasDesiredFov = true;
-                        }
-                        break;
+                        continue;
                     }
-                }
 
-                if (!bHasDesiredTransform && SourceCamera)
-                {
-                    if (UCameraComponent* SourceCameraComponent = SourceCamera->GetCameraComponent())
+                    FVector ViewLocation = FVector::ZeroVector;
+                    FRotator ViewRotation = FRotator::ZeroRotator;
+                    PC->GetPlayerViewPoint(ViewLocation, ViewRotation);
+                    DesiredTransform = FTransform(ViewRotation, ViewLocation);
+                    bHasDesiredTransform = true;
+
+                    if (PC->PlayerCameraManager)
                     {
-                        DesiredTransform = FTransform(SourceCameraComponent->GetComponentRotation(), SourceCameraComponent->GetComponentLocation());
+                        DesiredFov = PC->PlayerCameraManager->GetFOVAngle();
+                        bHasDesiredFov = true;
+                    }
+                    break;
+                }
+            }
+
+            if (!bHasDesiredTransform && SourceCamera)
+            {
+                if (UCameraComponent* SourceCameraComponent = ResolveSourceCameraComponent(SourceCamera))
+                {
+                    DesiredTransform = FTransform(SourceCameraComponent->GetComponentRotation(), SourceCameraComponent->GetComponentLocation());
                     DesiredFov = SourceCameraComponent->FieldOfView;
                     bHasDesiredTransform = true;
                     bHasDesiredFov = true;
@@ -6983,7 +7117,7 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
             }
             else if (!bHasDesiredTransform && SourceAnchorActor)
             {
-                if (UCameraComponent* AnchorCameraComponent = SourceAnchorActor->FindComponentByClass<UCameraComponent>())
+                if (UCameraComponent* AnchorCameraComponent = ResolveSourceCameraComponent(SourceAnchorActor))
                 {
                     DesiredTransform = FTransform(AnchorCameraComponent->GetComponentRotation(), AnchorCameraComponent->GetComponentLocation());
                     DesiredFov = AnchorCameraComponent->FieldOfView;
@@ -7066,11 +7200,7 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
 
             if (!bHasDesiredTransform)
             {
-                if (CameraActor->SceneCapture)
-                {
-                    CameraActor->SceneCapture->bCaptureEveryFrame = false;
-                    CameraActor->SceneCapture->bCaptureOnMovement = false;
-                }
+                DisableCaptureComponent(CaptureComponent);
                 RuntimeState.bHasAppliedTransform = false;
                 RuntimeState.LastAppliedFov = -1.0f;
                 RuntimeState.bHasIssuedExplicitCapture = false;
@@ -7087,21 +7217,21 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
                     CameraActor->SetActorTransform(DesiredTransform);
                     RuntimeState.LastAppliedTransform = DesiredTransform;
                     RuntimeState.bHasAppliedTransform = true;
-                    bNeedsExplicitCapture = true;
+                    bNeedsTransformCapture = true;
                 }
             }
 
             if (bHasDesiredFov && !FMath::IsNearlyEqual(RuntimeState.LastAppliedFov, DesiredFov, 0.01f))
             {
-                CameraActor->SceneCapture->FOVAngle = DesiredFov;
+                CaptureComponent->FOVAngle = DesiredFov;
                 RuntimeState.LastAppliedFov = DesiredFov;
-                bNeedsExplicitCapture = true;
+                bNeedsTransformCapture = true;
             }
 
-            if (CameraActor->SceneCapture->TextureTarget != CameraActor->CaptureRenderTarget)
+            if (CaptureComponent->TextureTarget != CaptureRenderTarget)
             {
-                CameraActor->SceneCapture->TextureTarget = CameraActor->CaptureRenderTarget;
-                bNeedsExplicitCapture = true;
+                CaptureComponent->TextureTarget = CaptureRenderTarget;
+                bNeedsTransformCapture = true;
             }
 
             const double NowSeconds = FPlatformTime::Seconds();
@@ -7109,22 +7239,20 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
                 && ExplicitCaptureIntervalSeconds > 0.0
                 && NowSeconds >= RuntimeState.NextExplicitCaptureTimeSeconds;
             const bool bShouldCaptureNow = bEnableExplicitCaptureRefresh
-                && (bNeedsExplicitCapture
+                && (bNeedsTransformCapture
                 || !RuntimeState.bHasIssuedExplicitCapture
                 || bPeriodicExplicitCapture);
             if (bShouldCaptureNow)
             {
-                // CaptureScene logs an inefficiency warning when called while bCaptureEveryFrame is true.
-                // Temporarily disable frame capture for this explicit refresh, then restore.
-                const bool bWasCaptureEveryFrame = CameraActor->SceneCapture->bCaptureEveryFrame;
+                const bool bWasCaptureEveryFrame = CaptureComponent->bCaptureEveryFrame;
                 if (bWasCaptureEveryFrame)
                 {
-                    CameraActor->SceneCapture->bCaptureEveryFrame = false;
+                    CaptureComponent->bCaptureEveryFrame = false;
                 }
-                CameraActor->SceneCapture->CaptureScene();
+                CaptureComponent->CaptureScene();
                 if (bWasCaptureEveryFrame)
                 {
-                    CameraActor->SceneCapture->bCaptureEveryFrame = true;
+                    CaptureComponent->bCaptureEveryFrame = true;
                 }
                 RuntimeState.bHasIssuedExplicitCapture = true;
                 RuntimeState.NextExplicitCaptureTimeSeconds = bEnableExplicitCaptureRefresh
@@ -7136,9 +7264,14 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
         if (ContextState.bDepthCaptureEnabled)
         {
             UTextureRenderTarget2D* DepthTarget = ContextState.DepthRenderTarget.Get();
+            if (DepthTarget && DepthTarget->GetOuter() != CameraActor)
+            {
+                ContextState.DepthRenderTarget.Reset();
+                DepthTarget = nullptr;
+            }
             if (!DepthTarget)
             {
-                DepthTarget = NewObject<UTextureRenderTarget2D>(CameraActor);
+                DepthTarget = NewObject<UTextureRenderTarget2D>(CameraActor, TEXT("RshipContentMappingDepthRenderTarget"), RF_Transient);
                 if (DepthTarget)
                 {
                     DepthTarget->RenderTargetFormat = ETextureRenderTargetFormat::RTF_R16f;
@@ -7159,12 +7292,18 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
             }
 
             USceneCaptureComponent2D* DepthCapture = ContextState.DepthCaptureComponent.Get();
+            if (DepthCapture && DepthCapture->GetOwner() != CameraActor)
+            {
+                DepthCapture->DestroyComponent();
+                ContextState.DepthCaptureComponent.Reset();
+                DepthCapture = nullptr;
+            }
             if (!DepthCapture)
             {
-                DepthCapture = NewObject<USceneCaptureComponent2D>(CameraActor);
+                DepthCapture = NewObject<USceneCaptureComponent2D>(CameraActor, TEXT("RshipContentMappingDepthCapture"), RF_Transient);
                 if (DepthCapture)
                 {
-                    DepthCapture->SetupAttachment(CameraActor->GetRootComponent());
+                    DepthCapture->SetupAttachment(CaptureRoot);
                     DepthCapture->RegisterComponent();
                     ContextState.DepthCaptureComponent = DepthCapture;
                 }
@@ -7210,9 +7349,9 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
                 }
 
                 DepthCapture->TextureTarget = ContextState.DepthRenderTarget.Get();
-                if (CameraActor->SceneCapture)
+                if (CaptureComponent)
                 {
-                    DepthCapture->FOVAngle = CameraActor->SceneCapture->FOVAngle;
+                    DepthCapture->FOVAngle = CaptureComponent->FOVAngle;
                     bNeedsExplicitDepthCapture = true;
                 }
 
@@ -7226,18 +7365,19 @@ void URshipContentMappingManager::ResolveRenderContext(FRshipRenderContextState&
         }
         else if (USceneCaptureComponent2D* DepthCapture = ContextState.DepthCaptureComponent.Get())
         {
-            DepthCapture->bCaptureEveryFrame = false;
-            DepthCapture->bCaptureOnMovement = false;
+            DisableCaptureComponent(DepthCapture);
         }
 
         ContextState.CameraActor = CameraActor;
-        ContextState.ResolvedTexture = CameraActor->CaptureRenderTarget;
-        if (CameraActor->CaptureRenderTarget)
+        ContextState.CaptureComponent = CaptureComponent;
+        ContextState.CaptureRenderTarget = CaptureRenderTarget;
+        ContextState.ResolvedTexture = CaptureRenderTarget;
+        if (CaptureRenderTarget)
         {
             UE_LOG(LogRshipExec, VeryVerbose, TEXT("ResolveRenderContext[%s]: texture ready %dx%d"),
                 *ContextState.Id,
-                CameraActor->CaptureRenderTarget->SizeX,
-                CameraActor->CaptureRenderTarget->SizeY);
+                CaptureRenderTarget->SizeX,
+                CaptureRenderTarget->SizeY);
         }
         return;
     }
@@ -7825,11 +7965,8 @@ void URshipContentMappingManager::PrepareMappingsForRuntime(bool bEmitChanges)
             if (bEmitChanges)
             {
                 TrackPendingMappingUpsert(MappingState);
-                if (Subsystem)
-                {
-                    Subsystem->SetItem(TEXT("Mapping"), BuildMappingJson(MappingState), ERshipMessagePriority::High, MappingState.Id);
-                    EmitMappingState(MappingState);
-                }
+                RegisterMappingTarget(MappingState);
+                EmitMappingState(MappingState);
             }
         }
     }
@@ -9435,14 +9572,10 @@ void URshipContentMappingManager::RebuildMappings()
             ContextState.ResolvedTexture = nullptr;
             ContextState.ResolvedDepthTexture = nullptr;
 
-            if (ARshipCameraActor* CameraActor = ContextState.CameraActor.Get())
+            if (USceneCaptureComponent2D* CaptureComponent = ContextState.CaptureComponent.Get())
             {
-                CameraActor->bEnableSceneCapture = false;
-                if (CameraActor->SceneCapture)
-                {
-                    CameraActor->SceneCapture->bCaptureEveryFrame = false;
-                    CameraActor->SceneCapture->bCaptureOnMovement = false;
-                }
+                CaptureComponent->bCaptureEveryFrame = false;
+                CaptureComponent->bCaptureOnMovement = false;
             }
 
             EmitContextState(ContextState);
@@ -10506,242 +10639,119 @@ void URshipContentMappingManager::RegisterAllTargets()
 
 void URshipContentMappingManager::RegisterContextTarget(const FRshipRenderContextState& ContextState)
 {
-    if (!Subsystem || !Subsystem->IsConnected())
+    if (!Subsystem)
     {
         return;
     }
 
     const FString TargetId = BuildContextTargetId(ContextState.Id);
-    const FString ServiceId = Subsystem->GetServiceId();
-
-    TArray<TSharedPtr<FJsonValue>> ActionIds;
-    ActionIds.Add(MakeShared<FJsonValueString>(TargetId + TEXT(":setEnabled")));
-    ActionIds.Add(MakeShared<FJsonValueString>(TargetId + TEXT(":setSourceType")));
-    ActionIds.Add(MakeShared<FJsonValueString>(TargetId + TEXT(":setCameraId")));
-    ActionIds.Add(MakeShared<FJsonValueString>(TargetId + TEXT(":setAssetId")));
-    ActionIds.Add(MakeShared<FJsonValueString>(TargetId + TEXT(":setExternalSourceId")));
-    ActionIds.Add(MakeShared<FJsonValueString>(TargetId + TEXT(":setDepthAssetId")));
-    ActionIds.Add(MakeShared<FJsonValueString>(TargetId + TEXT(":setDepthCaptureEnabled")));
-    ActionIds.Add(MakeShared<FJsonValueString>(TargetId + TEXT(":setDepthCaptureMode")));
-    ActionIds.Add(MakeShared<FJsonValueString>(TargetId + TEXT(":setResolution")));
-    ActionIds.Add(MakeShared<FJsonValueString>(TargetId + TEXT(":setCaptureMode")));
-
-    TArray<TSharedPtr<FJsonValue>> EmitterIds;
-    EmitterIds.Add(MakeShared<FJsonValueString>(TargetId + TEXT(":state")));
-    EmitterIds.Add(MakeShared<FJsonValueString>(TargetId + TEXT(":status")));
-
-    TSharedPtr<FJsonObject> TargetJson = MakeShared<FJsonObject>();
-    TargetJson->SetStringField(TEXT("id"), TargetId);
-    TargetJson->SetStringField(TEXT("name"), ContextState.Name);
-    TargetJson->SetStringField(TEXT("serviceId"), ServiceId);
-    TargetJson->SetStringField(TEXT("category"), TEXT("content-mapping"));
-    TargetJson->SetArrayField(TEXT("actionIds"), ActionIds);
-    TargetJson->SetArrayField(TEXT("emitterIds"), EmitterIds);
-    TargetJson->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
-
-    Subsystem->SetItem(TEXT("Target"), TargetJson, ERshipMessagePriority::High, TargetId);
-
-    auto RegisterAction = [&](const FString& Name)
+    URshipContentMappingTargetProxy* Proxy = EnsureTargetProxy(TargetId);
+    if (!Proxy)
     {
-        TSharedPtr<FJsonObject> ActionJson = MakeShared<FJsonObject>();
-        ActionJson->SetStringField(TEXT("id"), TargetId + TEXT(":") + Name);
-        ActionJson->SetStringField(TEXT("name"), Name);
-        ActionJson->SetStringField(TEXT("targetId"), TargetId);
-        ActionJson->SetStringField(TEXT("serviceId"), ServiceId);
-        TSharedPtr<FJsonObject> Schema = MakeShared<FJsonObject>();
-        Schema->SetStringField(TEXT("type"), TEXT("object"));
-        ActionJson->SetObjectField(TEXT("schema"), Schema);
-        ActionJson->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
-        Subsystem->SetItem(TEXT("Action"), ActionJson, ERshipMessagePriority::High, ActionJson->GetStringField(TEXT("id")));
-    };
+        return;
+    }
 
-    RegisterAction(TEXT("setEnabled"));
-    RegisterAction(TEXT("setSourceType"));
-    RegisterAction(TEXT("setCameraId"));
-    RegisterAction(TEXT("setAssetId"));
-    RegisterAction(TEXT("setExternalSourceId"));
-    RegisterAction(TEXT("setDepthAssetId"));
-    RegisterAction(TEXT("setDepthCaptureEnabled"));
-    RegisterAction(TEXT("setDepthCaptureMode"));
-    RegisterAction(TEXT("setResolution"));
-    RegisterAction(TEXT("setCaptureMode"));
+    Subsystem->EnsureAutomationTarget(TargetId, ContextState.Name.IsEmpty() ? TargetId : ContextState.Name, {});
+    Subsystem->RegisterEmitterForTarget(TargetId, Proxy, GET_MEMBER_NAME_CHECKED(URshipContentMappingTargetProxy, OnState), TEXT("state"));
+    Subsystem->RegisterEmitterForTarget(TargetId, Proxy, GET_MEMBER_NAME_CHECKED(URshipContentMappingTargetProxy, OnStatus), TEXT("status"));
 
-    auto RegisterEmitter = [&](const FString& Name)
-    {
-        TSharedPtr<FJsonObject> EmitterJson = MakeShared<FJsonObject>();
-        EmitterJson->SetStringField(TEXT("id"), TargetId + TEXT(":") + Name);
-        EmitterJson->SetStringField(TEXT("name"), Name);
-        EmitterJson->SetStringField(TEXT("targetId"), TargetId);
-        EmitterJson->SetStringField(TEXT("serviceId"), ServiceId);
-        TSharedPtr<FJsonObject> Schema = MakeShared<FJsonObject>();
-        Schema->SetStringField(TEXT("type"), TEXT("object"));
-        EmitterJson->SetObjectField(TEXT("schema"), Schema);
-        EmitterJson->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
-        Subsystem->SetItem(TEXT("Emitter"), EmitterJson, ERshipMessagePriority::High, EmitterJson->GetStringField(TEXT("id")));
-    };
+#define REGISTER_PROXY_ACTION(FuncName, ExposedName) \
+    Subsystem->RegisterFunctionActionForTarget( \
+        TargetId, \
+        Proxy, \
+        GET_FUNCTION_NAME_CHECKED(URshipContentMappingTargetProxy, FuncName), \
+        TEXT(ExposedName))
 
-    RegisterEmitter(TEXT("state"));
-    RegisterEmitter(TEXT("status"));
+    REGISTER_PROXY_ACTION(SetEnabled, "setEnabled");
+    REGISTER_PROXY_ACTION(SetSourceType, "setSourceType");
+    REGISTER_PROXY_ACTION(SetCameraId, "setCameraId");
+    REGISTER_PROXY_ACTION(SetAssetId, "setAssetId");
+    REGISTER_PROXY_ACTION(SetExternalSourceId, "setExternalSourceId");
+    REGISTER_PROXY_ACTION(SetDepthAssetId, "setDepthAssetId");
+    REGISTER_PROXY_ACTION(SetDepthCaptureEnabled, "setDepthCaptureEnabled");
+    REGISTER_PROXY_ACTION(SetDepthCaptureMode, "setDepthCaptureMode");
+    REGISTER_PROXY_ACTION(SetResolution, "setResolution");
+    REGISTER_PROXY_ACTION(SetCaptureMode, "setCaptureMode");
+
+#undef REGISTER_PROXY_ACTION
 }
 
 void URshipContentMappingManager::RegisterSurfaceTarget(const FRshipMappingSurfaceState& SurfaceState)
 {
-    if (!Subsystem || !Subsystem->IsConnected())
+    if (!Subsystem)
     {
         return;
     }
 
     const FString TargetId = BuildSurfaceTargetId(SurfaceState.Id);
-    const FString ServiceId = Subsystem->GetServiceId();
-
-    TArray<TSharedPtr<FJsonValue>> ActionIds;
-    ActionIds.Add(MakeShared<FJsonValueString>(TargetId + TEXT(":setEnabled")));
-    ActionIds.Add(MakeShared<FJsonValueString>(TargetId + TEXT(":setActorPath")));
-    ActionIds.Add(MakeShared<FJsonValueString>(TargetId + TEXT(":setUvChannel")));
-    ActionIds.Add(MakeShared<FJsonValueString>(TargetId + TEXT(":setMaterialSlots")));
-    ActionIds.Add(MakeShared<FJsonValueString>(TargetId + TEXT(":setMeshComponentName")));
-
-    TArray<TSharedPtr<FJsonValue>> EmitterIds;
-    EmitterIds.Add(MakeShared<FJsonValueString>(TargetId + TEXT(":state")));
-    EmitterIds.Add(MakeShared<FJsonValueString>(TargetId + TEXT(":status")));
-
-    TSharedPtr<FJsonObject> TargetJson = MakeShared<FJsonObject>();
-    TargetJson->SetStringField(TEXT("id"), TargetId);
-    TargetJson->SetStringField(TEXT("name"), SurfaceState.Name);
-    TargetJson->SetStringField(TEXT("serviceId"), ServiceId);
-    TargetJson->SetStringField(TEXT("category"), TEXT("content-mapping"));
-    TargetJson->SetArrayField(TEXT("actionIds"), ActionIds);
-    TargetJson->SetArrayField(TEXT("emitterIds"), EmitterIds);
-    TargetJson->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
-
-    Subsystem->SetItem(TEXT("Target"), TargetJson, ERshipMessagePriority::High, TargetId);
-
-    auto RegisterAction = [&](const FString& Name)
+    URshipContentMappingTargetProxy* Proxy = EnsureTargetProxy(TargetId);
+    if (!Proxy)
     {
-        TSharedPtr<FJsonObject> ActionJson = MakeShared<FJsonObject>();
-        ActionJson->SetStringField(TEXT("id"), TargetId + TEXT(":") + Name);
-        ActionJson->SetStringField(TEXT("name"), Name);
-        ActionJson->SetStringField(TEXT("targetId"), TargetId);
-        ActionJson->SetStringField(TEXT("serviceId"), ServiceId);
-        TSharedPtr<FJsonObject> Schema = MakeShared<FJsonObject>();
-        Schema->SetStringField(TEXT("type"), TEXT("object"));
-        ActionJson->SetObjectField(TEXT("schema"), Schema);
-        ActionJson->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
-        Subsystem->SetItem(TEXT("Action"), ActionJson, ERshipMessagePriority::High, ActionJson->GetStringField(TEXT("id")));
-    };
+        return;
+    }
 
-    RegisterAction(TEXT("setEnabled"));
-    RegisterAction(TEXT("setActorPath"));
-    RegisterAction(TEXT("setUvChannel"));
-    RegisterAction(TEXT("setMaterialSlots"));
-    RegisterAction(TEXT("setMeshComponentName"));
+    Subsystem->EnsureAutomationTarget(TargetId, SurfaceState.Name.IsEmpty() ? TargetId : SurfaceState.Name, {});
+    Subsystem->RegisterEmitterForTarget(TargetId, Proxy, GET_MEMBER_NAME_CHECKED(URshipContentMappingTargetProxy, OnState), TEXT("state"));
+    Subsystem->RegisterEmitterForTarget(TargetId, Proxy, GET_MEMBER_NAME_CHECKED(URshipContentMappingTargetProxy, OnStatus), TEXT("status"));
 
-    auto RegisterEmitter = [&](const FString& Name)
-    {
-        TSharedPtr<FJsonObject> EmitterJson = MakeShared<FJsonObject>();
-        EmitterJson->SetStringField(TEXT("id"), TargetId + TEXT(":") + Name);
-        EmitterJson->SetStringField(TEXT("name"), Name);
-        EmitterJson->SetStringField(TEXT("targetId"), TargetId);
-        EmitterJson->SetStringField(TEXT("serviceId"), ServiceId);
-        TSharedPtr<FJsonObject> Schema = MakeShared<FJsonObject>();
-        Schema->SetStringField(TEXT("type"), TEXT("object"));
-        EmitterJson->SetObjectField(TEXT("schema"), Schema);
-        EmitterJson->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
-        Subsystem->SetItem(TEXT("Emitter"), EmitterJson, ERshipMessagePriority::High, EmitterJson->GetStringField(TEXT("id")));
-    };
+#define REGISTER_PROXY_ACTION(FuncName, ExposedName) \
+    Subsystem->RegisterFunctionActionForTarget( \
+        TargetId, \
+        Proxy, \
+        GET_FUNCTION_NAME_CHECKED(URshipContentMappingTargetProxy, FuncName), \
+        TEXT(ExposedName))
 
-    RegisterEmitter(TEXT("state"));
-    RegisterEmitter(TEXT("status"));
+    REGISTER_PROXY_ACTION(SetEnabled, "setEnabled");
+    REGISTER_PROXY_ACTION(SetActorPath, "setActorPath");
+    REGISTER_PROXY_ACTION(SetUvChannel, "setUvChannel");
+    REGISTER_PROXY_ACTION(SetMaterialSlots, "setMaterialSlots");
+    REGISTER_PROXY_ACTION(SetMeshComponentName, "setMeshComponentName");
+
+#undef REGISTER_PROXY_ACTION
 }
 
 void URshipContentMappingManager::RegisterMappingTarget(const FRshipContentMappingState& MappingState)
 {
-    if (!Subsystem || !Subsystem->IsConnected())
+    if (!Subsystem)
     {
         return;
     }
 
     const FString TargetId = BuildMappingTargetId(MappingState.Id);
-    const FString ServiceId = Subsystem->GetServiceId();
-
-    TArray<TSharedPtr<FJsonValue>> ActionIds;
-    ActionIds.Add(MakeShared<FJsonValueString>(TargetId + TEXT(":setEnabled")));
-    ActionIds.Add(MakeShared<FJsonValueString>(TargetId + TEXT(":setOpacity")));
-    ActionIds.Add(MakeShared<FJsonValueString>(TargetId + TEXT(":setContextId")));
-    ActionIds.Add(MakeShared<FJsonValueString>(TargetId + TEXT(":setSurfaceIds")));
-    ActionIds.Add(MakeShared<FJsonValueString>(TargetId + TEXT(":setProjection")));
-    ActionIds.Add(MakeShared<FJsonValueString>(TargetId + TEXT(":setUVTransform")));
-    ActionIds.Add(MakeShared<FJsonValueString>(TargetId + TEXT(":setType")));
-    ActionIds.Add(MakeShared<FJsonValueString>(TargetId + TEXT(":setConfig")));
-    ActionIds.Add(MakeShared<FJsonValueString>(TargetId + TEXT(":setFeedV2")));
-    ActionIds.Add(MakeShared<FJsonValueString>(TargetId + TEXT(":upsertFeedSource")));
-    ActionIds.Add(MakeShared<FJsonValueString>(TargetId + TEXT(":removeFeedSource")));
-    ActionIds.Add(MakeShared<FJsonValueString>(TargetId + TEXT(":upsertFeedDestination")));
-    ActionIds.Add(MakeShared<FJsonValueString>(TargetId + TEXT(":removeFeedDestination")));
-    ActionIds.Add(MakeShared<FJsonValueString>(TargetId + TEXT(":upsertFeedRoute")));
-    ActionIds.Add(MakeShared<FJsonValueString>(TargetId + TEXT(":removeFeedRoute")));
-
-    TArray<TSharedPtr<FJsonValue>> EmitterIds;
-    EmitterIds.Add(MakeShared<FJsonValueString>(TargetId + TEXT(":state")));
-    EmitterIds.Add(MakeShared<FJsonValueString>(TargetId + TEXT(":status")));
-
-    TSharedPtr<FJsonObject> TargetJson = MakeShared<FJsonObject>();
-    TargetJson->SetStringField(TEXT("id"), TargetId);
-    TargetJson->SetStringField(TEXT("name"), MappingState.Name);
-    TargetJson->SetStringField(TEXT("serviceId"), ServiceId);
-    TargetJson->SetStringField(TEXT("category"), TEXT("content-mapping"));
-    TargetJson->SetArrayField(TEXT("actionIds"), ActionIds);
-    TargetJson->SetArrayField(TEXT("emitterIds"), EmitterIds);
-    TargetJson->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
-
-    Subsystem->SetItem(TEXT("Target"), TargetJson, ERshipMessagePriority::High, TargetId);
-
-    auto RegisterAction = [&](const FString& Name)
+    URshipContentMappingTargetProxy* Proxy = EnsureTargetProxy(TargetId);
+    if (!Proxy)
     {
-        TSharedPtr<FJsonObject> ActionJson = MakeShared<FJsonObject>();
-        ActionJson->SetStringField(TEXT("id"), TargetId + TEXT(":") + Name);
-        ActionJson->SetStringField(TEXT("name"), Name);
-        ActionJson->SetStringField(TEXT("targetId"), TargetId);
-        ActionJson->SetStringField(TEXT("serviceId"), ServiceId);
-        TSharedPtr<FJsonObject> Schema = MakeShared<FJsonObject>();
-        Schema->SetStringField(TEXT("type"), TEXT("object"));
-        ActionJson->SetObjectField(TEXT("schema"), Schema);
-        ActionJson->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
-        Subsystem->SetItem(TEXT("Action"), ActionJson, ERshipMessagePriority::High, ActionJson->GetStringField(TEXT("id")));
-    };
+        return;
+    }
 
-    RegisterAction(TEXT("setEnabled"));
-    RegisterAction(TEXT("setOpacity"));
-    RegisterAction(TEXT("setContextId"));
-    RegisterAction(TEXT("setSurfaceIds"));
-    RegisterAction(TEXT("setProjection"));
-    RegisterAction(TEXT("setUVTransform"));
-    RegisterAction(TEXT("setType"));
-    RegisterAction(TEXT("setConfig"));
-    RegisterAction(TEXT("setFeedV2"));
-    RegisterAction(TEXT("upsertFeedSource"));
-    RegisterAction(TEXT("removeFeedSource"));
-    RegisterAction(TEXT("upsertFeedDestination"));
-    RegisterAction(TEXT("removeFeedDestination"));
-    RegisterAction(TEXT("upsertFeedRoute"));
-    RegisterAction(TEXT("removeFeedRoute"));
+    Subsystem->EnsureAutomationTarget(TargetId, MappingState.Name.IsEmpty() ? TargetId : MappingState.Name, {});
+    Subsystem->RegisterEmitterForTarget(TargetId, Proxy, GET_MEMBER_NAME_CHECKED(URshipContentMappingTargetProxy, OnState), TEXT("state"));
+    Subsystem->RegisterEmitterForTarget(TargetId, Proxy, GET_MEMBER_NAME_CHECKED(URshipContentMappingTargetProxy, OnStatus), TEXT("status"));
 
-    auto RegisterEmitter = [&](const FString& Name)
-    {
-        TSharedPtr<FJsonObject> EmitterJson = MakeShared<FJsonObject>();
-        EmitterJson->SetStringField(TEXT("id"), TargetId + TEXT(":") + Name);
-        EmitterJson->SetStringField(TEXT("name"), Name);
-        EmitterJson->SetStringField(TEXT("targetId"), TargetId);
-        EmitterJson->SetStringField(TEXT("serviceId"), ServiceId);
-        TSharedPtr<FJsonObject> Schema = MakeShared<FJsonObject>();
-        Schema->SetStringField(TEXT("type"), TEXT("object"));
-        EmitterJson->SetObjectField(TEXT("schema"), Schema);
-        EmitterJson->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
-        Subsystem->SetItem(TEXT("Emitter"), EmitterJson, ERshipMessagePriority::High, EmitterJson->GetStringField(TEXT("id")));
-    };
+#define REGISTER_PROXY_ACTION(FuncName, ExposedName) \
+    Subsystem->RegisterFunctionActionForTarget( \
+        TargetId, \
+        Proxy, \
+        GET_FUNCTION_NAME_CHECKED(URshipContentMappingTargetProxy, FuncName), \
+        TEXT(ExposedName))
 
-    RegisterEmitter(TEXT("state"));
-    RegisterEmitter(TEXT("status"));
+    REGISTER_PROXY_ACTION(SetEnabled, "setEnabled");
+    REGISTER_PROXY_ACTION(SetOpacity, "setOpacity");
+    REGISTER_PROXY_ACTION(SetContextId, "setContextId");
+    REGISTER_PROXY_ACTION(SetSurfaceIds, "setSurfaceIds");
+    REGISTER_PROXY_ACTION(SetProjection, "setProjection");
+    REGISTER_PROXY_ACTION(SetUVTransform, "setUVTransform");
+    REGISTER_PROXY_ACTION(SetType, "setType");
+    REGISTER_PROXY_ACTION(SetConfig, "setConfig");
+    REGISTER_PROXY_ACTION(SetFeedV2, "setFeedV2");
+    REGISTER_PROXY_ACTION(UpsertFeedSource, "upsertFeedSource");
+    REGISTER_PROXY_ACTION(RemoveFeedSource, "removeFeedSource");
+    REGISTER_PROXY_ACTION(UpsertFeedDestination, "upsertFeedDestination");
+    REGISTER_PROXY_ACTION(RemoveFeedDestination, "removeFeedDestination");
+    REGISTER_PROXY_ACTION(UpsertFeedRoute, "upsertFeedRoute");
+    REGISTER_PROXY_ACTION(RemoveFeedRoute, "removeFeedRoute");
+
+#undef REGISTER_PROXY_ACTION
 }
 
 void URshipContentMappingManager::DeleteTargetForPath(const FString& TargetPath)
@@ -10758,10 +10768,8 @@ void URshipContentMappingManager::DeleteTargetForPath(const FString& TargetPath)
         return;
     }
 
-    TSharedPtr<FJsonObject> TargetJson = MakeShared<FJsonObject>();
-    TargetJson->SetStringField(TEXT("id"), TargetPath);
-    TargetJson->SetStringField(TEXT("hash"), FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower));
-    Subsystem->DelItem(TEXT("Target"), TargetJson, ERshipMessagePriority::High, TargetPath);
+    Subsystem->RemoveAutomationTarget(TargetPath);
+    TargetProxies.Remove(TargetPath);
 }
 
 FString URshipContentMappingManager::BuildContextTargetId(const FString& ContextId) const
@@ -11080,10 +11088,10 @@ bool URshipContentMappingManager::HandleContextAction(const FString& ContextId, 
         NormalizeRenderContextState(*ContextState);
     }
 
-    if (bHandled && Subsystem)
+    if (bHandled)
     {
         ResolveRenderContext(*ContextState);
-        Subsystem->SetItem(TEXT("RenderContext"), BuildRenderContextJson(*ContextState), ERshipMessagePriority::High, ContextState->Id);
+        RegisterContextTarget(*ContextState);
         EmitContextState(*ContextState);
     }
 
@@ -11141,10 +11149,10 @@ bool URshipContentMappingManager::HandleSurfaceAction(const FString& SurfaceId, 
         NormalizeMappingSurfaceState(*SurfaceState, Subsystem);
     }
 
-    if (bHandled && Subsystem)
+    if (bHandled)
     {
         ResolveMappingSurface(*SurfaceState);
-        Subsystem->SetItem(TEXT("MappingSurface"), BuildMappingSurfaceJson(*SurfaceState), ERshipMessagePriority::High, SurfaceState->Id);
+        RegisterSurfaceTarget(*SurfaceState);
         EmitSurfaceState(*SurfaceState);
     }
 
@@ -11619,9 +11627,9 @@ bool URshipContentMappingManager::HandleMappingAction(const FString& MappingId, 
         RemoveFeedCompositeTexturesForMapping(MappingState->Id);
     }
 
-    if (bHandled && Subsystem)
+    if (bHandled)
     {
-        Subsystem->SetItem(TEXT("Mapping"), BuildMappingJson(*MappingState), ERshipMessagePriority::High, MappingState->Id);
+        RegisterMappingTarget(*MappingState);
         EmitMappingState(*MappingState);
     }
 
