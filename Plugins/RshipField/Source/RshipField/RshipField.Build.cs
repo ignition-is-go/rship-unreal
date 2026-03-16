@@ -13,7 +13,8 @@ public class RshipField : ModuleRules
                 "CoreUObject",
                 "Engine",
                 "Json",
-                "JsonUtilities"
+                "JsonUtilities",
+                "RshipExec"
             });
 
         PrivateDependencyModuleNames.AddRange(

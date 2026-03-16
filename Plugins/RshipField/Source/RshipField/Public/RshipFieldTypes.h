@@ -3,6 +3,10 @@
 #include "CoreMinimal.h"
 #include "RshipFieldTypes.generated.h"
 
+// ============================================================================
+// Enums
+// ============================================================================
+
 UENUM(BlueprintType)
 enum class ERshipFieldBlendOp : uint8
 {
@@ -19,14 +23,12 @@ enum class ERshipFieldWaveform : uint8
     Sine UMETA(DisplayName = "Sine"),
     Triangle UMETA(DisplayName = "Triangle"),
     Saw UMETA(DisplayName = "Saw"),
-    Square UMETA(DisplayName = "Square"),
-    CurveLUT UMETA(DisplayName = "Curve LUT")
+    Square UMETA(DisplayName = "Square")
 };
 
 UENUM(BlueprintType)
-enum class ERshipFieldNoiseType : uint8
+enum class ERshipFieldNoiseMode : uint8
 {
-    None UMETA(DisplayName = "None"),
     Value UMETA(DisplayName = "Value"),
     Simplex UMETA(DisplayName = "Simplex"),
     Curl UMETA(DisplayName = "Curl")
@@ -39,112 +41,23 @@ enum class ERshipFieldDebugMode : uint8
     Heatmap UMETA(DisplayName = "Heatmap"),
     SliceScalar UMETA(DisplayName = "Slice Scalar"),
     SliceVector UMETA(DisplayName = "Slice Vector"),
-    IsolateEmitter UMETA(DisplayName = "Isolate Emitter"),
+    IsolateEffector UMETA(DisplayName = "Isolate Effector"),
     IsolateLayer UMETA(DisplayName = "Isolate Layer"),
     ContribScalar UMETA(DisplayName = "Contribution Scalar"),
     ContribVector UMETA(DisplayName = "Contribution Vector")
 };
 
-USTRUCT(BlueprintType)
-struct RSHIPFIELD_API FRshipFieldTransportState
-{
-    GENERATED_BODY()
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    float Bpm = 120.0f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    float BeatPhase = 0.0f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    bool bPlaying = true;
-};
+// ============================================================================
+// Typed effectors (artist-facing)
+// ============================================================================
 
 USTRUCT(BlueprintType)
-struct RSHIPFIELD_API FRshipFieldGlobalParams
+struct RSHIPFIELD_API FRshipFieldWaveEffector
 {
     GENERATED_BODY()
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field", meta = (ClampMin = "1.0", ClampMax = "240.0"))
-    float UpdateHz = 60.0f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    float MasterScalarGain = 1.0f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    float MasterVectorGain = 1.0f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    int32 FieldResolution = 256;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    FVector DomainCenterCm = FVector::ZeroVector;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field", meta = (ClampMin = "1.0"))
-    float DomainSizeCm = 10000.0f;
-};
-
-USTRUCT(BlueprintType)
-struct RSHIPFIELD_API FRshipFieldLayerDesc
-{
-    GENERATED_BODY()
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    FString Id;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
     bool bEnabled = true;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    ERshipFieldBlendOp BlendOp = ERshipFieldBlendOp::Add;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    float Weight = 1.0f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    float ClampMin = -100.0f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    float ClampMax = 100.0f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    FString PhaseGroupId;
-};
-
-USTRUCT(BlueprintType)
-struct RSHIPFIELD_API FRshipFieldPhaseGroupDesc
-{
-    GENERATED_BODY()
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    FString Id;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    bool bSyncToTempo = true;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    float TempoMultiplier = 1.0f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    float PhaseOffset = 0.0f;
-};
-
-USTRUCT(BlueprintType)
-struct RSHIPFIELD_API FRshipFieldEmitterDesc
-{
-    GENERATED_BODY()
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    FString Id;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    FString LayerId;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    bool bEnabled = true;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    bool bInfiniteRange = true;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
     FVector PositionCm = FVector::ZeroVector;
@@ -152,16 +65,16 @@ struct RSHIPFIELD_API FRshipFieldEmitterDesc
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
     FVector Direction = FVector::UpVector;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field", meta = (ClampMin = "0.0"))
     float RadiusCm = 1000.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
     float Amplitude = 1.0f;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field", meta = (ClampMin = "0.001"))
     float WavelengthCm = 100.0f;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field", meta = (ClampMin = "0.0"))
     float FrequencyHz = 1.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
@@ -171,176 +84,129 @@ struct RSHIPFIELD_API FRshipFieldEmitterDesc
     float PhaseOffset = 0.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    float FadeWeight = 1.0f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    float EnvelopeAttackSeconds = 0.1f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    float EnvelopeDecaySeconds = 0.1f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
     ERshipFieldWaveform Waveform = ERshipFieldWaveform::Sine;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    ERshipFieldBlendOp BlendOp = ERshipFieldBlendOp::Add;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    ERshipFieldNoiseType NoiseType = ERshipFieldNoiseType::None;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    float NoiseScale = 0.1f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    float NoiseAmplitude = 0.0f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    bool bAffectsScalar = true;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    bool bAffectsVector = true;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    float ClampMin = -100.0f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    float ClampMax = 100.0f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    FString PhaseGroupId;
+    bool bInfiniteRange = true;
 };
 
 USTRUCT(BlueprintType)
-struct RSHIPFIELD_API FRshipFieldSplineEmitterDesc
+struct RSHIPFIELD_API FRshipFieldNoiseEffector
 {
     GENERATED_BODY()
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    FString Id;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    FString LayerId;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
     bool bEnabled = true;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    TArray<FVector> ControlPointsCm;
+    FVector PositionCm = FVector::ZeroVector;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field", meta = (ClampMin = "0.01"))
-    float CurvatureToleranceCm = 1.0f;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field", meta = (ClampMin = "0.0"))
+    float RadiusCm = 1000.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
     float Amplitude = 1.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
+    ERshipFieldNoiseMode NoiseMode = ERshipFieldNoiseMode::Simplex;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field", meta = (ClampMin = "0.0"))
+    float Scale = 0.1f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
+    bool bInfiniteRange = true;
+};
+
+USTRUCT(BlueprintType)
+struct RSHIPFIELD_API FRshipFieldAttractorEffector
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
+    bool bEnabled = true;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
+    FVector PositionCm = FVector::ZeroVector;
+
+    // Positive = attract, negative = repel.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
+    float Strength = 1.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field", meta = (ClampMin = "0.0"))
     float RadiusCm = 1000.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
+    bool bInfiniteRange = false;
+};
+
+// ============================================================================
+// Internal effector (GPU pipeline, not directly artist-facing)
+// ============================================================================
+
+UENUM()
+enum class ERshipFieldEffectorType : uint8
+{
+    Wave,
+    Noise,
+    Attractor
+};
+
+USTRUCT()
+struct RSHIPFIELD_API FRshipFieldEffectorDesc
+{
+    GENERATED_BODY()
+
+    ERshipFieldEffectorType Type = ERshipFieldEffectorType::Wave;
+    bool bEnabled = true;
+    bool bInfiniteRange = true;
+    FVector PositionCm = FVector::ZeroVector;
+    FVector Direction = FVector::UpVector;
+    float RadiusCm = 1000.0f;
+    float Amplitude = 1.0f;
+    float WavelengthCm = 100.0f;
+    float FrequencyHz = 1.0f;
+    float Speed = 1.0f;
+    float PhaseOffset = 0.0f;
+    float FadeWeight = 1.0f;
     ERshipFieldWaveform Waveform = ERshipFieldWaveform::Sine;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
     ERshipFieldBlendOp BlendOp = ERshipFieldBlendOp::Add;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
+    ERshipFieldNoiseMode NoiseMode = ERshipFieldNoiseMode::Value;
+    float NoiseScale = 0.1f;
+    float NoiseAmplitude = 0.0f;
+    bool bAffectsScalar = true;
+    bool bAffectsVector = true;
     float ClampMin = -100.0f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
     float ClampMax = 100.0f;
+
+    // Conversion from typed effectors
+    static FRshipFieldEffectorDesc FromWave(const FRshipFieldWaveEffector& Wave);
+    static FRshipFieldEffectorDesc FromNoise(const FRshipFieldNoiseEffector& Noise);
+    static FRshipFieldEffectorDesc FromAttractor(const FRshipFieldAttractorEffector& Attractor);
 };
 
-USTRUCT(BlueprintType)
-struct RSHIPFIELD_API FRshipFieldTargetDesc
-{
-    GENERATED_BODY()
+// ============================================================================
+// Layers / Phase Groups (commented out for MVP, will return)
+// ============================================================================
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    FGuid StableGuid;
+// USTRUCT(BlueprintType)
+// struct RSHIPFIELD_API FRshipFieldLayerDesc
+// {
+//     GENERATED_BODY()
+//     FString Id;
+//     bool bEnabled = true;
+//     ERshipFieldBlendOp BlendOp = ERshipFieldBlendOp::Add;
+//     float Weight = 1.0f;
+//     float ClampMin = -100.0f;
+//     float ClampMax = 100.0f;
+//     FString PhaseGroupId;
+// };
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    FString VisibleTargetPath;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-    float AxisWeightNormal = 1.0f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-    float AxisWeightWorld = 0.0f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-    float AxisWeightObject = 0.0f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    FVector WorldAxis = FVector::UpVector;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    FVector ObjectAxis = FVector::UpVector;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    float ScalarGain = 1.0f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    float VectorGain = 1.0f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    float MaxDisplacementCm = 100.0f;
-};
-
-USTRUCT(BlueprintType)
-struct RSHIPFIELD_API FRshipFieldTargetIdentity
-{
-    GENERATED_BODY()
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    FString VisibleTargetPath;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    FGuid StableGuid;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    FString ActorPath;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    FString ComponentName;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    FString MeshPath;
-};
-
-USTRUCT(BlueprintType)
-struct RSHIPFIELD_API FRshipFieldPacket
-{
-    GENERATED_BODY()
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    int32 SchemaVersion = 1;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field", meta = (ClampMin = "0"))
-    int64 Sequence = 0;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    int64 ApplyFrame = INDEX_NONE;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    bool bHasApplyFrame = false;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    FRshipFieldTransportState Transport;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    FRshipFieldGlobalParams Globals;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    TArray<FRshipFieldLayerDesc> Layers;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    TArray<FRshipFieldPhaseGroupDesc> PhaseGroups;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    TArray<FRshipFieldEmitterDesc> Emitters;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    TArray<FRshipFieldSplineEmitterDesc> Splines;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    TArray<FRshipFieldTargetDesc> TargetOverrides;
-};
+// USTRUCT(BlueprintType)
+// struct RSHIPFIELD_API FRshipFieldPhaseGroupDesc
+// {
+//     GENERATED_BODY()
+//     FString Id;
+//     bool bSyncToTempo = true;
+//     float TempoMultiplier = 1.0f;
+//     float PhaseOffset = 0.0f;
+// };

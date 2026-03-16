@@ -21,7 +21,7 @@ struct FGlobalDispatchInputs
     FVector3f DomainMaxCm = FVector3f(5000.0f, 5000.0f, 5000.0f);
     uint32 LayerCount = 0;
     uint32 PhaseGroupCount = 0;
-    uint32 EmitterCount = 0;
+    uint32 EffectorCount = 0;
 
     bool bDebugEnabled = false;
     int32 DebugMode = 0;
@@ -34,13 +34,13 @@ struct FGlobalDispatchInputs
     TArray<FVector4f> LayerDataA;
     TArray<FVector4f> LayerDataB;
     TArray<FVector4f> PhaseGroupData;
-    TArray<FVector4f> EmitterData0;
-    TArray<FVector4f> EmitterData1;
-    TArray<FVector4f> EmitterData2;
-    TArray<FVector4f> EmitterData3;
-    TArray<FVector4f> EmitterData4;
-    TArray<FVector4f> EmitterData5;
-    TArray<FVector4f> EmitterData6;
+    TArray<FVector4f> EffectorData0;
+    TArray<FVector4f> EffectorData1;
+    TArray<FVector4f> EffectorData2;
+    TArray<FVector4f> EffectorData3;
+    TArray<FVector4f> EffectorData4;
+    TArray<FVector4f> EffectorData5;
+    TArray<FVector4f> EffectorData6;
 
     bool IsValid() const
     {

@@ -16,13 +16,13 @@ RWTexture2D<float4> OutDeformedNormalTex;
 StructuredBuffer<float4> LayerDataA;
 StructuredBuffer<float4> LayerDataB;
 StructuredBuffer<float4> PhaseGroupData;
-StructuredBuffer<float4> EmitterData0;
-StructuredBuffer<float4> EmitterData1;
-StructuredBuffer<float4> EmitterData2;
-StructuredBuffer<float4> EmitterData3;
-StructuredBuffer<float4> EmitterData4;
-StructuredBuffer<float4> EmitterData5;
-StructuredBuffer<float4> EmitterData6;
+StructuredBuffer<float4> EffectorData0;
+StructuredBuffer<float4> EffectorData1;
+StructuredBuffer<float4> EffectorData2;
+StructuredBuffer<float4> EffectorData3;
+StructuredBuffer<float4> EffectorData4;
+StructuredBuffer<float4> EffectorData5;
+StructuredBuffer<float4> EffectorData6;
 
 int FieldResolution;
 int TilesPerRow;
@@ -35,7 +35,7 @@ float3 DomainMinCm;
 float3 DomainMaxCm;
 uint LayerCount;
 uint PhaseGroupCount;
-uint EmitterCount;
+uint EffectorCount;
 int DebugMode;
 int DebugSelectionIndex;
 
@@ -244,7 +244,7 @@ float ComputePhaseGroupOffset(int PhaseGroupIndex)
     return PhaseOffset;
 }
 
-void EvaluateFieldAtPosition(float3 WorldPosCm, bool bIncludeInfiniteEmitters, out float OutScalar, out float3 OutVector)
+void EvaluateFieldAtPosition(float3 WorldPosCm, bool bIncludeInfiniteEffectors, out float OutScalar, out float3 OutVector)
 {
     OutScalar = 0.0f;
     OutVector = float3(0.0f, 0.0f, 0.0f);
@@ -269,15 +269,15 @@ void EvaluateFieldAtPosition(float3 WorldPosCm, bool bIncludeInfiniteEmitters, o
         const int LayerPhaseGroup = (int)floor(L1.y + 0.5f);
         const float LayerPhaseOffset = ComputePhaseGroupOffset(LayerPhaseGroup);
 
-        for (uint EmitterIndex = 0u; EmitterIndex < EmitterCount; ++EmitterIndex)
+        for (uint EffectorIndex = 0u; EffectorIndex < EffectorCount; ++EffectorIndex)
         {
-            float4 E0 = EmitterData0[EmitterIndex];
-            float4 E1 = EmitterData1[EmitterIndex];
-            float4 E2 = EmitterData2[EmitterIndex];
-            float4 E3 = EmitterData3[EmitterIndex];
-            float4 E4 = EmitterData4[EmitterIndex];
-            float4 E5 = EmitterData5[EmitterIndex];
-            float4 E6 = EmitterData6[EmitterIndex];
+            float4 E0 = EffectorData0[EffectorIndex];
+            float4 E1 = EffectorData1[EffectorIndex];
+            float4 E2 = EffectorData2[EffectorIndex];
+            float4 E3 = EffectorData3[EffectorIndex];
+            float4 E4 = EffectorData4[EffectorIndex];
+            float4 E5 = EffectorData5[EffectorIndex];
+            float4 E6 = EffectorData6[EffectorIndex];
 
             if (E6.x < 0.5f)
             {
@@ -285,18 +285,18 @@ void EvaluateFieldAtPosition(float3 WorldPosCm, bool bIncludeInfiniteEmitters, o
             }
 
             bool bInfiniteRange = E6.y > 0.5f;
-            if (bInfiniteRange != bIncludeInfiniteEmitters)
+            if (bInfiniteRange != bIncludeInfiniteEffectors)
             {
                 continue;
             }
 
-            uint EmitterLayerIndex = (uint)max(0.0f, floor(E3.w + 0.5f));
-            if (EmitterLayerIndex != LayerIndex)
+            uint EffectorLayerIndex = (uint)max(0.0f, floor(E3.w + 0.5f));
+            if (EffectorLayerIndex != LayerIndex)
             {
                 continue;
             }
 
-            if (DebugMode == 4 && DebugSelectionIndex >= 0 && (int)EmitterIndex != DebugSelectionIndex)
+            if (DebugMode == 4 && DebugSelectionIndex >= 0 && (int)EffectorIndex != DebugSelectionIndex)
             {
                 continue;
             }
@@ -305,8 +305,8 @@ void EvaluateFieldAtPosition(float3 WorldPosCm, bool bIncludeInfiniteEmitters, o
                 continue;
             }
 
-            float3 ToEmitter = WorldPosCm - E0.xyz;
-            float DistanceCm = length(ToEmitter);
+            float3 ToEffector = WorldPosCm - E0.xyz;
+            float DistanceCm = length(ToEffector);
 
             float Falloff = 1.0f;
             if (!bInfiniteRange)

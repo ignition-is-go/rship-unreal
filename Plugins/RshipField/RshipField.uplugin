@@ -18,5 +18,11 @@
       "Type": "Editor",
       "LoadingPhase": "Default"
     }
+  ],
+  "Plugins": [
+    {
+      "Name": "RshipExec",
+      "Enabled": true
+    }
   ]
 }

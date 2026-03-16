@@ -31,20 +31,20 @@ public:
         SHADER_PARAMETER(FVector3f, DomainMaxCm)
         SHADER_PARAMETER(uint32, LayerCount)
         SHADER_PARAMETER(uint32, PhaseGroupCount)
-        SHADER_PARAMETER(uint32, EmitterCount)
+        SHADER_PARAMETER(uint32, EffectorCount)
         SHADER_PARAMETER(int32, DebugMode)
         SHADER_PARAMETER(int32, DebugSelectionIndex)
 
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, LayerDataA)
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, LayerDataB)
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, PhaseGroupData)
-        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, EmitterData0)
-        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, EmitterData1)
-        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, EmitterData2)
-        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, EmitterData3)
-        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, EmitterData4)
-        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, EmitterData5)
-        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, EmitterData6)
+        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, EffectorData0)
+        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, EffectorData1)
+        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, EffectorData2)
+        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, EffectorData3)
+        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, EffectorData4)
+        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, EffectorData5)
+        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, EffectorData6)
 
         SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float>, OutScalarFieldAtlasTex)
         SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, OutVectorFieldAtlasTex)
@@ -76,24 +76,26 @@ public:
         SHADER_PARAMETER(float, TimeSeconds)
         SHADER_PARAMETER(float, BPM)
         SHADER_PARAMETER(float, TransportPhase)
+        SHADER_PARAMETER(float, MasterScalarGain)
+        SHADER_PARAMETER(float, MasterVectorGain)
         SHADER_PARAMETER(FVector3f, DomainMinCm)
         SHADER_PARAMETER(FVector3f, DomainMaxCm)
         SHADER_PARAMETER(uint32, LayerCount)
         SHADER_PARAMETER(uint32, PhaseGroupCount)
-        SHADER_PARAMETER(uint32, EmitterCount)
+        SHADER_PARAMETER(uint32, EffectorCount)
         SHADER_PARAMETER(int32, DebugMode)
         SHADER_PARAMETER(int32, DebugSelectionIndex)
 
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, LayerDataA)
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, LayerDataB)
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, PhaseGroupData)
-        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, EmitterData0)
-        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, EmitterData1)
-        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, EmitterData2)
-        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, EmitterData3)
-        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, EmitterData4)
-        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, EmitterData5)
-        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, EmitterData6)
+        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, EffectorData0)
+        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, EffectorData1)
+        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, EffectorData2)
+        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, EffectorData3)
+        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, EffectorData4)
+        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, EffectorData5)
+        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, EffectorData6)
 
         SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float>, OutScalarFieldAtlasTex)
         SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, OutVectorFieldAtlasTex)
@@ -248,13 +250,13 @@ void RshipFieldRDG::AddFieldPasses(
     FRDGBufferSRVRef LayerDataASRV = MakePackedBufferSRV(TEXT("RshipField.LayerDataA"), GlobalInputs.LayerDataA);
     FRDGBufferSRVRef LayerDataBSRV = MakePackedBufferSRV(TEXT("RshipField.LayerDataB"), GlobalInputs.LayerDataB);
     FRDGBufferSRVRef PhaseGroupDataSRV = MakePackedBufferSRV(TEXT("RshipField.PhaseGroupData"), GlobalInputs.PhaseGroupData);
-    FRDGBufferSRVRef EmitterData0SRV = MakePackedBufferSRV(TEXT("RshipField.EmitterData0"), GlobalInputs.EmitterData0);
-    FRDGBufferSRVRef EmitterData1SRV = MakePackedBufferSRV(TEXT("RshipField.EmitterData1"), GlobalInputs.EmitterData1);
-    FRDGBufferSRVRef EmitterData2SRV = MakePackedBufferSRV(TEXT("RshipField.EmitterData2"), GlobalInputs.EmitterData2);
-    FRDGBufferSRVRef EmitterData3SRV = MakePackedBufferSRV(TEXT("RshipField.EmitterData3"), GlobalInputs.EmitterData3);
-    FRDGBufferSRVRef EmitterData4SRV = MakePackedBufferSRV(TEXT("RshipField.EmitterData4"), GlobalInputs.EmitterData4);
-    FRDGBufferSRVRef EmitterData5SRV = MakePackedBufferSRV(TEXT("RshipField.EmitterData5"), GlobalInputs.EmitterData5);
-    FRDGBufferSRVRef EmitterData6SRV = MakePackedBufferSRV(TEXT("RshipField.EmitterData6"), GlobalInputs.EmitterData6);
+    FRDGBufferSRVRef EffectorData0SRV = MakePackedBufferSRV(TEXT("RshipField.EffectorData0"), GlobalInputs.EffectorData0);
+    FRDGBufferSRVRef EffectorData1SRV = MakePackedBufferSRV(TEXT("RshipField.EffectorData1"), GlobalInputs.EffectorData1);
+    FRDGBufferSRVRef EffectorData2SRV = MakePackedBufferSRV(TEXT("RshipField.EffectorData2"), GlobalInputs.EffectorData2);
+    FRDGBufferSRVRef EffectorData3SRV = MakePackedBufferSRV(TEXT("RshipField.EffectorData3"), GlobalInputs.EffectorData3);
+    FRDGBufferSRVRef EffectorData4SRV = MakePackedBufferSRV(TEXT("RshipField.EffectorData4"), GlobalInputs.EffectorData4);
+    FRDGBufferSRVRef EffectorData5SRV = MakePackedBufferSRV(TEXT("RshipField.EffectorData5"), GlobalInputs.EffectorData5);
+    FRDGBufferSRVRef EffectorData6SRV = MakePackedBufferSRV(TEXT("RshipField.EffectorData6"), GlobalInputs.EffectorData6);
 
     const FIntVector FieldVoxelCount(GlobalInputs.FieldResolution, GlobalInputs.FieldResolution, GlobalInputs.FieldResolution);
     const FIntVector FieldGroupCount = FComputeShaderUtils::GetGroupCount(
@@ -275,19 +277,19 @@ void RshipFieldRDG::AddFieldPasses(
         PassParameters->DomainMaxCm = GlobalInputs.DomainMaxCm;
         PassParameters->LayerCount = GlobalInputs.LayerCount;
         PassParameters->PhaseGroupCount = GlobalInputs.PhaseGroupCount;
-        PassParameters->EmitterCount = GlobalInputs.EmitterCount;
+        PassParameters->EffectorCount = GlobalInputs.EffectorCount;
         PassParameters->DebugMode = GlobalInputs.DebugMode;
         PassParameters->DebugSelectionIndex = GlobalInputs.DebugSelectionIndex;
         PassParameters->LayerDataA = LayerDataASRV;
         PassParameters->LayerDataB = LayerDataBSRV;
         PassParameters->PhaseGroupData = PhaseGroupDataSRV;
-        PassParameters->EmitterData0 = EmitterData0SRV;
-        PassParameters->EmitterData1 = EmitterData1SRV;
-        PassParameters->EmitterData2 = EmitterData2SRV;
-        PassParameters->EmitterData3 = EmitterData3SRV;
-        PassParameters->EmitterData4 = EmitterData4SRV;
-        PassParameters->EmitterData5 = EmitterData5SRV;
-        PassParameters->EmitterData6 = EmitterData6SRV;
+        PassParameters->EffectorData0 = EffectorData0SRV;
+        PassParameters->EffectorData1 = EffectorData1SRV;
+        PassParameters->EffectorData2 = EffectorData2SRV;
+        PassParameters->EffectorData3 = EffectorData3SRV;
+        PassParameters->EffectorData4 = EffectorData4SRV;
+        PassParameters->EffectorData5 = EffectorData5SRV;
+        PassParameters->EffectorData6 = EffectorData6SRV;
         PassParameters->OutScalarFieldAtlasTex = GraphBuilder.CreateUAV(FRDGTextureUAVDesc(ScalarAtlasTex));
         PassParameters->OutVectorFieldAtlasTex = GraphBuilder.CreateUAV(FRDGTextureUAVDesc(VectorAtlasTex));
 
@@ -308,23 +310,25 @@ void RshipFieldRDG::AddFieldPasses(
         PassParameters->TimeSeconds = GlobalInputs.TimeSeconds;
         PassParameters->BPM = GlobalInputs.BPM;
         PassParameters->TransportPhase = GlobalInputs.TransportPhase;
+        PassParameters->MasterScalarGain = GlobalInputs.MasterScalarGain;
+        PassParameters->MasterVectorGain = GlobalInputs.MasterVectorGain;
         PassParameters->DomainMinCm = GlobalInputs.DomainMinCm;
         PassParameters->DomainMaxCm = GlobalInputs.DomainMaxCm;
         PassParameters->LayerCount = GlobalInputs.LayerCount;
         PassParameters->PhaseGroupCount = GlobalInputs.PhaseGroupCount;
-        PassParameters->EmitterCount = GlobalInputs.EmitterCount;
+        PassParameters->EffectorCount = GlobalInputs.EffectorCount;
         PassParameters->DebugMode = GlobalInputs.DebugMode;
         PassParameters->DebugSelectionIndex = GlobalInputs.DebugSelectionIndex;
         PassParameters->LayerDataA = LayerDataASRV;
         PassParameters->LayerDataB = LayerDataBSRV;
         PassParameters->PhaseGroupData = PhaseGroupDataSRV;
-        PassParameters->EmitterData0 = EmitterData0SRV;
-        PassParameters->EmitterData1 = EmitterData1SRV;
-        PassParameters->EmitterData2 = EmitterData2SRV;
-        PassParameters->EmitterData3 = EmitterData3SRV;
-        PassParameters->EmitterData4 = EmitterData4SRV;
-        PassParameters->EmitterData5 = EmitterData5SRV;
-        PassParameters->EmitterData6 = EmitterData6SRV;
+        PassParameters->EffectorData0 = EffectorData0SRV;
+        PassParameters->EffectorData1 = EffectorData1SRV;
+        PassParameters->EffectorData2 = EffectorData2SRV;
+        PassParameters->EffectorData3 = EffectorData3SRV;
+        PassParameters->EffectorData4 = EffectorData4SRV;
+        PassParameters->EffectorData5 = EffectorData5SRV;
+        PassParameters->EffectorData6 = EffectorData6SRV;
         PassParameters->OutScalarFieldAtlasTex = GraphBuilder.CreateUAV(FRDGTextureUAVDesc(ScalarAtlasTex));
         PassParameters->OutVectorFieldAtlasTex = GraphBuilder.CreateUAV(FRDGTextureUAVDesc(VectorAtlasTex));
 

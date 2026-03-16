@@ -45,7 +45,7 @@ void FRshipFieldEditorModule::StartupModule()
                             + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 4.0f)
                             [ SNew(STextBlock).Text(LOCTEXT("FieldStudioLayers", "Layers")) ]
                             + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 4.0f)
-                            [ SNew(STextBlock).Text(LOCTEXT("FieldStudioEmitters", "Emitters")) ]
+                            [ SNew(STextBlock).Text(LOCTEXT("FieldStudioEffectors", "Effectors")) ]
                             + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 4.0f)
                             [ SNew(STextBlock).Text(LOCTEXT("FieldStudioSplines", "Splines")) ]
                             + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 4.0f)
@@ -57,7 +57,7 @@ void FRshipFieldEditorModule::StartupModule()
                             + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 8.0f, 0.0f, 0.0f)
                             [
                                 SNew(STextBlock)
-                                .Text(LOCTEXT("FieldStudioNote", "Runtime controls are available through RS_ actions on URshipFieldControllerComponent."))
+                                .Text(LOCTEXT("FieldStudioNote", "Runtime controls are available through RS_ actions on URshipFieldComponent."))
                             ]
                         ]
                     ]
