@@ -4,9 +4,9 @@
 #include "Engine/Engine.h"
 #include "GameFramework/Actor.h"
 
-void URshipFieldLightSampler::BeginPlay()
+void URshipFieldLightSampler::OnRegister()
 {
-    Super::BeginPlay();
+    Super::OnRegister();
 
     CachedLightComponent = nullptr;
     if (AActor* Owner = GetOwner())
@@ -15,10 +15,10 @@ void URshipFieldLightSampler::BeginPlay()
     }
 }
 
-void URshipFieldLightSampler::EndPlay(const EEndPlayReason::Type EndPlayReason)
+void URshipFieldLightSampler::OnUnregister()
 {
     CachedLightComponent = nullptr;
-    Super::EndPlay(EndPlayReason);
+    Super::OnUnregister();
 }
 
 void URshipFieldLightSampler::RegisterOrRefreshTarget()

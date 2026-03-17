@@ -12,8 +12,8 @@ class RSHIPFIELD_API URshipFieldLightSampler : public URshipFieldSamplerComponen
     GENERATED_BODY()
 
 public:
-    virtual void BeginPlay() override;
-    virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+    virtual void OnRegister() override;
+    virtual void OnUnregister() override;
 
     // Intensity
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field|Intensity")
