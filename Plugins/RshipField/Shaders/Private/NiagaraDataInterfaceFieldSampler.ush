@@ -1,0 +1,38 @@
+int {ParameterName}_FieldResolution;
+int {ParameterName}_TilesPerRow;
+float3 {ParameterName}_DomainMinCm;
+float3 {ParameterName}_DomainMaxCm;
+Texture2D {ParameterName}_ScalarAtlas;
+SamplerState {ParameterName}_ScalarAtlasSampler;
+Texture2D {ParameterName}_VectorAtlas;
+SamplerState {ParameterName}_VectorAtlasSampler;
+
+void SampleField_{ParameterName}(in float3 In_WorldPosition, out float Out_Scalar, out float3 Out_Vector)
+{
+    int Res = {ParameterName}_FieldResolution;
+    int Tiles = {ParameterName}_TilesPerRow;
+    float3 DomainMin = {ParameterName}_DomainMinCm;
+    float3 DomainMax = {ParameterName}_DomainMaxCm;
+
+    if (Res <= 0)
+    {
+        Out_Scalar = 0.0f;
+        Out_Vector = float3(0.0f, 0.0f, 0.0f);
+        return;
+    }
+
+    float3 DomainSize = max(DomainMax - DomainMin, float3(1.0f, 1.0f, 1.0f));
+    float3 UVW = saturate((In_WorldPosition - DomainMin) / DomainSize);
+
+    int VoxelX = clamp((int)(UVW.x * (Res - 1) + 0.5f), 0, Res - 1);
+    int VoxelY = clamp((int)(UVW.y * (Res - 1) + 0.5f), 0, Res - 1);
+    int VoxelZ = clamp((int)(UVW.z * (Res - 1) + 0.5f), 0, Res - 1);
+
+    int TileX = VoxelZ % Tiles;
+    int TileY = VoxelZ / Tiles;
+    int2 AtlasCoord = int2(TileX * Res + VoxelX, TileY * Res + VoxelY);
+
+    Out_Scalar = {ParameterName}_ScalarAtlas.Load(int3(AtlasCoord, 0)).r;
+    float4 VecSample = {ParameterName}_VectorAtlas.Load(int3(AtlasCoord, 0));
+    Out_Vector = VecSample.xyz;
+}
