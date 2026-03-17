@@ -24,16 +24,6 @@ void URshipFieldSubsystem::Deinitialize()
     Super::Deinitialize();
 }
 
-TStatId URshipFieldSubsystem::GetStatId() const
-{
-    RETURN_QUICK_DECLARE_CYCLE_STAT(URshipFieldSubsystem, STATGROUP_Tickables);
-}
-
-bool URshipFieldSubsystem::IsTickable() const
-{
-    return !IsTemplate();
-}
-
 void URshipFieldSubsystem::RegisterField(URshipFieldComponent* Field)
 {
     if (Field)
@@ -80,29 +70,6 @@ void URshipFieldSubsystem::SetDebugEnabled(bool bEnabled)
 void URshipFieldSubsystem::SetDebugMode(ERshipFieldDebugMode InMode)
 {
     DebugMode = InMode;
-}
-
-void URshipFieldSubsystem::Tick(float DeltaTime)
-{
-    bool bAnyFieldStepped = false;
-
-    for (int32 Index = RegisteredFields.Num() - 1; Index >= 0; --Index)
-    {
-        URshipFieldComponent* Field = RegisteredFields[Index];
-        if (!Field)
-        {
-            RegisteredFields.RemoveAtSwap(Index);
-            continue;
-        }
-
-        TickField(Field, DeltaTime);
-        bAnyFieldStepped = true;
-    }
-
-    if (bAnyFieldStepped && RegisteredSamplers.Num() > 0)
-    {
-        ReadbackAndDistributeSamplers();
-    }
 }
 
 void URshipFieldSubsystem::TickField(URshipFieldComponent* Field, float DeltaTime)
@@ -256,105 +223,42 @@ void URshipFieldSubsystem::DispatchFieldPasses(URshipFieldComponent* Field)
         });
 }
 
-void URshipFieldSubsystem::ReadbackAndDistributeSamplers()
+void URshipFieldSubsystem::DistributeSamplersForField(URshipFieldComponent* Field)
 {
-    // Cache readback data per field to avoid reading the same atlas multiple times.
-    struct FFieldReadback
+    if (!Field || !Field->GetScalarAtlas() || !Field->GetVectorAtlas())
     {
-        TArray<FLinearColor> ScalarPixels;
-        TArray<FLinearColor> VectorPixels;
-        int32 Resolution = 0;
-        int32 TilesPerRow = 0;
-        int32 AtlasDim = 0;
-        FVector DomainMin = FVector::ZeroVector;
-        FVector InvDomainSize = FVector::ZeroVector;
-        bool bValid = false;
-    };
-    TMap<FString, FFieldReadback> ReadbackCache;
+        return;
+    }
 
-    auto GetOrCreateReadback = [&](const FString& FieldId) -> const FFieldReadback*
+    FRenderTarget* ScalarRT = Field->GetScalarAtlas()->GameThread_GetRenderTargetResource();
+    FRenderTarget* VectorRT = Field->GetVectorAtlas()->GameThread_GetRenderTargetResource();
+    if (!ScalarRT || !VectorRT)
     {
-        if (FFieldReadback* Cached = ReadbackCache.Find(FieldId))
-        {
-            return Cached->bValid ? Cached : nullptr;
-        }
+        return;
+    }
 
-        URshipFieldComponent* Field = !FieldId.IsEmpty() ? FindFieldById(FieldId) : nullptr;
-        if (!Field && RegisteredFields.Num() > 0)
-        {
-            Field = RegisteredFields[0];
-        }
+    TArray<FLinearColor> ScalarPixels;
+    TArray<FLinearColor> VectorPixels;
+    ScalarRT->ReadLinearColorPixels(ScalarPixels);
+    VectorRT->ReadLinearColorPixels(VectorPixels);
 
-        FFieldReadback& Rb = ReadbackCache.Add(FieldId);
-        if (!Field || !Field->GetScalarAtlas() || !Field->GetVectorAtlas())
-        {
-            return nullptr;
-        }
+    const int32 Resolution = NormalizeResolution(Field->FieldResolution);
+    const int32 TilesPerRow = FMath::Max(1, FMath::CeilToInt(FMath::Sqrt(static_cast<float>(Resolution))));
+    const int32 AtlasDim = TilesPerRow * Resolution;
 
-        FRenderTarget* ScalarRT = Field->GetScalarAtlas()->GameThread_GetRenderTargetResource();
-        FRenderTarget* VectorRT = Field->GetVectorAtlas()->GameThread_GetRenderTargetResource();
-        if (!ScalarRT || !VectorRT)
-        {
-            return nullptr;
-        }
-
-        ScalarRT->ReadLinearColorPixels(Rb.ScalarPixels);
-        VectorRT->ReadLinearColorPixels(Rb.VectorPixels);
-
-        Rb.Resolution = NormalizeResolution(Field->FieldResolution);
-        Rb.TilesPerRow = FMath::Max(1, FMath::CeilToInt(FMath::Sqrt(static_cast<float>(Rb.Resolution))));
-        Rb.AtlasDim = Rb.TilesPerRow * Rb.Resolution;
-
-        if (Rb.ScalarPixels.Num() < Rb.AtlasDim * Rb.AtlasDim || Rb.VectorPixels.Num() < Rb.AtlasDim * Rb.AtlasDim)
-        {
-            return nullptr;
-        }
-
-        const FVector DomainHalfExtent = FVector(Field->DomainSizeCm * 0.5f);
-        Rb.DomainMin = Field->DomainCenterCm - DomainHalfExtent;
-        const FVector DomainMax = Field->DomainCenterCm + DomainHalfExtent;
-        const FVector DomainSize = DomainMax - Rb.DomainMin;
-        Rb.InvDomainSize = FVector(
-            DomainSize.X > 1.0f ? 1.0f / DomainSize.X : 0.0f,
-            DomainSize.Y > 1.0f ? 1.0f / DomainSize.Y : 0.0f,
-            DomainSize.Z > 1.0f ? 1.0f / DomainSize.Z : 0.0f);
-        Rb.bValid = true;
-        return &Rb;
-    };
-
-    auto SampleFieldAtPosition = [&](const FString& FieldId, const FVector& WorldPos, float& OutScalar, FVector& OutVector) -> bool
+    if (ScalarPixels.Num() < AtlasDim * AtlasDim || VectorPixels.Num() < AtlasDim * AtlasDim)
     {
-        const FFieldReadback* Rb = GetOrCreateReadback(FieldId);
-        if (!Rb)
-        {
-            return false;
-        }
+        return;
+    }
 
-        const FVector UVW = FVector(
-            FMath::Clamp((WorldPos.X - Rb->DomainMin.X) * Rb->InvDomainSize.X, 0.0, 1.0),
-            FMath::Clamp((WorldPos.Y - Rb->DomainMin.Y) * Rb->InvDomainSize.Y, 0.0, 1.0),
-            FMath::Clamp((WorldPos.Z - Rb->DomainMin.Z) * Rb->InvDomainSize.Z, 0.0, 1.0));
-
-        const int32 VoxelX = FMath::Clamp(FMath::RoundToInt(UVW.X * (Rb->Resolution - 1)), 0, Rb->Resolution - 1);
-        const int32 VoxelY = FMath::Clamp(FMath::RoundToInt(UVW.Y * (Rb->Resolution - 1)), 0, Rb->Resolution - 1);
-        const int32 VoxelZ = FMath::Clamp(FMath::RoundToInt(UVW.Z * (Rb->Resolution - 1)), 0, Rb->Resolution - 1);
-
-        const int32 TileX = VoxelZ % Rb->TilesPerRow;
-        const int32 TileY = VoxelZ / Rb->TilesPerRow;
-        const int32 AtlasX = TileX * Rb->Resolution + VoxelX;
-        const int32 AtlasY = TileY * Rb->Resolution + VoxelY;
-        const int32 PixelIndex = AtlasY * Rb->AtlasDim + AtlasX;
-
-        if (PixelIndex < 0 || PixelIndex >= Rb->ScalarPixels.Num())
-        {
-            return false;
-        }
-
-        OutScalar = Rb->ScalarPixels[PixelIndex].R;
-        const FLinearColor& VecPixel = Rb->VectorPixels[PixelIndex];
-        OutVector = FVector(VecPixel.R, VecPixel.G, VecPixel.B);
-        return true;
-    };
+    const FVector DomainHalfExtent = FVector(Field->DomainSizeCm * 0.5f);
+    const FVector DomainMin = Field->DomainCenterCm - DomainHalfExtent;
+    const FVector DomainMax = Field->DomainCenterCm + DomainHalfExtent;
+    const FVector DomainSize = DomainMax - DomainMin;
+    const FVector InvDomainSize = FVector(
+        DomainSize.X > 1.0f ? 1.0f / DomainSize.X : 0.0f,
+        DomainSize.Y > 1.0f ? 1.0f / DomainSize.Y : 0.0f,
+        DomainSize.Z > 1.0f ? 1.0f / DomainSize.Z : 0.0f);
 
     for (int32 Index = RegisteredSamplers.Num() - 1; Index >= 0; --Index)
     {
@@ -365,6 +269,13 @@ void URshipFieldSubsystem::ReadbackAndDistributeSamplers()
             continue;
         }
 
+        // Only distribute to samplers that reference this field.
+        const TArray<FString> RequiredIds = Sampler->GetRequiredFieldIds();
+        if (!RequiredIds.Contains(Field->FieldId))
+        {
+            continue;
+        }
+
         const AActor* Owner = Sampler->GetOwner();
         if (!Owner)
         {
@@ -372,15 +283,30 @@ void URshipFieldSubsystem::ReadbackAndDistributeSamplers()
         }
 
         const FVector WorldPos = Owner->GetActorLocation();
+        const FVector UVW = FVector(
+            FMath::Clamp((WorldPos.X - DomainMin.X) * InvDomainSize.X, 0.0, 1.0),
+            FMath::Clamp((WorldPos.Y - DomainMin.Y) * InvDomainSize.Y, 0.0, 1.0),
+            FMath::Clamp((WorldPos.Z - DomainMin.Z) * InvDomainSize.Z, 0.0, 1.0));
 
-        for (const FString& FieldId : Sampler->GetRequiredFieldIds())
+        const int32 VoxelX = FMath::Clamp(FMath::RoundToInt(UVW.X * (Resolution - 1)), 0, Resolution - 1);
+        const int32 VoxelY = FMath::Clamp(FMath::RoundToInt(UVW.Y * (Resolution - 1)), 0, Resolution - 1);
+        const int32 VoxelZ = FMath::Clamp(FMath::RoundToInt(UVW.Z * (Resolution - 1)), 0, Resolution - 1);
+
+        const int32 TileX = VoxelZ % TilesPerRow;
+        const int32 TileY = VoxelZ / TilesPerRow;
+        const int32 AtlasX = TileX * Resolution + VoxelX;
+        const int32 AtlasY = TileY * Resolution + VoxelY;
+        const int32 PixelIndex = AtlasY * AtlasDim + AtlasX;
+
+        if (PixelIndex < 0 || PixelIndex >= ScalarPixels.Num())
         {
-            float Scalar = 0.0f;
-            FVector Vector = FVector::ZeroVector;
-            if (SampleFieldAtPosition(FieldId, WorldPos, Scalar, Vector))
-            {
-                Sampler->ApplySampledValue(FieldId, Scalar, Vector);
-            }
+            continue;
         }
+
+        const float Scalar = ScalarPixels[PixelIndex].R;
+        const FLinearColor& VecPixel = VectorPixels[PixelIndex];
+        const FVector Vec(VecPixel.R, VecPixel.G, VecPixel.B);
+
+        Sampler->ApplySampledValue(Field->FieldId, Scalar, Vec);
     }
 }

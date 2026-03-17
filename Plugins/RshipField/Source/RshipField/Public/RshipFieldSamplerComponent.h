@@ -10,10 +10,8 @@ class RSHIPFIELD_API URshipFieldSamplerComponent : public URshipControllerCompon
     GENERATED_BODY()
 
 public:
-    URshipFieldSamplerComponent();
-
-    virtual void BeginPlay() override;
-    virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+    virtual void OnRegister() override;
+    virtual void OnUnregister() override;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
     FString ChildTargetSuffix = TEXT("fieldSampler");

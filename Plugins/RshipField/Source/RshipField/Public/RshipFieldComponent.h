@@ -16,6 +16,8 @@ class RSHIPFIELD_API URshipFieldComponent : public URshipControllerComponent
 public:
     URshipFieldComponent();
 
+    virtual void OnRegister() override;
+    virtual void OnUnregister() override;
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
     virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
@@ -25,6 +27,9 @@ public:
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
     FString FieldId = TEXT("default");
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
+    bool bEnabled = true;
 
     // Global
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")

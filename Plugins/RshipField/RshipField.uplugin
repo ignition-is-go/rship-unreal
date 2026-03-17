@@ -6,7 +6,7 @@
   "Description": "Global GPU-native field generation and deformation sampling for rship targets.",
   "Category": "Rendering",
   "EnabledByDefault": true,
-  "CanContainContent": false,
+  "CanContainContent": true,
   "Modules": [
     {
       "Name": "RshipField",

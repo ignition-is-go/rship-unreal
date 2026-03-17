@@ -4,14 +4,9 @@
 
 #include "Engine/World.h"
 
-URshipFieldSamplerComponent::URshipFieldSamplerComponent()
+void URshipFieldSamplerComponent::OnRegister()
 {
-    PrimaryComponentTick.bCanEverTick = false;
-}
-
-void URshipFieldSamplerComponent::BeginPlay()
-{
-    Super::BeginPlay();
+    Super::OnRegister();
 
     if (UWorld* World = GetWorld())
     {
@@ -22,7 +17,7 @@ void URshipFieldSamplerComponent::BeginPlay()
     }
 }
 
-void URshipFieldSamplerComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+void URshipFieldSamplerComponent::OnUnregister()
 {
     if (UWorld* World = GetWorld())
     {
@@ -32,5 +27,5 @@ void URshipFieldSamplerComponent::EndPlay(const EEndPlayReason::Type EndPlayReas
         }
     }
 
-    Super::EndPlay(EndPlayReason);
+    Super::OnUnregister();
 }

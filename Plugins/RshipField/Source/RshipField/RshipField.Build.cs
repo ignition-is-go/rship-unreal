@@ -23,7 +23,9 @@ public class RshipField : ModuleRules
                 "Projects",
                 "RHI",
                 "RenderCore",
-                "Renderer"
+                "Renderer",
+                "Niagara",
+                "NiagaraCore"
             });
     }
 }

@@ -12,12 +12,14 @@ DEFINE_LOG_CATEGORY_STATIC(LogRshipFieldComponent, Log, All);
 URshipFieldComponent::URshipFieldComponent()
 {
     PrimaryComponentTick.bCanEverTick = true;
+    PrimaryComponentTick.bTickEvenWhenPaused = true;
     PrimaryComponentTick.TickGroup = TG_PrePhysics;
+    bTickInEditor = true;
 }
 
-void URshipFieldComponent::BeginPlay()
+void URshipFieldComponent::OnRegister()
 {
-    Super::BeginPlay();
+    Super::OnRegister();
 
     if (UWorld* World = GetWorld())
     {
@@ -27,10 +29,10 @@ void URshipFieldComponent::BeginPlay()
         }
     }
 
-    UE_LOG(LogRshipFieldComponent, Log, TEXT("Field '%s' BeginPlay: %d waves, %d noise, %d attractors"), *FieldId, WaveEffectors.Num(), NoiseEffectors.Num(), AttractorEffectors.Num());
+    UE_LOG(LogRshipFieldComponent, Log, TEXT("Field '%s' registered: %d waves, %d noise, %d attractors"), *FieldId, WaveEffectors.Num(), NoiseEffectors.Num(), AttractorEffectors.Num());
 }
 
-void URshipFieldComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+void URshipFieldComponent::OnUnregister()
 {
     if (UWorld* World = GetWorld())
     {
@@ -42,6 +44,16 @@ void URshipFieldComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 
     ScalarAtlas = nullptr;
     VectorAtlas = nullptr;
+    Super::OnUnregister();
+}
+
+void URshipFieldComponent::BeginPlay()
+{
+    Super::BeginPlay();
+}
+
+void URshipFieldComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
     Super::EndPlay(EndPlayReason);
 }
 
@@ -49,13 +61,20 @@ void URshipFieldComponent::TickComponent(float DeltaTime, ELevelTick TickType, F
 {
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-    if (!bDebugEnabled)
+    UWorld* World = GetWorld();
+    if (!World || !bEnabled)
     {
         return;
     }
 
-    UWorld* World = GetWorld();
-    if (!World)
+    // Drive simulation + dispatch from the component tick so it works in editor.
+    if (URshipFieldSubsystem* Subsystem = World->GetSubsystem<URshipFieldSubsystem>())
+    {
+        Subsystem->TickField(this, DeltaTime);
+        Subsystem->DistributeSamplersForField(this);
+    }
+
+    if (!bDebugEnabled)
     {
         return;
     }
