@@ -72,7 +72,8 @@ int3 VoxelFromWorld(float3 PositionCm)
 {
     float3 DomainSize = max(DomainMaxCm - DomainMinCm, float3(1.0f, 1.0f, 1.0f));
     float3 UVW = saturate((PositionCm - DomainMinCm) / DomainSize);
-    int3 Voxel = int3(UVW * (FieldResolution - 1) + 0.5f);
+    // Match the write path: voxel center is at (Voxel + 0.5) / Resolution
+    int3 Voxel = int3(UVW * FieldResolution);
     return clamp(Voxel, int3(0, 0, 0), int3(FieldResolution - 1, FieldResolution - 1, FieldResolution - 1));
 }
 
@@ -290,8 +291,8 @@ void EvaluateFieldAtPosition(float3 WorldPosCm, bool bIncludeInfiniteEffectors, 
                 continue;
             }
 
-            uint EffectorLayerIndex = (uint)max(0.0f, floor(E3.w + 0.5f));
-            if (EffectorLayerIndex != LayerIndex)
+            // Layer check disabled for MVP — single layer only
+            if (LayerIndex > 0u)
             {
                 continue;
             }
@@ -312,23 +313,33 @@ void EvaluateFieldAtPosition(float3 WorldPosCm, bool bIncludeInfiniteEffectors, 
             if (!bInfiniteRange)
             {
                 float Radius = max(E0.w, 0.001f);
-                Falloff = saturate(1.0f - DistanceCm / Radius);
-                Falloff = Falloff * Falloff * (3.0f - 2.0f * Falloff);
+                float FalloffExp = max(E3.y, 0.01f);
+                Falloff = pow(saturate(1.0f - DistanceCm / Radius), FalloffExp);
             }
 
+            // Temporal phase: either transport-driven (phase group) or free-running
             int PhaseGroupIndex = (int)floor(E5.x + 0.5f);
-            float PhaseGroupOffset = (PhaseGroupIndex >= 0) ? ComputePhaseGroupOffset(PhaseGroupIndex) : LayerPhaseOffset;
+            float TemporalPhase;
+            if (PhaseGroupIndex >= 0 && (uint)PhaseGroupIndex < PhaseGroupCount && PhaseGroupData[PhaseGroupIndex].x > 0.5f)
+            {
+                // Transport clock: BeatPhase * TempoMultiplier + group offset
+                TemporalPhase = ComputePhaseGroupOffset(PhaseGroupIndex);
+            }
+            else
+            {
+                // Free clock: time * frequency * speed
+                TemporalPhase = TimeSeconds * (TWO_PI * max(E2.y, 0.0f) * max(E2.z, 0.0f));
+            }
 
             float SpatialPhase = (DistanceCm / max(E2.x, 0.001f)) * TWO_PI;
-            float TemporalPhase = TimeSeconds * (TWO_PI * max(E2.y, 0.0f) * max(E2.z, 0.0f));
-            float Phase = SpatialPhase + TemporalPhase + E2.w + PhaseGroupOffset;
+            float Phase = SpatialPhase + TemporalPhase + E2.w;
 
             uint Waveform = (uint)max(0.0f, floor(E4.w + 0.5f));
             float Wave = EvaluateWaveform(Waveform, Phase);
 
             float Envelope = 1.0f;
-            float Attack = max(E3.y, 0.0f);
-            float Decay = max(E3.z, 0.0f);
+            float Attack = max(E3.z, 0.0f);
+            float Decay = max(E3.w, 0.0f);
             if (Attack > 1e-4f || Decay > 1e-4f)
             {
                 float EnvelopePeriod = max(Attack + Decay, 1e-3f);

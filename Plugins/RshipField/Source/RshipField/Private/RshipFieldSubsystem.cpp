@@ -85,12 +85,10 @@ void URshipFieldSubsystem::TickField(URshipFieldComponent* Field, float DeltaTim
         Field->SimulationTimeSeconds += Step;
         if (Field->bPlaying)
         {
-            Field->BeatPhase = FMath::Fmod(
-                Field->BeatPhase + (Step * Field->Bpm / 60.0f), 1.0f);
-            if (Field->BeatPhase < 0.0f)
-            {
-                Field->BeatPhase += 1.0f;
-            }
+            // Accumulate beats continuously — no wrapping.
+            // The shader uses this * TempoMultiplier * TWO_PI, so wrapping
+            // happens naturally via sin() without phase discontinuities.
+            Field->BeatPhase += Step * Field->Bpm / 60.0f;
         }
         bDidStep = true;
     }
@@ -122,6 +120,7 @@ void URshipFieldSubsystem::DispatchFieldPasses(URshipFieldComponent* Field)
 {
     if (!Field->EnsureAtlasTextures())
     {
+        UE_LOG(LogRshipField, Warning, TEXT("DispatchFieldPasses: EnsureAtlasTextures failed for field '%s'"), *Field->FieldId);
         return;
     }
 
@@ -155,8 +154,36 @@ void URshipFieldSubsystem::DispatchFieldPasses(URshipFieldComponent* Field)
     GlobalInputs.OutScalarFieldAtlasTexture = ScalarResource->GetRenderTargetTexture();
     GlobalInputs.OutVectorFieldAtlasTexture = VectorResource->GetRenderTargetTexture();
 
-    // Single default phase group (layers/phase groups disabled for MVP)
+    if (GEngine && Field->bDebugEnabled)
+    {
+        GEngine->AddOnScreenDebugMessage(
+            static_cast<uint64>(Field->GetUniqueID()) + 999,
+            0.0f,
+            FColor::Green,
+            FString::Printf(TEXT("[Field '%s'] t=%.2f beat=%.3f bpm=%.0f playing=%s"),
+                *Field->FieldId, Field->SimulationTimeSeconds, Field->BeatPhase, Field->Bpm, Field->bPlaying ? TEXT("Y") : TEXT("N")));
+    }
+
+    // Build phase groups
+    TMap<FString, int32> PhaseGroupIndexById;
+    // Default phase group at index 0 (free-running, no tempo sync)
     GlobalInputs.PhaseGroupData.Add(FVector4f(0.0f, 1.0f, 0.0f, 0.0f));
+    PhaseGroupIndexById.Add(TEXT(""), 0);
+
+    for (int32 GroupIndex = 0; GroupIndex < Field->PhaseGroups.Num(); ++GroupIndex)
+    {
+        const FRshipFieldPhaseGroup& Group = Field->PhaseGroups[GroupIndex];
+        if (Group.Id.IsEmpty())
+        {
+            continue;
+        }
+        PhaseGroupIndexById.Add(Group.Id, GlobalInputs.PhaseGroupData.Num());
+        GlobalInputs.PhaseGroupData.Add(FVector4f(
+            1.0f, // bSyncToTempo = true for named groups
+            Group.TempoMultiplier,
+            Group.PhaseOffset,
+            0.0f));
+    }
 
     // Single default layer
     GlobalInputs.LayerDataA.Add(FVector4f(1.0f, -100.0f, 100.0f, 0.0f));
@@ -187,23 +214,38 @@ void URshipFieldSubsystem::DispatchFieldPasses(URshipFieldComponent* Field)
     GlobalInputs.EffectorData5.Reserve(AllEffectors.Num());
     GlobalInputs.EffectorData6.Reserve(AllEffectors.Num());
 
+    int32 EffectorDebugIndex = 0;
     for (const FRshipFieldEffectorDesc& Eff : AllEffectors)
     {
+        const int32* PhaseGroupIndexPtr = PhaseGroupIndexById.Find(Eff.PhaseGroupId);
+        const int32 PhaseGroupIndex = PhaseGroupIndexPtr ? *PhaseGroupIndexPtr : 0;
+
+        if (GEngine && Field->bDebugEnabled)
+        {
+            GEngine->AddOnScreenDebugMessage(
+                static_cast<uint64>(Field->GetUniqueID()) + 1000 + EffectorDebugIndex,
+                0.0f,
+                FColor::Yellow,
+                FString::Printf(TEXT("[Eff %d] pos=(%.0f,%.0f,%.0f) r=%.0f freq=%.2f spd=%.2f wl=%.0f phase=%.2f group=%d(%s)"),
+                    EffectorDebugIndex,
+                    Eff.PositionCm.X, Eff.PositionCm.Y, Eff.PositionCm.Z,
+                    Eff.RadiusCm, Eff.FrequencyHz, Eff.Speed, Eff.WavelengthCm,
+                    Eff.PhaseOffset, PhaseGroupIndex, *Eff.PhaseGroupId));
+        }
+        ++EffectorDebugIndex;
+
         GlobalInputs.EffectorData0.Add(FVector4f(FVector3f(Eff.PositionCm), Eff.RadiusCm));
         GlobalInputs.EffectorData1.Add(FVector4f(FVector3f(Eff.Direction.GetSafeNormal()), Eff.Amplitude));
         GlobalInputs.EffectorData2.Add(FVector4f(Eff.WavelengthCm, Eff.FrequencyHz, Eff.Speed, Eff.PhaseOffset));
-        GlobalInputs.EffectorData3.Add(FVector4f(Eff.FadeWeight, 0.0f, 0.0f, 0.0f));
+        // E3: (FadeWeight, FalloffExponent, EnvelopeAttack, EnvelopeDecay)
+        GlobalInputs.EffectorData3.Add(FVector4f(Eff.FadeWeight, Eff.FalloffExponent, Eff.EnvelopeAttackSeconds, Eff.EnvelopeDecaySeconds));
         GlobalInputs.EffectorData4.Add(FVector4f(Eff.ClampMin, Eff.ClampMax, static_cast<float>(static_cast<uint8>(Eff.BlendOp)), static_cast<float>(static_cast<uint8>(Eff.Waveform))));
-        GlobalInputs.EffectorData5.Add(FVector4f(-1.0f, static_cast<float>(static_cast<uint8>(Eff.NoiseMode)), Eff.NoiseScale, Eff.NoiseAmplitude));
-        GlobalInputs.EffectorData6.Add(FVector4f(
-            Eff.bEnabled ? 1.0f : 0.0f,
-            Eff.bInfiniteRange ? 1.0f : 0.0f,
-            Eff.bAffectsScalar ? 1.0f : 0.0f,
-            Eff.bAffectsVector ? 1.0f : 0.0f));
+        GlobalInputs.EffectorData5.Add(FVector4f(static_cast<float>(PhaseGroupIndex), static_cast<float>(static_cast<uint8>(Eff.NoiseMode)), Eff.NoiseScale, Eff.NoiseAmplitude));
+        GlobalInputs.EffectorData6.Add(FVector4f(Eff.bEnabled ? 1.0f : 0.0f, Eff.bInfiniteRange ? 1.0f : 0.0f, Eff.bAffectsScalar ? 1.0f : 0.0f, Eff.bAffectsVector ? 1.0f : 0.0f));
     }
 
     GlobalInputs.LayerCount = 1;
-    GlobalInputs.PhaseGroupCount = 1;
+    GlobalInputs.PhaseGroupCount = GlobalInputs.PhaseGroupData.Num();
     GlobalInputs.EffectorCount = AllEffectors.Num();
     GlobalInputs.DebugSelectionIndex = INDEX_NONE;
 
@@ -211,6 +253,8 @@ void URshipFieldSubsystem::DispatchFieldPasses(URshipFieldComponent* Field)
     {
         return;
     }
+
+    UE_LOG(LogRshipField, Verbose, TEXT("Dispatching field '%s': %d effectors, %d layers, %d phasegroups, res=%d, t=%.2f"), *Field->FieldId, GlobalInputs.EffectorCount, GlobalInputs.LayerCount, GlobalInputs.PhaseGroupCount, GlobalInputs.FieldResolution, GlobalInputs.TimeSeconds);
 
     TArray<RshipFieldRDG::FTargetDispatchInputs> EmptyTargets;
 
@@ -248,8 +292,11 @@ void URshipFieldSubsystem::DistributeSamplersForField(URshipFieldComponent* Fiel
 
     if (ScalarPixels.Num() < AtlasDim * AtlasDim || VectorPixels.Num() < AtlasDim * AtlasDim)
     {
+        UE_LOG(LogRshipField, Warning, TEXT("DistributeSamplers: pixel count mismatch. Scalar=%d Vector=%d expected=%d"), ScalarPixels.Num(), VectorPixels.Num(), AtlasDim * AtlasDim);
         return;
     }
+
+
 
     const FVector DomainHalfExtent = FVector(Field->DomainSizeCm * 0.5f);
     const FVector DomainMin = Field->DomainCenterCm - DomainHalfExtent;
@@ -288,9 +335,9 @@ void URshipFieldSubsystem::DistributeSamplersForField(URshipFieldComponent* Fiel
             FMath::Clamp((WorldPos.Y - DomainMin.Y) * InvDomainSize.Y, 0.0, 1.0),
             FMath::Clamp((WorldPos.Z - DomainMin.Z) * InvDomainSize.Z, 0.0, 1.0));
 
-        const int32 VoxelX = FMath::Clamp(FMath::RoundToInt(UVW.X * (Resolution - 1)), 0, Resolution - 1);
-        const int32 VoxelY = FMath::Clamp(FMath::RoundToInt(UVW.Y * (Resolution - 1)), 0, Resolution - 1);
-        const int32 VoxelZ = FMath::Clamp(FMath::RoundToInt(UVW.Z * (Resolution - 1)), 0, Resolution - 1);
+        const int32 VoxelX = FMath::Clamp(FMath::FloorToInt(UVW.X * Resolution), 0, Resolution - 1);
+        const int32 VoxelY = FMath::Clamp(FMath::FloorToInt(UVW.Y * Resolution), 0, Resolution - 1);
+        const int32 VoxelZ = FMath::Clamp(FMath::FloorToInt(UVW.Z * Resolution), 0, Resolution - 1);
 
         const int32 TileX = VoxelZ % TilesPerRow;
         const int32 TileY = VoxelZ / TilesPerRow;

@@ -56,4 +56,5 @@ protected:
 
 private:
     static const FName SampleFieldName;
+    static const FName SampleFieldVisualName;
 };

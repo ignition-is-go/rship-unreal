@@ -24,9 +24,9 @@ void SampleField_{ParameterName}(in float3 In_WorldPosition, out float Out_Scala
     float3 DomainSize = max(DomainMax - DomainMin, float3(1.0f, 1.0f, 1.0f));
     float3 UVW = saturate((In_WorldPosition - DomainMin) / DomainSize);
 
-    int VoxelX = clamp((int)(UVW.x * (Res - 1) + 0.5f), 0, Res - 1);
-    int VoxelY = clamp((int)(UVW.y * (Res - 1) + 0.5f), 0, Res - 1);
-    int VoxelZ = clamp((int)(UVW.z * (Res - 1) + 0.5f), 0, Res - 1);
+    int VoxelX = clamp((int)(UVW.x * Res), 0, Res - 1);
+    int VoxelY = clamp((int)(UVW.y * Res), 0, Res - 1);
+    int VoxelZ = clamp((int)(UVW.z * Res), 0, Res - 1);
 
     int TileX = VoxelZ % Tiles;
     int TileY = VoxelZ / Tiles;
@@ -35,4 +35,54 @@ void SampleField_{ParameterName}(in float3 In_WorldPosition, out float Out_Scala
     Out_Scalar = {ParameterName}_ScalarAtlas.Load(int3(AtlasCoord, 0)).r;
     float4 VecSample = {ParameterName}_VectorAtlas.Load(int3(AtlasCoord, 0));
     Out_Vector = VecSample.xyz;
+}
+
+void SampleFieldVisual_{ParameterName}(in float3 In_WorldPosition, out float4 Out_Orientation, out float3 Out_MeshScale, out float4 Out_Color)
+{
+    float Scalar = 0.0f;
+    float3 Vector = float3(0.0f, 0.0f, 0.0f);
+    SampleField_{ParameterName}(In_WorldPosition, Scalar, Vector);
+
+    float Magnitude = length(Vector);
+    float AbsScalar = abs(Scalar);
+
+    // Orientation: rotate from default +Z to vector direction.
+    float3 Dir = Magnitude > 0.001f ? Vector / Magnitude : float3(0.0f, 0.0f, 1.0f);
+    float3 Up = float3(0.0f, 0.0f, 1.0f);
+    float3 Axis = cross(Up, Dir);
+    float AxisLen = length(Axis);
+    float CosAngle = dot(Up, Dir);
+
+    if (AxisLen > 0.0001f)
+    {
+        Axis /= AxisLen;
+        float HalfAngle = acos(clamp(CosAngle, -1.0f, 1.0f)) * 0.5f;
+        float S = sin(HalfAngle);
+        Out_Orientation = float4(Axis.x * S, Axis.y * S, Axis.z * S, cos(HalfAngle));
+    }
+    else if (CosAngle < 0.0f)
+    {
+        // 180 degree rotation
+        Out_Orientation = float4(1.0f, 0.0f, 0.0f, 0.0f);
+    }
+    else
+    {
+        // Identity
+        Out_Orientation = float4(0.0f, 0.0f, 0.0f, 1.0f);
+    }
+
+    // Scale length by magnitude, keep width thin.
+    float LengthScale = clamp(Magnitude, 0.1f, 2.0f);
+    float WidthScale = 0.3f;
+    Out_MeshScale = float3(WidthScale, WidthScale, LengthScale);
+
+    // Heatmap color: blue (0) -> green (0.5) -> red (1).
+    float T = saturate(AbsScalar);
+    float3 HeatColor;
+    if (T < 0.5f)
+        HeatColor = lerp(float3(0.0f, 0.0f, 1.0f), float3(0.0f, 1.0f, 0.0f), T * 2.0f);
+    else
+        HeatColor = lerp(float3(0.0f, 1.0f, 0.0f), float3(1.0f, 0.0f, 0.0f), (T - 0.5f) * 2.0f);
+
+    Out_Color = float4(HeatColor, saturate(AbsScalar * 2.0f));
 }

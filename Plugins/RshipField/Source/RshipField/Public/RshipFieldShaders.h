@@ -7,6 +7,7 @@ class FRDGBuilder;
 
 namespace RshipFieldRDG
 {
+
 struct FGlobalDispatchInputs
 {
     int32 FieldResolution = 256;
@@ -30,10 +31,10 @@ struct FGlobalDispatchInputs
     FTextureRHIRef OutScalarFieldAtlasTexture;
     FTextureRHIRef OutVectorFieldAtlasTexture;
 
-    // Packed float4 descriptor buffers.
     TArray<FVector4f> LayerDataA;
     TArray<FVector4f> LayerDataB;
     TArray<FVector4f> PhaseGroupData;
+    // Per-effector data, 7 separate buffers. Layout documented in RshipFieldCS.usf.
     TArray<FVector4f> EffectorData0;
     TArray<FVector4f> EffectorData1;
     TArray<FVector4f> EffectorData2;

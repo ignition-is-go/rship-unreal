@@ -50,15 +50,19 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field", meta = (ClampMin = "1.0"))
     float DomainSizeCm = 10000.0f;
 
-    // Transport
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
+    // Transport clock — drives all phase groups in this field.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field|Transport")
     float Bpm = 120.0f;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field|Transport")
     float BeatPhase = 0.0f;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field|Transport")
     bool bPlaying = true;
+
+    // Phase groups sync effectors to the transport clock at different tempo divisions.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field|Transport")
+    TArray<FRshipFieldPhaseGroup> PhaseGroups;
 
     // Effectors
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field|Effectors")

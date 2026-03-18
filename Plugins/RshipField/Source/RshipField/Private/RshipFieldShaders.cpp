@@ -250,6 +250,7 @@ void RshipFieldRDG::AddFieldPasses(
     FRDGBufferSRVRef LayerDataASRV = MakePackedBufferSRV(TEXT("RshipField.LayerDataA"), GlobalInputs.LayerDataA);
     FRDGBufferSRVRef LayerDataBSRV = MakePackedBufferSRV(TEXT("RshipField.LayerDataB"), GlobalInputs.LayerDataB);
     FRDGBufferSRVRef PhaseGroupDataSRV = MakePackedBufferSRV(TEXT("RshipField.PhaseGroupData"), GlobalInputs.PhaseGroupData);
+
     FRDGBufferSRVRef EffectorData0SRV = MakePackedBufferSRV(TEXT("RshipField.EffectorData0"), GlobalInputs.EffectorData0);
     FRDGBufferSRVRef EffectorData1SRV = MakePackedBufferSRV(TEXT("RshipField.EffectorData1"), GlobalInputs.EffectorData1);
     FRDGBufferSRVRef EffectorData2SRV = MakePackedBufferSRV(TEXT("RshipField.EffectorData2"), GlobalInputs.EffectorData2);
@@ -302,44 +303,8 @@ void RshipFieldRDG::AddFieldPasses(
             FieldGroupCount);
     }
 
-    {
-        TShaderMapRef<FRshipFieldAccumulateInfiniteCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
-        FRshipFieldAccumulateInfiniteCS::FParameters* PassParameters = GraphBuilder.AllocParameters<FRshipFieldAccumulateInfiniteCS::FParameters>();
-        PassParameters->FieldResolution = GlobalInputs.FieldResolution;
-        PassParameters->TilesPerRow = GlobalInputs.TilesPerRow;
-        PassParameters->TimeSeconds = GlobalInputs.TimeSeconds;
-        PassParameters->BPM = GlobalInputs.BPM;
-        PassParameters->TransportPhase = GlobalInputs.TransportPhase;
-        PassParameters->MasterScalarGain = GlobalInputs.MasterScalarGain;
-        PassParameters->MasterVectorGain = GlobalInputs.MasterVectorGain;
-        PassParameters->DomainMinCm = GlobalInputs.DomainMinCm;
-        PassParameters->DomainMaxCm = GlobalInputs.DomainMaxCm;
-        PassParameters->LayerCount = GlobalInputs.LayerCount;
-        PassParameters->PhaseGroupCount = GlobalInputs.PhaseGroupCount;
-        PassParameters->EffectorCount = GlobalInputs.EffectorCount;
-        PassParameters->DebugMode = GlobalInputs.DebugMode;
-        PassParameters->DebugSelectionIndex = GlobalInputs.DebugSelectionIndex;
-        PassParameters->LayerDataA = LayerDataASRV;
-        PassParameters->LayerDataB = LayerDataBSRV;
-        PassParameters->PhaseGroupData = PhaseGroupDataSRV;
-        PassParameters->EffectorData0 = EffectorData0SRV;
-        PassParameters->EffectorData1 = EffectorData1SRV;
-        PassParameters->EffectorData2 = EffectorData2SRV;
-        PassParameters->EffectorData3 = EffectorData3SRV;
-        PassParameters->EffectorData4 = EffectorData4SRV;
-        PassParameters->EffectorData5 = EffectorData5SRV;
-        PassParameters->EffectorData6 = EffectorData6SRV;
-        PassParameters->OutScalarFieldAtlasTex = GraphBuilder.CreateUAV(FRDGTextureUAVDesc(ScalarAtlasTex));
-        PassParameters->OutVectorFieldAtlasTex = GraphBuilder.CreateUAV(FRDGTextureUAVDesc(VectorAtlasTex));
-
-        FComputeShaderUtils::AddPass(
-            GraphBuilder,
-            RDG_EVENT_NAME("RshipField.AccumulateInfinite"),
-            ERDGPassFlags::Compute,
-            ComputeShader,
-            PassParameters,
-            FieldGroupCount);
-    }
+    // AccumulateInfinite pass disabled — all effectors use finite range for MVP.
+    // The pass was causing a UAV race condition overwriting BuildGlobalField results.
 
     for (const FTargetDispatchInputs& Target : TargetInputs)
     {

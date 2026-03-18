@@ -67,11 +67,12 @@ void URshipFieldComponent::TickComponent(float DeltaTime, ELevelTick TickType, F
         return;
     }
 
-    // Drive simulation + dispatch from the component tick so it works in editor.
+    // Readback previous frame's data BEFORE dispatching new data.
+    // The GPU dispatch from last frame has completed by now.
     if (URshipFieldSubsystem* Subsystem = World->GetSubsystem<URshipFieldSubsystem>())
     {
-        Subsystem->TickField(this, DeltaTime);
         Subsystem->DistributeSamplersForField(this);
+        Subsystem->TickField(this, DeltaTime);
     }
 
     if (!bDebugEnabled)

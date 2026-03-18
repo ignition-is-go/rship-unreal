@@ -9,12 +9,16 @@ FRshipFieldEffectorDesc FRshipFieldEffectorDesc::FromWave(const FRshipFieldWaveE
     Desc.PositionCm = Wave.PositionCm;
     Desc.Direction = Wave.Direction;
     Desc.RadiusCm = Wave.RadiusCm;
+    Desc.FalloffExponent = Wave.FalloffExponent;
     Desc.Amplitude = Wave.Amplitude;
+    Desc.EnvelopeAttackSeconds = Wave.EnvelopeAttack;
+    Desc.EnvelopeDecaySeconds = Wave.EnvelopeDecay;
     Desc.WavelengthCm = Wave.WavelengthCm;
     Desc.FrequencyHz = Wave.FrequencyHz;
     Desc.Speed = Wave.Speed;
     Desc.PhaseOffset = Wave.PhaseOffset;
     Desc.Waveform = Wave.Waveform;
+    Desc.PhaseGroupId = Wave.PhaseGroupId;
     return Desc;
 }
 

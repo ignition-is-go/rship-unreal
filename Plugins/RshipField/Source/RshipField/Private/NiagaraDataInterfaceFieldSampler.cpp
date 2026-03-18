@@ -15,6 +15,7 @@
 #define LOCTEXT_NAMESPACE "NiagaraDataInterfaceFieldSampler"
 
 const FName UNiagaraDataInterfaceFieldSampler::SampleFieldName(TEXT("SampleField"));
+const FName UNiagaraDataInterfaceFieldSampler::SampleFieldVisualName(TEXT("SampleFieldVisual"));
 static const TCHAR* FieldSamplerDITemplateShaderFile = TEXT("/Plugin/RshipField/Private/NiagaraDataInterfaceFieldSampler.ush");
 
 struct FNDIFieldSamplerInstanceData
@@ -184,16 +185,32 @@ void UNiagaraDataInterfaceFieldSampler::GetVMExternalFunction(const FVMExternalF
 
 void UNiagaraDataInterfaceFieldSampler::GetFunctionsInternal(TArray<FNiagaraFunctionSignature>& OutFunctions) const
 {
-    FNiagaraFunctionSignature Sig;
-    Sig.Name = SampleFieldName;
-    Sig.Description = LOCTEXT("SampleFieldDescription", "Samples the field at a world position, returning scalar and vector values.");
-    Sig.bMemberFunction = true;
-    Sig.bRequiresExecPin = false;
-    Sig.AddInput(FNiagaraVariable(FNiagaraTypeDefinition(GetClass()), TEXT("FieldSampler")));
-    Sig.AddInput(FNiagaraVariable(FNiagaraTypeDefinition::GetVec3Def(), TEXT("WorldPosition")));
-    Sig.AddOutput(FNiagaraVariable(FNiagaraTypeDefinition::GetFloatDef(), TEXT("Scalar")));
-    Sig.AddOutput(FNiagaraVariable(FNiagaraTypeDefinition::GetVec3Def(), TEXT("Vector")));
-    OutFunctions.Add(Sig);
+    {
+        FNiagaraFunctionSignature Sig;
+        Sig.Name = SampleFieldName;
+        Sig.Description = LOCTEXT("SampleFieldDescription", "Samples the field at a world position, returning scalar and vector values.");
+        Sig.bMemberFunction = true;
+        Sig.bRequiresExecPin = false;
+        Sig.AddInput(FNiagaraVariable(FNiagaraTypeDefinition(GetClass()), TEXT("FieldSampler")));
+        Sig.AddInput(FNiagaraVariable(FNiagaraTypeDefinition::GetVec3Def(), TEXT("WorldPosition")));
+        Sig.AddOutput(FNiagaraVariable(FNiagaraTypeDefinition::GetFloatDef(), TEXT("Scalar")));
+        Sig.AddOutput(FNiagaraVariable(FNiagaraTypeDefinition::GetVec3Def(), TEXT("Vector")));
+        OutFunctions.Add(Sig);
+    }
+
+    {
+        FNiagaraFunctionSignature Sig;
+        Sig.Name = SampleFieldVisualName;
+        Sig.Description = LOCTEXT("SampleFieldVisualDescription", "Samples the field and returns mesh-ready outputs: orientation quat, scale, and color with opacity.");
+        Sig.bMemberFunction = true;
+        Sig.bRequiresExecPin = false;
+        Sig.AddInput(FNiagaraVariable(FNiagaraTypeDefinition(GetClass()), TEXT("FieldSampler")));
+        Sig.AddInput(FNiagaraVariable(FNiagaraTypeDefinition::GetVec3Def(), TEXT("WorldPosition")));
+        Sig.AddOutput(FNiagaraVariable(FNiagaraTypeDefinition::GetQuatDef(), TEXT("Orientation")));
+        Sig.AddOutput(FNiagaraVariable(FNiagaraTypeDefinition::GetVec3Def(), TEXT("MeshScale")));
+        Sig.AddOutput(FNiagaraVariable(FNiagaraTypeDefinition::GetColorDef(), TEXT("Color")));
+        OutFunctions.Add(Sig);
+    }
 }
 
 bool UNiagaraDataInterfaceFieldSampler::AppendCompileHash(FNiagaraCompileHashVisitor* InVisitor) const
@@ -210,7 +227,7 @@ bool UNiagaraDataInterfaceFieldSampler::AppendCompileHash(FNiagaraCompileHashVis
 
 bool UNiagaraDataInterfaceFieldSampler::GetFunctionHLSL(const FNiagaraDataInterfaceGPUParamInfo& ParamInfo, const FNiagaraDataInterfaceGeneratedFunction& FunctionInfo, int FunctionInstanceIndex, FString& OutHLSL)
 {
-    return FunctionInfo.DefinitionName == SampleFieldName;
+    return FunctionInfo.DefinitionName == SampleFieldName || FunctionInfo.DefinitionName == SampleFieldVisualName;
 }
 
 void UNiagaraDataInterfaceFieldSampler::GetParameterDefinitionHLSL(const FNiagaraDataInterfaceGPUParamInfo& ParamInfo, FString& OutHLSL)

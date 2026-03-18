@@ -68,6 +68,10 @@ struct RSHIPFIELD_API FRshipFieldWaveEffector
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field", meta = (ClampMin = "0.0"))
     float RadiusCm = 1000.0f;
 
+    // Controls how quickly the wave falls off with distance. 1 = linear, 2 = quadratic, etc.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field", meta = (ClampMin = "0.01"))
+    float FalloffExponent = 1.0f;
+
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
     float Amplitude = 1.0f;
 
@@ -86,8 +90,18 @@ struct RSHIPFIELD_API FRshipFieldWaveEffector
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
     ERshipFieldWaveform Waveform = ERshipFieldWaveform::Sine;
 
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field", meta = (ClampMin = "0.0"))
+    float EnvelopeAttack = 0.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field", meta = (ClampMin = "0.0"))
+    float EnvelopeDecay = 0.0f;
+
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    bool bInfiniteRange = true;
+    bool bInfiniteRange = false;
+
+    // Assign to a phase group for tempo-synced oscillation. Empty = free-running.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
+    FString PhaseGroupId;
 };
 
 USTRUCT(BlueprintType)
@@ -114,7 +128,7 @@ struct RSHIPFIELD_API FRshipFieldNoiseEffector
     float Scale = 0.1f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    bool bInfiniteRange = true;
+    bool bInfiniteRange = false;
 };
 
 USTRUCT(BlueprintType)
@@ -158,11 +172,14 @@ struct RSHIPFIELD_API FRshipFieldEffectorDesc
 
     ERshipFieldEffectorType Type = ERshipFieldEffectorType::Wave;
     bool bEnabled = true;
-    bool bInfiniteRange = true;
+    bool bInfiniteRange = false;
     FVector PositionCm = FVector::ZeroVector;
     FVector Direction = FVector::UpVector;
     float RadiusCm = 1000.0f;
+    float FalloffExponent = 1.0f;
     float Amplitude = 1.0f;
+    float EnvelopeAttackSeconds = 0.0f;
+    float EnvelopeDecaySeconds = 0.0f;
     float WavelengthCm = 100.0f;
     float FrequencyHz = 1.0f;
     float Speed = 1.0f;
@@ -177,6 +194,7 @@ struct RSHIPFIELD_API FRshipFieldEffectorDesc
     bool bAffectsVector = true;
     float ClampMin = -100.0f;
     float ClampMax = 100.0f;
+    FString PhaseGroupId;
 
     // Conversion from typed effectors
     static FRshipFieldEffectorDesc FromWave(const FRshipFieldWaveEffector& Wave);
@@ -185,7 +203,27 @@ struct RSHIPFIELD_API FRshipFieldEffectorDesc
 };
 
 // ============================================================================
-// Layers / Phase Groups (commented out for MVP, will return)
+// Phase Groups
+// ============================================================================
+
+USTRUCT(BlueprintType)
+struct RSHIPFIELD_API FRshipFieldPhaseGroup
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
+    FString Id;
+
+    // Multiplier on the transport BPM. 1.0 = quarter notes, 0.5 = half-time, 2.0 = double-time.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field", meta = (ClampMin = "0.0"))
+    float TempoMultiplier = 1.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
+    float PhaseOffset = 0.0f;
+};
+
+// ============================================================================
+// Layers (commented out, will return)
 // ============================================================================
 
 // USTRUCT(BlueprintType)
@@ -198,15 +236,4 @@ struct RSHIPFIELD_API FRshipFieldEffectorDesc
 //     float Weight = 1.0f;
 //     float ClampMin = -100.0f;
 //     float ClampMax = 100.0f;
-//     FString PhaseGroupId;
-// };
-
-// USTRUCT(BlueprintType)
-// struct RSHIPFIELD_API FRshipFieldPhaseGroupDesc
-// {
-//     GENERATED_BODY()
-//     FString Id;
-//     bool bSyncToTempo = true;
-//     float TempoMultiplier = 1.0f;
-//     float PhaseOffset = 0.0f;
 // };
