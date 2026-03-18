@@ -145,7 +145,7 @@ void URshipFieldSubsystem::DispatchFieldPasses(URshipFieldComponent* Field)
     GlobalInputs.OutScalarFieldAtlasTexture = ScalarResource->GetRenderTargetTexture();
     GlobalInputs.OutVectorFieldAtlasTexture = VectorResource->GetRenderTargetTexture();
 
-    if (GEngine && Field->bDebugEnabled)
+    if (GEngine && Field->bShowDebugText)
     {
         GEngine->AddOnScreenDebugMessage(
             static_cast<uint64>(Field->GetUniqueID()) + 999,
@@ -211,7 +211,7 @@ void URshipFieldSubsystem::DispatchFieldPasses(URshipFieldComponent* Field)
         const int32* PhaseGroupIndexPtr = PhaseGroupIndexById.Find(Eff.PhaseGroupId);
         const int32 PhaseGroupIndex = PhaseGroupIndexPtr ? *PhaseGroupIndexPtr : 0;
 
-        if (GEngine && Field->bDebugEnabled)
+        if (GEngine && Field->bShowDebugText)
         {
             GEngine->AddOnScreenDebugMessage(
                 static_cast<uint64>(Field->GetUniqueID()) + 1000 + EffectorDebugIndex,

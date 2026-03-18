@@ -37,7 +37,7 @@ void URshipFieldRawSampler::ApplySampledValue(const FString& InFieldId, float Sc
     ScalarValue = Scalar;
     VectorValue = Vector;
 
-    if (GEngine)
+    if (GEngine && IsDebugTextEnabled())
     {
         const FString OwnerName = GetOwner() ? GetOwner()->GetName() : TEXT("?");
         GEngine->AddOnScreenDebugMessage(

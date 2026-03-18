@@ -5,6 +5,8 @@
 #include "RshipFieldTypes.h"
 #include "RshipFieldComponent.generated.h"
 
+class UNiagaraComponent;
+class UNiagaraSystem;
 class URshipFieldSubsystem;
 class UTextureRenderTarget2D;
 
@@ -74,9 +76,15 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field|Effectors")
     TArray<FRshipFieldAttractorEffector> AttractorEffectors;
 
-    // Debug wireframe visualization in viewport
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    bool bDebugEnabled = false;
+    // Debug
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field|Debug")
+    bool bShowWireframes = false;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field|Debug")
+    bool bShowDebugText = false;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field|Debug")
+    bool bShowVisualizer = false;
 
     // Actions
     UFUNCTION()
@@ -122,10 +130,14 @@ public:
 
 private:
     virtual void RegisterOrRefreshTarget() override;
+    void UpdateVisualizer();
 
     UPROPERTY(Transient)
     TObjectPtr<UTextureRenderTarget2D> ScalarAtlas = nullptr;
 
     UPROPERTY(Transient)
     TObjectPtr<UTextureRenderTarget2D> VectorAtlas = nullptr;
+
+    UPROPERTY(Transient)
+    TObjectPtr<UNiagaraComponent> VisualizerComponent = nullptr;
 };

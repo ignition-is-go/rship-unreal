@@ -74,7 +74,7 @@ void URshipFieldLightSampler::ApplySampledValue(const FString& FieldId, float Sc
         }
     }
 
-    if (GEngine)
+    if (GEngine && IsDebugTextEnabled())
     {
         const FString OwnerName = GetOwner() ? GetOwner()->GetName() : TEXT("?");
         GEngine->AddOnScreenDebugMessage(

@@ -6,6 +6,8 @@
 #include "Engine/Engine.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "Engine/World.h"
+#include "NiagaraComponent.h"
+#include "NiagaraSystem.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogRshipFieldComponent, Log, All);
 
@@ -75,51 +77,35 @@ void URshipFieldComponent::TickComponent(float DeltaTime, ELevelTick TickType, F
         Subsystem->TickField(this, DeltaTime);
     }
 
-    if (!bDebugEnabled)
+    // Wireframes
+    if (bShowWireframes)
     {
-        return;
-    }
+        const FVector HalfExtent = FVector(DomainSizeCm * 0.5f);
+        DrawDebugBox(World, DomainCenterCm, HalfExtent, FColor::Green, false, -1.0f, 0, 2.0f);
 
-    const FVector HalfExtent = FVector(DomainSizeCm * 0.5f);
-
-    // Domain box
-    DrawDebugBox(World, DomainCenterCm, HalfExtent, FColor::Green, false, -1.0f, 0, 2.0f);
-
-    // Wave effectors
-    for (const FRshipFieldWaveEffector& Wave : WaveEffectors)
-    {
-        if (!Wave.bEnabled)
+        for (const FRshipFieldWaveEffector& Wave : WaveEffectors)
         {
-            continue;
+            if (!Wave.bEnabled) continue;
+            DrawDebugSphere(World, Wave.PositionCm, Wave.bInfiniteRange ? 50.0f : Wave.RadiusCm, 16, FColor::Cyan, false, -1.0f, 0, 1.5f);
+            DrawDebugDirectionalArrow(World, Wave.PositionCm, Wave.PositionCm + Wave.Direction.GetSafeNormal() * 100.0f, 20.0f, FColor::Cyan, false, -1.0f, 0, 2.0f);
         }
 
-        const FColor Color = FColor::Cyan;
-        DrawDebugSphere(World, Wave.PositionCm, Wave.bInfiniteRange ? 50.0f : Wave.RadiusCm, 16, Color, false, -1.0f, 0, 1.5f);
-        DrawDebugDirectionalArrow(World, Wave.PositionCm, Wave.PositionCm + Wave.Direction.GetSafeNormal() * 100.0f, 20.0f, Color, false, -1.0f, 0, 2.0f);
-    }
-
-    // Noise effectors
-    for (const FRshipFieldNoiseEffector& Noise : NoiseEffectors)
-    {
-        if (!Noise.bEnabled)
+        for (const FRshipFieldNoiseEffector& Noise : NoiseEffectors)
         {
-            continue;
+            if (!Noise.bEnabled) continue;
+            DrawDebugSphere(World, Noise.PositionCm, Noise.bInfiniteRange ? 50.0f : Noise.RadiusCm, 12, FColor::Purple, false, -1.0f, 0, 1.5f);
         }
 
-        DrawDebugSphere(World, Noise.PositionCm, Noise.bInfiniteRange ? 50.0f : Noise.RadiusCm, 12, FColor::Purple, false, -1.0f, 0, 1.5f);
-    }
-
-    // Attractors
-    for (const FRshipFieldAttractorEffector& Attractor : AttractorEffectors)
-    {
-        if (!Attractor.bEnabled)
+        for (const FRshipFieldAttractorEffector& Attractor : AttractorEffectors)
         {
-            continue;
+            if (!Attractor.bEnabled) continue;
+            const FColor Color = Attractor.Strength >= 0.0f ? FColor::Orange : FColor::Red;
+            DrawDebugSphere(World, Attractor.PositionCm, Attractor.bInfiniteRange ? 50.0f : Attractor.RadiusCm, 12, Color, false, -1.0f, 0, 1.5f);
         }
-
-        const FColor Color = Attractor.Strength >= 0.0f ? FColor::Orange : FColor::Red;
-        DrawDebugSphere(World, Attractor.PositionCm, Attractor.bInfiniteRange ? 50.0f : Attractor.RadiusCm, 12, Color, false, -1.0f, 0, 1.5f);
     }
+
+    // Niagara visualizer
+    UpdateVisualizer();
 }
 
 void URshipFieldComponent::RegisterOrRefreshTarget()
@@ -255,4 +241,57 @@ void URshipFieldComponent::SetFieldState(const FString& StateJson)
 {
     LastFieldStateError.Reset();
     // TODO(ms): parse JSON into local properties
+}
+
+void URshipFieldComponent::UpdateVisualizer()
+{
+    if (!bShowVisualizer)
+    {
+        if (VisualizerComponent)
+        {
+            if (AActor* VisActor = VisualizerComponent->GetOwner())
+            {
+                VisActor->Destroy();
+            }
+            VisualizerComponent = nullptr;
+        }
+        return;
+    }
+
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        return;
+    }
+
+    if (!VisualizerComponent)
+    {
+        static const FSoftObjectPath VisualizerPath(TEXT("/RshipField/Niagara/NS_RshipFieldVisualizer.NS_RshipFieldVisualizer"));
+        UNiagaraSystem* System = Cast<UNiagaraSystem>(VisualizerPath.TryLoad());
+        if (!System)
+        {
+            return;
+        }
+
+        FActorSpawnParameters SpawnParams;
+        SpawnParams.ObjectFlags = RF_Transient;
+        AActor* VisActor = World->SpawnActor<AActor>(SpawnParams);
+        if (!VisActor)
+        {
+            return;
+        }
+
+#if WITH_EDITOR
+        VisActor->SetActorLabel(FString::Printf(TEXT("FieldVisualizer_%s"), *FieldId));
+#endif
+        VisActor->SetActorHiddenInGame(true);
+
+        VisualizerComponent = NewObject<UNiagaraComponent>(VisActor, NAME_None, RF_Transient);
+        VisualizerComponent->SetupAttachment(VisActor->GetRootComponent());
+        VisualizerComponent->SetAsset(System);
+        VisualizerComponent->SetAutoActivate(true);
+        VisualizerComponent->RegisterComponent();
+    }
+
+    VisualizerComponent->SetWorldLocation(DomainCenterCm);
 }

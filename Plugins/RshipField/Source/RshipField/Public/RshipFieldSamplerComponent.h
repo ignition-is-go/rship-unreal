@@ -18,4 +18,7 @@ public:
 
     virtual void ApplySampledValue(const FString& FieldId, float Scalar, const FVector& Vector) {}
     virtual TArray<FString> GetRequiredFieldIds() const { return {}; }
+
+    // Returns true if any field this sampler reads from has debug text enabled.
+    bool IsDebugTextEnabled() const;
 };
