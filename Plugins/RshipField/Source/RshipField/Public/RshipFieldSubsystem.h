@@ -29,9 +29,6 @@ public:
     void TickField(URshipFieldComponent* Field, float DeltaTime);
     void DistributeSamplersForField(URshipFieldComponent* Field);
 
-    void SetDebugEnabled(bool bEnabled);
-    void SetDebugMode(ERshipFieldDebugMode InMode);
-
 private:
     void DispatchFieldPasses(URshipFieldComponent* Field);
     int32 NormalizeResolution(int32 RequestedResolution) const;
@@ -41,7 +38,4 @@ private:
 
     UPROPERTY(Transient)
     TArray<TObjectPtr<URshipFieldSamplerComponent>> RegisteredSamplers;
-
-    bool bDebugEnabled = false;
-    ERshipFieldDebugMode DebugMode = ERshipFieldDebugMode::Off;
 };

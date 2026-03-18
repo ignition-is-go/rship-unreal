@@ -74,12 +74,9 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field|Effectors")
     TArray<FRshipFieldAttractorEffector> AttractorEffectors;
 
-    // Debug
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field|Debug")
+    // Debug wireframe visualization in viewport
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
     bool bDebugEnabled = false;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field|Debug")
-    ERshipFieldDebugMode DebugMode = ERshipFieldDebugMode::Off;
 
     // Actions
     UFUNCTION()

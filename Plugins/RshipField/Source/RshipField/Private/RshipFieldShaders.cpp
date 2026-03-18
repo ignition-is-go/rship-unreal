@@ -379,27 +379,4 @@ void RshipFieldRDG::AddFieldPasses(
         }
     }
 
-    if (GlobalInputs.bDebugEnabled)
-    {
-        const int32 AtlasDim = GlobalInputs.FieldResolution * GlobalInputs.TilesPerRow;
-        const FIntVector DebugGroupCount = FComputeShaderUtils::GetGroupCount(
-            FIntVector(AtlasDim, AtlasDim, 1),
-            FIntVector(TargetGroupSizeX, TargetGroupSizeY, 1));
-
-        TShaderMapRef<FRshipFieldDebugViewCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
-        FRshipFieldDebugViewCS::FParameters* PassParameters = GraphBuilder.AllocParameters<FRshipFieldDebugViewCS::FParameters>();
-        PassParameters->FieldResolution = GlobalInputs.FieldResolution;
-        PassParameters->TilesPerRow = GlobalInputs.TilesPerRow;
-        PassParameters->DebugMode = static_cast<uint32>(GlobalInputs.DebugMode);
-        PassParameters->VectorFieldAtlasTex = VectorAtlasTex;
-        PassParameters->OutScalarFieldAtlasTex = GraphBuilder.CreateUAV(FRDGTextureUAVDesc(ScalarAtlasTex));
-
-        FComputeShaderUtils::AddPass(
-            GraphBuilder,
-            RDG_EVENT_NAME("RshipField.DebugView"),
-            ERDGPassFlags::Compute,
-            ComputeShader,
-            PassParameters,
-            DebugGroupCount);
-    }
 }

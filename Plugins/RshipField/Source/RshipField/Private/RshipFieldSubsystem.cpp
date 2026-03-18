@@ -62,15 +62,6 @@ URshipFieldComponent* URshipFieldSubsystem::FindFieldById(const FString& InField
     return nullptr;
 }
 
-void URshipFieldSubsystem::SetDebugEnabled(bool bEnabled)
-{
-    bDebugEnabled = bEnabled;
-}
-
-void URshipFieldSubsystem::SetDebugMode(ERshipFieldDebugMode InMode)
-{
-    DebugMode = InMode;
-}
 
 void URshipFieldSubsystem::TickField(URshipFieldComponent* Field, float DeltaTime)
 {
@@ -149,8 +140,8 @@ void URshipFieldSubsystem::DispatchFieldPasses(URshipFieldComponent* Field)
     GlobalInputs.MasterVectorGain = Field->MasterVectorGain;
     GlobalInputs.DomainMinCm = FVector3f(DomainMin);
     GlobalInputs.DomainMaxCm = FVector3f(DomainMax);
-    GlobalInputs.bDebugEnabled = bDebugEnabled && Field->bDebugEnabled;
-    GlobalInputs.DebugMode = static_cast<int32>(DebugMode);
+    GlobalInputs.DebugMode = 0;
+    GlobalInputs.DebugSelectionIndex = INDEX_NONE;
     GlobalInputs.OutScalarFieldAtlasTexture = ScalarResource->GetRenderTargetTexture();
     GlobalInputs.OutVectorFieldAtlasTexture = VectorResource->GetRenderTargetTexture();
 
@@ -248,7 +239,6 @@ void URshipFieldSubsystem::DispatchFieldPasses(URshipFieldComponent* Field)
     GlobalInputs.LayerCount = 1;
     GlobalInputs.PhaseGroupCount = GlobalInputs.PhaseGroupData.Num();
     GlobalInputs.EffectorCount = AllEffectors.Num();
-    GlobalInputs.DebugSelectionIndex = INDEX_NONE;
 
     if (!GlobalInputs.IsValid())
     {

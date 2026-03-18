@@ -24,7 +24,6 @@ struct FGlobalDispatchInputs
     uint32 PhaseGroupCount = 0;
     uint32 EffectorCount = 0;
 
-    bool bDebugEnabled = false;
     int32 DebugMode = 0;
     int32 DebugSelectionIndex = -1;
 

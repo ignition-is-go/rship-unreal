@@ -34,18 +34,6 @@ enum class ERshipFieldNoiseMode : uint8
     Curl UMETA(DisplayName = "Curl")
 };
 
-UENUM(BlueprintType)
-enum class ERshipFieldDebugMode : uint8
-{
-    Off UMETA(DisplayName = "Off"),
-    Heatmap UMETA(DisplayName = "Heatmap"),
-    SliceScalar UMETA(DisplayName = "Slice Scalar"),
-    SliceVector UMETA(DisplayName = "Slice Vector"),
-    IsolateEffector UMETA(DisplayName = "Isolate Effector"),
-    IsolateLayer UMETA(DisplayName = "Isolate Layer"),
-    ContribScalar UMETA(DisplayName = "Contribution Scalar"),
-    ContribVector UMETA(DisplayName = "Contribution Vector")
-};
 
 // ============================================================================
 // Typed effectors (artist-facing)
