@@ -226,19 +226,20 @@ void URshipFieldSubsystem::DispatchFieldPasses(URshipFieldComponent* Field)
                 static_cast<uint64>(Field->GetUniqueID()) + 1000 + EffectorDebugIndex,
                 0.0f,
                 FColor::Yellow,
-                FString::Printf(TEXT("[Eff %d] pos=(%.0f,%.0f,%.0f) r=%.0f freq=%.2f spd=%.2f wl=%.0f phase=%.2f group=%d(%s)"),
+                FString::Printf(TEXT("[Eff %d] pos=(%.0f,%.0f,%.0f) r=%.0f freq=%.2f wl=%.0f phase=%.2f group=%d(%s)"),
                     EffectorDebugIndex,
                     Eff.PositionCm.X, Eff.PositionCm.Y, Eff.PositionCm.Z,
-                    Eff.RadiusCm, Eff.FrequencyHz, Eff.Speed, Eff.WavelengthCm,
+                    Eff.RadiusCm, Eff.FrequencyHz, Eff.WavelengthCm,
                     Eff.PhaseOffset, PhaseGroupIndex, *Eff.PhaseGroupId));
         }
         ++EffectorDebugIndex;
 
         GlobalInputs.EffectorData0.Add(FVector4f(FVector3f(Eff.PositionCm), Eff.RadiusCm));
         GlobalInputs.EffectorData1.Add(FVector4f(FVector3f(Eff.Direction.GetSafeNormal()), Eff.Amplitude));
-        GlobalInputs.EffectorData2.Add(FVector4f(Eff.WavelengthCm, Eff.FrequencyHz, Eff.Speed, Eff.PhaseOffset));
+        GlobalInputs.EffectorData2.Add(FVector4f(Eff.WavelengthCm, Eff.FrequencyHz, 1.0f, Eff.PhaseOffset));
         // E3: (FadeWeight, FalloffExponent, EnvelopeAttack, EnvelopeDecay)
-        GlobalInputs.EffectorData3.Add(FVector4f(Eff.FadeWeight, Eff.FalloffExponent, Eff.EnvelopeAttackSeconds, Eff.EnvelopeDecaySeconds));
+        // E3: (FadeWeight, FalloffExponent, 0, 0) — envelope removed
+        GlobalInputs.EffectorData3.Add(FVector4f(Eff.FadeWeight, Eff.FalloffExponent, 0.0f, 0.0f));
         GlobalInputs.EffectorData4.Add(FVector4f(Eff.ClampMin, Eff.ClampMax, static_cast<float>(static_cast<uint8>(Eff.BlendOp)), static_cast<float>(static_cast<uint8>(Eff.Waveform))));
         GlobalInputs.EffectorData5.Add(FVector4f(static_cast<float>(PhaseGroupIndex), static_cast<float>(static_cast<uint8>(Eff.NoiseMode)), Eff.NoiseScale, Eff.NoiseAmplitude));
         GlobalInputs.EffectorData6.Add(FVector4f(Eff.bEnabled ? 1.0f : 0.0f, Eff.bInfiniteRange ? 1.0f : 0.0f, Eff.bAffectsScalar ? 1.0f : 0.0f, Eff.bAffectsVector ? 1.0f : 0.0f));

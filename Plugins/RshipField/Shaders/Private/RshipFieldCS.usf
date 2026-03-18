@@ -317,17 +317,14 @@ void EvaluateFieldAtPosition(float3 WorldPosCm, bool bIncludeInfiniteEffectors, 
                 Falloff = pow(saturate(1.0f - DistanceCm / Radius), FalloffExp);
             }
 
-            // Temporal phase: either transport-driven (phase group) or free-running
             int PhaseGroupIndex = (int)floor(E5.x + 0.5f);
             float TemporalPhase;
             if (PhaseGroupIndex >= 0 && (uint)PhaseGroupIndex < PhaseGroupCount && PhaseGroupData[PhaseGroupIndex].x > 0.5f)
             {
-                // Transport clock: BeatPhase * TempoMultiplier + group offset
                 TemporalPhase = ComputePhaseGroupOffset(PhaseGroupIndex);
             }
             else
             {
-                // Free clock: time * frequency * speed
                 TemporalPhase = TimeSeconds * (TWO_PI * max(E2.y, 0.0f) * max(E2.z, 0.0f));
             }
 
@@ -337,25 +334,8 @@ void EvaluateFieldAtPosition(float3 WorldPosCm, bool bIncludeInfiniteEffectors, 
             uint Waveform = (uint)max(0.0f, floor(E4.w + 0.5f));
             float Wave = EvaluateWaveform(Waveform, Phase);
 
-            float Envelope = 1.0f;
-            float Attack = max(E3.z, 0.0f);
-            float Decay = max(E3.w, 0.0f);
-            if (Attack > 1e-4f || Decay > 1e-4f)
-            {
-                float EnvelopePeriod = max(Attack + Decay, 1e-3f);
-                float LocalT = fmod(abs(TimeSeconds + E2.w), EnvelopePeriod);
-                if (LocalT < Attack && Attack > 1e-4f)
-                {
-                    Envelope = saturate(LocalT / Attack);
-                }
-                else if (Decay > 1e-4f)
-                {
-                    Envelope = 1.0f - saturate((LocalT - Attack) / Decay);
-                }
-            }
-
             float Fade = saturate(E3.x);
-            float Signal = Wave * Envelope * Falloff * Fade * E1.w;
+            float Signal = Wave * Falloff * Fade * E1.w;
 
             float3 NoiseVec = float3(0.0f, 0.0f, 0.0f);
             uint NoiseType = (uint)max(0.0f, floor(E5.y + 0.5f));

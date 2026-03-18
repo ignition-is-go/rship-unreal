@@ -78,23 +78,15 @@ struct RSHIPFIELD_API FRshipFieldWaveEffector
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field", meta = (ClampMin = "0.001"))
     float WavelengthCm = 100.0f;
 
+    // Oscillation rate in Hz. Ignored when effector is in a phase group (tempo drives rate instead).
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field", meta = (ClampMin = "0.0"))
     float FrequencyHz = 1.0f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    float Speed = 1.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
     float PhaseOffset = 0.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
     ERshipFieldWaveform Waveform = ERshipFieldWaveform::Sine;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field", meta = (ClampMin = "0.0"))
-    float EnvelopeAttack = 0.0f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field", meta = (ClampMin = "0.0"))
-    float EnvelopeDecay = 0.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
     bool bInfiniteRange = false;
@@ -178,11 +170,8 @@ struct RSHIPFIELD_API FRshipFieldEffectorDesc
     float RadiusCm = 1000.0f;
     float FalloffExponent = 1.0f;
     float Amplitude = 1.0f;
-    float EnvelopeAttackSeconds = 0.0f;
-    float EnvelopeDecaySeconds = 0.0f;
     float WavelengthCm = 100.0f;
     float FrequencyHz = 1.0f;
-    float Speed = 1.0f;
     float PhaseOffset = 0.0f;
     float FadeWeight = 1.0f;
     ERshipFieldWaveform Waveform = ERshipFieldWaveform::Sine;

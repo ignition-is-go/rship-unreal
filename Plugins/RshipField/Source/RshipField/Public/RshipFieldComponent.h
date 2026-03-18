@@ -52,7 +52,7 @@ public:
 
     // Transport clock — drives all phase groups in this field.
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field|Transport")
-    float Bpm = 120.0f;
+    float Bpm = 60.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field|Transport")
     float BeatPhase = 0.0f;
