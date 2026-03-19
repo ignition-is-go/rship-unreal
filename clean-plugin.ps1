@@ -37,6 +37,14 @@ foreach ($dir in @("Binaries", "Intermediate")) {
     }
 }
 
+# Project-level Intermediate
+$projectIntermediate = Join-Path $projectRoot "Intermediate"
+if (Test-Path $projectIntermediate) {
+    Write-Host "  Removing project Intermediate"
+    Remove-Item -Recurse -Force $projectIntermediate
+    $cleaned++
+}
+
 # Project DerivedDataCache
 $ddc = Join-Path $projectRoot "DerivedDataCache"
 if (Test-Path $ddc) {
