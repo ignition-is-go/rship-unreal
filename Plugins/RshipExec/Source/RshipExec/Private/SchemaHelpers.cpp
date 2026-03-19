@@ -15,7 +15,7 @@ static void AddEnumValues(const UEnum* Enum, SchemaNode& OutProp)
     OutProp.EnumValues.Reserve(OutProp.EnumValues.Num() + NumEnums);
     for (int32 Index = 0; Index < NumEnums; ++Index)
     {
-        if (Enum->HasMetaData(TEXT("Hidden"), Index))
+        if (Enum->GetAuthoredNameStringByIndex(Index).IsEmpty())
         {
             continue;
         }
