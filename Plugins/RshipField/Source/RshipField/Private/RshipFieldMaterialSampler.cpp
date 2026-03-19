@@ -4,8 +4,10 @@
 #include "RshipFieldSubsystem.h"
 
 #include "Components/MeshComponent.h"
+#include "Engine/Engine.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "Engine/World.h"
+#include "GameFramework/Actor.h"
 #include "Materials/MaterialInstanceDynamic.h"
 
 URshipFieldMaterialSampler::URshipFieldMaterialSampler()
@@ -176,5 +178,17 @@ void URshipFieldMaterialSampler::PushFieldParameters()
         MID->SetVectorParameterValue(PN_DomainMin, DomainMin);
         MID->SetVectorParameterValue(PN_DomainMax, DomainMax);
         MID->SetScalarParameterValue(PN_Resolution, static_cast<float>(Field->FieldResolution));
+    }
+
+    // Debug text
+    if (GEngine && Field->bShowDebugText)
+    {
+        const FString OwnerName = GetOwner() ? GetOwner()->GetName() : TEXT("?");
+        GEngine->AddOnScreenDebugMessage(
+            static_cast<uint64>(GetUniqueID()),
+            0.0f,
+            FColor::Magenta,
+            FString::Printf(TEXT("[FieldMaterial] %s  field='%s'  MIDs=%d  res=%d"),
+                *OwnerName, *FieldId, CachedMIDs.Num(), Field->FieldResolution));
     }
 }
