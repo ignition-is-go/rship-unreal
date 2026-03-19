@@ -733,7 +733,9 @@ void URshipSubsystem::RefreshTargetCache()
 {
     UE_LOG(LogRshipExec, Log, TEXT("RefreshTargetCache: rebuilding tracked target/action/emitter state"));
 
+#if WITH_EDITOR
     RefreshAllTargetComponents(TEXT("ManualRefresh"));
+#endif
     SendInstanceInfo();
     StartTopologySync(TEXT("ManualRefresh"));
 }
