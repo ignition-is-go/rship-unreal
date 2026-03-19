@@ -29,9 +29,29 @@ public:
     void TickField(URshipFieldComponent* Field, float DeltaTime);
     void DistributeSamplersForField(URshipFieldComponent* Field);
 
+    // Sample the field at any world position. Uses cached readback from current tick.
+    bool SampleFieldAtPosition(const FString& InFieldId, const FVector& WorldPosition, float& OutScalar, FVector& OutVector);
+
 private:
     void DispatchFieldPasses(URshipFieldComponent* Field);
+    void EnsureFieldReadbackCache(URshipFieldComponent* Field);
     int32 NormalizeResolution(int32 RequestedResolution) const;
+
+    struct FFieldReadbackCache
+    {
+        TArray<FLinearColor> ScalarPixels;
+        TArray<FLinearColor> VectorPixels;
+        int32 Resolution = 0;
+        int32 TilesPerRow = 0;
+        int32 AtlasDim = 0;
+        FVector DomainMin = FVector::ZeroVector;
+        FVector InvDomainSize = FVector::ZeroVector;
+        uint64 FrameNumber = 0;
+    };
+
+    bool SampleFromCache(const FFieldReadbackCache& Cache, const FVector& WorldPosition, float& OutScalar, FVector& OutVector) const;
+
+    TMap<FString, FFieldReadbackCache> ReadbackCaches;
 
     UPROPERTY(Transient)
     TArray<TObjectPtr<URshipFieldComponent>> RegisteredFields;

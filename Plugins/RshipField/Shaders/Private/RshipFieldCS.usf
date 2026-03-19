@@ -317,49 +317,72 @@ void EvaluateFieldAtPosition(float3 WorldPosCm, bool bIncludeInfiniteEffectors, 
                 Falloff = pow(saturate(1.0f - DistanceCm / Radius), FalloffExp);
             }
 
-            int PhaseGroupIndex = (int)floor(E5.x + 0.5f);
-            float TemporalPhase;
-            if (PhaseGroupIndex >= 0 && (uint)PhaseGroupIndex < PhaseGroupCount && PhaseGroupData[PhaseGroupIndex].x > 0.5f)
+            // E3.z = effector type: 0 = Wave, 1 = Noise, 2 = Attractor
+            uint EffectorType = (uint)max(0.0f, floor(E3.z + 0.5f));
+
+            float Signal;
+            float3 NoiseVec = float3(0.0f, 0.0f, 0.0f);
+            float3 EffDirection;
+
+            if (EffectorType == 2u)
             {
-                TemporalPhase = ComputePhaseGroupOffset(PhaseGroupIndex);
+                // Attractor: pure unmodulated radial force
+                float Fade = saturate(E3.x);
+                Signal = Falloff * Fade * E1.w;
+                Signal = clamp(Signal, E4.x, E4.y);
+
+                // Direction points toward effector (positive Strength = attract)
+                EffDirection = SafeNormalize(E0.xyz - WorldPosCm, float3(0.0f, 0.0f, 1.0f));
             }
             else
             {
-                TemporalPhase = TimeSeconds * (TWO_PI * max(E2.y, 0.0f) * max(E2.z, 0.0f));
+                // Wave / Noise: waveform-modulated signal
+                int PhaseGroupIndex = (int)floor(E5.x + 0.5f);
+                float TemporalPhase;
+                if (PhaseGroupIndex >= 0 && (uint)PhaseGroupIndex < PhaseGroupCount && PhaseGroupData[PhaseGroupIndex].x > 0.5f)
+                {
+                    TemporalPhase = ComputePhaseGroupOffset(PhaseGroupIndex);
+                }
+                else
+                {
+                    TemporalPhase = TimeSeconds * (TWO_PI * max(E2.y, 0.0f) * max(E2.z, 0.0f));
+                }
+
+                float SpatialPhase = (DistanceCm / max(E2.x, 0.001f)) * TWO_PI;
+                float Phase = SpatialPhase + TemporalPhase + E2.w;
+
+                uint Waveform = (uint)max(0.0f, floor(E4.w + 0.5f));
+                float Wave = EvaluateWaveform(Waveform, Phase);
+
+                float Fade = saturate(E3.x);
+                Signal = Wave * Falloff * Fade * E1.w;
+
+                uint NoiseType = (uint)max(0.0f, floor(E5.y + 0.5f));
+                float NoiseScale = max(E5.z, 0.0f);
+                float NoiseAmp = E5.w;
+                if (NoiseType != 0u && abs(NoiseAmp) > 1e-5f)
+                {
+                    float3 NP = WorldPosCm * NoiseScale + float3(TimeSeconds, TimeSeconds * 0.33f, TimeSeconds * 0.77f);
+                    float NoiseFactor = NoiseAmp * Falloff * Fade;
+                    if (NoiseType == 1u)
+                    {
+                        Signal += ValueNoise(NP) * NoiseFactor;
+                    }
+                    else if (NoiseType == 2u)
+                    {
+                        Signal += SimplexLikeNoise(NP) * NoiseFactor;
+                    }
+                    else if (NoiseType == 3u)
+                    {
+                        NoiseVec = CurlLikeNoise(NP) * NoiseFactor;
+                        Signal += length(NoiseVec) * 0.577f;
+                    }
+                }
+
+                Signal = clamp(Signal, E4.x, E4.y);
+
+                EffDirection = SafeNormalize(E1.xyz, float3(0.0f, 0.0f, 1.0f));
             }
-
-            float SpatialPhase = (DistanceCm / max(E2.x, 0.001f)) * TWO_PI;
-            float Phase = SpatialPhase + TemporalPhase + E2.w;
-
-            uint Waveform = (uint)max(0.0f, floor(E4.w + 0.5f));
-            float Wave = EvaluateWaveform(Waveform, Phase);
-
-            float Fade = saturate(E3.x);
-            float Signal = Wave * Falloff * Fade * E1.w;
-
-            float3 NoiseVec = float3(0.0f, 0.0f, 0.0f);
-            uint NoiseType = (uint)max(0.0f, floor(E5.y + 0.5f));
-            float NoiseScale = max(E5.z, 0.0f);
-            float NoiseAmp = E5.w;
-            if (NoiseType != 0u && abs(NoiseAmp) > 1e-5f)
-            {
-                float3 NP = WorldPosCm * NoiseScale + float3(TimeSeconds, TimeSeconds * 0.33f, TimeSeconds * 0.77f);
-                if (NoiseType == 1u)
-                {
-                    Signal += ValueNoise(NP) * NoiseAmp;
-                }
-                else if (NoiseType == 2u)
-                {
-                    Signal += SimplexLikeNoise(NP) * NoiseAmp;
-                }
-                else if (NoiseType == 3u)
-                {
-                    NoiseVec = CurlLikeNoise(NP) * NoiseAmp;
-                    Signal += length(NoiseVec) * 0.577f;
-                }
-            }
-
-            Signal = clamp(Signal, E4.x, E4.y);
 
             uint BlendOp = (uint)max(0.0f, floor(E4.z + 0.5f));
             if (E6.z > 0.5f)
@@ -368,8 +391,7 @@ void EvaluateFieldAtPosition(float3 WorldPosCm, bool bIncludeInfiniteEffectors, 
             }
             if (E6.w > 0.5f)
             {
-                float3 Direction = SafeNormalize(E1.xyz, float3(0.0f, 0.0f, 1.0f));
-                float3 VectorSignal = Direction * Signal + NoiseVec;
+                float3 VectorSignal = EffDirection * Signal + NoiseVec;
                 ApplyBlendVector(LayerVector, VectorSignal, BlendOp, bLayerVectorInitialized);
             }
         }

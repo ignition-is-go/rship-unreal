@@ -25,7 +25,9 @@ public class RshipField : ModuleRules
                 "RenderCore",
                 "Renderer",
                 "Niagara",
-                "NiagaraCore"
+                "NiagaraCore",
+                "OptimusCore",
+                "ComputeFramework"
             });
     }
 }

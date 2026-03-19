@@ -109,6 +109,10 @@ struct RSHIPFIELD_API FRshipFieldNoiseEffector
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
     bool bInfiniteRange = false;
+
+    // Assign to a phase group for tempo-synced behavior. Empty = free-running.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
+    FString PhaseGroupId;
 };
 
 USTRUCT(BlueprintType)
@@ -129,8 +133,16 @@ struct RSHIPFIELD_API FRshipFieldAttractorEffector
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field", meta = (ClampMin = "0.0"))
     float RadiusCm = 1000.0f;
 
+    // Controls how quickly the force falls off with distance. 1 = linear, 2 = quadratic (natural for point forces), etc.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field", meta = (ClampMin = "0.01"))
+    float FalloffExponent = 2.0f;
+
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
     bool bInfiniteRange = false;
+
+    // Assign to a phase group for tempo-synced behavior. Empty = free-running.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
+    FString PhaseGroupId;
 };
 
 // ============================================================================

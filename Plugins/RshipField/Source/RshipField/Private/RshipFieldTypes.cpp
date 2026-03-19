@@ -31,6 +31,7 @@ FRshipFieldEffectorDesc FRshipFieldEffectorDesc::FromNoise(const FRshipFieldNois
     Desc.NoiseMode = Noise.NoiseMode;
     Desc.NoiseScale = Noise.Scale;
     Desc.NoiseAmplitude = Noise.Amplitude;
+    Desc.PhaseGroupId = Noise.PhaseGroupId;
     return Desc;
 }
 
@@ -43,7 +44,9 @@ FRshipFieldEffectorDesc FRshipFieldEffectorDesc::FromAttractor(const FRshipField
     Desc.PositionCm = Attractor.PositionCm;
     Desc.RadiusCm = Attractor.RadiusCm;
     Desc.Amplitude = Attractor.Strength;
+    Desc.FalloffExponent = Attractor.FalloffExponent;
     Desc.bAffectsVector = true;
     Desc.bAffectsScalar = true;
+    Desc.PhaseGroupId = Attractor.PhaseGroupId;
     return Desc;
 }

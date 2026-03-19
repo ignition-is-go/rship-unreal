@@ -228,9 +228,8 @@ void URshipFieldSubsystem::DispatchFieldPasses(URshipFieldComponent* Field)
         GlobalInputs.EffectorData0.Add(FVector4f(FVector3f(Eff.PositionCm), Eff.RadiusCm));
         GlobalInputs.EffectorData1.Add(FVector4f(FVector3f(Eff.Direction.GetSafeNormal()), Eff.Amplitude));
         GlobalInputs.EffectorData2.Add(FVector4f(Eff.WavelengthCm, Eff.FrequencyHz, 1.0f, Eff.PhaseOffset));
-        // E3: (FadeWeight, FalloffExponent, EnvelopeAttack, EnvelopeDecay)
-        // E3: (FadeWeight, FalloffExponent, 0, 0) — envelope removed
-        GlobalInputs.EffectorData3.Add(FVector4f(Eff.FadeWeight, Eff.FalloffExponent, 0.0f, 0.0f));
+        // E3: (FadeWeight, FalloffExponent, EffectorType, 0)
+        GlobalInputs.EffectorData3.Add(FVector4f(Eff.FadeWeight, Eff.FalloffExponent, static_cast<float>(static_cast<uint8>(Eff.Type)), 0.0f));
         GlobalInputs.EffectorData4.Add(FVector4f(Eff.ClampMin, Eff.ClampMax, static_cast<float>(static_cast<uint8>(Eff.BlendOp)), static_cast<float>(static_cast<uint8>(Eff.Waveform))));
         GlobalInputs.EffectorData5.Add(FVector4f(static_cast<float>(PhaseGroupIndex), static_cast<float>(static_cast<uint8>(Eff.NoiseMode)), Eff.NoiseScale, Eff.NoiseAmplitude));
         GlobalInputs.EffectorData6.Add(FVector4f(Eff.bEnabled ? 1.0f : 0.0f, Eff.bInfiniteRange ? 1.0f : 0.0f, Eff.bAffectsScalar ? 1.0f : 0.0f, Eff.bAffectsVector ? 1.0f : 0.0f));
@@ -258,9 +257,17 @@ void URshipFieldSubsystem::DispatchFieldPasses(URshipFieldComponent* Field)
         });
 }
 
-void URshipFieldSubsystem::DistributeSamplersForField(URshipFieldComponent* Field)
+void URshipFieldSubsystem::EnsureFieldReadbackCache(URshipFieldComponent* Field)
 {
     if (!Field || !Field->GetScalarAtlas() || !Field->GetVectorAtlas())
+    {
+        return;
+    }
+
+    FFieldReadbackCache& Cache = ReadbackCaches.FindOrAdd(Field->FieldId);
+
+    const uint64 CurrentFrame = GFrameCounter;
+    if (Cache.FrameNumber == CurrentFrame)
     {
         return;
     }
@@ -272,31 +279,92 @@ void URshipFieldSubsystem::DistributeSamplersForField(URshipFieldComponent* Fiel
         return;
     }
 
-    TArray<FLinearColor> ScalarPixels;
-    TArray<FLinearColor> VectorPixels;
-    ScalarRT->ReadLinearColorPixels(ScalarPixels);
-    VectorRT->ReadLinearColorPixels(VectorPixels);
+    ScalarRT->ReadLinearColorPixels(Cache.ScalarPixels);
+    VectorRT->ReadLinearColorPixels(Cache.VectorPixels);
 
-    const int32 Resolution = NormalizeResolution(Field->FieldResolution);
-    const int32 TilesPerRow = FMath::Max(1, FMath::CeilToInt(FMath::Sqrt(static_cast<float>(Resolution))));
-    const int32 AtlasDim = TilesPerRow * Resolution;
-
-    if (ScalarPixels.Num() < AtlasDim * AtlasDim || VectorPixels.Num() < AtlasDim * AtlasDim)
-    {
-        UE_LOG(LogRshipField, Warning, TEXT("DistributeSamplers: pixel count mismatch. Scalar=%d Vector=%d expected=%d"), ScalarPixels.Num(), VectorPixels.Num(), AtlasDim * AtlasDim);
-        return;
-    }
-
-
+    Cache.Resolution = NormalizeResolution(Field->FieldResolution);
+    Cache.TilesPerRow = FMath::Max(1, FMath::CeilToInt(FMath::Sqrt(static_cast<float>(Cache.Resolution))));
+    Cache.AtlasDim = Cache.TilesPerRow * Cache.Resolution;
 
     const FVector DomainHalfExtent = FVector(Field->DomainSizeCm * 0.5f);
-    const FVector DomainMin = Field->DomainCenterCm - DomainHalfExtent;
-    const FVector DomainMax = Field->DomainCenterCm + DomainHalfExtent;
-    const FVector DomainSize = DomainMax - DomainMin;
-    const FVector InvDomainSize = FVector(
+    Cache.DomainMin = Field->DomainCenterCm - DomainHalfExtent;
+    const FVector DomainSize = DomainHalfExtent * 2.0f;
+    Cache.InvDomainSize = FVector(
         DomainSize.X > 1.0f ? 1.0f / DomainSize.X : 0.0f,
         DomainSize.Y > 1.0f ? 1.0f / DomainSize.Y : 0.0f,
         DomainSize.Z > 1.0f ? 1.0f / DomainSize.Z : 0.0f);
+    Cache.FrameNumber = CurrentFrame;
+}
+
+bool URshipFieldSubsystem::SampleFromCache(const FFieldReadbackCache& Cache, const FVector& WorldPosition, float& OutScalar, FVector& OutVector) const
+{
+    if (Cache.ScalarPixels.Num() < Cache.AtlasDim * Cache.AtlasDim)
+    {
+        return false;
+    }
+
+    const FVector UVW = FVector(
+        FMath::Clamp((WorldPosition.X - Cache.DomainMin.X) * Cache.InvDomainSize.X, 0.0, 1.0),
+        FMath::Clamp((WorldPosition.Y - Cache.DomainMin.Y) * Cache.InvDomainSize.Y, 0.0, 1.0),
+        FMath::Clamp((WorldPosition.Z - Cache.DomainMin.Z) * Cache.InvDomainSize.Z, 0.0, 1.0));
+
+    const int32 VoxelX = FMath::Clamp(FMath::FloorToInt(UVW.X * Cache.Resolution), 0, Cache.Resolution - 1);
+    const int32 VoxelY = FMath::Clamp(FMath::FloorToInt(UVW.Y * Cache.Resolution), 0, Cache.Resolution - 1);
+    const int32 VoxelZ = FMath::Clamp(FMath::FloorToInt(UVW.Z * Cache.Resolution), 0, Cache.Resolution - 1);
+
+    const int32 TileX = VoxelZ % Cache.TilesPerRow;
+    const int32 TileY = VoxelZ / Cache.TilesPerRow;
+    const int32 AtlasX = TileX * Cache.Resolution + VoxelX;
+    const int32 AtlasY = TileY * Cache.Resolution + VoxelY;
+    const int32 PixelIndex = AtlasY * Cache.AtlasDim + AtlasX;
+
+    if (PixelIndex < 0 || PixelIndex >= Cache.ScalarPixels.Num())
+    {
+        return false;
+    }
+
+    OutScalar = Cache.ScalarPixels[PixelIndex].R;
+    const FLinearColor& VecPixel = Cache.VectorPixels[PixelIndex];
+    OutVector = FVector(VecPixel.R, VecPixel.G, VecPixel.B);
+    return true;
+}
+
+bool URshipFieldSubsystem::SampleFieldAtPosition(const FString& InFieldId, const FVector& WorldPosition, float& OutScalar, FVector& OutVector)
+{
+    OutScalar = 0.0f;
+    OutVector = FVector::ZeroVector;
+
+    URshipFieldComponent* Field = FindFieldById(InFieldId);
+    if (!Field)
+    {
+        return false;
+    }
+
+    EnsureFieldReadbackCache(Field);
+
+    const FFieldReadbackCache* Cache = ReadbackCaches.Find(InFieldId);
+    if (!Cache)
+    {
+        return false;
+    }
+
+    return SampleFromCache(*Cache, WorldPosition, OutScalar, OutVector);
+}
+
+void URshipFieldSubsystem::DistributeSamplersForField(URshipFieldComponent* Field)
+{
+    if (!Field)
+    {
+        return;
+    }
+
+    EnsureFieldReadbackCache(Field);
+
+    const FFieldReadbackCache* Cache = ReadbackCaches.Find(Field->FieldId);
+    if (!Cache || Cache->ScalarPixels.Num() < Cache->AtlasDim * Cache->AtlasDim)
+    {
+        return;
+    }
 
     for (int32 Index = RegisteredSamplers.Num() - 1; Index >= 0; --Index)
     {
@@ -307,7 +375,6 @@ void URshipFieldSubsystem::DistributeSamplersForField(URshipFieldComponent* Fiel
             continue;
         }
 
-        // Only distribute to samplers that reference this field.
         const TArray<FString> RequiredIds = Sampler->GetRequiredFieldIds();
         if (!RequiredIds.Contains(Field->FieldId))
         {
@@ -320,31 +387,11 @@ void URshipFieldSubsystem::DistributeSamplersForField(URshipFieldComponent* Fiel
             continue;
         }
 
-        const FVector WorldPos = Owner->GetActorLocation();
-        const FVector UVW = FVector(
-            FMath::Clamp((WorldPos.X - DomainMin.X) * InvDomainSize.X, 0.0, 1.0),
-            FMath::Clamp((WorldPos.Y - DomainMin.Y) * InvDomainSize.Y, 0.0, 1.0),
-            FMath::Clamp((WorldPos.Z - DomainMin.Z) * InvDomainSize.Z, 0.0, 1.0));
-
-        const int32 VoxelX = FMath::Clamp(FMath::FloorToInt(UVW.X * Resolution), 0, Resolution - 1);
-        const int32 VoxelY = FMath::Clamp(FMath::FloorToInt(UVW.Y * Resolution), 0, Resolution - 1);
-        const int32 VoxelZ = FMath::Clamp(FMath::FloorToInt(UVW.Z * Resolution), 0, Resolution - 1);
-
-        const int32 TileX = VoxelZ % TilesPerRow;
-        const int32 TileY = VoxelZ / TilesPerRow;
-        const int32 AtlasX = TileX * Resolution + VoxelX;
-        const int32 AtlasY = TileY * Resolution + VoxelY;
-        const int32 PixelIndex = AtlasY * AtlasDim + AtlasX;
-
-        if (PixelIndex < 0 || PixelIndex >= ScalarPixels.Num())
+        float Scalar = 0.0f;
+        FVector Vec = FVector::ZeroVector;
+        if (SampleFromCache(*Cache, Owner->GetActorLocation(), Scalar, Vec))
         {
-            continue;
+            Sampler->ApplySampledValue(Field->FieldId, Scalar, Vec);
         }
-
-        const float Scalar = ScalarPixels[PixelIndex].R;
-        const FLinearColor& VecPixel = VectorPixels[PixelIndex];
-        const FVector Vec(VecPixel.R, VecPixel.G, VecPixel.B);
-
-        Sampler->ApplySampledValue(Field->FieldId, Scalar, Vec);
     }
 }

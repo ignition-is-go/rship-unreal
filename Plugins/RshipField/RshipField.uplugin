@@ -23,6 +23,10 @@
     {
       "Name": "RshipExec",
       "Enabled": true
+    },
+    {
+      "Name": "DeformerGraph",
+      "Enabled": true
     }
   ]
 }

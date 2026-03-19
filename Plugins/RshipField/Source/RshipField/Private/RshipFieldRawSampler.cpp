@@ -1,6 +1,11 @@
 #include "RshipFieldRawSampler.h"
 
+#include "RshipFieldComponent.h"
+#include "RshipFieldSubsystem.h"
+
 #include "Engine/Engine.h"
+#include "Engine/TextureRenderTarget2D.h"
+#include "Engine/World.h"
 #include "GameFramework/Actor.h"
 
 void URshipFieldRawSampler::RegisterOrRefreshTarget()
@@ -25,6 +30,48 @@ TArray<FString> URshipFieldRawSampler::GetRequiredFieldIds() const
         Ids.Add(FieldId);
     }
     return Ids;
+}
+
+URshipFieldComponent* URshipFieldRawSampler::ResolveField() const
+{
+    UWorld* World = GetWorld();
+    if (!World || FieldId.IsEmpty())
+    {
+        return nullptr;
+    }
+
+    URshipFieldSubsystem* Subsystem = World->GetSubsystem<URshipFieldSubsystem>();
+    return Subsystem ? Subsystem->FindFieldById(FieldId) : nullptr;
+}
+
+void URshipFieldRawSampler::SampleAtWorldPosition(FVector WorldPosition, float& OutScalar, FVector& OutVector) const
+{
+    OutScalar = 0.0f;
+    OutVector = FVector::ZeroVector;
+
+    UWorld* World = GetWorld();
+    if (!World || FieldId.IsEmpty())
+    {
+        return;
+    }
+
+    URshipFieldSubsystem* Subsystem = World->GetSubsystem<URshipFieldSubsystem>();
+    if (Subsystem)
+    {
+        Subsystem->SampleFieldAtPosition(FieldId, WorldPosition, OutScalar, OutVector);
+    }
+}
+
+UTextureRenderTarget2D* URshipFieldRawSampler::GetScalarAtlas() const
+{
+    URshipFieldComponent* Field = ResolveField();
+    return Field ? Field->GetScalarAtlas() : nullptr;
+}
+
+UTextureRenderTarget2D* URshipFieldRawSampler::GetVectorAtlas() const
+{
+    URshipFieldComponent* Field = ResolveField();
+    return Field ? Field->GetVectorAtlas() : nullptr;
 }
 
 void URshipFieldRawSampler::ApplySampledValue(const FString& InFieldId, float Scalar, const FVector& Vector)
