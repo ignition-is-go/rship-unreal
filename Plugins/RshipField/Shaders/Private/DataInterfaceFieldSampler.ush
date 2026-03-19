@@ -1,0 +1,55 @@
+// Uniforms bound by the data provider
+int {DataInterfaceName}_FieldResolution;
+int {DataInterfaceName}_TilesPerRow;
+float3 {DataInterfaceName}_DomainMinCm;
+float3 {DataInterfaceName}_DomainMaxCm;
+Texture2D {DataInterfaceName}_ScalarAtlas;
+SamplerState {DataInterfaceName}_ScalarAtlasSampler;
+Texture2D {DataInterfaceName}_VectorAtlas;
+SamplerState {DataInterfaceName}_VectorAtlasSampler;
+
+// Pin-mapped function — singleton pin to establish binding
+int ReadFieldResolution_{DataInterfaceName}()
+{
+    return {DataInterfaceName}_FieldResolution;
+}
+
+// Internal helper — world position to atlas coordinate
+int2 FieldAtlasCoord_{DataInterfaceName}(float3 WorldPosition)
+{
+    int Res = {DataInterfaceName}_FieldResolution;
+    int Tiles = {DataInterfaceName}_TilesPerRow;
+    float3 DomainMin = {DataInterfaceName}_DomainMinCm;
+    float3 DomainMax = {DataInterfaceName}_DomainMaxCm;
+
+    float3 DomainSize = max(DomainMax - DomainMin, float3(1.0f, 1.0f, 1.0f));
+    float3 UVW = saturate((WorldPosition - DomainMin) / DomainSize);
+
+    int VoxelX = clamp((int)(UVW.x * Res), 0, Res - 1);
+    int VoxelY = clamp((int)(UVW.y * Res), 0, Res - 1);
+    int VoxelZ = clamp((int)(UVW.z * Res), 0, Res - 1);
+
+    int TileX = VoxelZ % Tiles;
+    int TileY = VoxelZ / Tiles;
+    return int2(TileX * Res + VoxelX, TileY * Res + VoxelY);
+}
+
+// Sampling functions — kernel calls these with world position
+float SampleFieldScalar_{DataInterfaceName}(float3 WorldPosition)
+{
+    if ({DataInterfaceName}_FieldResolution <= 0) return 0.0f;
+    int2 Coord = FieldAtlasCoord_{DataInterfaceName}(WorldPosition);
+    return {DataInterfaceName}_ScalarAtlas.Load(int3(Coord, 0)).r;
+}
+
+float3 SampleFieldVector_{DataInterfaceName}(float3 WorldPosition)
+{
+    if ({DataInterfaceName}_FieldResolution <= 0) return float3(0.0f, 0.0f, 0.0f);
+    int2 Coord = FieldAtlasCoord_{DataInterfaceName}(WorldPosition);
+    return {DataInterfaceName}_VectorAtlas.Load(int3(Coord, 0)).xyz;
+}
+
+// Aliases so kernels don't need to know the DI index
+// {DataInterfaceName} is substituted by GetHLSL before compilation
+#define SampleFieldScalar(pos) SampleFieldScalar_{DataInterfaceName}(pos)
+#define SampleFieldVector(pos) SampleFieldVector_{DataInterfaceName}(pos)

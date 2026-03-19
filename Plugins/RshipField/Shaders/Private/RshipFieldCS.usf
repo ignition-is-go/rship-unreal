@@ -1,0 +1,562 @@
+#include "/Engine/Private/Common.ush"
+
+RWTexture2D<float> OutScalarFieldAtlasTex;
+RWTexture2D<float4> OutVectorFieldAtlasTex;
+
+Texture2D<float> ScalarFieldAtlasTex;
+Texture2D<float4> VectorFieldAtlasTex;
+Texture2D<float4> RestPositionTex;
+Texture2D<float4> RestNormalTex;
+Texture2D<float> MaskTex;
+RWTexture2D<float4> OutDeformedPositionTex;
+
+Texture2D<float4> DeformedPositionTex;
+RWTexture2D<float4> OutDeformedNormalTex;
+
+StructuredBuffer<float4> LayerDataA;
+StructuredBuffer<float4> LayerDataB;
+StructuredBuffer<float4> PhaseGroupData;
+StructuredBuffer<float4> EffectorData0;
+StructuredBuffer<float4> EffectorData1;
+StructuredBuffer<float4> EffectorData2;
+StructuredBuffer<float4> EffectorData3;
+StructuredBuffer<float4> EffectorData4;
+StructuredBuffer<float4> EffectorData5;
+StructuredBuffer<float4> EffectorData6;
+
+int FieldResolution;
+int TilesPerRow;
+float TimeSeconds;
+float BPM;
+float TransportPhase;
+float MasterScalarGain;
+float MasterVectorGain;
+float3 DomainMinCm;
+float3 DomainMaxCm;
+uint LayerCount;
+uint PhaseGroupCount;
+uint EffectorCount;
+int DebugMode;
+int DebugSelectionIndex;
+
+int2 GridSize;
+float ScalarGain;
+float VectorGain;
+float AxisWeightNormal;
+float AxisWeightWorld;
+float AxisWeightObject;
+float MaxDisplacementCm;
+float3 WorldAxis;
+float3 ObjectAxis;
+
+static const float TWO_PI = 6.28318530718f;
+
+float3 SafeNormalize(float3 V, float3 Fallback)
+{
+    float LenSq = dot(V, V);
+    if (LenSq < 1e-10f)
+    {
+        return Fallback;
+    }
+    return V * rsqrt(LenSq);
+}
+
+int2 AtlasCoordFromVoxel(int3 Voxel, int Resolution, int Tiles)
+{
+    int TileX = Voxel.z % Tiles;
+    int TileY = Voxel.z / Tiles;
+    return int2(TileX * Resolution + Voxel.x, TileY * Resolution + Voxel.y);
+}
+
+int3 VoxelFromWorld(float3 PositionCm)
+{
+    float3 DomainSize = max(DomainMaxCm - DomainMinCm, float3(1.0f, 1.0f, 1.0f));
+    float3 UVW = saturate((PositionCm - DomainMinCm) / DomainSize);
+    // Match the write path: voxel center is at (Voxel + 0.5) / Resolution
+    int3 Voxel = int3(UVW * FieldResolution);
+    return clamp(Voxel, int3(0, 0, 0), int3(FieldResolution - 1, FieldResolution - 1, FieldResolution - 1));
+}
+
+float SampleScalarAtWorld(float3 PositionCm)
+{
+    int3 Voxel = VoxelFromWorld(PositionCm);
+    int2 Coord = AtlasCoordFromVoxel(Voxel, FieldResolution, TilesPerRow);
+    return ScalarFieldAtlasTex.Load(int3(Coord, 0));
+}
+
+float3 SampleVectorAtWorld(float3 PositionCm)
+{
+    int3 Voxel = VoxelFromWorld(PositionCm);
+    int2 Coord = AtlasCoordFromVoxel(Voxel, FieldResolution, TilesPerRow);
+    return VectorFieldAtlasTex.Load(int3(Coord, 0)).xyz;
+}
+
+float Hash31(float3 P)
+{
+    return frac(sin(dot(P, float3(12.9898f, 78.233f, 37.719f))) * 43758.5453f);
+}
+
+float ValueNoise(float3 P)
+{
+    float3 I = floor(P);
+    float3 F = frac(P);
+    F = F * F * (3.0f - 2.0f * F);
+
+    float N000 = Hash31(I + float3(0, 0, 0));
+    float N100 = Hash31(I + float3(1, 0, 0));
+    float N010 = Hash31(I + float3(0, 1, 0));
+    float N110 = Hash31(I + float3(1, 1, 0));
+    float N001 = Hash31(I + float3(0, 0, 1));
+    float N101 = Hash31(I + float3(1, 0, 1));
+    float N011 = Hash31(I + float3(0, 1, 1));
+    float N111 = Hash31(I + float3(1, 1, 1));
+
+    float NX00 = lerp(N000, N100, F.x);
+    float NX10 = lerp(N010, N110, F.x);
+    float NX01 = lerp(N001, N101, F.x);
+    float NX11 = lerp(N011, N111, F.x);
+    float NXY0 = lerp(NX00, NX10, F.y);
+    float NXY1 = lerp(NX01, NX11, F.y);
+    return lerp(NXY0, NXY1, F.z) * 2.0f - 1.0f;
+}
+
+float SimplexLikeNoise(float3 P)
+{
+    float A = ValueNoise(P);
+    float B = ValueNoise(P * 2.07f + 13.1f) * 0.5f;
+    float C = ValueNoise(P * 4.03f + 31.7f) * 0.25f;
+    return (A + B + C) / 1.75f;
+}
+
+float3 CurlLikeNoise(float3 P)
+{
+    const float E = 0.05f;
+
+    float NX0 = SimplexLikeNoise(P - float3(E, 0.0f, 0.0f));
+    float NX1 = SimplexLikeNoise(P + float3(E, 0.0f, 0.0f));
+    float NY0 = SimplexLikeNoise(P - float3(0.0f, E, 0.0f));
+    float NY1 = SimplexLikeNoise(P + float3(0.0f, E, 0.0f));
+    float NZ0 = SimplexLikeNoise(P - float3(0.0f, 0.0f, E));
+    float NZ1 = SimplexLikeNoise(P + float3(0.0f, 0.0f, E));
+
+    float DX = (NX1 - NX0) / (2.0f * E);
+    float DY = (NY1 - NY0) / (2.0f * E);
+    float DZ = (NZ1 - NZ0) / (2.0f * E);
+
+    return float3(DY - DZ, DZ - DX, DX - DY);
+}
+
+float EvaluateWaveform(uint WaveformType, float Phase)
+{
+    float T = frac(Phase / TWO_PI);
+    if (WaveformType == 1u)
+    {
+        return 1.0f - abs(2.0f * T - 1.0f) * 2.0f;
+    }
+    if (WaveformType == 2u)
+    {
+        return 2.0f * T - 1.0f;
+    }
+    if (WaveformType == 3u)
+    {
+        return (T < 0.5f) ? 1.0f : -1.0f;
+    }
+    if (WaveformType == 4u)
+    {
+        float S = sin(Phase);
+        return S * S * (3.0f - 2.0f * abs(S)) * sign(S);
+    }
+    return sin(Phase);
+}
+
+void ApplyBlendScalar(inout float Acc, float Value, uint BlendOp, inout bool bInitialized)
+{
+    if (!bInitialized)
+    {
+        Acc = (BlendOp == 2u || BlendOp == 3u || BlendOp == 4u) ? Value : 0.0f;
+        bInitialized = true;
+    }
+
+    if (BlendOp == 0u)
+    {
+        Acc += Value;
+    }
+    else if (BlendOp == 1u)
+    {
+        Acc -= Value;
+    }
+    else if (BlendOp == 2u)
+    {
+        Acc = min(Acc, Value);
+    }
+    else if (BlendOp == 3u)
+    {
+        Acc = max(Acc, Value);
+    }
+    else if (BlendOp == 4u)
+    {
+        Acc = Acc * (1.0f + Value);
+    }
+}
+
+void ApplyBlendVector(inout float3 Acc, float3 Value, uint BlendOp, inout bool bInitialized)
+{
+    if (!bInitialized)
+    {
+        Acc = (BlendOp == 2u || BlendOp == 3u || BlendOp == 4u) ? Value : float3(0.0f, 0.0f, 0.0f);
+        bInitialized = true;
+    }
+
+    if (BlendOp == 0u)
+    {
+        Acc += Value;
+    }
+    else if (BlendOp == 1u)
+    {
+        Acc -= Value;
+    }
+    else if (BlendOp == 2u)
+    {
+        Acc = min(Acc, Value);
+    }
+    else if (BlendOp == 3u)
+    {
+        Acc = max(Acc, Value);
+    }
+    else if (BlendOp == 4u)
+    {
+        Acc = Acc * (1.0f + Value);
+    }
+}
+
+float ComputePhaseGroupOffset(int PhaseGroupIndex)
+{
+    if (PhaseGroupIndex < 0 || (uint)PhaseGroupIndex >= PhaseGroupCount)
+    {
+        return 0.0f;
+    }
+
+    float4 Group = PhaseGroupData[PhaseGroupIndex];
+    float PhaseOffset = Group.z;
+    if (Group.x > 0.5f)
+    {
+        PhaseOffset += TransportPhase * TWO_PI * max(Group.y, 0.0f);
+    }
+    return PhaseOffset;
+}
+
+void EvaluateFieldAtPosition(float3 WorldPosCm, bool bIncludeInfiniteEffectors, out float OutScalar, out float3 OutVector)
+{
+    OutScalar = 0.0f;
+    OutVector = float3(0.0f, 0.0f, 0.0f);
+
+    bool bScalarInitialized = false;
+    bool bVectorInitialized = false;
+
+    for (uint LayerIndex = 0u; LayerIndex < LayerCount; ++LayerIndex)
+    {
+        float4 L0 = LayerDataA[LayerIndex];
+        float4 L1 = LayerDataB[LayerIndex];
+        if (L1.x < 0.5f)
+        {
+            continue;
+        }
+
+        float LayerScalar = 0.0f;
+        float3 LayerVector = float3(0.0f, 0.0f, 0.0f);
+        bool bLayerScalarInitialized = false;
+        bool bLayerVectorInitialized = false;
+
+        const int LayerPhaseGroup = (int)floor(L1.y + 0.5f);
+        const float LayerPhaseOffset = ComputePhaseGroupOffset(LayerPhaseGroup);
+
+        for (uint EffectorIndex = 0u; EffectorIndex < EffectorCount; ++EffectorIndex)
+        {
+            float4 E0 = EffectorData0[EffectorIndex];
+            float4 E1 = EffectorData1[EffectorIndex];
+            float4 E2 = EffectorData2[EffectorIndex];
+            float4 E3 = EffectorData3[EffectorIndex];
+            float4 E4 = EffectorData4[EffectorIndex];
+            float4 E5 = EffectorData5[EffectorIndex];
+            float4 E6 = EffectorData6[EffectorIndex];
+
+            if (E6.x < 0.5f)
+            {
+                continue;
+            }
+
+            bool bInfiniteRange = E6.y > 0.5f;
+            if (bInfiniteRange != bIncludeInfiniteEffectors)
+            {
+                continue;
+            }
+
+            // Layer check disabled for MVP — single layer only
+            if (LayerIndex > 0u)
+            {
+                continue;
+            }
+
+            if (DebugMode == 4 && DebugSelectionIndex >= 0 && (int)EffectorIndex != DebugSelectionIndex)
+            {
+                continue;
+            }
+            if (DebugMode == 5 && DebugSelectionIndex >= 0 && (int)LayerIndex != DebugSelectionIndex)
+            {
+                continue;
+            }
+
+            float3 ToEffector = WorldPosCm - E0.xyz;
+            float DistanceCm = length(ToEffector);
+
+            float Falloff = 1.0f;
+            if (!bInfiniteRange)
+            {
+                float Radius = max(E0.w, 0.001f);
+                float FalloffExp = max(E3.y, 0.01f);
+                Falloff = pow(saturate(1.0f - DistanceCm / Radius), FalloffExp);
+            }
+
+            // E3.z = effector type: 0 = Wave, 1 = Noise, 2 = Attractor
+            uint EffectorType = (uint)max(0.0f, floor(E3.z + 0.5f));
+
+            float Signal;
+            float3 NoiseVec = float3(0.0f, 0.0f, 0.0f);
+            float3 EffDirection;
+
+            if (EffectorType == 2u)
+            {
+                // Attractor: pure unmodulated radial force
+                float Fade = saturate(E3.x);
+                Signal = Falloff * Fade * E1.w;
+                Signal = clamp(Signal, E4.x, E4.y);
+
+                // Direction points toward effector (positive Strength = attract)
+                EffDirection = SafeNormalize(E0.xyz - WorldPosCm, float3(0.0f, 0.0f, 1.0f));
+            }
+            else
+            {
+                // Wave / Noise: waveform-modulated signal
+                int PhaseGroupIndex = (int)floor(E5.x + 0.5f);
+                float TemporalPhase;
+                if (PhaseGroupIndex >= 0 && (uint)PhaseGroupIndex < PhaseGroupCount && PhaseGroupData[PhaseGroupIndex].x > 0.5f)
+                {
+                    TemporalPhase = ComputePhaseGroupOffset(PhaseGroupIndex);
+                }
+                else
+                {
+                    TemporalPhase = TimeSeconds * (TWO_PI * max(E2.y, 0.0f) * max(E2.z, 0.0f));
+                }
+
+                float SpatialPhase = (DistanceCm / max(E2.x, 0.001f)) * TWO_PI;
+                float Phase = SpatialPhase + TemporalPhase + E2.w;
+
+                uint Waveform = (uint)max(0.0f, floor(E4.w + 0.5f));
+                float Wave = EvaluateWaveform(Waveform, Phase);
+
+                float Fade = saturate(E3.x);
+                Signal = Wave * Falloff * Fade * E1.w;
+
+                uint NoiseType = (uint)max(0.0f, floor(E5.y + 0.5f));
+                float NoiseScale = max(E5.z, 0.0f);
+                float NoiseAmp = E5.w;
+                if (NoiseType != 0u && abs(NoiseAmp) > 1e-5f)
+                {
+                    float3 NP = WorldPosCm * NoiseScale + float3(TimeSeconds, TimeSeconds * 0.33f, TimeSeconds * 0.77f);
+                    float NoiseFactor = NoiseAmp * Falloff * Fade;
+                    if (NoiseType == 1u)
+                    {
+                        Signal += ValueNoise(NP) * NoiseFactor;
+                    }
+                    else if (NoiseType == 2u)
+                    {
+                        Signal += SimplexLikeNoise(NP) * NoiseFactor;
+                    }
+                    else if (NoiseType == 3u)
+                    {
+                        NoiseVec = CurlLikeNoise(NP) * NoiseFactor;
+                        Signal += length(NoiseVec) * 0.577f;
+                    }
+                }
+
+                Signal = clamp(Signal, E4.x, E4.y);
+
+                EffDirection = SafeNormalize(E1.xyz, float3(0.0f, 0.0f, 1.0f));
+            }
+
+            uint BlendOp = (uint)max(0.0f, floor(E4.z + 0.5f));
+            if (E6.z > 0.5f)
+            {
+                ApplyBlendScalar(LayerScalar, Signal, BlendOp, bLayerScalarInitialized);
+            }
+            if (E6.w > 0.5f)
+            {
+                float3 VectorSignal = EffDirection * Signal + NoiseVec;
+                ApplyBlendVector(LayerVector, VectorSignal, BlendOp, bLayerVectorInitialized);
+            }
+        }
+
+        if (!bLayerScalarInitialized && !bLayerVectorInitialized)
+        {
+            continue;
+        }
+
+        LayerScalar = clamp(LayerScalar, L0.y, L0.z) * L0.x;
+        LayerVector = clamp(LayerVector, L0.y, L0.z) * L0.x;
+
+        uint LayerBlendOp = (uint)max(0.0f, floor(L0.w + 0.5f));
+        ApplyBlendScalar(OutScalar, LayerScalar, LayerBlendOp, bScalarInitialized);
+        ApplyBlendVector(OutVector, LayerVector, LayerBlendOp, bVectorInitialized);
+    }
+}
+
+[numthreads(FIELD_GROUP_SIZE_X, FIELD_GROUP_SIZE_Y, FIELD_GROUP_SIZE_Z)]
+void BuildGlobalFieldCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+    int3 Voxel = int3(DispatchThreadId.xyz);
+    if (Voxel.x >= FieldResolution || Voxel.y >= FieldResolution || Voxel.z >= FieldResolution)
+    {
+        return;
+    }
+
+    float3 UVW = (float3(Voxel) + 0.5f) / max((float)FieldResolution, 1.0f);
+    float3 WorldPos = lerp(DomainMinCm, DomainMaxCm, UVW);
+
+    float ScalarSignal = 0.0f;
+    float3 VectorSignal = float3(0.0f, 0.0f, 0.0f);
+    EvaluateFieldAtPosition(WorldPos, false, ScalarSignal, VectorSignal);
+
+    ScalarSignal *= MasterScalarGain;
+    VectorSignal *= MasterVectorGain;
+
+    int2 AtlasCoord = AtlasCoordFromVoxel(Voxel, FieldResolution, TilesPerRow);
+    OutScalarFieldAtlasTex[AtlasCoord] = ScalarSignal;
+    OutVectorFieldAtlasTex[AtlasCoord] = float4(VectorSignal, 1.0f);
+}
+
+[numthreads(FIELD_GROUP_SIZE_X, FIELD_GROUP_SIZE_Y, FIELD_GROUP_SIZE_Z)]
+void AccumulateInfiniteCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+    int3 Voxel = int3(DispatchThreadId.xyz);
+    if (Voxel.x >= FieldResolution || Voxel.y >= FieldResolution || Voxel.z >= FieldResolution)
+    {
+        return;
+    }
+
+    int2 AtlasCoord = AtlasCoordFromVoxel(Voxel, FieldResolution, TilesPerRow);
+
+    float Scalar = OutScalarFieldAtlasTex[AtlasCoord];
+    float3 Vector = OutVectorFieldAtlasTex[AtlasCoord].xyz;
+
+    float3 UVW = (float3(Voxel) + 0.5f) / max((float)FieldResolution, 1.0f);
+    float3 WorldPos = lerp(DomainMinCm, DomainMaxCm, UVW);
+
+    float InfiniteScalar = 0.0f;
+    float3 InfiniteVector = float3(0.0f, 0.0f, 0.0f);
+    EvaluateFieldAtPosition(WorldPos, true, InfiniteScalar, InfiniteVector);
+
+    Scalar += InfiniteScalar * MasterScalarGain;
+    Vector += InfiniteVector * MasterVectorGain;
+
+    OutScalarFieldAtlasTex[AtlasCoord] = Scalar;
+    OutVectorFieldAtlasTex[AtlasCoord] = float4(Vector, 1.0f);
+}
+
+[numthreads(TARGET_GROUP_SIZE_X, TARGET_GROUP_SIZE_Y, 1)]
+void SampleAndDeformTargetCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+    int2 Pixel = int2(DispatchThreadId.xy);
+    if (Pixel.x >= GridSize.x || Pixel.y >= GridSize.y)
+    {
+        return;
+    }
+
+    float3 RestPos = RestPositionTex.Load(int3(Pixel, 0)).xyz;
+    float3 RestNormal = SafeNormalize(RestNormalTex.Load(int3(Pixel, 0)).xyz, float3(0.0f, 0.0f, 1.0f));
+    float Mask = saturate(MaskTex.Load(int3(Pixel, 0)));
+
+    float ScalarField = SampleScalarAtWorld(RestPos) * ScalarGain;
+    float3 VectorField = SampleVectorAtWorld(RestPos) * VectorGain;
+
+    float3 NormalAxis = RestNormal;
+    float3 WorldAxisN = SafeNormalize(WorldAxis, float3(0.0f, 0.0f, 1.0f));
+    float3 ObjectAxisN = SafeNormalize(ObjectAxis, float3(0.0f, 0.0f, 1.0f));
+
+    float3 ScalarDirection =
+        AxisWeightNormal * NormalAxis +
+        AxisWeightWorld * WorldAxisN +
+        AxisWeightObject * ObjectAxisN;
+
+    float3 Offset = ScalarField * ScalarDirection + VectorField;
+    float OffsetLen = length(Offset);
+    if (OffsetLen > MaxDisplacementCm && OffsetLen > 1e-6f)
+    {
+        Offset *= MaxDisplacementCm / OffsetLen;
+    }
+
+    float3 NewPos = RestPos + Offset * Mask;
+    OutDeformedPositionTex[Pixel] = float4(NewPos, 1.0f);
+}
+
+[numthreads(TARGET_GROUP_SIZE_X, TARGET_GROUP_SIZE_Y, 1)]
+void RecomputeNormalsCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+    int2 Pixel = int2(DispatchThreadId.xy);
+    if (Pixel.x >= GridSize.x || Pixel.y >= GridSize.y)
+    {
+        return;
+    }
+
+    int2 Left = int2(max(Pixel.x - 1, 0), Pixel.y);
+    int2 Right = int2(min(Pixel.x + 1, GridSize.x - 1), Pixel.y);
+    int2 Down = int2(Pixel.x, max(Pixel.y - 1, 0));
+    int2 Up = int2(Pixel.x, min(Pixel.y + 1, GridSize.y - 1));
+
+    float3 PosL = DeformedPositionTex.Load(int3(Left, 0)).xyz;
+    float3 PosR = DeformedPositionTex.Load(int3(Right, 0)).xyz;
+    float3 PosD = DeformedPositionTex.Load(int3(Down, 0)).xyz;
+    float3 PosU = DeformedPositionTex.Load(int3(Up, 0)).xyz;
+
+    float3 Dx = PosR - PosL;
+    float3 Dy = PosU - PosD;
+    float3 Normal = SafeNormalize(cross(Dx, Dy), float3(0.0f, 0.0f, 1.0f));
+
+    OutDeformedNormalTex[Pixel] = float4(Normal, 1.0f);
+}
+
+[numthreads(TARGET_GROUP_SIZE_X, TARGET_GROUP_SIZE_Y, 1)]
+void DebugViewCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+    int2 Pixel = int2(DispatchThreadId.xy);
+    int AtlasDim = FieldResolution * TilesPerRow;
+    if (Pixel.x >= AtlasDim || Pixel.y >= AtlasDim)
+    {
+        return;
+    }
+
+    float Scalar = OutScalarFieldAtlasTex[Pixel];
+    float3 Vector = VectorFieldAtlasTex.Load(int3(Pixel, 0)).xyz;
+
+    if (DebugMode == 1) // heatmap
+    {
+        Scalar = saturate(abs(Scalar));
+    }
+    else if (DebugMode == 2) // slice_scalar
+    {
+        Scalar = Scalar * 0.5f + 0.5f;
+    }
+    else if (DebugMode == 3) // slice_vector
+    {
+        Scalar = length(Vector) * 0.25f;
+    }
+    else if (DebugMode == 6) // contrib_scalar
+    {
+        Scalar = abs(Scalar);
+    }
+    else if (DebugMode == 7) // contrib_vector
+    {
+        Scalar = length(Vector);
+    }
+
+    OutScalarFieldAtlasTex[Pixel] = Scalar;
+}

@@ -1,0 +1,32 @@
+{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "0.1.0",
+  "FriendlyName": "Rship Field",
+  "Description": "Global GPU-native field generation and deformation sampling for rship targets.",
+  "Category": "Rendering",
+  "EnabledByDefault": true,
+  "CanContainContent": true,
+  "Modules": [
+    {
+      "Name": "RshipField",
+      "Type": "Runtime",
+      "LoadingPhase": "PostConfigInit"
+    },
+    {
+      "Name": "RshipFieldEditor",
+      "Type": "Editor",
+      "LoadingPhase": "Default"
+    }
+  ],
+  "Plugins": [
+    {
+      "Name": "RshipExec",
+      "Enabled": true
+    },
+    {
+      "Name": "DeformerGraph",
+      "Enabled": true
+    }
+  ]
+}
