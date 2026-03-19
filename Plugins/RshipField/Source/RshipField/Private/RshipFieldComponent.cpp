@@ -289,4 +289,7 @@ void URshipFieldComponent::UpdateVisualizer()
     }
 
     VisualizerComponent->SetWorldLocation(DomainCenterCm);
+
+    const FVector HalfExtent = FVector(DomainSizeCm * 0.5f);
+    VisualizerComponent->SetSystemFixedBounds(FBox(-HalfExtent, HalfExtent));
 }
