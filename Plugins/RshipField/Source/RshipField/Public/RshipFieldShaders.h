@@ -89,8 +89,27 @@ struct FTargetDispatchInputs
     }
 };
 
+struct FPointSampleInputs
+{
+    int32 FieldResolution = 0;
+    int32 TilesPerRow = 0;
+    FVector3f DomainMinCm = FVector3f::ZeroVector;
+    FVector3f DomainMaxCm = FVector3f::ZeroVector;
+    uint32 NumSamples = 0;
+
+    FTextureRHIRef ScalarAtlasTexture;
+    FTextureRHIRef VectorAtlasTexture;
+    FTextureRHIRef OutResultsTexture;
+
+    TArray<FVector4f> Positions;
+};
+
 void AddFieldPasses(
     FRDGBuilder& GraphBuilder,
     const FGlobalDispatchInputs& GlobalInputs,
     const TArray<FTargetDispatchInputs>& TargetInputs);
+
+void AddPointSamplePass(
+    FRDGBuilder& GraphBuilder,
+    const FPointSampleInputs& Inputs);
 }

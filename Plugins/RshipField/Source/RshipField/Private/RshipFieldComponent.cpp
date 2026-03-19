@@ -69,11 +69,8 @@ void URshipFieldComponent::TickComponent(float DeltaTime, ELevelTick TickType, F
         return;
     }
 
-    // Readback previous frame's data BEFORE dispatching new data.
-    // The GPU dispatch from last frame has completed by now.
     if (URshipFieldSubsystem* Subsystem = World->GetSubsystem<URshipFieldSubsystem>())
     {
-        Subsystem->DistributeSamplersForField(this);
         Subsystem->TickField(this, DeltaTime);
     }
 

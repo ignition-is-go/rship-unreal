@@ -3,6 +3,11 @@
 RWTexture2D<float> OutScalarFieldAtlasTex;
 RWTexture2D<float4> OutVectorFieldAtlasTex;
 
+// Point sampling pass
+StructuredBuffer<float4> SamplePositions;
+uint NumSamples;
+RWTexture2D<float4> OutSampleResults;
+
 Texture2D<float> ScalarFieldAtlasTex;
 Texture2D<float4> VectorFieldAtlasTex;
 Texture2D<float4> RestPositionTex;
@@ -559,4 +564,20 @@ void DebugViewCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     }
 
     OutScalarFieldAtlasTex[Pixel] = Scalar;
+}
+
+[numthreads(64, 1, 1)]
+void SampleFieldAtPointsCS(uint3 DTid : SV_DispatchThreadID)
+{
+    uint Idx = DTid.x;
+    if (Idx >= NumSamples)
+    {
+        return;
+    }
+
+    float3 WorldPos = SamplePositions[Idx].xyz;
+    float Scalar = SampleScalarAtWorld(WorldPos);
+    float3 Vector = SampleVectorAtWorld(WorldPos);
+
+    OutSampleResults[int2(Idx, 0)] = float4(Scalar, Vector.x, Vector.y, Vector.z);
 }
