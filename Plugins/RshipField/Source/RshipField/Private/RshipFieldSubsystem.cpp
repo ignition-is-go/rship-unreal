@@ -1,11 +1,12 @@
 #include "RshipFieldSubsystem.h"
 
 #include "RshipFieldComponent.h"
-#include "RshipFieldSamplerComponent.h"
+#include "RshipFieldLightSampler.h"
 #include "RshipFieldShaders.h"
 
 #include "Engine/TextureRenderTarget2D.h"
 #include "Engine/World.h"
+#include "GameFramework/Actor.h"
 #include "RenderGraphBuilder.h"
 #include "RenderingThread.h"
 #include "TextureResource.h"
@@ -20,7 +21,8 @@ void URshipFieldSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 void URshipFieldSubsystem::Deinitialize()
 {
     RegisteredFields.Reset();
-    RegisteredSamplers.Reset();
+    RegisteredLightSamplers.Reset();
+    PointSampleRT = nullptr;
     Super::Deinitialize();
 }
 
@@ -37,17 +39,17 @@ void URshipFieldSubsystem::UnregisterField(URshipFieldComponent* Field)
     RegisteredFields.Remove(Field);
 }
 
-void URshipFieldSubsystem::RegisterSampler(URshipFieldSamplerComponent* Sampler)
+void URshipFieldSubsystem::RegisterLightSampler(URshipFieldLightSampler* Sampler)
 {
     if (Sampler)
     {
-        RegisteredSamplers.AddUnique(Sampler);
+        RegisteredLightSamplers.AddUnique(Sampler);
     }
 }
 
-void URshipFieldSubsystem::UnregisterSampler(URshipFieldSamplerComponent* Sampler)
+void URshipFieldSubsystem::UnregisterLightSampler(URshipFieldLightSampler* Sampler)
 {
-    RegisteredSamplers.Remove(Sampler);
+    RegisteredLightSamplers.Remove(Sampler);
 }
 
 URshipFieldComponent* URshipFieldSubsystem::FindFieldById(const FString& InFieldId) const
@@ -76,9 +78,6 @@ void URshipFieldSubsystem::TickField(URshipFieldComponent* Field, float DeltaTim
         Field->SimulationTimeSeconds += Step;
         if (Field->bPlaying)
         {
-            // Accumulate beats continuously — no wrapping.
-            // The shader uses this * TempoMultiplier * TWO_PI, so wrapping
-            // happens naturally via sin() without phase discontinuities.
             Field->BeatPhase += Step * Field->Bpm / 60.0f;
         }
         bDidStep = true;
@@ -87,6 +86,12 @@ void URshipFieldSubsystem::TickField(URshipFieldComponent* Field, float DeltaTim
     if (bDidStep)
     {
         DispatchFieldPasses(Field);
+    }
+
+    // Distribute results to light samplers after dispatch
+    if (RegisteredLightSamplers.Num() > 0)
+    {
+        DistributeLightSamplerResults(Field);
     }
 }
 
@@ -157,7 +162,6 @@ void URshipFieldSubsystem::DispatchFieldPasses(URshipFieldComponent* Field)
 
     // Build phase groups
     TMap<FString, int32> PhaseGroupIndexById;
-    // Default phase group at index 0 (free-running, no tempo sync)
     GlobalInputs.PhaseGroupData.Add(FVector4f(0.0f, 1.0f, 0.0f, 0.0f));
     PhaseGroupIndexById.Add(TEXT(""), 0);
 
@@ -170,7 +174,7 @@ void URshipFieldSubsystem::DispatchFieldPasses(URshipFieldComponent* Field)
         }
         PhaseGroupIndexById.Add(Group.Id, GlobalInputs.PhaseGroupData.Num());
         GlobalInputs.PhaseGroupData.Add(FVector4f(
-            1.0f, // bSyncToTempo = true for named groups
+            1.0f,
             Group.TempoMultiplier,
             Group.PhaseOffset,
             0.0f));
@@ -228,7 +232,6 @@ void URshipFieldSubsystem::DispatchFieldPasses(URshipFieldComponent* Field)
         GlobalInputs.EffectorData0.Add(FVector4f(FVector3f(Eff.PositionCm), Eff.RadiusCm));
         GlobalInputs.EffectorData1.Add(FVector4f(FVector3f(Eff.Direction.GetSafeNormal()), Eff.Amplitude));
         GlobalInputs.EffectorData2.Add(FVector4f(Eff.WavelengthCm, Eff.FrequencyHz, 1.0f, Eff.PhaseOffset));
-        // E3: (FadeWeight, FalloffExponent, EffectorType, 0)
         GlobalInputs.EffectorData3.Add(FVector4f(Eff.FadeWeight, Eff.FalloffExponent, static_cast<float>(static_cast<uint8>(Eff.Type)), 0.0f));
         GlobalInputs.EffectorData4.Add(FVector4f(Eff.ClampMin, Eff.ClampMax, static_cast<float>(static_cast<uint8>(Eff.BlendOp)), static_cast<float>(static_cast<uint8>(Eff.Waveform))));
         GlobalInputs.EffectorData5.Add(FVector4f(static_cast<float>(PhaseGroupIndex), static_cast<float>(static_cast<uint8>(Eff.NoiseMode)), Eff.NoiseScale, Eff.NoiseAmplitude));
@@ -257,141 +260,114 @@ void URshipFieldSubsystem::DispatchFieldPasses(URshipFieldComponent* Field)
         });
 }
 
-void URshipFieldSubsystem::EnsureFieldReadbackCache(URshipFieldComponent* Field)
+void URshipFieldSubsystem::DistributeLightSamplerResults(URshipFieldComponent* Field)
 {
-    if (!Field || !Field->GetScalarAtlas() || !Field->GetVectorAtlas())
+    // Collect sampler positions for this field
+    struct FSamplerEntry
     {
-        return;
-    }
+        URshipFieldLightSampler* Sampler;
+        FVector WorldPos;
+    };
 
-    FFieldReadbackCache& Cache = ReadbackCaches.FindOrAdd(Field->FieldId);
-
-    const uint64 CurrentFrame = GFrameCounter;
-    if (Cache.FrameNumber == CurrentFrame)
+    TArray<FSamplerEntry> Entries;
+    for (int32 i = RegisteredLightSamplers.Num() - 1; i >= 0; --i)
     {
-        return;
-    }
-
-    FRenderTarget* ScalarRT = Field->GetScalarAtlas()->GameThread_GetRenderTargetResource();
-    FRenderTarget* VectorRT = Field->GetVectorAtlas()->GameThread_GetRenderTargetResource();
-    if (!ScalarRT || !VectorRT)
-    {
-        return;
-    }
-
-    ScalarRT->ReadLinearColorPixels(Cache.ScalarPixels);
-    VectorRT->ReadLinearColorPixels(Cache.VectorPixels);
-
-    Cache.Resolution = NormalizeResolution(Field->FieldResolution);
-    Cache.TilesPerRow = FMath::Max(1, FMath::CeilToInt(FMath::Sqrt(static_cast<float>(Cache.Resolution))));
-    Cache.AtlasDim = Cache.TilesPerRow * Cache.Resolution;
-
-    const FVector DomainHalfExtent = FVector(Field->DomainSizeCm * 0.5f);
-    Cache.DomainMin = Field->DomainCenterCm - DomainHalfExtent;
-    const FVector DomainSize = DomainHalfExtent * 2.0f;
-    Cache.InvDomainSize = FVector(
-        DomainSize.X > 1.0f ? 1.0f / DomainSize.X : 0.0f,
-        DomainSize.Y > 1.0f ? 1.0f / DomainSize.Y : 0.0f,
-        DomainSize.Z > 1.0f ? 1.0f / DomainSize.Z : 0.0f);
-    Cache.FrameNumber = CurrentFrame;
-}
-
-bool URshipFieldSubsystem::SampleFromCache(const FFieldReadbackCache& Cache, const FVector& WorldPosition, float& OutScalar, FVector& OutVector) const
-{
-    if (Cache.ScalarPixels.Num() < Cache.AtlasDim * Cache.AtlasDim)
-    {
-        return false;
-    }
-
-    const FVector UVW = FVector(
-        FMath::Clamp((WorldPosition.X - Cache.DomainMin.X) * Cache.InvDomainSize.X, 0.0, 1.0),
-        FMath::Clamp((WorldPosition.Y - Cache.DomainMin.Y) * Cache.InvDomainSize.Y, 0.0, 1.0),
-        FMath::Clamp((WorldPosition.Z - Cache.DomainMin.Z) * Cache.InvDomainSize.Z, 0.0, 1.0));
-
-    const int32 VoxelX = FMath::Clamp(FMath::FloorToInt(UVW.X * Cache.Resolution), 0, Cache.Resolution - 1);
-    const int32 VoxelY = FMath::Clamp(FMath::FloorToInt(UVW.Y * Cache.Resolution), 0, Cache.Resolution - 1);
-    const int32 VoxelZ = FMath::Clamp(FMath::FloorToInt(UVW.Z * Cache.Resolution), 0, Cache.Resolution - 1);
-
-    const int32 TileX = VoxelZ % Cache.TilesPerRow;
-    const int32 TileY = VoxelZ / Cache.TilesPerRow;
-    const int32 AtlasX = TileX * Cache.Resolution + VoxelX;
-    const int32 AtlasY = TileY * Cache.Resolution + VoxelY;
-    const int32 PixelIndex = AtlasY * Cache.AtlasDim + AtlasX;
-
-    if (PixelIndex < 0 || PixelIndex >= Cache.ScalarPixels.Num())
-    {
-        return false;
-    }
-
-    OutScalar = Cache.ScalarPixels[PixelIndex].R;
-    const FLinearColor& VecPixel = Cache.VectorPixels[PixelIndex];
-    OutVector = FVector(VecPixel.R, VecPixel.G, VecPixel.B);
-    return true;
-}
-
-bool URshipFieldSubsystem::SampleFieldAtPosition(const FString& InFieldId, const FVector& WorldPosition, float& OutScalar, FVector& OutVector)
-{
-    OutScalar = 0.0f;
-    OutVector = FVector::ZeroVector;
-
-    URshipFieldComponent* Field = FindFieldById(InFieldId);
-    if (!Field)
-    {
-        return false;
-    }
-
-    EnsureFieldReadbackCache(Field);
-
-    const FFieldReadbackCache* Cache = ReadbackCaches.Find(InFieldId);
-    if (!Cache)
-    {
-        return false;
-    }
-
-    return SampleFromCache(*Cache, WorldPosition, OutScalar, OutVector);
-}
-
-void URshipFieldSubsystem::DistributeSamplersForField(URshipFieldComponent* Field)
-{
-    if (!Field)
-    {
-        return;
-    }
-
-    EnsureFieldReadbackCache(Field);
-
-    const FFieldReadbackCache* Cache = ReadbackCaches.Find(Field->FieldId);
-    if (!Cache || Cache->ScalarPixels.Num() < Cache->AtlasDim * Cache->AtlasDim)
-    {
-        return;
-    }
-
-    for (int32 Index = RegisteredSamplers.Num() - 1; Index >= 0; --Index)
-    {
-        URshipFieldSamplerComponent* Sampler = RegisteredSamplers[Index];
+        URshipFieldLightSampler* Sampler = RegisteredLightSamplers[i];
         if (!Sampler)
         {
-            RegisteredSamplers.RemoveAtSwap(Index);
+            RegisteredLightSamplers.RemoveAtSwap(i);
             continue;
         }
-
-        const TArray<FString> RequiredIds = Sampler->GetRequiredFieldIds();
-        if (!RequiredIds.Contains(Field->FieldId))
+        if (!Sampler->GetOwner())
         {
             continue;
         }
-
-        const AActor* Owner = Sampler->GetOwner();
-        if (!Owner)
+        // Check if this sampler references this field
+        if ((Sampler->bDriveIntensity && Sampler->IntensityFieldId == Field->FieldId) ||
+            (Sampler->bDriveColor && Sampler->ColorFieldId == Field->FieldId))
         {
-            continue;
+            Entries.Add({ Sampler, Sampler->GetOwner()->GetActorLocation() });
         }
+    }
 
-        float Scalar = 0.0f;
-        FVector Vec = FVector::ZeroVector;
-        if (SampleFromCache(*Cache, Owner->GetActorLocation(), Scalar, Vec))
+    if (Entries.Num() == 0)
+    {
+        return;
+    }
+
+    // Ensure tiny Nx1 render target
+    const int32 NumSamples = Entries.Num();
+    if (!PointSampleRT || PointSampleRT->SizeX != NumSamples || PointSampleRT->SizeY != 1)
+    {
+        PointSampleRT = NewObject<UTextureRenderTarget2D>(GetTransientPackage(), NAME_None, RF_Transient);
+        PointSampleRT->RenderTargetFormat = RTF_RGBA16f;
+        PointSampleRT->bCanCreateUAV = true;
+        PointSampleRT->bAutoGenerateMips = false;
+        PointSampleRT->InitAutoFormat(NumSamples, 1);
+        PointSampleRT->UpdateResourceImmediate(true);
+    }
+
+    FTextureRenderTargetResource* ResultResource = PointSampleRT->GameThread_GetRenderTargetResource();
+    if (!ResultResource)
+    {
+        return;
+    }
+
+    FTextureRenderTargetResource* ScalarResource = Field->GetScalarAtlas() ? Field->GetScalarAtlas()->GameThread_GetRenderTargetResource() : nullptr;
+    FTextureRenderTargetResource* VectorResource = Field->GetVectorAtlas() ? Field->GetVectorAtlas()->GameThread_GetRenderTargetResource() : nullptr;
+    if (!ScalarResource || !VectorResource)
+    {
+        return;
+    }
+
+    const int32 Resolution = NormalizeResolution(Field->FieldResolution);
+    const int32 TilesPerRow = FMath::Max(1, FMath::CeilToInt(FMath::Sqrt(static_cast<float>(Resolution))));
+    const FVector DomainHalfExtent = FVector(Field->DomainSizeCm * 0.5f);
+
+    RshipFieldRDG::FPointSampleInputs SampleInputs;
+    SampleInputs.FieldResolution = Resolution;
+    SampleInputs.TilesPerRow = TilesPerRow;
+    SampleInputs.DomainMinCm = FVector3f(Field->DomainCenterCm - DomainHalfExtent);
+    SampleInputs.DomainMaxCm = FVector3f(Field->DomainCenterCm + DomainHalfExtent);
+    SampleInputs.NumSamples = NumSamples;
+    SampleInputs.ScalarAtlasTexture = ScalarResource->GetRenderTargetTexture();
+    SampleInputs.VectorAtlasTexture = VectorResource->GetRenderTargetTexture();
+    SampleInputs.OutResultsTexture = ResultResource->GetRenderTargetTexture();
+
+    SampleInputs.Positions.Reserve(NumSamples);
+    for (const FSamplerEntry& Entry : Entries)
+    {
+        SampleInputs.Positions.Add(FVector4f(FVector3f(Entry.WorldPos), 0.0f));
+    }
+
+    // Dispatch GPU point sample pass
+    ENQUEUE_RENDER_COMMAND(RshipFieldPointSample)(
+        [SampleInputs](FRHICommandListImmediate& RHICmdList)
         {
-            Sampler->ApplySampledValue(Field->FieldId, Scalar, Vec);
-        }
+            FRDGBuilder GraphBuilder(RHICmdList);
+            RshipFieldRDG::AddPointSamplePass(GraphBuilder, SampleInputs);
+            GraphBuilder.Execute();
+        });
+
+    // Read tiny Nx1 result — previous frame's data (GPU hasn't finished this frame's yet)
+    FRenderTarget* ResultRT = PointSampleRT->GameThread_GetRenderTargetResource();
+    if (!ResultRT)
+    {
+        return;
+    }
+
+    TArray<FLinearColor> ResultPixels;
+    ResultRT->ReadLinearColorPixels(ResultPixels);
+
+    if (ResultPixels.Num() < NumSamples)
+    {
+        return;
+    }
+
+    // Distribute results
+    for (int32 i = 0; i < Entries.Num(); ++i)
+    {
+        const FLinearColor& Result = ResultPixels[i];
+        Entries[i].Sampler->ApplyFieldSample(Field->FieldId, Result.R, FVector(Result.G, Result.B, Result.A));
     }
 }

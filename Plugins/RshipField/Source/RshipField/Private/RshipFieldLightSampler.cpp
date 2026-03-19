@@ -1,7 +1,11 @@
 #include "RshipFieldLightSampler.h"
 
+#include "RshipFieldComponent.h"
+#include "RshipFieldSubsystem.h"
+
 #include "Components/LightComponent.h"
 #include "Engine/Engine.h"
+#include "Engine/World.h"
 #include "GameFramework/Actor.h"
 
 void URshipFieldLightSampler::OnRegister()
@@ -13,10 +17,26 @@ void URshipFieldLightSampler::OnRegister()
     {
         CachedLightComponent = Owner->FindComponentByClass<ULightComponent>();
     }
+
+    if (UWorld* World = GetWorld())
+    {
+        if (URshipFieldSubsystem* Subsystem = World->GetSubsystem<URshipFieldSubsystem>())
+        {
+            Subsystem->RegisterLightSampler(this);
+        }
+    }
 }
 
 void URshipFieldLightSampler::OnUnregister()
 {
+    if (UWorld* World = GetWorld())
+    {
+        if (URshipFieldSubsystem* Subsystem = World->GetSubsystem<URshipFieldSubsystem>())
+        {
+            Subsystem->UnregisterLightSampler(this);
+        }
+    }
+
     CachedLightComponent = nullptr;
     Super::OnUnregister();
 }
@@ -39,48 +59,46 @@ void URshipFieldLightSampler::RegisterOrRefreshTarget()
         .AddPropertyAction(this, TEXT("ColorB"));
 }
 
-TArray<FString> URshipFieldLightSampler::GetRequiredFieldIds() const
+void URshipFieldLightSampler::ApplyFieldSample(const FString& FieldId, float Scalar, const FVector& Vector)
 {
-    TArray<FString> Ids;
-    if (bDriveIntensity && !IntensityFieldId.IsEmpty())
+    if (!CachedLightComponent)
     {
-        Ids.AddUnique(IntensityFieldId);
+        return;
     }
-    if (bDriveColor && !ColorFieldId.IsEmpty())
-    {
-        Ids.AddUnique(ColorFieldId);
-    }
-    return Ids;
-}
 
-void URshipFieldLightSampler::ApplySampledValue(const FString& FieldId, float Scalar, const FVector& Vector)
-{
     if (bDriveIntensity && IntensityFieldId == FieldId)
     {
-        SampledIntensityScalar = Scalar;
-        if (CachedLightComponent)
-        {
-            CachedLightComponent->SetIntensity(FMath::Max(0.0f, Scalar * IntensityScale));
-        }
+        CachedLightComponent->SetIntensity(FMath::Max(0.0f, Scalar * IntensityScale));
     }
 
     if (bDriveColor && ColorFieldId == FieldId)
     {
-        SampledColorScalar = Scalar;
-        if (CachedLightComponent)
-        {
-            const float T = FMath::Clamp(Scalar, 0.0f, 1.0f);
-            CachedLightComponent->SetLightColor(FMath::Lerp(ColorA, ColorB, T));
-        }
+        float T = FMath::Clamp(Scalar, 0.0f, 1.0f);
+        CachedLightComponent->SetLightColor(FMath::Lerp(ColorA, ColorB, T));
     }
 
-    if (GEngine && IsDebugTextEnabled())
+    if (GEngine)
     {
-        const FString OwnerName = GetOwner() ? GetOwner()->GetName() : TEXT("?");
-        GEngine->AddOnScreenDebugMessage(
-            static_cast<uint64>(GetUniqueID()),
-            0.0f,
-            FColor::Cyan,
-            FString::Printf(TEXT("[Field] %s  I=%.3f  C=%.3f"), *OwnerName, SampledIntensityScalar, SampledColorScalar));
+        bool bShowDebug = false;
+        if (UWorld* World = GetWorld())
+        {
+            if (URshipFieldSubsystem* Subsystem = World->GetSubsystem<URshipFieldSubsystem>())
+            {
+                if (URshipFieldComponent* F = Subsystem->FindFieldById(FieldId))
+                {
+                    bShowDebug = F->bShowDebugText;
+                }
+            }
+        }
+
+        if (bShowDebug)
+        {
+            const FString OwnerName = GetOwner() ? GetOwner()->GetName() : TEXT("?");
+            GEngine->AddOnScreenDebugMessage(
+                static_cast<uint64>(GetUniqueID()),
+                0.0f,
+                FColor::Cyan,
+                FString::Printf(TEXT("[FieldLight] %s  S=%.3f"), *OwnerName, Scalar));
+        }
     }
 }

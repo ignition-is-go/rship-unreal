@@ -10,15 +10,6 @@ class RSHIPFIELD_API URshipFieldSamplerComponent : public URshipControllerCompon
     GENERATED_BODY()
 
 public:
-    virtual void OnRegister() override;
-    virtual void OnUnregister() override;
-
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
     FString ChildTargetSuffix = TEXT("fieldSampler");
-
-    virtual void ApplySampledValue(const FString& FieldId, float Scalar, const FVector& Vector) {}
-    virtual TArray<FString> GetRequiredFieldIds() const { return {}; }
-
-    // Returns true if any field this sampler reads from has debug text enabled.
-    bool IsDebugTextEnabled() const;
 };

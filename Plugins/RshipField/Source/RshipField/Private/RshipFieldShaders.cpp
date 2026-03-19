@@ -209,6 +209,29 @@ public:
         OutEnvironment.SetDefine(TEXT("TARGET_GROUP_SIZE_Y"), TargetGroupSizeY);
     }
 };
+class FRshipFieldSampleAtPointsCS : public FGlobalShader
+{
+    DECLARE_GLOBAL_SHADER(FRshipFieldSampleAtPointsCS);
+    SHADER_USE_PARAMETER_STRUCT(FRshipFieldSampleAtPointsCS, FGlobalShader);
+
+public:
+    BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
+        SHADER_PARAMETER(int32, FieldResolution)
+        SHADER_PARAMETER(int32, TilesPerRow)
+        SHADER_PARAMETER(FVector3f, DomainMinCm)
+        SHADER_PARAMETER(FVector3f, DomainMaxCm)
+        SHADER_PARAMETER(uint32, NumSamples)
+        SHADER_PARAMETER_RDG_TEXTURE(Texture2D<float>, ScalarFieldAtlasTex)
+        SHADER_PARAMETER_RDG_TEXTURE(Texture2D<float4>, VectorFieldAtlasTex)
+        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, SamplePositions)
+        SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, OutSampleResults)
+    END_SHADER_PARAMETER_STRUCT()
+
+    static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
+    {
+        return IsFeatureLevelSupported(Parameters.Platform, ERHIFeatureLevel::SM5);
+    }
+};
 } // namespace
 
 IMPLEMENT_GLOBAL_SHADER(FRshipFieldBuildGlobalCS, "/Plugin/RshipField/Private/RshipFieldCS.usf", "BuildGlobalFieldCS", SF_Compute);
@@ -216,6 +239,7 @@ IMPLEMENT_GLOBAL_SHADER(FRshipFieldAccumulateInfiniteCS, "/Plugin/RshipField/Pri
 IMPLEMENT_GLOBAL_SHADER(FRshipFieldSampleDeformCS, "/Plugin/RshipField/Private/RshipFieldCS.usf", "SampleAndDeformTargetCS", SF_Compute);
 IMPLEMENT_GLOBAL_SHADER(FRshipFieldRecomputeNormalsCS, "/Plugin/RshipField/Private/RshipFieldCS.usf", "RecomputeNormalsCS", SF_Compute);
 IMPLEMENT_GLOBAL_SHADER(FRshipFieldDebugViewCS, "/Plugin/RshipField/Private/RshipFieldCS.usf", "DebugViewCS", SF_Compute);
+IMPLEMENT_GLOBAL_SHADER(FRshipFieldSampleAtPointsCS, "/Plugin/RshipField/Private/RshipFieldCS.usf", "SampleFieldAtPointsCS", SF_Compute);
 
 void RshipFieldRDG::AddFieldPasses(
     FRDGBuilder& GraphBuilder,
@@ -379,4 +403,55 @@ void RshipFieldRDG::AddFieldPasses(
         }
     }
 
+}
+
+void RshipFieldRDG::AddPointSamplePass(
+    FRDGBuilder& GraphBuilder,
+    const FPointSampleInputs& Inputs)
+{
+    if (Inputs.NumSamples == 0 || !Inputs.ScalarAtlasTexture.IsValid() || !Inputs.VectorAtlasTexture.IsValid() || !Inputs.OutResultsTexture.IsValid())
+    {
+        return;
+    }
+
+    FRDGTextureRef ScalarAtlasTex = GraphBuilder.RegisterExternalTexture(
+        CreateRenderTarget(Inputs.ScalarAtlasTexture, TEXT("RshipField.ScalarAtlas.PointSample")));
+    FRDGTextureRef VectorAtlasTex = GraphBuilder.RegisterExternalTexture(
+        CreateRenderTarget(Inputs.VectorAtlasTexture, TEXT("RshipField.VectorAtlas.PointSample")));
+    FRDGTextureRef ResultsTex = GraphBuilder.RegisterExternalTexture(
+        CreateRenderTarget(Inputs.OutResultsTexture, TEXT("RshipField.PointSampleResults")));
+
+    TArray<FVector4f> SafePositions = Inputs.Positions;
+    if (SafePositions.Num() == 0)
+    {
+        SafePositions.Add(FVector4f::Zero());
+    }
+
+    FRDGBufferRef PositionBuffer = CreateStructuredBuffer(
+        GraphBuilder,
+        TEXT("RshipField.SamplePositions"),
+        TConstArrayView<FVector4f>(SafePositions));
+    FRDGBufferSRVRef PositionSRV = GraphBuilder.CreateSRV(PositionBuffer);
+
+    TShaderMapRef<FRshipFieldSampleAtPointsCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
+    FRshipFieldSampleAtPointsCS::FParameters* PassParameters = GraphBuilder.AllocParameters<FRshipFieldSampleAtPointsCS::FParameters>();
+    PassParameters->FieldResolution = Inputs.FieldResolution;
+    PassParameters->TilesPerRow = Inputs.TilesPerRow;
+    PassParameters->DomainMinCm = Inputs.DomainMinCm;
+    PassParameters->DomainMaxCm = Inputs.DomainMaxCm;
+    PassParameters->NumSamples = Inputs.NumSamples;
+    PassParameters->ScalarFieldAtlasTex = ScalarAtlasTex;
+    PassParameters->VectorFieldAtlasTex = VectorAtlasTex;
+    PassParameters->SamplePositions = PositionSRV;
+    PassParameters->OutSampleResults = GraphBuilder.CreateUAV(FRDGTextureUAVDesc(ResultsTex));
+
+    const FIntVector GroupCount = FComputeShaderUtils::GetGroupCount(FIntVector(Inputs.NumSamples, 1, 1), FIntVector(64, 1, 1));
+
+    FComputeShaderUtils::AddPass(
+        GraphBuilder,
+        RDG_EVENT_NAME("RshipField.SampleAtPoints"),
+        ERDGPassFlags::Compute,
+        ComputeShader,
+        PassParameters,
+        GroupCount);
 }
