@@ -44,8 +44,6 @@ void URshipFieldComponent::OnUnregister()
         }
     }
 
-    ScalarAtlas = nullptr;
-    VectorAtlas = nullptr;
     Super::OnUnregister();
 }
 

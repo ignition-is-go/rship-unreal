@@ -1,0 +1,60 @@
+// Material-side field sampling helper.
+// Used inside a Custom material expression node with:
+//   #include "/Plugin/RshipField/Private/MaterialFieldSampler.ush"
+//
+// Inputs (from material parameters pushed by RshipFieldMaterialSampler component):
+//   FieldScalarAtlas  (Texture2D)  - scalar field render target
+//   FieldVectorAtlas  (Texture2D)  - vector field render target
+//   FieldDomainMin    (Vector)     - world-space domain minimum
+//   FieldDomainMax    (Vector)     - world-space domain maximum
+//   FieldResolution   (Scalar)     - voxels per axis
+
+float SampleFieldScalarAtWorld(
+    Texture2D ScalarAtlas, SamplerState ScalarSampler,
+    float3 WorldPosition,
+    float3 DomainMin, float3 DomainMax,
+    float Resolution)
+{
+    int Res = (int)Resolution;
+    if (Res <= 0) return 0.0f;
+
+    int Tiles = (int)ceil(sqrt((float)Res));
+
+    float3 DomainSize = max(DomainMax - DomainMin, float3(1.0f, 1.0f, 1.0f));
+    float3 UVW = saturate((WorldPosition - DomainMin) / DomainSize);
+
+    int VoxelX = clamp((int)(UVW.x * Res), 0, Res - 1);
+    int VoxelY = clamp((int)(UVW.y * Res), 0, Res - 1);
+    int VoxelZ = clamp((int)(UVW.z * Res), 0, Res - 1);
+
+    int TileX = VoxelZ % Tiles;
+    int TileY = VoxelZ / Tiles;
+    int2 AtlasCoord = int2(TileX * Res + VoxelX, TileY * Res + VoxelY);
+
+    return ScalarAtlas.Load(int3(AtlasCoord, 0)).r;
+}
+
+float3 SampleFieldVectorAtWorld(
+    Texture2D VectorAtlas, SamplerState VectorSampler,
+    float3 WorldPosition,
+    float3 DomainMin, float3 DomainMax,
+    float Resolution)
+{
+    int Res = (int)Resolution;
+    if (Res <= 0) return float3(0.0f, 0.0f, 0.0f);
+
+    int Tiles = (int)ceil(sqrt((float)Res));
+
+    float3 DomainSize = max(DomainMax - DomainMin, float3(1.0f, 1.0f, 1.0f));
+    float3 UVW = saturate((WorldPosition - DomainMin) / DomainSize);
+
+    int VoxelX = clamp((int)(UVW.x * Res), 0, Res - 1);
+    int VoxelY = clamp((int)(UVW.y * Res), 0, Res - 1);
+    int VoxelZ = clamp((int)(UVW.z * Res), 0, Res - 1);
+
+    int TileX = VoxelZ % Tiles;
+    int TileY = VoxelZ / Tiles;
+    int2 AtlasCoord = int2(TileX * Res + VoxelX, TileY * Res + VoxelY);
+
+    return VectorAtlas.Load(int3(AtlasCoord, 0)).xyz;
+}
