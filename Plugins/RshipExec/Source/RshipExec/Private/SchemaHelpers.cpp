@@ -15,13 +15,8 @@ static void AddEnumValues(const UEnum* Enum, SchemaNode& OutProp)
     OutProp.EnumValues.Reserve(OutProp.EnumValues.Num() + NumEnums);
     for (int32 Index = 0; Index < NumEnums; ++Index)
     {
-        if (Enum->HasMetaData(TEXT("Hidden"), Index))
-        {
-            continue;
-        }
-
         const FString Name = Enum->GetNameStringByIndex(Index);
-        if (Name.EndsWith(TEXT("_MAX")))
+        if (Name.IsEmpty() || Name.EndsWith(TEXT("_MAX")))
         {
             continue;
         }

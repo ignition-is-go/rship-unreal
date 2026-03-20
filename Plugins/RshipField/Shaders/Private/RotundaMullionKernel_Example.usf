@@ -1,0 +1,89 @@
+// ============================================================================
+// Rotunda Mullion Deformer Kernel — Example
+//
+// Optimus Deformer Graph setup:
+//   Data Interfaces:
+//     - Skinned Mesh (built-in) → Position (read), Color (read), Position (write)
+//     - Rotunda Mullion (plugin) → Buffers pin
+//
+//   UV encoding (vertex color):
+//     color.r = mullion ID (0–80, encoded as float)
+//     color.g = atom ID (0–11663, encoded as float)
+//
+//   Adjust the ID encoding to match your mesh export from Houdini.
+// ============================================================================
+
+if (Index >= ReadNumVertices())
+{
+    return;
+}
+
+// ----------------------------------------
+// DECODE INPUTS
+// ----------------------------------------
+
+float3 pos   = ReadPosition(Index);
+float4 color = ReadColor(Index);
+
+// Decode IDs — adjust encoding to match your Houdini export
+int mullionID = (int)(color.r * 81.0 + 0.5);
+int atomID    = (int)(color.g * 11664.0 + 0.5);
+
+// Clamp to valid range
+mullionID = clamp(mullionID, 0, ReadMullionCount() - 1);
+atomID    = clamp(atomID, 0, ReadMullionCount() * 144 - 1);  // total atoms
+
+// ----------------------------------------
+// READ STATIC GEOMETRY
+// ----------------------------------------
+
+FMullionData m = ReadMullionData(mullionID);
+FAtomData    a = ReadAtomData(atomID);
+
+// ----------------------------------------
+// EVALUATE CONTROL LAYERS (bottom-up)
+// ----------------------------------------
+
+float4 totalRotation    = float4(0, 0, 0, 1);  // identity quaternion
+float3 totalTranslation = float3(0, 0, 0);
+float  totalScale       = 1.0;
+
+for (int i = 0; i < 8; i++)
+{
+    FMullionControlLayer L = ReadControlLayer(i);
+
+    // Skip inactive layers
+    if (L.Weight <= 0.0) continue;
+
+    // Bitmask selection: mullion
+    if (!IsMullionSelected(L, mullionID)) continue;
+
+    // Bitmask selection: atom within mullion
+    if (!IsAtomSelected(L, a.Row, m.ColCount, a.Column)) continue;
+
+    // Blend transform based on mode
+    if (L.BlendMode == 0)
+    {
+        // Override: lerp toward this layer's transform
+        totalRotation    = QuatSlerp(totalRotation, L.Rotation, L.Weight);
+        totalTranslation = lerp(totalTranslation, L.Translation, L.Weight);
+        totalScale       = lerp(totalScale, L.Scale, L.Weight);
+    }
+    else
+    {
+        // Additive: add on top
+        float4 identityQ = float4(0, 0, 0, 1);
+        totalRotation    = QuatMultiply(totalRotation, QuatSlerp(identityQ, L.Rotation, L.Weight));
+        totalTranslation += L.Translation * L.Weight;
+        totalScale       += (L.Scale - 1.0) * L.Weight;
+    }
+}
+
+// ----------------------------------------
+// APPLY ACCUMULATED TRANSFORM
+// ----------------------------------------
+
+float3 localPos = pos - a.Centroid;
+float3 newPos   = QuatRotate(totalRotation, localPos * totalScale) + a.Centroid + totalTranslation;
+
+WritePosition_0(Index, newPos);
