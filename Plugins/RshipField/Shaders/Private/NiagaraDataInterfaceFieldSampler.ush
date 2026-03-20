@@ -1,7 +1,7 @@
 int {ParameterName}_FieldResolution;
 int {ParameterName}_TilesPerRow;
-float3 {ParameterName}_DomainMinCm;
-float3 {ParameterName}_DomainMaxCm;
+float4 {ParameterName}_DomainMinCm;
+float4 {ParameterName}_DomainMaxCm;
 Texture2D {ParameterName}_ScalarAtlas;
 SamplerState {ParameterName}_ScalarAtlasSampler;
 Texture2D {ParameterName}_VectorAtlas;
@@ -11,8 +11,8 @@ void SampleField_{ParameterName}(in float3 In_WorldPosition, out float Out_Scala
 {
     int Res = {ParameterName}_FieldResolution;
     int Tiles = {ParameterName}_TilesPerRow;
-    float3 DomainMin = {ParameterName}_DomainMinCm;
-    float3 DomainMax = {ParameterName}_DomainMaxCm;
+    float3 DomainMin = {ParameterName}_DomainMinCm.xyz;
+    float3 DomainMax = {ParameterName}_DomainMaxCm.xyz;
 
     if (Res <= 0)
     {

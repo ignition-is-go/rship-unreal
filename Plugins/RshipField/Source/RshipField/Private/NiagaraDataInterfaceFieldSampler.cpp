@@ -22,8 +22,8 @@ struct FNDIFieldSamplerInstanceData
 {
     int32 FieldResolution = 0;
     int32 TilesPerRow = 0;
-    FVector3f DomainMinCm = FVector3f::ZeroVector;
-    FVector3f DomainMaxCm = FVector3f::ZeroVector;
+    FVector4f DomainMinCm = FVector4f(0.0f, 0.0f, 0.0f, 0.0f);
+    FVector4f DomainMaxCm = FVector4f(0.0f, 0.0f, 0.0f, 0.0f);
     FTextureRHIRef ScalarAtlasRHI;
     FTextureRHIRef VectorAtlasRHI;
 };
@@ -157,14 +157,14 @@ bool UNiagaraDataInterfaceFieldSampler::PerInstanceTick(void* PerInstanceData, F
         return false;
     }
 
-    const int32 Resolution = Field->FieldResolution;
+    const int32 Resolution = GetFieldResolutionValue(Field->FieldResolution);
     const int32 TilesPerRow = FMath::Max(1, FMath::CeilToInt(FMath::Sqrt(static_cast<float>(Resolution))));
     const FVector DomainHalfExtent = FVector(Field->DomainSizeCm * 0.5f);
 
     InstanceData->FieldResolution = Resolution;
     InstanceData->TilesPerRow = TilesPerRow;
-    InstanceData->DomainMinCm = FVector3f(Field->DomainCenterCm - DomainHalfExtent);
-    InstanceData->DomainMaxCm = FVector3f(Field->DomainCenterCm + DomainHalfExtent);
+    InstanceData->DomainMinCm = FVector4f(FVector3f(Field->DomainCenterCm - DomainHalfExtent), 0.0f);
+    InstanceData->DomainMaxCm = FVector4f(FVector3f(Field->DomainCenterCm + DomainHalfExtent), 0.0f);
     InstanceData->ScalarAtlasRHI = ScalarResource->GetRenderTargetTexture();
     InstanceData->VectorAtlasRHI = VectorResource->GetRenderTargetTexture();
 
@@ -291,8 +291,8 @@ void UNiagaraDataInterfaceFieldSampler::SetShaderParameters(const FNiagaraDataIn
     {
         Params->FieldResolution = 0;
         Params->TilesPerRow = 1;
-        Params->DomainMinCm = FVector3f::ZeroVector;
-        Params->DomainMaxCm = FVector3f::ZeroVector;
+        Params->DomainMinCm = FVector4f(0.0f, 0.0f, 0.0f, 0.0f);
+        Params->DomainMaxCm = FVector4f(0.0f, 0.0f, 0.0f, 0.0f);
         Params->ScalarAtlasSampler = TStaticSamplerState<SF_Point, AM_Clamp, AM_Clamp>::GetRHI();
         Params->VectorAtlasSampler = TStaticSamplerState<SF_Point, AM_Clamp, AM_Clamp>::GetRHI();
 

@@ -1,8 +1,8 @@
 // Uniforms bound by the data provider
 int {DataInterfaceName}_FieldResolution;
 int {DataInterfaceName}_TilesPerRow;
-float3 {DataInterfaceName}_DomainMinCm;
-float3 {DataInterfaceName}_DomainMaxCm;
+float4 {DataInterfaceName}_DomainMinCm;
+float4 {DataInterfaceName}_DomainMaxCm;
 Texture2D {DataInterfaceName}_ScalarAtlas;
 SamplerState {DataInterfaceName}_ScalarAtlasSampler;
 Texture2D {DataInterfaceName}_VectorAtlas;
@@ -19,8 +19,8 @@ int2 FieldAtlasCoord_{DataInterfaceName}(float3 WorldPosition)
 {
     int Res = {DataInterfaceName}_FieldResolution;
     int Tiles = {DataInterfaceName}_TilesPerRow;
-    float3 DomainMin = {DataInterfaceName}_DomainMinCm;
-    float3 DomainMax = {DataInterfaceName}_DomainMaxCm;
+    float3 DomainMin = {DataInterfaceName}_DomainMinCm.xyz;
+    float3 DomainMax = {DataInterfaceName}_DomainMaxCm.xyz;
 
     float3 DomainSize = max(DomainMax - DomainMin, float3(1.0f, 1.0f, 1.0f));
     float3 UVW = saturate((WorldPosition - DomainMin) / DomainSize);

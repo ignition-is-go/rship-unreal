@@ -37,20 +37,14 @@ foreach ($dir in @("Binaries", "Intermediate")) {
     }
 }
 
-# Project-level Intermediate
-$projectIntermediate = Join-Path $projectRoot "Intermediate"
-if (Test-Path $projectIntermediate) {
-    Write-Host "  Removing project Intermediate"
-    Remove-Item -Recurse -Force $projectIntermediate
-    $cleaned++
-}
-
-# Project DerivedDataCache
-$ddc = Join-Path $projectRoot "DerivedDataCache"
-if (Test-Path $ddc) {
-    Write-Host "  Clearing project DerivedDataCache"
-    Remove-Item -Recurse -Force $ddc
-    $cleaned++
+# Project-level build artifacts (compiled modules + generated shaders)
+foreach ($dir in @("Intermediate\Build", "Intermediate\ShaderAutogen")) {
+    $target = Join-Path $projectRoot $dir
+    if (Test-Path $target) {
+        Write-Host "  Removing project $dir"
+        Remove-Item -Recurse -Force $target
+        $cleaned++
+    }
 }
 
 # Saved/ShaderDebugInfo

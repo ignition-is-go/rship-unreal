@@ -34,7 +34,6 @@ public:
 
 private:
     void DispatchFieldPasses(URshipFieldComponent* Field);
-    int32 NormalizeResolution(int32 RequestedResolution) const;
 
     UPROPERTY(Transient)
     TArray<TObjectPtr<URshipFieldComponent>> RegisteredFields;
