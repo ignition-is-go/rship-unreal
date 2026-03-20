@@ -70,8 +70,8 @@ private:
     bool bIsValid = false;
     int32 FieldResolution = 0;
     int32 TilesPerRow = 0;
-    FVector3f DomainMinCm = FVector3f::ZeroVector;
-    FVector3f DomainMaxCm = FVector3f::ZeroVector;
+    FVector4f DomainMinCm = FVector4f(0.0f, 0.0f, 0.0f, 0.0f);
+    FVector4f DomainMaxCm = FVector4f(0.0f, 0.0f, 0.0f, 0.0f);
     FTextureRHIRef ScalarAtlasRHI;
     FTextureRHIRef VectorAtlasRHI;
 

@@ -177,7 +177,7 @@ void URshipFieldMaterialSampler::PushFieldParameters()
         MID->SetTextureParameterValue(PN_VectorAtlas, VectorAtlas);
         MID->SetVectorParameterValue(PN_DomainMin, DomainMin);
         MID->SetVectorParameterValue(PN_DomainMax, DomainMax);
-        MID->SetScalarParameterValue(PN_Resolution, static_cast<float>(Field->FieldResolution));
+        MID->SetScalarParameterValue(PN_Resolution, static_cast<float>(GetFieldResolutionValue(Field->FieldResolution)));
     }
 
     // Debug text
@@ -189,6 +189,6 @@ void URshipFieldMaterialSampler::PushFieldParameters()
             0.0f,
             FColor::Magenta,
             FString::Printf(TEXT("[FieldMaterial] %s  field='%s'  MIDs=%d  res=%d"),
-                *OwnerName, *FieldId, CachedMIDs.Num(), Field->FieldResolution));
+                *OwnerName, *FieldId, CachedMIDs.Num(), GetFieldResolutionValue(Field->FieldResolution)));
     }
 }

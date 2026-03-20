@@ -33,10 +33,34 @@ The field component defines the simulation domain and owns all effectors. Attach
 
 All effectors live inside the field component and are evaluated per-voxel on the GPU.
 
-**Wave Effectors** — Spatial oscillations propagating from a point or along a direction.
+**Wave Effectors** — Two physically-correct wave modes within the same effector type.
+
+*Standing mode* (`sin(kx) · cos(ωt)`): Fixed spatial pattern that breathes in amplitude. Nodes at fixed radii that never move. Stateless.
+
+*Traveling mode* (`sin(kx - ωt)`): Wavefronts expand outward from source with a Gaussian envelope. CPU manages a wavefront ring buffer (max 16 per effector); GPU evaluates per-wavefront envelope and falloff.
+
+Common parameters:
 - Position, Direction, RadiusCm, Amplitude, WavelengthCm, FrequencyHz
 - Waveform: Sine, Triangle, Saw, Square
-- FalloffExponent controls distance attenuation
+- FalloffExponent: distance attenuation curve. Standing: voxel distance from center. Traveling: same curve applied uniformly.
+
+Traveling-only parameters:
+- `WaveSpeedCmPerSec`: how fast wavefronts expand
+- `EnvelopeWidthCm`: Gaussian spatial width of each wavefront pulse
+- `bAutoEmit` / `RepeatHz`: continuous wavefront emission (higher RepeatHz → more continuous flow)
+- `EmitWavefront(index)`: blueprint-callable manual trigger for event-driven ripples
+
+#### Dispersion Lock (`v = f · λ`)
+
+Frequency, wavelength, and wave speed are related by the dispersion relation `v = f · λ`. Only two are independent. The `DispersionLock` enum (traveling mode only) lets the artist choose which parameter to derive from the other two:
+
+| DispersionLock | Artist controls | Derived | Mental model |
+|---|---|---|---|
+| **Derive Frequency** (default) | Speed + Wavelength | `f = v/λ` | "Ripples expand at this speed with this ring spacing" |
+| **Derive Speed** | Frequency + Wavelength | `v = f·λ` | "This many oscillations per second at this spacing" |
+| **Derive Wavelength** | Speed + Frequency | `λ = v/f` | "Ripples expand at this speed, oscillating this fast" |
+
+The relation is resolved on CPU before GPU upload. The shader always receives consistent values.
 
 **Noise Effectors** — Procedural noise volumes.
 - Modes: Value, Simplex, Curl
@@ -47,7 +71,7 @@ All effectors live inside the field component and are evaluated per-voxel on the
 
 ### Phase Groups
 
-Phase groups sync effector oscillations to the transport clock at different tempo subdivisions. Each group has a `TempoMultiplier` (e.g. 0.5 = half-time) and `PhaseOffset`. Effectors reference groups by `PhaseGroupId`.
+Sync groups lock effector oscillations to the transport clock at different tempo subdivisions. Each group has a `TempoMultiplier` (e.g. 0.5 = half-time) and `PhaseOffset`. Effectors reference groups by `SyncGroup`.
 
 ### Atlas Output
 
@@ -67,7 +91,7 @@ A `UWorldSubsystem` that coordinates all fields in the level.
 
 ### GPU Pipeline
 
-1. Pack effector data into 7 structured buffers per effector + layer/phase-group buffers
+1. Pack effector data into 8 structured buffers per effector + layer/phase-group/wavefront buffers
 2. Dispatch `BuildGlobalFieldCS` (4x4x4 thread groups) to evaluate all effectors at every voxel
 3. Output ScalarAtlas and VectorAtlas
 4. (Optional per-target) Dispatch `SampleAndDeformTargetCS` + `RecomputeNormalsCS` for mesh deformation

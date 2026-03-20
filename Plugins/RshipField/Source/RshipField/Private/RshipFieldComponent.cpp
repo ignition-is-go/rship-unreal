@@ -82,7 +82,10 @@ void URshipFieldComponent::TickComponent(float DeltaTime, ELevelTick TickType, F
         {
             if (!Wave.bEnabled) continue;
             DrawDebugSphere(World, Wave.PositionCm, Wave.bInfiniteRange ? 50.0f : Wave.RadiusCm, 16, FColor::Cyan, false, -1.0f, 0, 1.5f);
-            DrawDebugDirectionalArrow(World, Wave.PositionCm, Wave.PositionCm + Wave.Direction.GetSafeNormal() * 100.0f, 20.0f, FColor::Cyan, false, -1.0f, 0, 2.0f);
+            if (!Wave.Polarization.IsNearlyZero())
+            {
+                DrawDebugDirectionalArrow(World, Wave.PositionCm, Wave.PositionCm + Wave.Polarization.GetSafeNormal() * 100.0f, 20.0f, FColor::Cyan, false, -1.0f, 0, 2.0f);
+            }
         }
 
         for (const FRshipFieldNoiseEffector& Noise : NoiseEffectors)
@@ -128,19 +131,7 @@ void URshipFieldComponent::RegisterOrRefreshTarget()
 
 bool URshipFieldComponent::EnsureAtlasTextures()
 {
-    // Snap to allowed resolution
-    const int32 Allowed[] = { 64, 128, 192, 256, 320 };
-    int32 Resolution = Allowed[0];
-    int32 BestDist = FMath::Abs(FieldResolution - Resolution);
-    for (const int32 Candidate : Allowed)
-    {
-        const int32 Dist = FMath::Abs(FieldResolution - Candidate);
-        if (Dist < BestDist)
-        {
-            Resolution = Candidate;
-            BestDist = Dist;
-        }
-    }
+    const int32 Resolution = GetFieldResolutionValue(FieldResolution);
 
     const int32 TilesPerRow = FMath::Max(1, FMath::CeilToInt(FMath::Sqrt(static_cast<float>(Resolution))));
     const int32 AtlasDim = TilesPerRow * Resolution;
@@ -196,7 +187,7 @@ void URshipFieldComponent::SetUpdateHzAction(float Hz)
     UpdateHz = FMath::Clamp(Hz, 1.0f, 240.0f);
 }
 
-void URshipFieldComponent::SetFieldResolutionAction(int32 Resolution)
+void URshipFieldComponent::SetFieldResolutionAction(ERshipFieldResolution Resolution)
 {
     FieldResolution = Resolution;
 }
@@ -236,6 +227,48 @@ void URshipFieldComponent::SetFieldState(const FString& StateJson)
 {
     LastFieldStateError.Reset();
     // TODO(ms): parse JSON into local properties
+}
+
+void URshipFieldComponent::EmitAllWavefronts()
+{
+    for (int32 i = 0; i < WaveEffectors.Num(); ++i)
+    {
+        EmitWavefront(i);
+    }
+}
+
+void URshipFieldComponent::EmitWavefront(int32 WaveEffectorIndex)
+{
+    if (!WaveEffectors.IsValidIndex(WaveEffectorIndex))
+    {
+        return;
+    }
+
+    const FRshipFieldWaveEffector& Wave = WaveEffectors[WaveEffectorIndex];
+    if (Wave.WaveMode != ERshipFieldWaveMode::Traveling)
+    {
+        return;
+    }
+
+    // Ensure state array is sized
+    if (WaveEffectorStates.Num() != WaveEffectors.Num())
+    {
+        WaveEffectorStates.SetNum(WaveEffectors.Num());
+    }
+
+    FRshipFieldWaveEffectorState& State = WaveEffectorStates[WaveEffectorIndex];
+
+    FRshipFieldWavefront WF;
+    WF.BirthTime = SimulationTimeSeconds;
+    WF.BirthPositionCm = Wave.PositionCm;
+    State.Wavefronts.Add(WF);
+    State.LastEmitTime = SimulationTimeSeconds;
+
+    // Evict oldest if over cap
+    while (State.Wavefronts.Num() > Wave.MaxWavefronts)
+    {
+        State.Wavefronts.RemoveAt(0);
+    }
 }
 
 void URshipFieldComponent::UpdateVisualizer()

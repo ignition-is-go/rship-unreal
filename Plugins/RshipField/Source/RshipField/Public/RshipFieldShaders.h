@@ -18,10 +18,10 @@ struct FGlobalDispatchInputs
     float TransportPhase = 0.0f;
     float MasterScalarGain = 1.0f;
     float MasterVectorGain = 1.0f;
-    FVector3f DomainMinCm = FVector3f(-5000.0f, -5000.0f, -5000.0f);
-    FVector3f DomainMaxCm = FVector3f(5000.0f, 5000.0f, 5000.0f);
+    FVector4f DomainMinCm = FVector4f(-5000.0f, -5000.0f, -5000.0f, 0.0f);
+    FVector4f DomainMaxCm = FVector4f(5000.0f, 5000.0f, 5000.0f, 0.0f);
     uint32 LayerCount = 0;
-    uint32 PhaseGroupCount = 0;
+    uint32 SyncGroupCount = 0;
     uint32 EffectorCount = 0;
 
     int32 DebugMode = 0;
@@ -32,8 +32,8 @@ struct FGlobalDispatchInputs
 
     TArray<FVector4f> LayerDataA;
     TArray<FVector4f> LayerDataB;
-    TArray<FVector4f> PhaseGroupData;
-    // Per-effector data, 7 separate buffers. Layout documented in RshipFieldCS.usf.
+    TArray<FVector4f> SyncGroupData;
+    // Per-effector data, 8 separate buffers. Layout documented in RshipFieldCS.usf.
     TArray<FVector4f> EffectorData0;
     TArray<FVector4f> EffectorData1;
     TArray<FVector4f> EffectorData2;
@@ -41,6 +41,11 @@ struct FGlobalDispatchInputs
     TArray<FVector4f> EffectorData4;
     TArray<FVector4f> EffectorData5;
     TArray<FVector4f> EffectorData6;
+    TArray<FVector4f> EffectorData7; // WavefrontOffset, WavefrontCount, WaveSpeedCmPerSec, EnvelopeWidthCm (WaveMode is in E3.w)
+
+    // Flat wavefront buffer — all effectors' wavefronts packed sequentially.
+    // Per wavefront: (BirthTime, BirthPosX, BirthPosY, BirthPosZ)
+    TArray<FVector4f> WavefrontData;
 
     bool IsValid() const
     {
@@ -63,10 +68,10 @@ struct FTargetDispatchInputs
     float AxisWeightObject = 0.0f;
     float MaxDisplacementCm = 100.0f;
 
-    FVector3f DomainMinCm = FVector3f(-5000.0f, -5000.0f, -5000.0f);
-    FVector3f DomainMaxCm = FVector3f(5000.0f, 5000.0f, 5000.0f);
-    FVector3f WorldAxis = FVector3f(0.0f, 0.0f, 1.0f);
-    FVector3f ObjectAxis = FVector3f(0.0f, 0.0f, 1.0f);
+    FVector4f DomainMinCm = FVector4f(-5000.0f, -5000.0f, -5000.0f, 0.0f);
+    FVector4f DomainMaxCm = FVector4f(5000.0f, 5000.0f, 5000.0f, 0.0f);
+    FVector4f WorldAxis = FVector4f(0.0f, 0.0f, 1.0f, 0.0f);
+    FVector4f ObjectAxis = FVector4f(0.0f, 0.0f, 1.0f, 0.0f);
 
     bool bAsyncCompute = true;
 
@@ -93,8 +98,8 @@ struct FPointSampleInputs
 {
     int32 FieldResolution = 0;
     int32 TilesPerRow = 0;
-    FVector3f DomainMinCm = FVector3f::ZeroVector;
-    FVector3f DomainMaxCm = FVector3f::ZeroVector;
+    FVector4f DomainMinCm = FVector4f(0.0f, 0.0f, 0.0f, 0.0f);
+    FVector4f DomainMaxCm = FVector4f(0.0f, 0.0f, 0.0f, 0.0f);
     uint32 NumSamples = 0;
 
     FTextureRHIRef ScalarAtlasTexture;

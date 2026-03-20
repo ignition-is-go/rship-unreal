@@ -20,7 +20,7 @@ RWTexture2D<float4> OutDeformedNormalTex;
 
 StructuredBuffer<float4> LayerDataA;
 StructuredBuffer<float4> LayerDataB;
-StructuredBuffer<float4> PhaseGroupData;
+StructuredBuffer<float4> SyncGroupData;
 StructuredBuffer<float4> EffectorData0;
 StructuredBuffer<float4> EffectorData1;
 StructuredBuffer<float4> EffectorData2;
@@ -28,6 +28,8 @@ StructuredBuffer<float4> EffectorData3;
 StructuredBuffer<float4> EffectorData4;
 StructuredBuffer<float4> EffectorData5;
 StructuredBuffer<float4> EffectorData6;
+StructuredBuffer<float4> EffectorData7;
+StructuredBuffer<float4> WavefrontData;
 
 int FieldResolution;
 int TilesPerRow;
@@ -36,10 +38,10 @@ float BPM;
 float TransportPhase;
 float MasterScalarGain;
 float MasterVectorGain;
-float3 DomainMinCm;
-float3 DomainMaxCm;
+float4 DomainMinCm;
+float4 DomainMaxCm;
 uint LayerCount;
-uint PhaseGroupCount;
+uint SyncGroupCount;
 uint EffectorCount;
 int DebugMode;
 int DebugSelectionIndex;
@@ -51,8 +53,8 @@ float AxisWeightNormal;
 float AxisWeightWorld;
 float AxisWeightObject;
 float MaxDisplacementCm;
-float3 WorldAxis;
-float3 ObjectAxis;
+float4 WorldAxis;
+float4 ObjectAxis;
 
 static const float TWO_PI = 6.28318530718f;
 
@@ -75,8 +77,8 @@ int2 AtlasCoordFromVoxel(int3 Voxel, int Resolution, int Tiles)
 
 int3 VoxelFromWorld(float3 PositionCm)
 {
-    float3 DomainSize = max(DomainMaxCm - DomainMinCm, float3(1.0f, 1.0f, 1.0f));
-    float3 UVW = saturate((PositionCm - DomainMinCm) / DomainSize);
+    float3 DomainSize = max(DomainMaxCm.xyz - DomainMinCm.xyz, float3(1.0f, 1.0f, 1.0f));
+    float3 UVW = saturate((PositionCm - DomainMinCm.xyz) / DomainSize);
     // Match the write path: voxel center is at (Voxel + 0.5) / Resolution
     int3 Voxel = int3(UVW * FieldResolution);
     return clamp(Voxel, int3(0, 0, 0), int3(FieldResolution - 1, FieldResolution - 1, FieldResolution - 1));
@@ -153,23 +155,23 @@ float3 CurlLikeNoise(float3 P)
 
 float EvaluateWaveform(uint WaveformType, float Phase)
 {
-    float T = frac(Phase / TWO_PI);
+    // 0 = Sine, 1 = Cosine, 2 = Triangle, 3 = Saw, 4 = Square
     if (WaveformType == 1u)
+    {
+        return cos(Phase);
+    }
+    float T = frac(Phase / TWO_PI);
+    if (WaveformType == 2u)
     {
         return 1.0f - abs(2.0f * T - 1.0f) * 2.0f;
     }
-    if (WaveformType == 2u)
+    if (WaveformType == 3u)
     {
         return 2.0f * T - 1.0f;
     }
-    if (WaveformType == 3u)
-    {
-        return (T < 0.5f) ? 1.0f : -1.0f;
-    }
     if (WaveformType == 4u)
     {
-        float S = sin(Phase);
-        return S * S * (3.0f - 2.0f * abs(S)) * sign(S);
+        return (T < 0.5f) ? 1.0f : -1.0f;
     }
     return sin(Phase);
 }
@@ -234,14 +236,14 @@ void ApplyBlendVector(inout float3 Acc, float3 Value, uint BlendOp, inout bool b
     }
 }
 
-float ComputePhaseGroupOffset(int PhaseGroupIndex)
+float ComputeSyncGroupOffset(int SyncGroupIndex)
 {
-    if (PhaseGroupIndex < 0 || (uint)PhaseGroupIndex >= PhaseGroupCount)
+    if (SyncGroupIndex < 0 || (uint)SyncGroupIndex >= SyncGroupCount)
     {
         return 0.0f;
     }
 
-    float4 Group = PhaseGroupData[PhaseGroupIndex];
+    float4 Group = SyncGroupData[SyncGroupIndex];
     float PhaseOffset = Group.z;
     if (Group.x > 0.5f)
     {
@@ -272,8 +274,8 @@ void EvaluateFieldAtPosition(float3 WorldPosCm, bool bIncludeInfiniteEffectors, 
         bool bLayerScalarInitialized = false;
         bool bLayerVectorInitialized = false;
 
-        const int LayerPhaseGroup = (int)floor(L1.y + 0.5f);
-        const float LayerPhaseOffset = ComputePhaseGroupOffset(LayerPhaseGroup);
+        const int LayerSyncGroup = (int)floor(L1.y + 0.5f);
+        const float LayerPhaseOffset = ComputeSyncGroupOffset(LayerSyncGroup);
 
         for (uint EffectorIndex = 0u; EffectorIndex < EffectorCount; ++EffectorIndex)
         {
@@ -318,8 +320,9 @@ void EvaluateFieldAtPosition(float3 WorldPosCm, bool bIncludeInfiniteEffectors, 
             if (!bInfiniteRange)
             {
                 float Radius = max(E0.w, 0.001f);
-                float FalloffExp = max(E3.y, 0.01f);
-                Falloff = pow(saturate(1.0f - DistanceCm / Radius), FalloffExp);
+                float NormDist = saturate(DistanceCm / Radius);
+                float FalloffExp = E3.y;
+                Falloff = (NormDist >= 1.0f) ? 0.0f : (FalloffExp <= 0.0f ? 1.0f : pow(1.0f - NormDist, FalloffExp));
             }
 
             // E3.z = effector type: 0 = Wave, 1 = Noise, 2 = Attractor
@@ -341,25 +344,70 @@ void EvaluateFieldAtPosition(float3 WorldPosCm, bool bIncludeInfiniteEffectors, 
             }
             else
             {
-                // Wave / Noise: waveform-modulated signal
-                int PhaseGroupIndex = (int)floor(E5.x + 0.5f);
+                // Wave / Noise evaluation
+                // E3.w = WaveMode: 0 = Standing, 1 = Traveling
+                uint WaveMode = (uint)max(0.0f, floor(E3.w + 0.5f));
+                float4 E7 = EffectorData7[EffectorIndex];
+
+                int SyncGroupIndex = (int)floor(E5.x + 0.5f);
                 float TemporalPhase;
-                if (PhaseGroupIndex >= 0 && (uint)PhaseGroupIndex < PhaseGroupCount && PhaseGroupData[PhaseGroupIndex].x > 0.5f)
+                if (SyncGroupIndex >= 0 && (uint)SyncGroupIndex < SyncGroupCount && SyncGroupData[SyncGroupIndex].x > 0.5f)
                 {
-                    TemporalPhase = ComputePhaseGroupOffset(PhaseGroupIndex);
+                    TemporalPhase = ComputeSyncGroupOffset(SyncGroupIndex);
                 }
                 else
                 {
-                    TemporalPhase = TimeSeconds * (TWO_PI * max(E2.y, 0.0f) * max(E2.z, 0.0f));
+                    TemporalPhase = TimeSeconds * (TWO_PI * max(E2.y, 0.0f));
                 }
 
-                float SpatialPhase = (DistanceCm / max(E2.x, 0.001f)) * TWO_PI;
-                float Phase = SpatialPhase + TemporalPhase + E2.w;
-
+                float WavelengthCm = max(E2.x, 0.001f);
+                float SpatialPhase = (DistanceCm / WavelengthCm) * TWO_PI;
                 uint Waveform = (uint)max(0.0f, floor(E4.w + 0.5f));
-                float Wave = EvaluateWaveform(Waveform, Phase);
-
                 float Fade = saturate(E3.x);
+
+                float Wave = 0.0f;
+
+                if (WaveMode == 1u)
+                {
+                    // Traveling wave: sin(kx - wt) with expanding wavefront envelopes
+                    int WavefrontOffset = (int)floor(E7.x + 0.5f);
+                    int WavefrontCount = (int)floor(E7.y + 0.5f);
+                    float WaveSpeed = max(E7.z, 0.1f);
+                    float EnvelopeWidth = max(E2.z, 1.0f);
+                    float InvEnvelope = 1.0f / EnvelopeWidth;
+
+                    for (int wi = 0; wi < WavefrontCount; ++wi)
+                    {
+                        float4 WF = WavefrontData[WavefrontOffset + wi];
+                        float Age = TimeSeconds - WF.x;
+                        if (Age < 0.0f) continue;
+
+                        float3 BirthPos = WF.yzw;
+                        float DistFromSource = length(WorldPosCm - BirthPos);
+                        float WavefrontRadius = Age * WaveSpeed;
+
+                        // Signed distance from voxel to wavefront shell
+                        float DistFromFront = DistFromSource - WavefrontRadius;
+
+                        // Gaussian envelope centered on wavefront
+                        float EnvArg = DistFromFront * InvEnvelope;
+                        float Envelope = exp(-0.5f * EnvArg * EnvArg);
+
+                        // Traveling wave phase: sin(kx - wt)
+                        float Phase = (DistFromFront / WavelengthCm) * TWO_PI;
+                        float WFWave = EvaluateWaveform(Waveform, Phase);
+
+                        Wave += WFWave * Envelope;
+                    }
+                }
+                else
+                {
+                    // Standing wave: W(kx) · W(wt + π/2)
+                    float Spatial = EvaluateWaveform(Waveform, SpatialPhase + E2.w);
+                    float Temporal = EvaluateWaveform(Waveform, TemporalPhase + TWO_PI * 0.25f);
+                    Wave = Spatial * Temporal;
+                }
+
                 Signal = Wave * Falloff * Fade * E1.w;
 
                 uint NoiseType = (uint)max(0.0f, floor(E5.y + 0.5f));
@@ -386,7 +434,8 @@ void EvaluateFieldAtPosition(float3 WorldPosCm, bool bIncludeInfiniteEffectors, 
 
                 Signal = clamp(Signal, E4.x, E4.y);
 
-                EffDirection = SafeNormalize(E1.xyz, float3(0.0f, 0.0f, 1.0f));
+                float DirLenSq = dot(E1.xyz, E1.xyz);
+                EffDirection = (DirLenSq > 1e-10f) ? E1.xyz * rsqrt(DirLenSq) : float3(0.0f, 0.0f, 0.0f);
             }
 
             uint BlendOp = (uint)max(0.0f, floor(E4.z + 0.5f));
@@ -425,7 +474,7 @@ void BuildGlobalFieldCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     }
 
     float3 UVW = (float3(Voxel) + 0.5f) / max((float)FieldResolution, 1.0f);
-    float3 WorldPos = lerp(DomainMinCm, DomainMaxCm, UVW);
+    float3 WorldPos = lerp(DomainMinCm.xyz, DomainMaxCm.xyz, UVW);
 
     float ScalarSignal = 0.0f;
     float3 VectorSignal = float3(0.0f, 0.0f, 0.0f);
@@ -454,7 +503,7 @@ void AccumulateInfiniteCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     float3 Vector = OutVectorFieldAtlasTex[AtlasCoord].xyz;
 
     float3 UVW = (float3(Voxel) + 0.5f) / max((float)FieldResolution, 1.0f);
-    float3 WorldPos = lerp(DomainMinCm, DomainMaxCm, UVW);
+    float3 WorldPos = lerp(DomainMinCm.xyz, DomainMaxCm.xyz, UVW);
 
     float InfiniteScalar = 0.0f;
     float3 InfiniteVector = float3(0.0f, 0.0f, 0.0f);
@@ -484,8 +533,8 @@ void SampleAndDeformTargetCS(uint3 DispatchThreadId : SV_DispatchThreadID)
     float3 VectorField = SampleVectorAtWorld(RestPos) * VectorGain;
 
     float3 NormalAxis = RestNormal;
-    float3 WorldAxisN = SafeNormalize(WorldAxis, float3(0.0f, 0.0f, 1.0f));
-    float3 ObjectAxisN = SafeNormalize(ObjectAxis, float3(0.0f, 0.0f, 1.0f));
+    float3 WorldAxisN = SafeNormalize(WorldAxis.xyz, float3(0.0f, 0.0f, 1.0f));
+    float3 ObjectAxisN = SafeNormalize(ObjectAxis.xyz, float3(0.0f, 0.0f, 1.0f));
 
     float3 ScalarDirection =
         AxisWeightNormal * NormalAxis +

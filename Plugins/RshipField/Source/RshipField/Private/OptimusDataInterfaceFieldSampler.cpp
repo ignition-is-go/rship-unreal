@@ -19,8 +19,8 @@
 BEGIN_SHADER_PARAMETER_STRUCT(FOptimusFieldSamplerParameters, )
     SHADER_PARAMETER(int32, FieldResolution)
     SHADER_PARAMETER(int32, TilesPerRow)
-    SHADER_PARAMETER(FVector3f, DomainMinCm)
-    SHADER_PARAMETER(FVector3f, DomainMaxCm)
+    SHADER_PARAMETER(FVector4f, DomainMinCm)
+    SHADER_PARAMETER(FVector4f, DomainMaxCm)
     SHADER_PARAMETER_RDG_TEXTURE(Texture2D, ScalarAtlas)
     SHADER_PARAMETER_SAMPLER(SamplerState, ScalarAtlasSampler)
     SHADER_PARAMETER_RDG_TEXTURE(Texture2D, VectorAtlas)
@@ -136,11 +136,11 @@ FOptimusFieldSamplerProviderProxy::FOptimusFieldSamplerProviderProxy(USceneCompo
         return;
     }
 
-    FieldResolution = Field->FieldResolution;
+    FieldResolution = GetFieldResolutionValue(Field->FieldResolution);
     TilesPerRow = FMath::Max(1, FMath::CeilToInt(FMath::Sqrt(static_cast<float>(FieldResolution))));
     const FVector DomainHalfExtent = FVector(Field->DomainSizeCm * 0.5f);
-    DomainMinCm = FVector3f(Field->DomainCenterCm - DomainHalfExtent);
-    DomainMaxCm = FVector3f(Field->DomainCenterCm + DomainHalfExtent);
+    DomainMinCm = FVector4f(FVector3f(Field->DomainCenterCm - DomainHalfExtent), 0.0f);
+    DomainMaxCm = FVector4f(FVector3f(Field->DomainCenterCm + DomainHalfExtent), 0.0f);
     ScalarAtlasRHI = ScalarResource->GetRenderTargetTexture();
     VectorAtlasRHI = VectorResource->GetRenderTargetTexture();
 

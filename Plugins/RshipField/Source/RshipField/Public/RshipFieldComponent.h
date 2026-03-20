@@ -38,7 +38,7 @@ public:
     float UpdateHz = 60.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
-    int32 FieldResolution = 128;
+    ERshipFieldResolution FieldResolution = ERshipFieldResolution::Res128;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field")
     float MasterScalarGain = 1.0f;
@@ -64,7 +64,7 @@ public:
 
     // Phase groups sync effectors to the transport clock at different tempo divisions.
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field|Transport")
-    TArray<FRshipFieldPhaseGroup> PhaseGroups;
+    TArray<FRshipFieldSyncGroup> SyncGroups;
 
     // Effectors
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field|Effectors")
@@ -75,6 +75,17 @@ public:
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field|Effectors")
     TArray<FRshipFieldAttractorEffector> AttractorEffectors;
+
+    // Traveling wave state — parallel to WaveEffectors, managed by subsystem.
+    TArray<FRshipFieldWaveEffectorState> WaveEffectorStates;
+
+    // Emit a wavefront from the given wave effector index. No-op if not in Traveling mode.
+    UFUNCTION(BlueprintCallable, Category = "Rship|Field")
+    void EmitWavefront(int32 WaveEffectorIndex);
+
+    // Emit a wavefront from all traveling-mode wave effectors. Editor button for testing.
+    UFUNCTION(CallInEditor, Category = "Rship|Field")
+    void EmitAllWavefronts();
 
     // Debug
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Field|Debug")
@@ -91,7 +102,7 @@ public:
     void SetUpdateHzAction(float Hz);
 
     UFUNCTION()
-    void SetFieldResolutionAction(int32 Resolution);
+    void SetFieldResolutionAction(ERshipFieldResolution Resolution);
 
     UFUNCTION()
     void SetMasterScalarGainAction(float Gain);

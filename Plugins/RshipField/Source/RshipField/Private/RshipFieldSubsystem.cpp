@@ -95,22 +95,7 @@ void URshipFieldSubsystem::TickField(URshipFieldComponent* Field, float DeltaTim
     }
 }
 
-int32 URshipFieldSubsystem::NormalizeResolution(int32 RequestedResolution) const
-{
-    const int32 Allowed[] = { 64, 128, 192, 256, 320 };
-    int32 Best = Allowed[0];
-    int32 BestDist = FMath::Abs(RequestedResolution - Best);
-    for (const int32 Candidate : Allowed)
-    {
-        const int32 Dist = FMath::Abs(RequestedResolution - Candidate);
-        if (Dist < BestDist)
-        {
-            Best = Candidate;
-            BestDist = Dist;
-        }
-    }
-    return Best;
-}
+
 
 void URshipFieldSubsystem::DispatchFieldPasses(URshipFieldComponent* Field)
 {
@@ -120,7 +105,7 @@ void URshipFieldSubsystem::DispatchFieldPasses(URshipFieldComponent* Field)
         return;
     }
 
-    const int32 Resolution = NormalizeResolution(Field->FieldResolution);
+    const int32 Resolution = GetFieldResolutionValue(Field->FieldResolution);
     const int32 TilesPerRow = FMath::Max(1, FMath::CeilToInt(FMath::Sqrt(static_cast<float>(Resolution))));
 
     FTextureRenderTargetResource* ScalarResource = Field->GetScalarAtlas() ? Field->GetScalarAtlas()->GameThread_GetRenderTargetResource() : nullptr;
@@ -143,8 +128,8 @@ void URshipFieldSubsystem::DispatchFieldPasses(URshipFieldComponent* Field)
     GlobalInputs.TransportPhase = Field->BeatPhase;
     GlobalInputs.MasterScalarGain = Field->MasterScalarGain;
     GlobalInputs.MasterVectorGain = Field->MasterVectorGain;
-    GlobalInputs.DomainMinCm = FVector3f(DomainMin);
-    GlobalInputs.DomainMaxCm = FVector3f(DomainMax);
+    GlobalInputs.DomainMinCm = FVector4f(FVector3f(DomainMin), 0.0f);
+    GlobalInputs.DomainMaxCm = FVector4f(FVector3f(DomainMax), 0.0f);
     GlobalInputs.DebugMode = 0;
     GlobalInputs.DebugSelectionIndex = INDEX_NONE;
     GlobalInputs.OutScalarFieldAtlasTexture = ScalarResource->GetRenderTargetTexture();
@@ -161,19 +146,19 @@ void URshipFieldSubsystem::DispatchFieldPasses(URshipFieldComponent* Field)
     }
 
     // Build phase groups
-    TMap<FString, int32> PhaseGroupIndexById;
-    GlobalInputs.PhaseGroupData.Add(FVector4f(0.0f, 1.0f, 0.0f, 0.0f));
-    PhaseGroupIndexById.Add(TEXT(""), 0);
+    TMap<FString, int32> SyncGroupIndexById;
+    GlobalInputs.SyncGroupData.Add(FVector4f(0.0f, 1.0f, 0.0f, 0.0f));
+    SyncGroupIndexById.Add(TEXT(""), 0);
 
-    for (int32 GroupIndex = 0; GroupIndex < Field->PhaseGroups.Num(); ++GroupIndex)
+    for (int32 GroupIndex = 0; GroupIndex < Field->SyncGroups.Num(); ++GroupIndex)
     {
-        const FRshipFieldPhaseGroup& Group = Field->PhaseGroups[GroupIndex];
+        const FRshipFieldSyncGroup& Group = Field->SyncGroups[GroupIndex];
         if (Group.Id.IsEmpty())
         {
             continue;
         }
-        PhaseGroupIndexById.Add(Group.Id, GlobalInputs.PhaseGroupData.Num());
-        GlobalInputs.PhaseGroupData.Add(FVector4f(
+        SyncGroupIndexById.Add(Group.Id, GlobalInputs.SyncGroupData.Num());
+        GlobalInputs.SyncGroupData.Add(FVector4f(
             1.0f,
             Group.TempoMultiplier,
             Group.PhaseOffset,
@@ -188,10 +173,81 @@ void URshipFieldSubsystem::DispatchFieldPasses(URshipFieldComponent* Field)
     TArray<FRshipFieldEffectorDesc> AllEffectors;
     AllEffectors.Reserve(Field->WaveEffectors.Num() + Field->NoiseEffectors.Num() + Field->AttractorEffectors.Num());
 
-    for (const FRshipFieldWaveEffector& Wave : Field->WaveEffectors)
+    // Ensure wavefront state array matches wave effectors
+    if (Field->WaveEffectorStates.Num() != Field->WaveEffectors.Num())
     {
+        Field->WaveEffectorStates.SetNum(Field->WaveEffectors.Num());
+    }
+
+    // Auto-emit and cull wavefronts, then flatten into internal format
+    for (int32 i = 0; i < Field->WaveEffectors.Num(); ++i)
+    {
+        const FRshipFieldWaveEffector& Wave = Field->WaveEffectors[i];
+        FRshipFieldWaveEffectorState& State = Field->WaveEffectorStates[i];
+
+        // Keep dispersion values in sync so switching Derive doesn't jump.
+        if (Wave.WaveMode == ERshipFieldWaveMode::Traveling)
+        {
+            FRshipFieldWaveEffector& MutableWave = Field->WaveEffectors[i];
+            float Wl = FMath::Max(MutableWave.WavelengthCm, 0.001f);
+            float Fr = FMath::Max(MutableWave.FrequencyHz, 0.001f);
+            float Sp = FMath::Max(MutableWave.WaveSpeedCmPerSec, 0.1f);
+            switch (MutableWave.Derive)
+            {
+            case ERshipFieldDerive::Speed:
+                MutableWave.WaveSpeedCmPerSec = Fr * Wl;
+                break;
+            case ERshipFieldDerive::Wavelength:
+                MutableWave.WavelengthCm = Sp / Fr;
+                break;
+            default: // LockFrequency
+                MutableWave.FrequencyHz = Sp / Wl;
+                break;
+            }
+        }
+
+        if (Wave.WaveMode == ERshipFieldWaveMode::Traveling && Wave.bEnabled)
+        {
+            // Manual emit-once trigger
+            if (Field->WaveEffectors[i].bEmitOnce)
+            {
+                Field->EmitWavefront(i);
+                Field->WaveEffectors[i].bEmitOnce = false;
+            }
+
+            // Auto-emit
+            if (Wave.bAutoEmit)
+            {
+                const float EmitInterval = 1.0f / FMath::Max(Wave.RepeatHz, 0.01f);
+                if ((Field->SimulationTimeSeconds - State.LastEmitTime) >= EmitInterval)
+                {
+                    FRshipFieldWavefront WF;
+                    WF.BirthTime = Field->SimulationTimeSeconds;
+                    WF.BirthPositionCm = Wave.PositionCm;
+                    State.Wavefronts.Add(WF);
+                    State.LastEmitTime = Field->SimulationTimeSeconds;
+
+                    while (State.Wavefronts.Num() > Wave.MaxWavefronts)
+                    {
+                        State.Wavefronts.RemoveAt(0);
+                    }
+                }
+            }
+
+            // Cull wavefronts that have traveled beyond the effector radius
+            const float MaxAge = Wave.RadiusCm / FMath::Max(Wave.WaveSpeedCmPerSec, 0.1f);
+            for (int32 j = State.Wavefronts.Num() - 1; j >= 0; --j)
+            {
+                if ((Field->SimulationTimeSeconds - State.Wavefronts[j].BirthTime) > MaxAge)
+                {
+                    State.Wavefronts.RemoveAt(j);
+                }
+            }
+        }
+
         AllEffectors.Add(FRshipFieldEffectorDesc::FromWave(Wave));
     }
+
     for (const FRshipFieldNoiseEffector& Noise : Field->NoiseEffectors)
     {
         AllEffectors.Add(FRshipFieldEffectorDesc::FromNoise(Noise));
@@ -201,6 +257,27 @@ void URshipFieldSubsystem::DispatchFieldPasses(URshipFieldComponent* Field)
         AllEffectors.Add(FRshipFieldEffectorDesc::FromAttractor(Attractor));
     }
 
+    // Build flat wavefront buffer and assign offsets to wave effectors
+    TArray<FVector4f> FlatWavefronts;
+    for (int32 i = 0; i < Field->WaveEffectors.Num(); ++i)
+    {
+        FRshipFieldEffectorDesc& Eff = AllEffectors[i];
+        const FRshipFieldWaveEffectorState& State = Field->WaveEffectorStates[i];
+
+        Eff.WavefrontOffset = FlatWavefronts.Num();
+        Eff.WavefrontCount = State.Wavefronts.Num();
+
+        for (const FRshipFieldWavefront& WF : State.Wavefronts)
+        {
+            FlatWavefronts.Add(FVector4f(
+                WF.BirthTime,
+                static_cast<float>(WF.BirthPositionCm.X),
+                static_cast<float>(WF.BirthPositionCm.Y),
+                static_cast<float>(WF.BirthPositionCm.Z)));
+        }
+    }
+    GlobalInputs.WavefrontData = MoveTemp(FlatWavefronts);
+
     GlobalInputs.EffectorData0.Reserve(AllEffectors.Num());
     GlobalInputs.EffectorData1.Reserve(AllEffectors.Num());
     GlobalInputs.EffectorData2.Reserve(AllEffectors.Num());
@@ -208,12 +285,13 @@ void URshipFieldSubsystem::DispatchFieldPasses(URshipFieldComponent* Field)
     GlobalInputs.EffectorData4.Reserve(AllEffectors.Num());
     GlobalInputs.EffectorData5.Reserve(AllEffectors.Num());
     GlobalInputs.EffectorData6.Reserve(AllEffectors.Num());
+    GlobalInputs.EffectorData7.Reserve(AllEffectors.Num());
 
     int32 EffectorDebugIndex = 0;
     for (const FRshipFieldEffectorDesc& Eff : AllEffectors)
     {
-        const int32* PhaseGroupIndexPtr = PhaseGroupIndexById.Find(Eff.PhaseGroupId);
-        const int32 PhaseGroupIndex = PhaseGroupIndexPtr ? *PhaseGroupIndexPtr : 0;
+        const int32* SyncGroupIndexPtr = SyncGroupIndexById.Find(Eff.SyncGroup);
+        const int32 SyncGroupIndex = SyncGroupIndexPtr ? *SyncGroupIndexPtr : 0;
 
         if (GEngine && Field->bShowDebugText)
         {
@@ -225,21 +303,22 @@ void URshipFieldSubsystem::DispatchFieldPasses(URshipFieldComponent* Field)
                     EffectorDebugIndex,
                     Eff.PositionCm.X, Eff.PositionCm.Y, Eff.PositionCm.Z,
                     Eff.RadiusCm, Eff.FrequencyHz, Eff.WavelengthCm,
-                    Eff.PhaseOffset, PhaseGroupIndex, *Eff.PhaseGroupId));
+                    Eff.PhaseOffset, SyncGroupIndex, *Eff.SyncGroup));
         }
         ++EffectorDebugIndex;
 
         GlobalInputs.EffectorData0.Add(FVector4f(FVector3f(Eff.PositionCm), Eff.RadiusCm));
-        GlobalInputs.EffectorData1.Add(FVector4f(FVector3f(Eff.Direction.GetSafeNormal()), Eff.Amplitude));
-        GlobalInputs.EffectorData2.Add(FVector4f(Eff.WavelengthCm, Eff.FrequencyHz, 1.0f, Eff.PhaseOffset));
-        GlobalInputs.EffectorData3.Add(FVector4f(Eff.FadeWeight, Eff.FalloffExponent, static_cast<float>(static_cast<uint8>(Eff.Type)), 0.0f));
+        GlobalInputs.EffectorData1.Add(FVector4f(FVector3f(Eff.Polarization), Eff.Amplitude));
+        GlobalInputs.EffectorData2.Add(FVector4f(Eff.WavelengthCm, Eff.FrequencyHz, Eff.EnvelopeWidthCm, Eff.PhaseOffset));
+        GlobalInputs.EffectorData3.Add(FVector4f(Eff.FadeWeight, Eff.FalloffExponent, static_cast<float>(static_cast<uint8>(Eff.Type)), static_cast<float>(static_cast<uint8>(Eff.WaveMode))));
         GlobalInputs.EffectorData4.Add(FVector4f(Eff.ClampMin, Eff.ClampMax, static_cast<float>(static_cast<uint8>(Eff.BlendOp)), static_cast<float>(static_cast<uint8>(Eff.Waveform))));
-        GlobalInputs.EffectorData5.Add(FVector4f(static_cast<float>(PhaseGroupIndex), static_cast<float>(static_cast<uint8>(Eff.NoiseMode)), Eff.NoiseScale, Eff.NoiseAmplitude));
+        GlobalInputs.EffectorData5.Add(FVector4f(static_cast<float>(SyncGroupIndex), static_cast<float>(static_cast<uint8>(Eff.NoiseMode)), Eff.NoiseScale, Eff.NoiseAmplitude));
         GlobalInputs.EffectorData6.Add(FVector4f(Eff.bEnabled ? 1.0f : 0.0f, Eff.bInfiniteRange ? 1.0f : 0.0f, Eff.bAffectsScalar ? 1.0f : 0.0f, Eff.bAffectsVector ? 1.0f : 0.0f));
+        GlobalInputs.EffectorData7.Add(FVector4f(static_cast<float>(Eff.WavefrontOffset), static_cast<float>(Eff.WavefrontCount), Eff.WaveSpeedCmPerSec, 0.0f));
     }
 
     GlobalInputs.LayerCount = 1;
-    GlobalInputs.PhaseGroupCount = GlobalInputs.PhaseGroupData.Num();
+    GlobalInputs.SyncGroupCount = GlobalInputs.SyncGroupData.Num();
     GlobalInputs.EffectorCount = AllEffectors.Num();
 
     if (!GlobalInputs.IsValid())
@@ -247,7 +326,7 @@ void URshipFieldSubsystem::DispatchFieldPasses(URshipFieldComponent* Field)
         return;
     }
 
-    UE_LOG(LogRshipField, Verbose, TEXT("Dispatching field '%s': %d effectors, %d layers, %d phasegroups, res=%d, t=%.2f"), *Field->FieldId, GlobalInputs.EffectorCount, GlobalInputs.LayerCount, GlobalInputs.PhaseGroupCount, GlobalInputs.FieldResolution, GlobalInputs.TimeSeconds);
+    UE_LOG(LogRshipField, Verbose, TEXT("Dispatching field '%s': %d effectors, %d layers, %d phasegroups, res=%d, t=%.2f"), *Field->FieldId, GlobalInputs.EffectorCount, GlobalInputs.LayerCount, GlobalInputs.SyncGroupCount, GlobalInputs.FieldResolution, GlobalInputs.TimeSeconds);
 
     TArray<RshipFieldRDG::FTargetDispatchInputs> EmptyTargets;
 
@@ -320,15 +399,15 @@ void URshipFieldSubsystem::DistributeLightSamplerResults(URshipFieldComponent* F
         return;
     }
 
-    const int32 Resolution = NormalizeResolution(Field->FieldResolution);
+    const int32 Resolution = GetFieldResolutionValue(Field->FieldResolution);
     const int32 TilesPerRow = FMath::Max(1, FMath::CeilToInt(FMath::Sqrt(static_cast<float>(Resolution))));
     const FVector DomainHalfExtent = FVector(Field->DomainSizeCm * 0.5f);
 
     RshipFieldRDG::FPointSampleInputs SampleInputs;
     SampleInputs.FieldResolution = Resolution;
     SampleInputs.TilesPerRow = TilesPerRow;
-    SampleInputs.DomainMinCm = FVector3f(Field->DomainCenterCm - DomainHalfExtent);
-    SampleInputs.DomainMaxCm = FVector3f(Field->DomainCenterCm + DomainHalfExtent);
+    SampleInputs.DomainMinCm = FVector4f(FVector3f(Field->DomainCenterCm - DomainHalfExtent), 0.0f);
+    SampleInputs.DomainMaxCm = FVector4f(FVector3f(Field->DomainCenterCm + DomainHalfExtent), 0.0f);
     SampleInputs.NumSamples = NumSamples;
     SampleInputs.ScalarAtlasTexture = ScalarResource->GetRenderTargetTexture();
     SampleInputs.VectorAtlasTexture = VectorResource->GetRenderTargetTexture();

@@ -7,7 +7,7 @@ FRshipFieldEffectorDesc FRshipFieldEffectorDesc::FromWave(const FRshipFieldWaveE
     Desc.bEnabled = Wave.bEnabled;
     Desc.bInfiniteRange = Wave.bInfiniteRange;
     Desc.PositionCm = Wave.PositionCm;
-    Desc.Direction = Wave.Direction;
+    Desc.Polarization = Wave.Polarization;
     Desc.RadiusCm = Wave.RadiusCm;
     Desc.FalloffExponent = Wave.FalloffExponent;
     Desc.Amplitude = Wave.Amplitude;
@@ -15,7 +15,37 @@ FRshipFieldEffectorDesc FRshipFieldEffectorDesc::FromWave(const FRshipFieldWaveE
     Desc.FrequencyHz = Wave.FrequencyHz;
     Desc.PhaseOffset = Wave.PhaseOffset;
     Desc.Waveform = Wave.Waveform;
-    Desc.PhaseGroupId = Wave.PhaseGroupId;
+    Desc.WaveMode = Wave.WaveMode;
+    Desc.EnvelopeWidthCm = Wave.EnvelopeWidthCm;
+
+    // Resolve dispersion relation v = f · λ for traveling waves.
+    if (Wave.WaveMode == ERshipFieldWaveMode::Traveling)
+    {
+        switch (Wave.Derive)
+        {
+        case ERshipFieldDerive::Speed:
+            Desc.WavelengthCm = FMath::Max(Wave.WavelengthCm, 0.001f);
+            Desc.FrequencyHz = FMath::Max(Wave.FrequencyHz, 0.001f);
+            Desc.WaveSpeedCmPerSec = Desc.FrequencyHz * Desc.WavelengthCm;
+            break;
+        case ERshipFieldDerive::Wavelength:
+            Desc.WaveSpeedCmPerSec = FMath::Max(Wave.WaveSpeedCmPerSec, 0.1f);
+            Desc.FrequencyHz = FMath::Max(Wave.FrequencyHz, 0.001f);
+            Desc.WavelengthCm = Desc.WaveSpeedCmPerSec / Desc.FrequencyHz;
+            break;
+        default: // LockFrequency
+            Desc.WaveSpeedCmPerSec = FMath::Max(Wave.WaveSpeedCmPerSec, 0.1f);
+            Desc.WavelengthCm = FMath::Max(Wave.WavelengthCm, 0.001f);
+            Desc.FrequencyHz = Desc.WaveSpeedCmPerSec / Desc.WavelengthCm;
+            break;
+        }
+    }
+    else
+    {
+        Desc.WaveSpeedCmPerSec = Wave.WaveSpeedCmPerSec;
+    }
+
+    Desc.SyncGroup = Wave.SyncGroup;
     return Desc;
 }
 
@@ -31,7 +61,7 @@ FRshipFieldEffectorDesc FRshipFieldEffectorDesc::FromNoise(const FRshipFieldNois
     Desc.NoiseMode = Noise.NoiseMode;
     Desc.NoiseScale = Noise.Scale;
     Desc.NoiseAmplitude = Noise.Amplitude;
-    Desc.PhaseGroupId = Noise.PhaseGroupId;
+    Desc.SyncGroup = Noise.SyncGroup;
     return Desc;
 }
 
@@ -47,6 +77,6 @@ FRshipFieldEffectorDesc FRshipFieldEffectorDesc::FromAttractor(const FRshipField
     Desc.FalloffExponent = Attractor.FalloffExponent;
     Desc.bAffectsVector = true;
     Desc.bAffectsScalar = true;
-    Desc.PhaseGroupId = Attractor.PhaseGroupId;
+    Desc.SyncGroup = Attractor.SyncGroup;
     return Desc;
 }
