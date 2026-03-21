@@ -103,6 +103,9 @@ public:
     // Get pending send queue size (for backpressure detection)
     int32 GetPendingSendCount() const;
 
+    // Get bytes buffered inside IXWebSocket's _txbuf (waiting for TCP flush)
+    int64 GetBufferedBytes() const;
+
     // Event delegates
     FOnRshipWebSocketConnected OnConnected;
     FOnRshipWebSocketConnectionError OnConnectionError;
@@ -133,6 +136,16 @@ private:
     // Send queue for async sends
     TQueue<FString> SendQueue;
     mutable FCriticalSection SendLock;
+
+    // Rolling send stats (logged every ~1s when active)
+    void MaybeLogSendStats();
+    double SendStatsLastLogTime = 0.0;
+    int64 SendStatsMessages = 0;
+    int64 SendStatsPayloadBytes = 0;
+    int64 SendStatsWireBytes = 0;
+    int64 SendStatsFailures = 0;
+    double SendStatsTotalSendTimeMs = 0.0;
+    double SendStatsSlowestSendMs = 0.0;
 };
 
 // ============================================================================

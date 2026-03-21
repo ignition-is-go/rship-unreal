@@ -467,6 +467,18 @@ void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
     );
     UE_LOG(LogRshipExec, Log, TEXT("Started subsystem ticker (60Hz)"));
 
+    // Register console command for WebSocket throughput benchmark
+    BenchmarkWsCmd = MakeUnique<FAutoConsoleCommand>(
+        TEXT("Rship.BenchmarkWebSocket"),
+        TEXT("Send mock data to measure raw WebSocket throughput. Args: [MessageCount=500] [MessageSizeBytes=65536]"),
+        FConsoleCommandWithArgsDelegate::CreateLambda([this](const TArray<FString>& Args)
+        {
+            const int32 Count = Args.Num() > 0 ? FCString::Atoi(*Args[0]) : 500;
+            const int32 Size = Args.Num() > 1 ? FCString::Atoi(*Args[1]) : 65536;
+            BenchmarkWebSocketThroughput(Count, Size);
+        })
+    );
+
 #if WITH_EDITOR
     RegisterEditorDelegates();
 #endif
@@ -4007,6 +4019,95 @@ void URshipSubsystem::SendAll()
     ProcessMessageQueue();
 }
 
+void URshipSubsystem::BenchmarkWebSocketThroughput(int32 MessageCount, int32 MessageSizeBytes)
+{
+    if (!WebSocket.IsValid() || !WebSocket->IsConnected())
+    {
+        UE_LOG(LogRshipExec, Error, TEXT("BenchmarkWebSocket: Not connected"));
+        return;
+    }
+
+    MessageCount = FMath::Clamp(MessageCount, 1, 100000);
+    MessageSizeBytes = FMath::Clamp(MessageSizeBytes, 64, 4 * 1024 * 1024);
+
+    // Build a mock payload of the requested size (valid JSON so the server can parse/discard it)
+    const FString Padding = FString::ChrN(FMath::Max(0, MessageSizeBytes - 64), TEXT('x'));
+    const FString MockMessage = FString::Printf(
+        TEXT("{\"event\":\"ws:m:benchmark\",\"data\":{\"pad\":\"%s\"}}"), *Padding);
+
+    UE_LOG(LogRshipExec, Log, TEXT("BenchmarkWebSocket: START msgs=%d size=%d total=%.1fMB"),
+        MessageCount, MockMessage.Len(), (double)MessageCount * MockMessage.Len() / (1024.0 * 1024.0));
+
+    const double T0 = FPlatformTime::Seconds();
+    int32 Sent = 0;
+    int32 Failed = 0;
+
+    for (int32 i = 0; i < MessageCount; ++i)
+    {
+        if (WebSocket->Send(MockMessage))
+        {
+            ++Sent;
+        }
+        else
+        {
+            ++Failed;
+        }
+    }
+
+    const double EnqueueMs = (FPlatformTime::Seconds() - T0) * 1000.0;
+    const int64 Buffered = WebSocket->GetBufferedBytes();
+
+    UE_LOG(LogRshipExec, Log, TEXT("BenchmarkWebSocket: ENQUEUED sent=%d failed=%d enqueue_time=%.1fms buffered=%lldB (%.1fMB)"),
+        Sent, Failed, EnqueueMs, Buffered, Buffered / (1024.0 * 1024.0));
+
+    // Start a ticker to monitor the drain
+    struct FDrainMonitor
+    {
+        TSharedPtr<FRshipWebSocket> WS;
+        double StartTime;
+        int64 TotalBytes;
+        int32 LogCount;
+    };
+
+    auto Monitor = MakeShared<FDrainMonitor>();
+    Monitor->WS = WebSocket;
+    Monitor->StartTime = FPlatformTime::Seconds();
+    Monitor->TotalBytes = (int64)Sent * MockMessage.Len();
+    Monitor->LogCount = 0;
+
+    FTSTicker::GetCoreTicker().AddTicker(
+        FTickerDelegate::CreateLambda([Monitor](float DeltaTime) -> bool
+        {
+            const int64 Buffered = Monitor->WS->GetBufferedBytes();
+            const double Elapsed = FPlatformTime::Seconds() - Monitor->StartTime;
+            const int64 Drained = Monitor->TotalBytes - Buffered;
+            const double ThroughputMBps = Elapsed > 0.0 ? (Drained / (1024.0 * 1024.0)) / Elapsed : 0.0;
+
+            ++Monitor->LogCount;
+
+            UE_LOG(LogRshipExec, Log, TEXT("BenchmarkWebSocket: DRAIN t=%.1fs buffered=%lldB (%.1fMB) drained=%lldB throughput=%.1fMB/s"),
+                Elapsed, Buffered, Buffered / (1024.0 * 1024.0), Drained, ThroughputMBps);
+
+            if (Buffered <= 0 || !Monitor->WS->IsConnected())
+            {
+                UE_LOG(LogRshipExec, Log, TEXT("BenchmarkWebSocket: COMPLETE total=%.1fMB elapsed=%.1fs throughput=%.1fMB/s"),
+                    Monitor->TotalBytes / (1024.0 * 1024.0), Elapsed, ThroughputMBps);
+                return false; // Stop ticking
+            }
+
+            // Safety: stop after 60s
+            if (Elapsed > 60.0)
+            {
+                UE_LOG(LogRshipExec, Warning, TEXT("BenchmarkWebSocket: TIMEOUT after 60s, %lldB still buffered"), Buffered);
+                return false;
+            }
+
+            return true; // Keep ticking
+        }),
+        0.5f // Poll every 500ms
+    );
+}
+
 void URshipSubsystem::SendJson(TSharedPtr<FJsonObject> Payload)
 {
     // Legacy method - queue with normal priority
@@ -4027,6 +4128,14 @@ void URshipSubsystem::SetItem(FString itemType, TSharedPtr<FJsonObject> data, ER
         }
 
         UE_LOG(LogRshipExec, Log, TEXT("SetItem type=%s id=%s"), *itemType, *ItemId);
+    }
+
+    // When inside a registration batch, accumulate events so EndRegistrationBatch()
+    // can chunk them into ws:m:event-batch messages instead of sending individually.
+    if (RegistrationBatchDepth > 0 && itemType != TEXT("Pulse"))
+    {
+        PendingRegistrationEvents.Add(payload);
+        return;
     }
 
     // Determine message type for coalescing

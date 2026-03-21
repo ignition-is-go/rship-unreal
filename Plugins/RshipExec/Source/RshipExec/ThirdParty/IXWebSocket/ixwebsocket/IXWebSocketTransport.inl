@@ -359,19 +359,29 @@ namespace ix
             lastingTimeoutDelayInMs = 100;
         }
 
+        // Don't block indefinitely when there's data waiting to be flushed.
+        // Without this, the poll thread sleeps forever in isReadyToRead(-1)
+        // when ping is disabled and no incoming data arrives.
+        if (!isSendBufferEmpty() && (lastingTimeoutDelayInMs < 0 || lastingTimeoutDelayInMs > 1))
+        {
+            lastingTimeoutDelayInMs = 1;
+        }
+
         // poll the socket
         PollResultType pollResult = _socket->isReadyToRead(lastingTimeoutDelayInMs);
 
-        // Make sure we send all the buffered data
-        // there can be a lot of it for large messages.
-        if (pollResult == PollResultType::SendRequest)
+        // Always try to flush buffered send data, not just on SendRequest.
+        // SendRequest events can be coalesced/lost during burst sends, leaving
+        // data stranded in _txbuf after the sender stops.
+        if (!isSendBufferEmpty())
         {
             if (!flushSendBuffer())
             {
                 return PollResult::CannotFlushSendBuffer;
             }
         }
-        else if (pollResult == PollResultType::ReadyForRead)
+
+        if (pollResult == PollResultType::ReadyForRead)
         {
             if (!receiveFromSocket())
             {
@@ -401,7 +411,7 @@ namespace ix
     bool WebSocketTransport::isSendBufferEmpty() const
     {
         std::lock_guard<std::mutex> lock(_txbufMutex);
-        return _txbuf.empty();
+        return _txbufOffset >= _txbuf.size();
     }
 
     template<class Iterator>
@@ -1067,12 +1077,13 @@ namespace ix
     {
         std::lock_guard<std::mutex> lock(_txbufMutex);
 
-        while (_txbuf.size())
+        while (_txbufOffset < _txbuf.size() && !_requestInitCancellation)
         {
+            size_t remaining = _txbuf.size() - _txbufOffset;
             ssize_t ret = 0;
             {
                 std::lock_guard<std::mutex> lock(_socketMutex);
-                ret = _socket->send((char*) &_txbuf[0], _txbuf.size());
+                ret = _socket->send((char*) &_txbuf[_txbufOffset], remaining);
             }
 
             if (ret < 0 && Socket::isWaitNeeded())
@@ -1090,8 +1101,15 @@ namespace ix
             }
             else
             {
-                _txbuf.erase(_txbuf.begin(), _txbuf.begin() + ret);
+                _txbufOffset += ret;
             }
+        }
+
+        // Compact only when fully drained
+        if (_txbufOffset > 0 && _txbufOffset == _txbuf.size())
+        {
+            _txbuf.clear();
+            _txbufOffset = 0;
         }
 
         return true;
@@ -1237,7 +1255,7 @@ namespace ix
     size_t WebSocketTransport::bufferedAmount() const
     {
         std::lock_guard<std::mutex> lock(_txbufMutex);
-        return _txbuf.size();
+        return _txbuf.size() - _txbufOffset;
     }
 
     bool WebSocketTransport::flushSendBuffer()

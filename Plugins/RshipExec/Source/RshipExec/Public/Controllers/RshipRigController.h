@@ -6,7 +6,6 @@
 #include "Rigs/RigHierarchyElements.h"
 #include "RshipRigController.generated.h"
 
-class UControlRigComponent;
 class UControlRig;
 class URigHierarchy;
 class URigHierarchyController;
@@ -65,12 +64,6 @@ class RSHIPEXEC_API URshipRigController : public URshipControllerComponent
 public:
 	URshipRigController();
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Rig")
-	TObjectPtr<UControlRigComponent> ControlRigComponent;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rship|Rig")
-	TObjectPtr<UControlRig> ControlRig;
-
 	UFUNCTION()
 	void ResetAllBonesToInitialWorld();
 
@@ -80,7 +73,7 @@ public:
 private:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 	virtual void OnBeforeRegisterRshipTargets() override;
-	void ConfigureControlRigComponent();
+	void InitializeControlRig();
 	virtual void RegisterOrRefreshTarget() override;
 	void RotateElementInSocket(const FName& ElementName, ERigElementType ElementType, const FRotator& Rotation);
 	void AttachBoneToParent(const FName& BoneName, const FName& ParentBoneName,
@@ -92,7 +85,6 @@ private:
 	void RemoveBoneConstraints(const FName& BoneName, float BlendSeconds);
 	void ResetBoneToInitialWorld(const FName& BoneName);
 	FName ResolveBoneNameFromInput(const FString& BoneIdentifier, URigHierarchy* Hierarchy) const;
-	UControlRigComponent* ResolveControlRigComponent();
 	UControlRig* ResolveControlRig();
 	URigHierarchy* ResolveRigHierarchy();
 	void LogElementDiagnostics(URigHierarchy* Hierarchy, const FName& ElementName);
@@ -129,13 +121,10 @@ private:
 	TMap<FString, FName> BoneSegmentToName;
 
 	UPROPERTY(Transient)
-	TWeakObjectPtr<USkeletalMeshComponent> CachedBoundMesh;
-
-	UPROPERTY(Transient)
 	TWeakObjectPtr<UControlRig> CachedControlRig;
 
 	UPROPERTY(Transient)
-	bool bRigComponentConfigured = false;
+	bool bRigInitialized = false;
 
 	UPROPERTY(Transient)
 	TMap<FName, FQuat> BoneRotationOverrides;

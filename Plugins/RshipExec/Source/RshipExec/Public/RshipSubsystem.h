@@ -293,6 +293,9 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     FRshipTopologySyncState TopologySyncState;
     FRshipTopologySyncSnapshot TopologySyncSnapshot;
 
+    // Console command for WebSocket throughput benchmark
+    TUniquePtr<FAutoConsoleCommand> BenchmarkWsCmd;
+
 #if WITH_EDITOR
     void RegisterEditorDelegates();
     void UnregisterEditorDelegates();
@@ -491,6 +494,9 @@ public:
     // Reset statistics (useful for testing)
     UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
     void ResetRateLimiterStats();
+
+    // WebSocket throughput benchmark: sends mock data to measure raw IXWebSocket send rate.
+    void BenchmarkWebSocketThroughput(int32 MessageCount, int32 MessageSizeBytes);
 
     // Registration batching (for multi-target component registration)
     void BeginRegistrationBatch();

@@ -134,7 +134,11 @@ namespace ix
         int flag = 1;
         setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, (char*) &flag, sizeof(flag));
 
-        // 2. make socket non blocking
+        // 2. increase TCP send buffer (Windows default is 8KB, too small for burst sends)
+        int sendBufSize = 64 * 1024; // 64KB
+        setsockopt(sockfd, SOL_SOCKET, SO_SNDBUF, (char*) &sendBufSize, sizeof(sendBufSize));
+
+        // 3. make socket non blocking
 #ifdef _WIN32
         unsigned long nonblocking = 1;
         ioctlsocket(sockfd, FIONBIO, &nonblocking);
@@ -142,7 +146,7 @@ namespace ix
         fcntl(sockfd, F_SETFL, O_NONBLOCK); // make socket non blocking
 #endif
 
-        // 3. (apple) prevent SIGPIPE from being emitted when the remote end disconnect
+        // 4. (apple) prevent SIGPIPE from being emitted when the remote end disconnect
 #ifdef SO_NOSIGPIPE
         int value = 1;
         setsockopt(sockfd, SOL_SOCKET, SO_NOSIGPIPE, (void*) &value, sizeof(value));

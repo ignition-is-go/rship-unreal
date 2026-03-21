@@ -115,40 +115,71 @@ bool FRshipWebSocket::Send(const FString& Message)
     if (IXSocket)
     {
         std::string StdMsg = TCHAR_TO_UTF8(*Message);
-        UE_LOG(LogRshipExec, VeryVerbose, TEXT("RshipWebSocket::Send IXWebSocket sending %d bytes, readyState=%d"),
-            StdMsg.length(), (int)IXSocket->getReadyState());
 
+        const double T0 = FPlatformTime::Seconds();
         ix::WebSocketSendInfo info = IXSocket->send(StdMsg);
+        const double ElapsedMs = (FPlatformTime::Seconds() - T0) * 1000.0;
 
-        UE_LOG(LogRshipExec, VeryVerbose, TEXT("RshipWebSocket::Send result: success=%d, payloadSize=%d, wireSize=%d, compressionError=%d"),
-            info.success, (int)info.payloadSize, (int)info.wireSize, info.compressionError);
-
-        if (info.success && OnMessageSent.IsBound())
+        if (info.success)
         {
-            // Fire on game thread
-            AsyncTask(ENamedThreads::GameThread, [this, Message]()
+            ++SendStatsMessages;
+            SendStatsPayloadBytes += info.payloadSize;
+            SendStatsWireBytes += info.wireSize;
+            SendStatsTotalSendTimeMs += ElapsedMs;
+            if (ElapsedMs > SendStatsSlowestSendMs)
             {
-                OnMessageSent.ExecuteIfBound(Message);
-            });
+                SendStatsSlowestSendMs = ElapsedMs;
+            }
+
+            if (OnMessageSent.IsBound())
+            {
+                AsyncTask(ENamedThreads::GameThread, [this, Message]()
+                {
+                    OnMessageSent.ExecuteIfBound(Message);
+                });
+            }
         }
+        else
+        {
+            ++SendStatsFailures;
+        }
+
+        MaybeLogSendStats();
         return info.success;
     }
 #else
     // Queue for background thread to send
     if (SocketThread)
     {
-        UE_LOG(LogRshipExec, VeryVerbose, TEXT("RshipWebSocket::Send UE queuing %d bytes to background thread"), Message.Len());
+        const int32 Len = Message.Len();
+        ++SendStatsMessages;
+        SendStatsPayloadBytes += Len;
+        SendStatsWireBytes += Len;  // approximate for UE path
         SocketThread->QueueSend(Message);
+        MaybeLogSendStats();
         return true;
     }
     else if (UEWebSocket && UEWebSocket->IsConnected())
     {
-        UE_LOG(LogRshipExec, VeryVerbose, TEXT("RshipWebSocket::Send UE direct sending %d bytes"), Message.Len());
+        const int32 Len = Message.Len();
+        ++SendStatsMessages;
+        SendStatsPayloadBytes += Len;
+        SendStatsWireBytes += Len;
+
+        const double T0 = FPlatformTime::Seconds();
         UEWebSocket->Send(Message);
+        const double ElapsedMs = (FPlatformTime::Seconds() - T0) * 1000.0;
+        SendStatsTotalSendTimeMs += ElapsedMs;
+        if (ElapsedMs > SendStatsSlowestSendMs)
+        {
+            SendStatsSlowestSendMs = ElapsedMs;
+        }
+
         if (OnMessageSent.IsBound())
         {
             OnMessageSent.Execute(Message);
         }
+        MaybeLogSendStats();
         return true;
     }
     else
@@ -158,6 +189,68 @@ bool FRshipWebSocket::Send(const FString& Message)
 #endif
 
     return false;
+}
+
+int64 FRshipWebSocket::GetBufferedBytes() const
+{
+#if RSHIP_USE_IXWEBSOCKET
+    if (IXSocket)
+    {
+        return static_cast<int64>(IXSocket->bufferedAmount());
+    }
+#endif
+    return 0;
+}
+
+void FRshipWebSocket::MaybeLogSendStats()
+{
+    const double Now = FPlatformTime::Seconds();
+    if (SendStatsLastLogTime <= 0.0)
+    {
+        SendStatsLastLogTime = Now;
+        return;
+    }
+
+    const double Elapsed = Now - SendStatsLastLogTime;
+    if (Elapsed < 1.0)
+    {
+        return;
+    }
+
+    if (SendStatsMessages > 0 || SendStatsFailures > 0)
+    {
+        const double AvgMs = SendStatsMessages > 0 ? SendStatsTotalSendTimeMs / SendStatsMessages : 0.0;
+        const double MsgsPerSec = SendStatsMessages / Elapsed;
+
+        // bufferedAmount = bytes sitting in IXWebSocket's _txbuf waiting for TCP flush
+        int64 Buffered = 0;
+#if RSHIP_USE_IXWEBSOCKET
+        if (IXSocket)
+        {
+            Buffered = static_cast<int64>(IXSocket->bufferedAmount());
+        }
+#endif
+
+        UE_LOG(LogRshipExec, Log,
+            TEXT("WS-send last_%.1fs msgs=%lld (%.0f/s) payload=%lldB wire=%lldB failed=%lld avg_send=%.2fms slowest=%.2fms buffered=%lldB"),
+            Elapsed,
+            SendStatsMessages,
+            MsgsPerSec,
+            SendStatsPayloadBytes,
+            SendStatsWireBytes,
+            SendStatsFailures,
+            AvgMs,
+            SendStatsSlowestSendMs,
+            Buffered);
+    }
+
+    SendStatsLastLogTime = Now;
+    SendStatsMessages = 0;
+    SendStatsPayloadBytes = 0;
+    SendStatsWireBytes = 0;
+    SendStatsFailures = 0;
+    SendStatsTotalSendTimeMs = 0.0;
+    SendStatsSlowestSendMs = 0.0;
 }
 
 bool FRshipWebSocket::SendBinary(const TArray<uint8>& Data)

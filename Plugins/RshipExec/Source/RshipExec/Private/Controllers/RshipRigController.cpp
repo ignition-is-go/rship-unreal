@@ -1,11 +1,11 @@
 #include "Controllers/RshipRigController.h"
 
 #include "ControlRig.h"
-#include "ControlRigComponent.h"
 #include "IControlRigObjectBinding.h"
 #include "GameFramework/Actor.h"
 #include "Logs.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Engine/SkeletalMesh.h"
 #include "Animation/AnimInstance.h"
 #include "AnimNode_ControlRigBase.h"
 #include "Rigs/RigHierarchy.h"
@@ -135,27 +135,26 @@ void URshipRigController::TickComponent(float DeltaTime, ELevelTick TickType, FA
 void URshipRigController::OnBeforeRegisterRshipTargets()
 {
 	Super::OnBeforeRegisterRshipTargets();
-	ConfigureControlRigComponent();
+	InitializeControlRig();
 }
 
-void URshipRigController::ConfigureControlRigComponent()
+void URshipRigController::InitializeControlRig()
 {
-	UControlRigComponent* RigComponent = ResolveControlRigComponent();
 	UControlRig* CurrentRig = ResolveControlRig();
 	USkeletalMeshComponent* SkeletalMeshComponent = GetOwner() ? GetOwner()->FindComponentByClass<USkeletalMeshComponent>() : nullptr;
 	const UAnimInstance* AnimInstance = SkeletalMeshComponent ? SkeletalMeshComponent->GetAnimInstance() : nullptr;
 
 	UE_LOG(LogRshipExec, Log,
-		TEXT("ConfigureControlRigComponent owner='%s' rigComp='%s' resolvedRig='%s' skelComp='%s' animMode=%d animInstance='%s'"),
+		TEXT("InitializeControlRig owner='%s' resolvedRig='%s' skelComp='%s' animMode=%d animInstance='%s'"),
 		*GetNameSafe(GetOwner()),
-		*GetNameSafe(RigComponent),
 		*GetNameSafe(CurrentRig),
 		*GetNameSafe(SkeletalMeshComponent),
 		SkeletalMeshComponent ? static_cast<int32>(SkeletalMeshComponent->GetAnimationMode()) : -1,
 		*GetNameSafe(AnimInstance));
+
 	if (!CurrentRig)
 	{
-		bRigComponentConfigured = false;
+		bRigInitialized = false;
 		CachedControlRig.Reset();
 		return;
 	}
@@ -164,85 +163,11 @@ void URshipRigController::ConfigureControlRigComponent()
 	if (bRigChanged)
 	{
 		UE_LOG(LogRshipExec, Log, TEXT("Rig instance changed; reconfiguring '%s'."), *GetNameSafe(CurrentRig));
-		bRigComponentConfigured = false;
+		bRigInitialized = false;
 		CachedControlRig = CurrentRig;
-		ControlRig = CurrentRig;
 	}
 
-	if (!RigComponent)
-	{
-		bRigComponentConfigured = true;
-		return;
-	}
-
-	bool bChanged = false;
-	if (!RigComponent->bUpdateRigOnTick)
-	{
-		RigComponent->bUpdateRigOnTick = true;
-		bChanged = true;
-	}
-	if (!RigComponent->bUpdateInEditor)
-	{
-		RigComponent->bUpdateInEditor = true;
-		bChanged = true;
-	}
-	if (RigComponent->bEnableLazyEvaluation)
-	{
-		RigComponent->bEnableLazyEvaluation = false;
-		bChanged = true;
-	}
-	if (RigComponent->bResetTransformBeforeTick)
-	{
-		RigComponent->bResetTransformBeforeTick = false;
-		bChanged = true;
-	}
-	if (RigComponent->bResetInitialsBeforeConstruction)
-	{
-		RigComponent->bResetInitialsBeforeConstruction = false;
-		bChanged = true;
-	}
-
-	if (!SkeletalMeshComponent)
-	{
-		UE_LOG(LogRshipExec, Error, TEXT("RshipRigController on '%s' has no SkeletalMeshComponent to bind to."), *GetNameSafe(GetOwner()));
-	}
-	else
-	{
-		const bool bBindingChanged = !CachedBoundMesh.IsValid() || CachedBoundMesh.Get() != SkeletalMeshComponent;
-		if (bBindingChanged || bRigChanged || !bRigComponentConfigured)
-		{
-			RigComponent->SetObjectBinding(SkeletalMeshComponent);
-			RigComponent->ClearMappedElements();
-			RigComponent->AddMappedCompleteSkeletalMesh(SkeletalMeshComponent);
-			CachedBoundMesh = SkeletalMeshComponent;
-			UE_LOG(
-				LogRshipExec,
-				Warning,
-				TEXT("ConfigureControlRigComponent restored mapped skeletal mesh binding for '%s'."),
-				*GetNameSafe(SkeletalMeshComponent));
-		}
-	}
-
-	RigComponent->SetComponentTickEnabled(true);
-
-	if (bChanged || !bRigComponentConfigured)
-	{
-		UE_LOG(LogRshipExec, Log,
-			TEXT("ControlRigComponent '%s' configured: UpdateRigOnTick=%d UpdateInEditor=%d LazyEval=%d ResetBeforeTick=%d ResetInitials=%d"),
-			*GetNameSafe(RigComponent),
-			RigComponent->bUpdateRigOnTick ? 1 : 0,
-			RigComponent->bUpdateInEditor ? 1 : 0,
-			RigComponent->bEnableLazyEvaluation ? 1 : 0,
-			RigComponent->bResetTransformBeforeTick ? 1 : 0,
-			RigComponent->bResetInitialsBeforeConstruction ? 1 : 0);
-	}
-
-	bRigComponentConfigured = true;
-
-	if (RigComponent->CanExecute())
-	{
-		RigComponent->Update(0.f);
-	}
+	bRigInitialized = true;
 }
 
 void URshipRigBoneActionProxy::Initialize(URshipRigController* InController, const FName& InBoneName, ERigElementType InTargetType)
@@ -317,19 +242,15 @@ void URshipRigController::RegisterOrRefreshTarget()
 
 	RigTarget.AddAction(this, GET_FUNCTION_NAME_CHECKED(URshipRigController, ResetAllBonesToInitialWorld), TEXT("ResetAllBonesToInitialWorld"));
 
-	URigHierarchy* Hierarchy = ResolveRigHierarchy();
-	if (!Hierarchy)
+	USkeletalMeshComponent* SkelMeshComp = GetOwner() ? GetOwner()->FindComponentByClass<USkeletalMeshComponent>() : nullptr;
+	USkeletalMesh* SkelMesh = SkelMeshComp ? SkelMeshComp->GetSkeletalMeshAsset() : nullptr;
+	if (!SkelMesh)
 	{
+		UE_LOG(LogRshipExec, Warning, TEXT("RshipRigController on '%s': no SkeletalMesh found, skipping bone subtargets."), *GetNameSafe(GetOwner()));
 		return;
 	}
 
-	FRshipTargetProxy ControlsTarget = RigTarget.AddTarget(TEXT("controls"), TEXT("Controls"));
-	FRshipTargetProxy BonesTarget = RigTarget.AddTarget(TEXT("bones"), TEXT("Bones"));
-	const bool bControlsTargetValid = ControlsTarget.IsValid();
-	const bool bBonesTargetValid = BonesTarget.IsValid();
-
-	BoneSegmentToName.Reset();
-	TSet<FString> ControlSegments;
+	const FReferenceSkeleton& RefSkeleton = SkelMesh->GetRefSkeleton();
 
 	TMap<FString, URshipRigBoneActionProxy*> ExistingProxiesByKey;
 	ExistingProxiesByKey.Reserve(BoneActionProxies.Num());
@@ -344,54 +265,64 @@ void URshipRigController::RegisterOrRefreshTarget()
 		ExistingProxiesByKey.Add(ProxyKey, Proxy);
 	}
 
-	const TArray<FRigControlElement*> Controls = Hierarchy->GetElementsOfType<FRigControlElement>();
-	for (const FRigControlElement* Control : Controls)
+	// NOTE(ts): controls come from the ControlRig hierarchy which may not be
+	// initialized yet; register them when available, bones always register
+	// from the skeletal mesh asset which is available immediately.
+	URigHierarchy* Hierarchy = ResolveRigHierarchy();
+
+	FRshipTargetProxy BonesTarget = RigTarget.AddTarget(TEXT("bones"), TEXT("Bones"));
+	const bool bBonesTargetValid = BonesTarget.IsValid();
+
+	if (Hierarchy)
 	{
-		if (!Control)
-		{
-			continue;
-		}
+		FRshipTargetProxy ControlsTarget = RigTarget.AddTarget(TEXT("controls"), TEXT("Controls"));
+		const bool bControlsTargetValid = ControlsTarget.IsValid();
 
-		const FName ControlName = Control->GetKey().Name;
-		const FString ControlSegment = MakeTargetSegmentFromBoneName(ControlName);
-		ControlSegments.Add(ControlSegment);
-
-		FRshipTargetProxy ControlTarget = bControlsTargetValid ? ControlsTarget.AddTarget(ControlSegment, ControlName.ToString()) : FRshipTargetProxy();
-		if (!ControlTarget.IsValid())
+		const TArray<FRigControlElement*> Controls = Hierarchy->GetElementsOfType<FRigControlElement>();
+		for (const FRigControlElement* Control : Controls)
 		{
-			continue;
-		}
-
-		const FString ProxyKey = MakeProxyKey(ControlName, ERigElementType::Control);
-		URshipRigBoneActionProxy* Proxy = ExistingProxiesByKey.FindRef(ProxyKey);
-		if (!Proxy)
-		{
-			Proxy = NewObject<URshipRigBoneActionProxy>(this);
-			if (!Proxy)
+			if (!Control)
 			{
 				continue;
 			}
 
-			Proxy->Initialize(this, ControlName, ERigElementType::Control);
-			BoneActionProxies.Add(Proxy);
-		}
+			const FName ControlName = Control->GetKey().Name;
+			const FString ControlSegment = MakeTargetSegmentFromBoneName(ControlName);
 
-		ControlTarget
-			.AddAction(Proxy, GET_FUNCTION_NAME_CHECKED(URshipRigBoneActionProxy, RotateInSocket), TEXT("RotateInSocket"))
-			.AddAction(Proxy, GET_FUNCTION_NAME_CHECKED(URshipRigBoneActionProxy, AttachToBone), TEXT("AttachToBone"))
-			.AddAction(Proxy, GET_FUNCTION_NAME_CHECKED(URshipRigBoneActionProxy, ResetToInitialWorld), TEXT("ResetToInitialWorld"))
-			.AddAction(Proxy, GET_FUNCTION_NAME_CHECKED(URshipRigBoneActionProxy, RemoveConstraints), TEXT("RemoveConstraints"));
+			FRshipTargetProxy ControlTarget = bControlsTargetValid ? ControlsTarget.AddTarget(ControlSegment, ControlName.ToString()) : FRshipTargetProxy();
+			if (!ControlTarget.IsValid())
+			{
+				continue;
+			}
+
+			const FString ProxyKey = MakeProxyKey(ControlName, ERigElementType::Control);
+			URshipRigBoneActionProxy* Proxy = ExistingProxiesByKey.FindRef(ProxyKey);
+			if (!Proxy)
+			{
+				Proxy = NewObject<URshipRigBoneActionProxy>(this);
+				if (!Proxy)
+				{
+					continue;
+				}
+
+				Proxy->Initialize(this, ControlName, ERigElementType::Control);
+				BoneActionProxies.Add(Proxy);
+			}
+
+			ControlTarget
+				.AddAction(Proxy, GET_FUNCTION_NAME_CHECKED(URshipRigBoneActionProxy, RotateInSocket), TEXT("RotateInSocket"))
+				.AddAction(Proxy, GET_FUNCTION_NAME_CHECKED(URshipRigBoneActionProxy, AttachToBone), TEXT("AttachToBone"))
+				.AddAction(Proxy, GET_FUNCTION_NAME_CHECKED(URshipRigBoneActionProxy, ResetToInitialWorld), TEXT("ResetToInitialWorld"))
+				.AddAction(Proxy, GET_FUNCTION_NAME_CHECKED(URshipRigBoneActionProxy, RemoveConstraints), TEXT("RemoveConstraints"));
+		}
 	}
 
-	const TArray<FRigBoneElement*> Bones = Hierarchy->GetElementsOfType<FRigBoneElement>();
-	for (const FRigBoneElement* Bone : Bones)
-	{
-		if (!Bone)
-		{
-			continue;
-		}
+	BoneSegmentToName.Reset();
 
-		const FName BoneName = Bone->GetKey().Name;
+	const int32 NumBones = RefSkeleton.GetNum();
+	for (int32 BoneIndex = 0; BoneIndex < NumBones; ++BoneIndex)
+	{
+		const FName BoneName = RefSkeleton.GetBoneName(BoneIndex);
 		const FString BoneSegment = MakeTargetSegmentFromBoneName(BoneName);
 		BoneSegmentToName.Add(BoneSegment, BoneName);
 
@@ -650,14 +581,6 @@ void URshipRigController::ResetBoneToInitialWorld(const FName& BoneName)
 	const FTransform InitialGlobal = Hierarchy->GetGlobalTransform(BoneKey, true);
 	Hierarchy->SetGlobalTransform(BoneKey, InitialGlobal, false, true, false);
 
-	if (UControlRigComponent* RigComponent = ResolveControlRigComponent())
-	{
-		if (RigComponent->CanExecute())
-		{
-			RigComponent->Update(0.f);
-		}
-	}
-
 	UE_LOG(LogRshipExec, Verbose, TEXT("ResetBoneToInitialWorld applied: bone=%s"), *BoneName.ToString());
 }
 
@@ -704,14 +627,6 @@ void URshipRigController::ResetAllBonesToInitialWorld()
 		++ResetCount;
 	}
 
-	if (UControlRigComponent* RigComponent = ResolveControlRigComponent())
-	{
-		if (RigComponent->CanExecute())
-		{
-			RigComponent->Update(0.f);
-		}
-	}
-
 	UE_LOG(LogRshipExec, Verbose, TEXT("ResetAllBonesToInitialWorld applied: bones=%d"), ResetCount);
 }
 
@@ -737,22 +652,8 @@ FName URshipRigController::ResolveBoneNameFromInput(const FString& BoneIdentifie
 	return DirectName;
 }
 
-UControlRigComponent* URshipRigController::ResolveControlRigComponent()
-{
-	if (!ControlRigComponent)
-	{
-		ControlRigComponent = GetOwner() ? GetOwner()->FindComponentByClass<UControlRigComponent>() : nullptr;
-		UE_LOG(LogRshipExec, Log,
-			TEXT("ResolveControlRigComponent owner='%s' result='%s'"),
-			*GetNameSafe(GetOwner()),
-			*GetNameSafe(ControlRigComponent));
-	}
-	return ControlRigComponent;
-}
-
 UControlRig* URshipRigController::ResolveControlRig()
 {
-	UControlRigComponent* RigComponent = ResolveControlRigComponent();
 	USkeletalMeshComponent* SkeletalMeshComponent = GetOwner() ? GetOwner()->FindComponentByClass<USkeletalMeshComponent>() : nullptr;
 	UAnimInstance* AnimInstance = SkeletalMeshComponent ? SkeletalMeshComponent->GetAnimInstance() : nullptr;
 
@@ -760,44 +661,15 @@ UControlRig* URshipRigController::ResolveControlRig()
 	{
 		if (UControlRig* AnimInstanceRig = FindRunningControlRigInAnimInstance(AnimInstance))
 		{
-			ControlRig = AnimInstanceRig;
 			CachedControlRig = AnimInstanceRig;
 			return AnimInstanceRig;
 		}
-	}
-
-	if (RigComponent)
-	{
-		UControlRig* CurrentRig = RigComponent->GetControlRig();
-		UE_LOG(LogRshipExec, Log,
-			TEXT("ResolveControlRig componentRig='%s' explicitRig='%s' cachedRig='%s' component='%s' animInstance='%s'"),
-			*GetNameSafe(CurrentRig),
-			*GetNameSafe(ControlRig),
-			*GetNameSafe(CachedControlRig.Get()),
-			*GetNameSafe(RigComponent),
-			*GetNameSafe(AnimInstance));
-
-		if (CurrentRig)
-		{
-			ControlRig = CurrentRig;
-			CachedControlRig = CurrentRig;
-			return CurrentRig;
-		}
-
-		UE_LOG(LogRshipExec, Warning, TEXT("ControlRigComponent '%s' has no active Control Rig instance."), *GetNameSafe(RigComponent));
 	}
 
 	if (CachedControlRig.IsValid())
 	{
 		UE_LOG(LogRshipExec, Log, TEXT("ResolveControlRig falling back to cached rig '%s'"), *GetNameSafe(CachedControlRig.Get()));
 		return CachedControlRig.Get();
-	}
-
-	if (ControlRig)
-	{
-		CachedControlRig = ControlRig;
-		UE_LOG(LogRshipExec, Log, TEXT("ResolveControlRig falling back to explicit rig '%s'"), *GetNameSafe(ControlRig));
-		return ControlRig;
 	}
 
 	UE_LOG(LogRshipExec, Error, TEXT("RshipRigController on '%s' has no running Control Rig instance."), *GetNameSafe(GetOwner()));
@@ -847,14 +719,9 @@ URshipRigController* URshipRigController::FindForControlRig(const UControlRig* I
 		return nullptr;
 	}
 
-	if (UControlRigComponent* RigComponent = Cast<UControlRigComponent>(ObjectBinding->GetBoundObject()))
+	if (USceneComponent* BoundComponent = Cast<USceneComponent>(ObjectBinding->GetBoundObject()))
 	{
-		return RigComponent->GetOwner() ? RigComponent->GetOwner()->FindComponentByClass<URshipRigController>() : nullptr;
-	}
-
-	if (USkeletalMeshComponent* SkeletalMeshComponent = Cast<USkeletalMeshComponent>(ObjectBinding->GetBoundObject()))
-	{
-		return SkeletalMeshComponent->GetOwner() ? SkeletalMeshComponent->GetOwner()->FindComponentByClass<URshipRigController>() : nullptr;
+		return BoundComponent->GetOwner() ? BoundComponent->GetOwner()->FindComponentByClass<URshipRigController>() : nullptr;
 	}
 
 	return nullptr;

@@ -164,6 +164,7 @@ namespace ix
 
         // Contains all messages that are waiting to be sent
         std::vector<uint8_t> _txbuf;
+        size_t _txbufOffset = 0; // read position to avoid O(n) front-erase
         mutable std::mutex _txbufMutex;
 
         // Hold fragments for multi-fragments messages in a list. We support receiving very large
