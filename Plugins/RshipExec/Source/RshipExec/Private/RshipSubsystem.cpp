@@ -363,7 +363,8 @@ int32 EstimateJsonValueSize(const TSharedPtr<FJsonValue>& Value)
 }
 
 TArray<TSharedPtr<FJsonObject>> BuildChunkedEventBatches(
-    const TArray<TSharedPtr<FJsonValue>>& PayloadArray)
+    const TArray<TSharedPtr<FJsonValue>>& PayloadArray,
+    int32 MaxBatchBytesOverride = 0)
 {
     TArray<TSharedPtr<FJsonObject>> Result;
     if (PayloadArray.Num() == 0)
@@ -372,7 +373,9 @@ TArray<TSharedPtr<FJsonObject>> BuildChunkedEventBatches(
     }
 
     const URshipSettings* Settings = GetDefault<URshipSettings>();
-    const int32 MaxBatchBytes = Settings ? FMath::Max(Settings->MaxBatchBytes, 16 * 1024) : 64 * 1024;
+    const int32 MaxBatchBytes = MaxBatchBytesOverride > 0
+        ? MaxBatchBytesOverride
+        : (Settings ? FMath::Max(Settings->MaxBatchBytes, 16 * 1024) : 64 * 1024);
     const int32 WrapperOverheadBytes = 128;
 
     TArray<TSharedPtr<FJsonValue>> CurrentChunk;
@@ -1202,10 +1205,29 @@ void URshipSubsystem::ProcessMessageQueue()
         UE_LOG(LogRshipExec, VeryVerbose, TEXT("ProcessMessageQueue: Queue has %d messages, processing..."), QueueSize);
     }
 
+    const URshipSettings* Settings = GetDefault<URshipSettings>();
+    const int32 MaxQueuedSocketBufferedBytes = Settings
+        ? FMath::Max(Settings->MaxQueuedSocketBufferedBytes, 64 * 1024)
+        : 1024 * 1024;
+
     int32 Sent = 0;
     while (PendingOutboundMessages.Num() > 0)
     {
         FRshipQueuedMessage Message = PendingOutboundMessages[0];
+        const int32 PendingSocketBytes = WebSocket.IsValid() ? WebSocket->GetPendingSendBytes() : 0;
+        if (Message.Priority != ERshipMessagePriority::Critical &&
+            PendingSocketBytes > 0 &&
+            (PendingSocketBytes + FMath::Max(Message.EstimatedBytes, 1)) > MaxQueuedSocketBufferedBytes)
+        {
+            UE_LOG(LogRshipExec, VeryVerbose,
+                TEXT("ProcessMessageQueue: Pausing queue drain due to socket backpressure pending_socket_bytes=%d next_message_bytes=%d limit=%d queue_remaining=%d"),
+                PendingSocketBytes,
+                Message.EstimatedBytes,
+                MaxQueuedSocketBufferedBytes,
+                PendingOutboundMessages.Num());
+            break;
+        }
+
         FString JsonString;
         TSharedRef<TJsonWriter<>> JsonWriter = TJsonWriterFactory<>::Create(&JsonString);
         if (!Message.Payload.IsValid() || !FJsonSerializer::Serialize(Message.Payload.ToSharedRef(), JsonWriter))
@@ -2436,7 +2458,12 @@ void URshipSubsystem::CancelBulkTopologySend(const FString& Detail, bool bFallba
             }
         }
 
-        for (const TSharedPtr<FJsonObject>& BatchWrapper : BuildChunkedEventBatches(PayloadArray))
+        const URshipSettings* Settings = GetDefault<URshipSettings>();
+        const int32 RegistrationBatchBytes = Settings
+            ? FMath::Max(Settings->MaxTopologyChunkBytes, Settings->MaxBatchBytes)
+            : 1024 * 1024;
+
+        for (const TSharedPtr<FJsonObject>& BatchWrapper : BuildChunkedEventBatches(PayloadArray, RegistrationBatchBytes))
         {
             QueueMessage(BatchWrapper, ERshipMessagePriority::High, ERshipMessageType::Registration, TEXT(""));
         }
@@ -3628,7 +3655,12 @@ void URshipSubsystem::FlushPendingRegistrationBatch()
         return;
     }
 
-    for (const TSharedPtr<FJsonObject>& BatchWrapper : BuildChunkedEventBatches(PayloadArray))
+    const URshipSettings* Settings = GetDefault<URshipSettings>();
+    const int32 RegistrationBatchBytes = Settings
+        ? FMath::Max(Settings->MaxTopologyChunkBytes, Settings->MaxBatchBytes)
+        : 1024 * 1024;
+
+    for (const TSharedPtr<FJsonObject>& BatchWrapper : BuildChunkedEventBatches(PayloadArray, RegistrationBatchBytes))
     {
         QueueMessage(BatchWrapper, ERshipMessagePriority::High, ERshipMessageType::Registration, TEXT(""));
     }

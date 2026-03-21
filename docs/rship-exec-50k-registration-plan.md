@@ -38,6 +38,7 @@
   - websocket buffered bytes
 - Added project settings for:
   - `bEnableTopologyChunkProtocol`
+  - `MaxQueuedSocketBufferedBytes`
   - `MaxTopologyChunkBytes`
   - `MaxTopologyInflightChunks`
   - `MaxTopologyBufferedBytes`
@@ -66,4 +67,5 @@
 - Server-side bulk ingest lands in the main rship server repo.
 - The Unreal client remains backward compatible by falling back to legacy event batches if topology chunk acks are not observed.
 - `bEnableTopologyChunkProtocol` currently defaults to `false` so the client uses the legacy event-batch path until the server supports chunk acks.
+- The legacy event-batch path now honors `MaxQueuedSocketBufferedBytes` so queued registration stops draining into IX when socket backlog is already high.
 - Normal low-latency pulse traffic continues using the direct send path; topology registration and replay use the queued topology path.

@@ -282,4 +282,9 @@ public:
         ClampMin = "0.001", ClampMax = "1.0",
         ToolTip = "How often to process the message queue. Lower values = more responsive but higher CPU. Default 0.016 (~60Hz)."))
     float QueueProcessInterval = 0.016f;
+
+    UPROPERTY(EditAnywhere, config, Category = "Processing", meta = (DisplayName = "Max Queued Socket Buffered Bytes",
+        ClampMin = "65536", ClampMax = "67108864",
+        ToolTip = "Stop draining queued messages when the websocket already has this many bytes buffered. Prevents flooding IXWebSocket faster than the server can consume."))
+    int32 MaxQueuedSocketBufferedBytes = 1024 * 1024;
 };
