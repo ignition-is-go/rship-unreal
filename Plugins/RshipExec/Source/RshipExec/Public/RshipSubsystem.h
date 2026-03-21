@@ -243,6 +243,7 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
 
     // Timer callbacks
     void ProcessMessageQueue();
+    void FlushPendingRegistrationBatch();
     void AttemptReconnect();
     void TickSubsystems();
     void OnConnectionTimeout();

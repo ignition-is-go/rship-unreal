@@ -1123,6 +1123,8 @@ bool URshipSubsystem::OnConnectionTimeoutTick(float DeltaTime)
 
 void URshipSubsystem::ProcessMessageQueue()
 {
+    FlushPendingRegistrationBatch();
+
     if (!IsConnected())
     {
         const int32 QueueSize = PendingOutboundMessages.Num();
@@ -1493,14 +1495,14 @@ void URshipSubsystem::MaybeLogWebSocketSendStats()
     UE_LOG(
         LogRshipExec,
         Log,
-        TEXT("WebSocket send last_%0.1fs attempts=%lld success=%lld failed=%lld bytes=%lld queue=%d pending_socket=%d state=%d"),
+        TEXT("WebSocket send last_%0.1fs attempts=%lld success=%lld failed=%lld bytes=%lld queue=%d pending_socket_bytes=%d state=%d"),
         Elapsed,
         WebSocketSendAttemptsSinceLastLog,
         WebSocketSendSuccessSinceLastLog,
         WebSocketSendFailuresSinceLastLog,
         WebSocketSendBytesSinceLastLog,
         PendingOutboundMessages.Num(),
-        WebSocket.IsValid() ? WebSocket->GetPendingSendCount() : 0,
+        WebSocket.IsValid() ? WebSocket->GetPendingSendBytes() : 0,
         static_cast<int32>(ConnectionState)
     );
 
@@ -2555,7 +2557,7 @@ void URshipSubsystem::ReinitializeAfterHotReload()
 
 void URshipSubsystem::SendTarget(Target *target)
 {
-    UE_LOG(LogRshipExec, Log, TEXT("SendTarget: %s - %d actions, %d emitters"),
+    UE_LOG(LogRshipExec, Verbose, TEXT("SendTarget: %s - %d actions, %d emitters"),
         *target->GetId(),
         target->GetActions().Num(),
         target->GetEmitters().Num());
@@ -2567,7 +2569,7 @@ void URshipSubsystem::SendTarget(Target *target)
 
     for (auto &Elem : target->GetActions())
     {
-        UE_LOG(LogRshipExec, Log, TEXT("  Action: %s"), *Elem.Key);
+        UE_LOG(LogRshipExec, VeryVerbose, TEXT("  Action: %s"), *Elem.Key);
         ActionIds.Add(Elem.Key);
 
         FRshipActionRecord Record;
@@ -2583,7 +2585,7 @@ void URshipSubsystem::SendTarget(Target *target)
 
     for (auto &Elem : target->GetEmitters())
     {
-        UE_LOG(LogRshipExec, Log, TEXT("  Emitter: %s"), *Elem.Key);
+        UE_LOG(LogRshipExec, VeryVerbose, TEXT("  Emitter: %s"), *Elem.Key);
         EmitterIds.Add(Elem.Key);
 
         FRshipEmitterRecord Record;
@@ -2752,21 +2754,9 @@ void URshipSubsystem::BeginRegistrationBatch()
     ++RegistrationBatchDepth;
 }
 
-void URshipSubsystem::EndRegistrationBatch()
+void URshipSubsystem::FlushPendingRegistrationBatch()
 {
-    if (RegistrationBatchDepth <= 0)
-    {
-        RegistrationBatchDepth = 0;
-        return;
-    }
-
-    --RegistrationBatchDepth;
-    if (RegistrationBatchDepth > 0)
-    {
-        return;
-    }
-
-    if (PendingRegistrationEvents.Num() == 0)
+    if (RegistrationBatchDepth > 0 || PendingRegistrationEvents.Num() == 0)
     {
         return;
     }
@@ -2873,7 +2863,7 @@ void URshipSubsystem::EndRegistrationBatch()
 
     if (PayloadArray.Num() == 0)
     {
-        UE_LOG(LogRshipExec, Error, TEXT("EndRegistrationBatch produced empty payload."));
+        UE_LOG(LogRshipExec, Error, TEXT("FlushPendingRegistrationBatch produced empty payload."));
         return;
     }
 
@@ -2881,6 +2871,17 @@ void URshipSubsystem::EndRegistrationBatch()
     {
         QueueMessage(BatchWrapper, ERshipMessagePriority::High, ERshipMessageType::Registration, TEXT(""));
     }
+}
+
+void URshipSubsystem::EndRegistrationBatch()
+{
+    if (RegistrationBatchDepth <= 0)
+    {
+        RegistrationBatchDepth = 0;
+        return;
+    }
+
+    --RegistrationBatchDepth;
 }
 
 void URshipSubsystem::SendTargetStatus(Target *target, bool online)
@@ -2896,7 +2897,7 @@ void URshipSubsystem::SendTargetStatus(Target *target, bool online)
 
     SetItem("TargetStatus", FRshipEntitySerializer::ToJson(Record), ERshipMessagePriority::High, target->GetId() + TEXT(":status"));
 
-    UE_LOG(LogRshipExec, Log, TEXT("Sent target status: %s = %s"), *target->GetId(), online ? TEXT("online") : TEXT("offline"));
+    UE_LOG(LogRshipExec, Verbose, TEXT("Sent target status: %s = %s"), *target->GetId(), online ? TEXT("online") : TEXT("offline"));
 }
 
 #if RSHIP_HAS_DISPLAY_CLUSTER
@@ -3479,7 +3480,6 @@ void URshipSubsystem::RegisterManagedTarget(Target* ManagedTarget)
 
     // Always publish this registration so every proxy refreshes metadata/action bindings.
     SendTarget(ManagedTarget);
-    ProcessMessageQueue();
 }
 
 void URshipSubsystem::UnregisterManagedTarget(Target* ManagedTarget)
@@ -3605,11 +3605,6 @@ void URshipSubsystem::OnManagedTargetChanged(Target* ManagedTarget)
     }
 
     *ExistingSnapshot = BuildManagedTargetSnapshot(ManagedTarget);
-
-    if (bBindingsChanged || bIdentityChanged)
-    {
-        ProcessMessageQueue();
-    }
 }
 
 Target* URshipSubsystem::EnsureAutomationTarget(const FString& FullTargetId, const FString& Name, const TArray<FString>& ParentTargetIds)
@@ -4028,7 +4023,7 @@ void URshipSubsystem::SetItem(FString itemType, TSharedPtr<FJsonObject> data, ER
             data->TryGetStringField(TEXT("id"), ItemId);
         }
 
-        UE_LOG(LogRshipExec, Log, TEXT("SetItem type=%s id=%s"), *itemType, *ItemId);
+        UE_LOG(LogRshipExec, VeryVerbose, TEXT("SetItem type=%s id=%s"), *itemType, *ItemId);
     }
 
     // Determine message type for coalescing

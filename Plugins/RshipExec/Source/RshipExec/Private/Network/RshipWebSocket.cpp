@@ -115,13 +115,15 @@ bool FRshipWebSocket::Send(const FString& Message)
     if (IXSocket)
     {
         std::string StdMsg = TCHAR_TO_UTF8(*Message);
+        const int32 BufferedBeforeSend = GetPendingSendBytes();
         UE_LOG(LogRshipExec, VeryVerbose, TEXT("RshipWebSocket::Send IXWebSocket sending %d bytes, readyState=%d"),
             StdMsg.length(), (int)IXSocket->getReadyState());
 
         ix::WebSocketSendInfo info = IXSocket->send(StdMsg);
+        const int32 BufferedAfterSend = GetPendingSendBytes();
 
-        UE_LOG(LogRshipExec, VeryVerbose, TEXT("RshipWebSocket::Send result: success=%d, payloadSize=%d, wireSize=%d, compressionError=%d"),
-            info.success, (int)info.payloadSize, (int)info.wireSize, info.compressionError);
+        UE_LOG(LogRshipExec, VeryVerbose, TEXT("RshipWebSocket::Send result: success=%d, payloadSize=%d, wireSize=%d, compressionError=%d, bufferedBefore=%d, bufferedAfter=%d"),
+            info.success, (int)info.payloadSize, (int)info.wireSize, info.compressionError, BufferedBeforeSend, BufferedAfterSend);
 
         if (info.success && OnMessageSent.IsBound())
         {
@@ -191,13 +193,25 @@ bool FRshipWebSocket::IsConnected() const
 int32 FRshipWebSocket::GetPendingSendCount() const
 {
 #if RSHIP_USE_IXWEBSOCKET
-    // IXWebSocket doesn't expose this directly, return 0
-    return 0;
+    return GetPendingSendBytes() > 0 ? 1 : 0;
 #else
     if (SocketThread)
     {
         return SocketThread->GetPendingCount();
     }
+    return 0;
+#endif
+}
+
+int32 FRshipWebSocket::GetPendingSendBytes() const
+{
+#if RSHIP_USE_IXWEBSOCKET
+    if (IXSocket)
+    {
+        return static_cast<int32>(FMath::Min<uint64>(static_cast<uint64>(IXSocket->bufferedAmount()), static_cast<uint64>(MAX_int32)));
+    }
+    return 0;
+#else
     return 0;
 #endif
 }
@@ -520,4 +534,3 @@ int32 FRshipWebSocketServiceThread::GetPendingCount() const
 }
 
 #endif // !RSHIP_USE_IXWEBSOCKET
-

@@ -102,6 +102,7 @@ public:
 
     // Get pending send queue size (for backpressure detection)
     int32 GetPendingSendCount() const;
+    int32 GetPendingSendBytes() const;
 
     // Event delegates
     FOnRshipWebSocketConnected OnConnected;
