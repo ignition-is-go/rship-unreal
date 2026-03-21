@@ -11,6 +11,8 @@ namespace RshipMykoEventNames
 	inline constexpr const TCHAR* QueryResponse = TEXT("ws:m:query-response");
 	inline constexpr const TCHAR* QueryCancel = TEXT("ws:m:query-cancel");
 	inline constexpr const TCHAR* QueryError = TEXT("ws:m:query-error");
+	inline constexpr const TCHAR* TopologyChunk = TEXT("ws:m:topology-chunk");
+	inline constexpr const TCHAR* TopologyAck = TEXT("ws:m:topology-ack");
 	inline constexpr const TCHAR* ProtocolSwitch = TEXT("ws:m:protocol-switch");
 }
 

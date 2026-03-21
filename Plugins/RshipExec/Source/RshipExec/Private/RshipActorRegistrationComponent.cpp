@@ -141,6 +141,7 @@ void URshipActorRegistrationComponent::Register()
 	}
 
 	Subsystem->BeginRegistrationBatch();
+	Subsystem->BeginTopologyBuild();
 
 	FString OutlinerName = Parent->GetName();
 #if WITH_EDITOR
@@ -190,6 +191,7 @@ void URshipActorRegistrationComponent::Register()
 			TargetData->SetBoundTargetComponent(this);
 			Subsystem->RegisterTargetComponent(this);
 			RebindSiblingContributors();
+			Subsystem->EndTopologyBuild();
 			Subsystem->EndRegistrationBatch();
 			UE_LOG(LogRshipExec, Verbose, TEXT("Register refreshed existing target in place: %s"), *FullTargetId);
 			return;
@@ -204,6 +206,7 @@ void URshipActorRegistrationComponent::Register()
 
 	RebindSiblingContributors();
 
+	Subsystem->EndTopologyBuild();
 	Subsystem->EndRegistrationBatch();
 
 	UE_LOG(LogRshipExec, Log, TEXT("Component Registered: %s (actions=%d emitters=%d)"), *Parent->GetName(), TargetData->GetActions().Num(), TargetData->GetEmitters().Num());
@@ -275,6 +278,13 @@ void URshipActorRegistrationComponent::SetTargetId(const FString& NewTargetId)
 
 void URshipActorRegistrationComponent::RebindSiblingContributors()
 {
+	if (bIsRebindingSiblingContributors)
+	{
+		return;
+	}
+
+	TGuardValue<bool> RebindGuard(bIsRebindingSiblingContributors, true);
+
 	AActor* Owner = GetOwner();
 	if (!Owner)
 	{

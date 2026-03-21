@@ -125,6 +125,76 @@ struct FRshipTopologySyncSnapshot
     int32 SentTargetStatuses = 0;
 };
 
+struct FRshipPendingTopologyItem
+{
+    TSharedPtr<FJsonObject> Item;
+    int32 ParentDepth = 0;
+};
+
+struct FRshipPendingTopologySnapshot
+{
+    TMap<FString, FRshipPendingTopologyItem> Targets;
+    TMap<FString, TSharedPtr<FJsonObject>> Actions;
+    TMap<FString, TSharedPtr<FJsonObject>> Emitters;
+    TMap<FString, TSharedPtr<FJsonObject>> TargetStatuses;
+
+    bool IsEmpty() const
+    {
+        return Targets.Num() == 0 && Actions.Num() == 0 && Emitters.Num() == 0 && TargetStatuses.Num() == 0;
+    }
+
+    int32 Num() const
+    {
+        return Targets.Num() + Actions.Num() + Emitters.Num() + TargetStatuses.Num();
+    }
+
+    void Reset()
+    {
+        Targets.Reset();
+        Actions.Reset();
+        Emitters.Reset();
+        TargetStatuses.Reset();
+    }
+};
+
+struct FRshipInflightTopologyChunk
+{
+    int32 ChunkIndex = 0;
+    FString PayloadJson;
+    int32 EventCount = 0;
+    bool bIsFinal = false;
+    double LastSentAtSeconds = 0.0;
+};
+
+struct FRshipTopologyBulkSendState
+{
+    bool bActive = false;
+    bool bUsingChunkProtocol = false;
+    bool bSawAck = false;
+    bool bTopologySyncReplay = false;
+    bool bQueuedFinalChunk = false;
+    FString SyncId;
+    FString Reason;
+    double StartedAtSeconds = 0.0;
+    double LastAckAtSeconds = 0.0;
+    double FirstChunkSentAtSeconds = 0.0;
+    int32 NextChunkIndex = 0;
+    int32 NextTargetIndex = 0;
+    int32 NextActionIndex = 0;
+    int32 NextEmitterIndex = 0;
+    int32 NextStatusIndex = 0;
+    int32 TotalItemCount = 0;
+    TArray<FString> OrderedTargetIds;
+    TArray<FString> OrderedActionIds;
+    TArray<FString> OrderedEmitterIds;
+    TArray<FString> OrderedStatusIds;
+    TMap<FString, FRshipPendingTopologyItem> Targets;
+    TMap<FString, TSharedPtr<FJsonObject>> Actions;
+    TMap<FString, TSharedPtr<FJsonObject>> Emitters;
+    TMap<FString, TSharedPtr<FJsonObject>> TargetStatuses;
+    TMap<int32, FRshipInflightTopologyChunk> InflightChunks;
+};
+
 /**
  * Main subsystem for managing Rocketship WebSocket connection and message routing.
  * Uses a lossless outbound queue while disconnected and direct sends while connected.
@@ -243,6 +313,7 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
 
     // Timer callbacks
     void ProcessMessageQueue();
+    void FlushPendingRegistrationBatch();
     void AttemptReconnect();
     void TickSubsystems();
     void OnConnectionTimeout();
@@ -269,6 +340,21 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
     void CompleteTopologySyncIfReady();
     void FlushTopologyDiff();
     void CheckTopologySyncTimeout();
+    void EnqueueTopologyItem(const FString& ItemType, const FString& ItemId, const TSharedPtr<FJsonObject>& Item, int32 ParentDepth = 0);
+    void FlushPendingManagedTopologySnapshots();
+    void MergeTopologySnapshot(FRshipPendingTopologySnapshot& Dest, FRshipPendingTopologySnapshot&& Src);
+    int32 GetPendingTopologyItemCount() const;
+    int32 GetPendingTopologyEventCountForBulkSend() const;
+    bool ShouldUseTopologyChunkProtocol(int32 PendingItemCount, bool bForceProtocol) const;
+    void StartBulkTopologySend(FRshipPendingTopologySnapshot&& Snapshot, const FString& Reason, bool bForceProtocol, bool bTopologySyncReplay);
+    void PumpBulkTopologySend();
+    bool TrySendPendingTopologyChunk();
+    bool TryResendInflightTopologyChunks();
+    bool TryBuildNextTopologyChunk(FString& OutPayloadJson, int32& OutChunkIndex, int32& OutEventCount, bool& bOutIsFinal);
+    void HandleTopologyAck(const TSharedPtr<FJsonObject>& DataObj);
+    void CompleteBulkTopologySend(const FString& Detail);
+    void CancelBulkTopologySend(const FString& Detail, bool bFallbackToLegacyReplay);
+    void FinalizeTopologySyncSuccess(const FString& Detail);
 
     // Initialize outbound queue behavior
     void InitializeRateLimiter();
@@ -280,7 +366,12 @@ class RSHIPEXEC_API URshipSubsystem : public UEngineSubsystem
 
     // Registration batching state
     int32 RegistrationBatchDepth = 0;
-    TArray<TSharedPtr<FJsonObject>> PendingRegistrationEvents;
+    int32 TopologyBuildDepth = 0;
+    TSet<Target*> PendingManagedTopologyTargets;
+    FRshipPendingTopologySnapshot PendingRegistrationSnapshot;
+    FRshipPendingTopologySnapshot DeferredBulkTopologySnapshot;
+    FRshipTopologyBulkSendState TopologyBulkSendState;
+    double LastTopologyAckLagSeconds = 0.0;
 
     // Rolling websocket send stats for diagnosing replay/backpressure behavior.
     double LastWebSocketSendStatsLogTime = 0.0;
@@ -361,7 +452,7 @@ public:
 	FRshipTargetProxy GetTargetProxyForActor(AActor* Actor);
 
 	// Managed target lifecycle (owned by subsystem, fed by automation components/controllers)
-	void RegisterManagedTarget(Target* ManagedTarget);
+    void RegisterManagedTarget(Target* ManagedTarget);
     void UnregisterManagedTarget(Target* ManagedTarget);
     void OnManagedTargetChanged(Target* ManagedTarget);
     Target* EnsureAutomationTarget(const FString& FullTargetId, const FString& Name, const TArray<FString>& ParentTargetIds);
@@ -468,6 +559,18 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
     float GetQueuePressure() const;
 
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    int32 GetTopologyQueueDepth() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    int32 GetTopologyInflightChunkCount() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    float GetTopologyAckLagSeconds() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
+    int32 GetWebSocketBufferedBytes() const;
+
     // Throughput metrics
     UFUNCTION(BlueprintCallable, Category = "Rship|Diagnostics")
     int32 GetMessagesSentPerSecond() const;
@@ -493,6 +596,9 @@ public:
     void ResetRateLimiterStats();
 
     // Registration batching (for multi-target component registration)
+    void BeginTopologyBuild();
+    void EndTopologyBuild();
+    void EnqueueTopologySnapshot(Target* ManagedTarget);
     void BeginRegistrationBatch();
     void EndRegistrationBatch();
 

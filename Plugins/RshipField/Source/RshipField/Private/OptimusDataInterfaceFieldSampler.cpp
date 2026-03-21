@@ -31,14 +31,12 @@ TCHAR const* UOptimusFieldSamplerDataInterface::TemplateFilePath = TEXT("/Plugin
 
 FString UOptimusFieldSamplerDataInterface::GetDisplayName() const
 {
-    return TEXT("Rship Field Sampler");
+    return TEXT("Rship Field Sampler — SampleFieldScalar(float3), SampleFieldVector(float3)");
 }
 
 TArray<FOptimusCDIPinDefinition> UOptimusFieldSamplerDataInterface::GetPinDefinitions() const
 {
     TArray<FOptimusCDIPinDefinition> Defs;
-    // Single singleton pin — connects the DI to the kernel and includes the template.
-    // Kernel calls SampleFieldScalar(pos)/SampleFieldVector(pos) directly via #define aliases.
     Defs.Add({"Field", "ReadFieldResolution"});
     return Defs;
 }

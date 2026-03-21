@@ -21,6 +21,14 @@ void URshipControllerComponent::OnUnregister()
 
 void URshipControllerComponent::RegisterRshipTargets()
 {
+	if (URshipSubsystem* Subsystem = ResolveRshipSubsystem())
+	{
+		Subsystem->BeginTopologyBuild();
+		RegisterOrRefreshTarget();
+		Subsystem->EndTopologyBuild();
+		return;
+	}
+
 	RegisterOrRefreshTarget();
 }
 
@@ -70,6 +78,12 @@ FRshipTargetProxy URshipControllerComponent::ResolveChildTarget(const FString& R
 
 void URshipControllerComponent::ScheduleDeferredRegisterRshipTargets()
 {
+	AActor* Owner = GetOwner();
+	if (IsValid(Owner) && Owner->FindComponentByClass<URshipActorRegistrationComponent>())
+	{
+		return;
+	}
+
 	const TWeakObjectPtr<URshipControllerComponent> WeakThis(this);
 	FTSTicker::GetCoreTicker().AddTicker(
 		FTickerDelegate::CreateLambda([WeakThis](float)

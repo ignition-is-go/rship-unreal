@@ -1,0 +1,155 @@
+// ---------------------------------------------------------------------------
+// Rotunda Mullion Data Interface — HLSL template
+// Struct layouts must match C++ in RotundaMullionTypes.h
+// ---------------------------------------------------------------------------
+
+struct FMullionData
+{
+    float3 Centroid;
+    float3 Forward;
+    float3 Tangent;
+    float  ZMin;
+    float  ZMax;
+    float  HMin;
+    float  HMax;
+    float  Width;
+    float  Height;
+    float  Angle;
+    int    RowCount;
+    int    ColCount;
+};
+
+struct FAtomData
+{
+    float3 Centroid;
+    float3 Forward;
+    int    MullionID;
+    int    Column;
+    int    Row;
+};
+
+struct FMullionControlLayer
+{
+    uint   MullionMask[3];  // 96 bits for 81 mullions
+    uint   AtomMask[5];     // 160 bits for 144 atoms per mullion
+
+    float  Weight;
+    int    BlendMode;       // 0 = override, 1 = additive
+
+    float4 Rotation;        // quaternion xyzw
+    float3 Translation;
+    float  Scale;
+
+    float  _pad0;
+    float  _pad1;
+};
+
+// ---------------------------------------------------------------------------
+// Uniforms bound by the data provider
+// ---------------------------------------------------------------------------
+
+int {DataInterfaceName}_MullionCount;
+int {DataInterfaceName}_AtomCount;
+int {DataInterfaceName}_LayerCount;
+StructuredBuffer<FMullionData>         {DataInterfaceName}_MullionBuffer;
+StructuredBuffer<FAtomData>            {DataInterfaceName}_AtomBuffer;
+StructuredBuffer<FMullionControlLayer> {DataInterfaceName}_ControlLayerBuffer;
+
+// ---------------------------------------------------------------------------
+// Pin-mapped function — singleton pin to establish binding
+// ---------------------------------------------------------------------------
+
+int ReadMullionCount_{DataInterfaceName}()
+{
+    return {DataInterfaceName}_MullionCount;
+}
+
+// ---------------------------------------------------------------------------
+// Read functions
+// ---------------------------------------------------------------------------
+
+FMullionData ReadMullionData_{DataInterfaceName}(int Index)
+{
+    return {DataInterfaceName}_MullionBuffer[clamp(Index, 0, {DataInterfaceName}_MullionCount - 1)];
+}
+
+FAtomData ReadAtomData_{DataInterfaceName}(int Index)
+{
+    return {DataInterfaceName}_AtomBuffer[clamp(Index, 0, {DataInterfaceName}_AtomCount - 1)];
+}
+
+FMullionControlLayer ReadControlLayer_{DataInterfaceName}(int Index)
+{
+    return {DataInterfaceName}_ControlLayerBuffer[clamp(Index, 0, {DataInterfaceName}_LayerCount - 1)];
+}
+
+// ---------------------------------------------------------------------------
+// Selection helpers
+// ---------------------------------------------------------------------------
+
+bool IsMullionSelected_{DataInterfaceName}(FMullionControlLayer L, int MullionID)
+{
+    uint Word = L.MullionMask[MullionID / 32];
+    return (Word >> (MullionID % 32)) & 1;
+}
+
+bool IsAtomSelected_{DataInterfaceName}(FMullionControlLayer L, int Row, int ColCount, int Column)
+{
+    int AtomLocal = Row * ColCount + Column;
+    uint Word = L.AtomMask[AtomLocal / 32];
+    return (Word >> (AtomLocal % 32)) & 1;
+}
+
+// ---------------------------------------------------------------------------
+// Quaternion helpers
+// ---------------------------------------------------------------------------
+
+float3 QuatRotate_{DataInterfaceName}(float4 Q, float3 V)
+{
+    float3 U = Q.xyz;
+    float S = Q.w;
+    return 2.0 * dot(U, V) * U
+         + (S * S - dot(U, U)) * V
+         + 2.0 * S * cross(U, V);
+}
+
+float4 QuatSlerp_{DataInterfaceName}(float4 A, float4 B, float T)
+{
+    float CosHalf = dot(A, B);
+    if (CosHalf < 0.0)
+    {
+        B = -B;
+        CosHalf = -CosHalf;
+    }
+    if (CosHalf > 0.9995)
+    {
+        return normalize(lerp(A, B, T));
+    }
+    float HalfAngle = acos(CosHalf);
+    float SinHalf = sin(HalfAngle);
+    float WA = sin((1.0 - T) * HalfAngle) / SinHalf;
+    float WB = sin(T * HalfAngle) / SinHalf;
+    return WA * A + WB * B;
+}
+
+float4 QuatMultiply_{DataInterfaceName}(float4 A, float4 B)
+{
+    return float4(
+        A.w * B.xyz + B.w * A.xyz + cross(A.xyz, B.xyz),
+        A.w * B.w - dot(A.xyz, B.xyz)
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Aliases — kernel uses these without knowing the DI index
+// ---------------------------------------------------------------------------
+
+#define ReadMullionCount()       ReadMullionCount_{DataInterfaceName}()
+#define ReadMullionData(idx)     ReadMullionData_{DataInterfaceName}(idx)
+#define ReadAtomData(idx)        ReadAtomData_{DataInterfaceName}(idx)
+#define ReadControlLayer(idx)    ReadControlLayer_{DataInterfaceName}(idx)
+#define IsMullionSelected(L, id) IsMullionSelected_{DataInterfaceName}(L, id)
+#define IsAtomSelected(L, r, cc, c) IsAtomSelected_{DataInterfaceName}(L, r, cc, c)
+#define QuatRotate(q, v)         QuatRotate_{DataInterfaceName}(q, v)
+#define QuatSlerp(a, b, t)       QuatSlerp_{DataInterfaceName}(a, b, t)
+#define QuatMultiply(a, b)       QuatMultiply_{DataInterfaceName}(a, b)
