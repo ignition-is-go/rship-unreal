@@ -471,6 +471,20 @@ namespace
 				: PayloadValue;
 		}
 
+		if (EventName == TEXT("ws:m:topology-chunk"))
+		{
+			return PayloadValue->Type == EJson::Array
+				? MakeShared<FJsonValueObject>(MakeObjectFromArray(PayloadValue->AsArray(), { TEXT("syncId"), TEXT("chunkIndex"), TEXT("isFinal"), TEXT("data") }))
+				: PayloadValue;
+		}
+
+		if (EventName == TEXT("ws:m:topology-ack"))
+		{
+			return PayloadValue->Type == EJson::Array
+				? MakeShared<FJsonValueObject>(MakeObjectFromArray(PayloadValue->AsArray(), { TEXT("syncId"), TEXT("chunkIndex") }))
+				: PayloadValue;
+		}
+
 		if (EventName == TEXT("ws:m:ping"))
 		{
 			return PayloadValue->Type == EJson::Array

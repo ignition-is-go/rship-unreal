@@ -108,6 +108,35 @@ public:
     bool bCriticalBypassBatching = true;
 
     // ============================================================================
+    // TOPOLOGY BULK PUBLISHING
+    // Controls large registration/replay flows that must stay bounded and deduped
+    // ============================================================================
+
+    UPROPERTY(EditAnywhere, config, Category = "Topology", meta = (DisplayName = "Enable Topology Chunk Protocol",
+        ToolTip = "Send bulk topology via ws:m:topology-chunk / ws:m:topology-ack. Disable until the server implements chunk ack handling."))
+    bool bEnableTopologyChunkProtocol = false;
+
+    UPROPERTY(EditAnywhere, config, Category = "Topology", meta = (DisplayName = "Max Topology Chunk Bytes",
+        ClampMin = "65536", ClampMax = "4194304",
+        ToolTip = "Maximum serialized size of a topology chunk frame. Default 1 MiB."))
+    int32 MaxTopologyChunkBytes = 1024 * 1024;
+
+    UPROPERTY(EditAnywhere, config, Category = "Topology", meta = (DisplayName = "Max Topology Inflight Chunks",
+        ClampMin = "1", ClampMax = "64",
+        ToolTip = "Maximum number of topology chunks allowed in flight while waiting for ack."))
+    int32 MaxTopologyInflightChunks = 8;
+
+    UPROPERTY(EditAnywhere, config, Category = "Topology", meta = (DisplayName = "Max Topology Buffered Bytes",
+        ClampMin = "65536", ClampMax = "67108864",
+        ToolTip = "Pause topology chunk sends when websocket buffered bytes exceeds this threshold. Default 8 MiB."))
+    int32 MaxTopologyBufferedBytes = 8 * 1024 * 1024;
+
+    UPROPERTY(EditAnywhere, config, Category = "Topology", meta = (DisplayName = "Bulk Topology Threshold Items",
+        ClampMin = "1", ClampMax = "500000",
+        ToolTip = "When pending deduped topology items reaches this count, use the bulk topology sender."))
+    int32 BulkTopologyThresholdItems = 1000;
+
+    // ============================================================================
     // BYTES-AWARE RATE LIMITING
     // Additional rate limiting based on bytes per second
     // ============================================================================

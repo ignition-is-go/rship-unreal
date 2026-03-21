@@ -421,6 +421,43 @@ TArray<TSharedPtr<FJsonObject>> BuildChunkedEventBatches(
     return Result;
 }
 
+TSharedPtr<FJsonValue> MakeTopologyEventValue(const FString& ItemType, const TSharedPtr<FJsonObject>& Item, const FString& SourceId)
+{
+    if (!Item.IsValid())
+    {
+        return nullptr;
+    }
+
+    TSharedPtr<FJsonObject> Envelope = FRshipMykoTransport::MakeSet(ItemType, Item, SourceId);
+    TSharedPtr<FJsonObject> EventData;
+    if (!FRshipMykoTransport::TryGetMykoEventData(Envelope, EventData) || !EventData.IsValid())
+    {
+        return nullptr;
+    }
+
+    return MakeShared<FJsonValueObject>(EventData);
+}
+
+void SortTopologyTargetIds(const TMap<FString, FRshipPendingTopologyItem>& Targets, TArray<FString>& OutIds)
+{
+    Targets.GetKeys(OutIds);
+    OutIds.Sort([&Targets](const FString& A, const FString& B)
+    {
+        const FRshipPendingTopologyItem* AItem = Targets.Find(A);
+        const FRshipPendingTopologyItem* BItem = Targets.Find(B);
+        const int32 ADepth = AItem ? AItem->ParentDepth : 0;
+        const int32 BDepth = BItem ? BItem->ParentDepth : 0;
+        return ADepth == BDepth ? A < B : ADepth < BDepth;
+    });
+}
+
+template <typename TValue>
+void SortTopologyIds(const TMap<FString, TValue>& Source, TArray<FString>& OutIds)
+{
+    Source.GetKeys(OutIds);
+    OutIds.Sort();
+}
+
 }
 
 void URshipSubsystem::Initialize(FSubsystemCollectionBase &Collection)
@@ -776,13 +813,28 @@ void URshipSubsystem::OnWebSocketConnected()
         ConnectionTimeoutTickerHandle.Reset();
     }
 
-    // Send instance identity immediately, then query server state before replaying topology.
+    // Send instance identity immediately, then either resume bulk replay or query server state.
     SendInstanceInfo();
-    StartTopologySync(TEXT("OnWebSocketConnected"));
+    if (TopologyBulkSendState.bActive)
+    {
+        for (TPair<int32, FRshipInflightTopologyChunk>& Pair : TopologyBulkSendState.InflightChunks)
+        {
+            Pair.Value.LastSentAtSeconds = 0.0;
+        }
+
+        UE_LOG(LogRshipExec, Log, TEXT("Resuming bulk topology send syncId=%s inflight=%d"),
+            *TopologyBulkSendState.SyncId,
+            TopologyBulkSendState.InflightChunks.Num());
+    }
+    else
+    {
+        StartTopologySync(TEXT("OnWebSocketConnected"));
+    }
 
     // Force immediate queue processing - the timer may not be running yet.
     UE_LOG(LogRshipExec, Log, TEXT("Forcing immediate queue processing after topology sync start"));
     ProcessMessageQueue();
+    PumpBulkTopologySend();
 
     // Ensure queue processing ticker is running (may have failed during early init)
     const URshipSettings* Settings = GetDefault<URshipSettings>();
@@ -802,6 +854,10 @@ void URshipSubsystem::OnWebSocketConnectionError(const FString &Error)
 
     ConnectionState = ERshipConnectionState::Disconnected;
     TopologySyncState = FRshipTopologySyncState();
+    for (TPair<int32, FRshipInflightTopologyChunk>& Pair : TopologyBulkSendState.InflightChunks)
+    {
+        Pair.Value.LastSentAtSeconds = 0.0;
+    }
 
     // Clear connection timeout
     if (ConnectionTimeoutTickerHandle.IsValid())
@@ -825,6 +881,10 @@ void URshipSubsystem::OnWebSocketClosed(int32 StatusCode, const FString &Reason,
 
     ConnectionState = ERshipConnectionState::Disconnected;
     TopologySyncState = FRshipTopologySyncState();
+    for (TPair<int32, FRshipInflightTopologyChunk>& Pair : TopologyBulkSendState.InflightChunks)
+    {
+        Pair.Value.LastSentAtSeconds = 0.0;
+    }
 
     // Schedule reconnection for any socket close while remote communication is enabled.
     // Skip only if we're in the middle of a manual reconnect (user called Reconnect()).
@@ -1169,6 +1229,8 @@ void URshipSubsystem::ProcessMessageQueue()
     {
         UE_LOG(LogRshipExec, VeryVerbose, TEXT("ProcessMessageQueue: Sent %d messages, %d remaining"), Sent, PendingOutboundMessages.Num());
     }
+
+    PumpBulkTopologySend();
 }
 
 void URshipSubsystem::TickSubsystems()
@@ -1192,6 +1254,7 @@ void URshipSubsystem::TickSubsystems()
 
     // Process message queue every tick to ensure messages are sent
     ProcessMessageQueue();
+    PumpBulkTopologySend();
 }
 
 bool URshipSubsystem::OnDeferredOnDataReceivedTick(float DeltaTime)
@@ -1407,7 +1470,8 @@ void URshipSubsystem::ProcessPendingExecTargetActions()
 void URshipSubsystem::QueueMessage(TSharedPtr<FJsonObject> Payload, ERshipMessagePriority Priority,
                                     ERshipMessageType Type, const FString& CoalesceKey)
 {
-    if (IsConnected())
+    const bool bAllowConnectedBypass = (Type != ERshipMessageType::Registration);
+    if (IsConnected() && bAllowConnectedBypass)
     {
         FString JsonString;
         TSharedRef<TJsonWriter<>> JsonWriter = TJsonWriterFactory<>::Create(&JsonString);
@@ -1495,7 +1559,7 @@ void URshipSubsystem::MaybeLogWebSocketSendStats()
     UE_LOG(
         LogRshipExec,
         Log,
-        TEXT("WebSocket send last_%0.1fs attempts=%lld success=%lld failed=%lld bytes=%lld queue=%d pending_socket_bytes=%d state=%d"),
+        TEXT("WebSocket send last_%0.1fs attempts=%lld success=%lld failed=%lld bytes=%lld queue=%d pending_socket_bytes=%d topology_queue=%d topology_inflight=%d topology_ack_lag=%0.3f state=%d"),
         Elapsed,
         WebSocketSendAttemptsSinceLastLog,
         WebSocketSendSuccessSinceLastLog,
@@ -1503,6 +1567,9 @@ void URshipSubsystem::MaybeLogWebSocketSendStats()
         WebSocketSendBytesSinceLastLog,
         PendingOutboundMessages.Num(),
         WebSocket.IsValid() ? WebSocket->GetPendingSendBytes() : 0,
+        GetPendingTopologyItemCount(),
+        TopologyBulkSendState.InflightChunks.Num(),
+        LastTopologyAckLagSeconds,
         static_cast<int32>(ConnectionState)
     );
 
@@ -1742,13 +1809,6 @@ void URshipSubsystem::CompleteTopologySyncIfReady()
     }
 
     FlushTopologyDiff();
-
-    const FString QueuedReason = TopologySyncState.PendingReason;
-    TopologySyncState = FRshipTopologySyncState();
-    if (!QueuedReason.IsEmpty())
-    {
-        StartTopologySync(QueuedReason);
-    }
 }
 
 void URshipSubsystem::FlushTopologyDiff()
@@ -1845,7 +1905,14 @@ void URshipSubsystem::FlushTopologyDiff()
         const TSharedPtr<FJsonObject>* Remote = TopologySyncState.RemoteTargets.Find(Pair.Key);
         if (!Remote || CanonicalizeJsonObject(*Remote) != CanonicalizeJsonObject(Pair.Value))
         {
-            SetItem(TEXT("Target"), Pair.Value, ERshipMessagePriority::High, Pair.Key);
+            int32 ParentDepth = 0;
+            const TArray<TSharedPtr<FJsonValue>>* ParentIds = nullptr;
+            if (Pair.Value.IsValid() && Pair.Value->TryGetArrayField(TEXT("parentTargetIds"), ParentIds) && ParentIds)
+            {
+                ParentDepth = ParentIds->Num();
+            }
+
+            EnqueueTopologyItem(TEXT("Target"), Pair.Key, Pair.Value, ParentDepth);
             ++TargetsSent;
         }
     }
@@ -1855,7 +1922,7 @@ void URshipSubsystem::FlushTopologyDiff()
         const TSharedPtr<FJsonObject>* Remote = TopologySyncState.RemoteActions.Find(Pair.Key);
         if (!Remote || CanonicalizeJsonObject(*Remote) != CanonicalizeJsonObject(Pair.Value))
         {
-            SetItem(TEXT("Action"), Pair.Value, ERshipMessagePriority::High, Pair.Key);
+            EnqueueTopologyItem(TEXT("Action"), Pair.Key, Pair.Value);
             ++ActionsSent;
         }
     }
@@ -1865,7 +1932,7 @@ void URshipSubsystem::FlushTopologyDiff()
         const TSharedPtr<FJsonObject>* Remote = TopologySyncState.RemoteEmitters.Find(Pair.Key);
         if (!Remote || CanonicalizeJsonObject(*Remote) != CanonicalizeJsonObject(Pair.Value))
         {
-            SetItem(TEXT("Emitter"), Pair.Value, ERshipMessagePriority::High, Pair.Key);
+            EnqueueTopologyItem(TEXT("Emitter"), Pair.Key, Pair.Value);
             ++EmittersSent;
         }
     }
@@ -1875,19 +1942,21 @@ void URshipSubsystem::FlushTopologyDiff()
         const TSharedPtr<FJsonObject>* Remote = TopologySyncState.RemoteTargetStatuses.Find(Pair.Key);
         if (!Remote || CanonicalizeJsonObject(*Remote) != CanonicalizeJsonObject(Pair.Value))
         {
-            SetItem(TEXT("TargetStatus"), Pair.Value, ERshipMessagePriority::High, Pair.Key + TEXT(":status"));
+            EnqueueTopologyItem(TEXT("TargetStatus"), Pair.Key, Pair.Value);
             ++StatusesSent;
         }
     }
 
     EndRegistrationBatch();
+    FlushPendingRegistrationBatch();
     ProcessMessageQueue();
 
-    TopologySyncSnapshot.bInFlight = false;
-    TopologySyncSnapshot.bLastSyncSucceeded = true;
+    TopologySyncSnapshot.bInFlight = true;
+    TopologySyncSnapshot.bLastSyncSucceeded = false;
     TopologySyncSnapshot.Reason = TopologySyncState.Reason;
-    TopologySyncSnapshot.Detail = TEXT("Sync complete");
-    TopologySyncSnapshot.CompletedAtSeconds = FPlatformTime::Seconds();
+    TopologySyncSnapshot.Detail = TopologyBulkSendState.bActive
+        ? TEXT("Awaiting topology chunk acknowledgements")
+        : TEXT("Sync complete");
     TopologySyncSnapshot.LocalTargets = DesiredTargets.Num();
     TopologySyncSnapshot.RemoteTargets = TopologySyncState.RemoteTargets.Num();
     TopologySyncSnapshot.SentTargets = TargetsSent;
@@ -1901,18 +1970,555 @@ void URshipSubsystem::FlushTopologyDiff()
     TopologySyncSnapshot.RemoteTargetStatuses = TopologySyncState.RemoteTargetStatuses.Num();
     TopologySyncSnapshot.SentTargetStatuses = StatusesSent;
 
-    UE_LOG(LogRshipExec, Log, TEXT("Topology sync complete: reason=%s targets=%d/%d actions=%d/%d emitters=%d/%d statuses=%d/%d"),
-        *TopologySyncState.Reason,
-        TargetsSent, DesiredTargets.Num(),
-        ActionsSent, DesiredActions.Num(),
-        EmittersSent, DesiredEmitters.Num(),
-        StatusesSent, DesiredStatuses.Num());
+    if (!TopologyBulkSendState.bActive)
+    {
+        FinalizeTopologySyncSuccess(TEXT("Sync complete"));
+    }
+    else
+    {
+        UE_LOG(LogRshipExec, Log, TEXT("Topology sync diff queued: reason=%s targets=%d/%d actions=%d/%d emitters=%d/%d statuses=%d/%d"),
+            *TopologySyncState.Reason,
+            TargetsSent, DesiredTargets.Num(),
+            ActionsSent, DesiredActions.Num(),
+            EmittersSent, DesiredEmitters.Num(),
+            StatusesSent, DesiredStatuses.Num());
+    }
 }
 
 void URshipSubsystem::CheckTopologySyncTimeout()
 {
     // Topology sync is query-driven and authoritative. Do not apply a local timeout:
     // wait for query completion or an actual socket/query error.
+}
+
+void URshipSubsystem::StartBulkTopologySend(
+    FRshipPendingTopologySnapshot&& Snapshot,
+    const FString& Reason,
+    bool bForceProtocol,
+    bool bTopologySyncReplay)
+{
+    if (Snapshot.IsEmpty())
+    {
+        if (bTopologySyncReplay)
+        {
+            FinalizeTopologySyncSuccess(TEXT("Sync complete"));
+        }
+        return;
+    }
+
+    if (TopologyBulkSendState.bActive)
+    {
+        MergeTopologySnapshot(DeferredBulkTopologySnapshot, MoveTemp(Snapshot));
+        return;
+    }
+
+    TopologyBulkSendState = FRshipTopologyBulkSendState();
+    TopologyBulkSendState.bActive = true;
+    TopologyBulkSendState.bUsingChunkProtocol = ShouldUseTopologyChunkProtocol(Snapshot.Num(), bForceProtocol);
+    TopologyBulkSendState.bTopologySyncReplay = bTopologySyncReplay;
+    TopologyBulkSendState.SyncId = FRshipMykoTransport::GenerateTransactionId();
+    TopologyBulkSendState.Reason = Reason;
+    TopologyBulkSendState.StartedAtSeconds = FPlatformTime::Seconds();
+    TopologyBulkSendState.TotalItemCount = Snapshot.Num();
+    TopologyBulkSendState.Targets = MoveTemp(Snapshot.Targets);
+    TopologyBulkSendState.Actions = MoveTemp(Snapshot.Actions);
+    TopologyBulkSendState.Emitters = MoveTemp(Snapshot.Emitters);
+    TopologyBulkSendState.TargetStatuses = MoveTemp(Snapshot.TargetStatuses);
+    SortTopologyTargetIds(TopologyBulkSendState.Targets, TopologyBulkSendState.OrderedTargetIds);
+    SortTopologyIds(TopologyBulkSendState.Actions, TopologyBulkSendState.OrderedActionIds);
+    SortTopologyIds(TopologyBulkSendState.Emitters, TopologyBulkSendState.OrderedEmitterIds);
+    SortTopologyIds(TopologyBulkSendState.TargetStatuses, TopologyBulkSendState.OrderedStatusIds);
+
+    UE_LOG(LogRshipExec, Log, TEXT("Bulk topology send started: reason=%s syncId=%s items=%d targets=%d actions=%d emitters=%d statuses=%d"),
+        *Reason,
+        *TopologyBulkSendState.SyncId,
+        TopologyBulkSendState.TotalItemCount,
+        TopologyBulkSendState.Targets.Num(),
+        TopologyBulkSendState.Actions.Num(),
+        TopologyBulkSendState.Emitters.Num(),
+        TopologyBulkSendState.TargetStatuses.Num());
+
+    PumpBulkTopologySend();
+}
+
+bool URshipSubsystem::TryBuildNextTopologyChunk(
+    FString& OutPayloadJson,
+    int32& OutChunkIndex,
+    int32& OutEventCount,
+    bool& bOutIsFinal)
+{
+    if (!TopologyBulkSendState.bActive)
+    {
+        return false;
+    }
+
+    const URshipSettings* Settings = GetDefault<URshipSettings>();
+    const int32 MaxChunkBytes = Settings ? FMath::Max(Settings->MaxTopologyChunkBytes, 64 * 1024) : 1024 * 1024;
+    const int32 WrapperOverheadBytes = 256;
+    int32 CurrentChunkBytes = WrapperOverheadBytes;
+    TArray<TSharedPtr<FJsonValue>> PayloadArray;
+
+    auto TryAppendEvent = [&](const TSharedPtr<FJsonValue>& EventValue) -> bool
+    {
+        if (!EventValue.IsValid())
+        {
+            return true;
+        }
+
+        const int32 EventBytes = EstimateJsonValueSize(EventValue);
+        if (PayloadArray.Num() > 0 && (CurrentChunkBytes + EventBytes + 1) > MaxChunkBytes)
+        {
+            return false;
+        }
+
+        PayloadArray.Add(EventValue);
+        CurrentChunkBytes += EventBytes + 1;
+        return true;
+    };
+
+    bool bChunkFull = false;
+
+    while (TopologyBulkSendState.NextTargetIndex < TopologyBulkSendState.OrderedTargetIds.Num())
+    {
+        const FString& ItemId = TopologyBulkSendState.OrderedTargetIds[TopologyBulkSendState.NextTargetIndex];
+        const FRshipPendingTopologyItem* PendingItem = TopologyBulkSendState.Targets.Find(ItemId);
+        if (!PendingItem || !PendingItem->Item.IsValid())
+        {
+            ++TopologyBulkSendState.NextTargetIndex;
+            continue;
+        }
+
+        if (!TryAppendEvent(MakeTopologyEventValue(TEXT("Target"), PendingItem->Item, MachineId)))
+        {
+            bChunkFull = true;
+            break;
+        }
+
+        ++TopologyBulkSendState.NextTargetIndex;
+    }
+
+    while (!bChunkFull && TopologyBulkSendState.NextActionIndex < TopologyBulkSendState.OrderedActionIds.Num())
+    {
+        const FString& ItemId = TopologyBulkSendState.OrderedActionIds[TopologyBulkSendState.NextActionIndex];
+        const TSharedPtr<FJsonObject>* PendingItem = TopologyBulkSendState.Actions.Find(ItemId);
+        if (!PendingItem || !PendingItem->IsValid())
+        {
+            ++TopologyBulkSendState.NextActionIndex;
+            continue;
+        }
+
+        if (!TryAppendEvent(MakeTopologyEventValue(TEXT("Action"), *PendingItem, MachineId)))
+        {
+            bChunkFull = true;
+            break;
+        }
+
+        ++TopologyBulkSendState.NextActionIndex;
+    }
+
+    while (!bChunkFull && TopologyBulkSendState.NextEmitterIndex < TopologyBulkSendState.OrderedEmitterIds.Num())
+    {
+        const FString& ItemId = TopologyBulkSendState.OrderedEmitterIds[TopologyBulkSendState.NextEmitterIndex];
+        const TSharedPtr<FJsonObject>* PendingItem = TopologyBulkSendState.Emitters.Find(ItemId);
+        if (!PendingItem || !PendingItem->IsValid())
+        {
+            ++TopologyBulkSendState.NextEmitterIndex;
+            continue;
+        }
+
+        if (!TryAppendEvent(MakeTopologyEventValue(TEXT("Emitter"), *PendingItem, MachineId)))
+        {
+            bChunkFull = true;
+            break;
+        }
+
+        ++TopologyBulkSendState.NextEmitterIndex;
+    }
+
+    while (!bChunkFull && TopologyBulkSendState.NextStatusIndex < TopologyBulkSendState.OrderedStatusIds.Num())
+    {
+        const FString& ItemId = TopologyBulkSendState.OrderedStatusIds[TopologyBulkSendState.NextStatusIndex];
+        const TSharedPtr<FJsonObject>* PendingItem = TopologyBulkSendState.TargetStatuses.Find(ItemId);
+        if (!PendingItem || !PendingItem->IsValid())
+        {
+            ++TopologyBulkSendState.NextStatusIndex;
+            continue;
+        }
+
+        if (!TryAppendEvent(MakeTopologyEventValue(TEXT("TargetStatus"), *PendingItem, MachineId)))
+        {
+            bChunkFull = true;
+            break;
+        }
+
+        ++TopologyBulkSendState.NextStatusIndex;
+    }
+
+    if (PayloadArray.Num() == 0)
+    {
+        return false;
+    }
+
+    OutChunkIndex = TopologyBulkSendState.NextChunkIndex++;
+    OutEventCount = PayloadArray.Num();
+    bOutIsFinal =
+        TopologyBulkSendState.NextTargetIndex >= TopologyBulkSendState.OrderedTargetIds.Num() &&
+        TopologyBulkSendState.NextActionIndex >= TopologyBulkSendState.OrderedActionIds.Num() &&
+        TopologyBulkSendState.NextEmitterIndex >= TopologyBulkSendState.OrderedEmitterIds.Num() &&
+        TopologyBulkSendState.NextStatusIndex >= TopologyBulkSendState.OrderedStatusIds.Num();
+
+    TSharedPtr<FJsonObject> Data = MakeShared<FJsonObject>();
+    Data->SetStringField(TEXT("syncId"), TopologyBulkSendState.SyncId);
+    Data->SetNumberField(TEXT("chunkIndex"), OutChunkIndex);
+    Data->SetBoolField(TEXT("isFinal"), bOutIsFinal);
+    Data->SetArrayField(TEXT("data"), PayloadArray);
+
+    TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+    Payload->SetStringField(TEXT("event"), RshipMykoEventNames::TopologyChunk);
+    Payload->SetObjectField(TEXT("data"), Data);
+
+    TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutPayloadJson);
+    return FJsonSerializer::Serialize(Payload.ToSharedRef(), Writer);
+}
+
+bool URshipSubsystem::TrySendPendingTopologyChunk()
+{
+    if (!TopologyBulkSendState.bActive || !TopologyBulkSendState.bUsingChunkProtocol || !IsConnected())
+    {
+        return false;
+    }
+
+    FString PayloadJson;
+    int32 ChunkIndex = INDEX_NONE;
+    int32 EventCount = 0;
+    bool bIsFinal = false;
+    if (!TryBuildNextTopologyChunk(PayloadJson, ChunkIndex, EventCount, bIsFinal))
+    {
+        return false;
+    }
+
+    if (!SendJsonDirect(PayloadJson))
+    {
+        return false;
+    }
+
+    const double Now = FPlatformTime::Seconds();
+    FRshipInflightTopologyChunk Chunk;
+    Chunk.ChunkIndex = ChunkIndex;
+    Chunk.PayloadJson = MoveTemp(PayloadJson);
+    Chunk.EventCount = EventCount;
+    Chunk.bIsFinal = bIsFinal;
+    Chunk.LastSentAtSeconds = Now;
+    TopologyBulkSendState.InflightChunks.Add(ChunkIndex, MoveTemp(Chunk));
+
+    if (TopologyBulkSendState.FirstChunkSentAtSeconds <= 0.0)
+    {
+        TopologyBulkSendState.FirstChunkSentAtSeconds = Now;
+    }
+
+    if (bIsFinal)
+    {
+        TopologyBulkSendState.bQueuedFinalChunk = true;
+    }
+
+    return true;
+}
+
+bool URshipSubsystem::TryResendInflightTopologyChunks()
+{
+    if (!TopologyBulkSendState.bActive ||
+        !TopologyBulkSendState.bUsingChunkProtocol ||
+        !IsConnected() ||
+        TopologyBulkSendState.InflightChunks.Num() == 0)
+    {
+        return false;
+    }
+
+    const URshipSettings* Settings = GetDefault<URshipSettings>();
+    const int32 MaxBufferedBytes = Settings ? FMath::Max(Settings->MaxTopologyBufferedBytes, 64 * 1024) : 8 * 1024 * 1024;
+    const double Now = FPlatformTime::Seconds();
+    constexpr double TopologyAckFallbackSeconds = 2.0;
+    constexpr double TopologyChunkRetrySeconds = 1.0;
+
+    if (!TopologyBulkSendState.bSawAck &&
+        TopologyBulkSendState.FirstChunkSentAtSeconds > 0.0 &&
+        (Now - TopologyBulkSendState.FirstChunkSentAtSeconds) >= TopologyAckFallbackSeconds)
+    {
+        CancelBulkTopologySend(TEXT("No topology ack received; falling back to legacy event batches"), true);
+        return true;
+    }
+
+    bool bSentAny = false;
+    for (TPair<int32, FRshipInflightTopologyChunk>& Pair : TopologyBulkSendState.InflightChunks)
+    {
+        if (GetWebSocketBufferedBytes() >= MaxBufferedBytes)
+        {
+            break;
+        }
+
+        if (Pair.Value.LastSentAtSeconds > 0.0 && (Now - Pair.Value.LastSentAtSeconds) < TopologyChunkRetrySeconds)
+        {
+            continue;
+        }
+
+        if (!SendJsonDirect(Pair.Value.PayloadJson))
+        {
+            break;
+        }
+
+        Pair.Value.LastSentAtSeconds = Now;
+        bSentAny = true;
+    }
+
+    return bSentAny;
+}
+
+void URshipSubsystem::PumpBulkTopologySend()
+{
+    if (!TopologyBulkSendState.bActive || !TopologyBulkSendState.bUsingChunkProtocol || !IsConnected())
+    {
+        return;
+    }
+
+    const URshipSettings* Settings = GetDefault<URshipSettings>();
+    const int32 MaxInflightChunks = Settings ? FMath::Max(Settings->MaxTopologyInflightChunks, 1) : 8;
+    const int32 MaxBufferedBytes = Settings ? FMath::Max(Settings->MaxTopologyBufferedBytes, 64 * 1024) : 8 * 1024 * 1024;
+
+    TryResendInflightTopologyChunks();
+    if (!TopologyBulkSendState.bActive)
+    {
+        return;
+    }
+
+    while (TopologyBulkSendState.InflightChunks.Num() < MaxInflightChunks &&
+           GetWebSocketBufferedBytes() < MaxBufferedBytes)
+    {
+        if (!TrySendPendingTopologyChunk())
+        {
+            break;
+        }
+    }
+
+    const bool bHasRemainingPayload =
+        TopologyBulkSendState.NextTargetIndex < TopologyBulkSendState.OrderedTargetIds.Num() ||
+        TopologyBulkSendState.NextActionIndex < TopologyBulkSendState.OrderedActionIds.Num() ||
+        TopologyBulkSendState.NextEmitterIndex < TopologyBulkSendState.OrderedEmitterIds.Num() ||
+        TopologyBulkSendState.NextStatusIndex < TopologyBulkSendState.OrderedStatusIds.Num();
+
+    if (!bHasRemainingPayload &&
+        TopologyBulkSendState.bQueuedFinalChunk &&
+        TopologyBulkSendState.InflightChunks.Num() == 0)
+    {
+        CompleteBulkTopologySend(TEXT("Bulk topology send complete"));
+    }
+}
+
+void URshipSubsystem::HandleTopologyAck(const TSharedPtr<FJsonObject>& DataObj)
+{
+    if (!TopologyBulkSendState.bActive || !TopologyBulkSendState.bUsingChunkProtocol || !DataObj.IsValid())
+    {
+        return;
+    }
+
+    FString SyncId;
+    int32 ChunkIndex = INDEX_NONE;
+    if (!DataObj->TryGetStringField(TEXT("syncId"), SyncId) ||
+        !DataObj->TryGetNumberField(TEXT("chunkIndex"), ChunkIndex) ||
+        SyncId != TopologyBulkSendState.SyncId)
+    {
+        return;
+    }
+
+    FRshipInflightTopologyChunk* Chunk = TopologyBulkSendState.InflightChunks.Find(ChunkIndex);
+    if (!Chunk)
+    {
+        return;
+    }
+
+    const bool bWasFinalChunk = Chunk->bIsFinal;
+    if (Chunk->LastSentAtSeconds > 0.0)
+    {
+        LastTopologyAckLagSeconds = FMath::Max(0.0, FPlatformTime::Seconds() - Chunk->LastSentAtSeconds);
+    }
+
+    TopologyBulkSendState.bSawAck = true;
+    TopologyBulkSendState.LastAckAtSeconds = FPlatformTime::Seconds();
+    TopologyBulkSendState.InflightChunks.Remove(ChunkIndex);
+
+    const bool bHasRemainingPayload =
+        TopologyBulkSendState.NextTargetIndex < TopologyBulkSendState.OrderedTargetIds.Num() ||
+        TopologyBulkSendState.NextActionIndex < TopologyBulkSendState.OrderedActionIds.Num() ||
+        TopologyBulkSendState.NextEmitterIndex < TopologyBulkSendState.OrderedEmitterIds.Num() ||
+        TopologyBulkSendState.NextStatusIndex < TopologyBulkSendState.OrderedStatusIds.Num();
+
+    if (bWasFinalChunk && !bHasRemainingPayload && TopologyBulkSendState.InflightChunks.Num() == 0)
+    {
+        CompleteBulkTopologySend(TEXT("Bulk topology send complete"));
+        return;
+    }
+
+    PumpBulkTopologySend();
+}
+
+void URshipSubsystem::CancelBulkTopologySend(const FString& Detail, bool bFallbackToLegacyReplay)
+{
+    FRshipTopologyBulkSendState CanceledState = MoveTemp(TopologyBulkSendState);
+    TopologyBulkSendState = FRshipTopologyBulkSendState();
+
+    if (bFallbackToLegacyReplay)
+    {
+        TArray<FString> OrderedTargetIds = CanceledState.OrderedTargetIds;
+        TArray<FString> OrderedActionIds = CanceledState.OrderedActionIds;
+        TArray<FString> OrderedEmitterIds = CanceledState.OrderedEmitterIds;
+        TArray<FString> OrderedStatusIds = CanceledState.OrderedStatusIds;
+        if (OrderedTargetIds.Num() == 0)
+        {
+            SortTopologyTargetIds(CanceledState.Targets, OrderedTargetIds);
+        }
+        if (OrderedActionIds.Num() == 0)
+        {
+            SortTopologyIds(CanceledState.Actions, OrderedActionIds);
+        }
+        if (OrderedEmitterIds.Num() == 0)
+        {
+            SortTopologyIds(CanceledState.Emitters, OrderedEmitterIds);
+        }
+        if (OrderedStatusIds.Num() == 0)
+        {
+            SortTopologyIds(CanceledState.TargetStatuses, OrderedStatusIds);
+        }
+
+        TArray<TSharedPtr<FJsonValue>> PayloadArray;
+        PayloadArray.Reserve(CanceledState.TotalItemCount);
+
+        for (const FString& ItemId : OrderedTargetIds)
+        {
+            const FRshipPendingTopologyItem* PendingItem = CanceledState.Targets.Find(ItemId);
+            if (PendingItem)
+            {
+                if (TSharedPtr<FJsonValue> EventValue = MakeTopologyEventValue(TEXT("Target"), PendingItem->Item, MachineId))
+                {
+                    PayloadArray.Add(EventValue);
+                }
+            }
+        }
+
+        for (const FString& ItemId : OrderedActionIds)
+        {
+            if (const TSharedPtr<FJsonObject>* Item = CanceledState.Actions.Find(ItemId))
+            {
+                if (TSharedPtr<FJsonValue> EventValue = MakeTopologyEventValue(TEXT("Action"), *Item, MachineId))
+                {
+                    PayloadArray.Add(EventValue);
+                }
+            }
+        }
+
+        for (const FString& ItemId : OrderedEmitterIds)
+        {
+            if (const TSharedPtr<FJsonObject>* Item = CanceledState.Emitters.Find(ItemId))
+            {
+                if (TSharedPtr<FJsonValue> EventValue = MakeTopologyEventValue(TEXT("Emitter"), *Item, MachineId))
+                {
+                    PayloadArray.Add(EventValue);
+                }
+            }
+        }
+
+        for (const FString& ItemId : OrderedStatusIds)
+        {
+            if (const TSharedPtr<FJsonObject>* Item = CanceledState.TargetStatuses.Find(ItemId))
+            {
+                if (TSharedPtr<FJsonValue> EventValue = MakeTopologyEventValue(TEXT("TargetStatus"), *Item, MachineId))
+                {
+                    PayloadArray.Add(EventValue);
+                }
+            }
+        }
+
+        for (const TSharedPtr<FJsonObject>& BatchWrapper : BuildChunkedEventBatches(PayloadArray))
+        {
+            QueueMessage(BatchWrapper, ERshipMessagePriority::High, ERshipMessageType::Registration, TEXT(""));
+        }
+
+        ProcessMessageQueue();
+
+        if (CanceledState.bTopologySyncReplay)
+        {
+            FinalizeTopologySyncSuccess(Detail);
+        }
+    }
+    else if (CanceledState.bTopologySyncReplay)
+    {
+        FailTopologySync(Detail);
+        return;
+    }
+
+    if (!DeferredBulkTopologySnapshot.IsEmpty())
+    {
+        FRshipPendingTopologySnapshot Deferred = MoveTemp(DeferredBulkTopologySnapshot);
+        DeferredBulkTopologySnapshot = FRshipPendingTopologySnapshot();
+
+        if (ShouldUseTopologyChunkProtocol(Deferred.Num(), false))
+        {
+            StartBulkTopologySend(MoveTemp(Deferred), TEXT("DeferredRegistration"), false, false);
+        }
+        else
+        {
+            MergeTopologySnapshot(PendingRegistrationSnapshot, MoveTemp(Deferred));
+            FlushPendingRegistrationBatch();
+        }
+    }
+}
+
+void URshipSubsystem::CompleteBulkTopologySend(const FString& Detail)
+{
+    const bool bWasTopologySyncReplay = TopologyBulkSendState.bTopologySyncReplay;
+    const FString CompletedReason = TopologyBulkSendState.Reason;
+    TopologyBulkSendState = FRshipTopologyBulkSendState();
+
+    UE_LOG(LogRshipExec, Log, TEXT("Bulk topology send complete: reason=%s detail=%s"), *CompletedReason, *Detail);
+
+    if (bWasTopologySyncReplay)
+    {
+        FinalizeTopologySyncSuccess(Detail);
+    }
+
+    if (!DeferredBulkTopologySnapshot.IsEmpty())
+    {
+        FRshipPendingTopologySnapshot Deferred = MoveTemp(DeferredBulkTopologySnapshot);
+        DeferredBulkTopologySnapshot = FRshipPendingTopologySnapshot();
+
+        if (ShouldUseTopologyChunkProtocol(Deferred.Num(), false))
+        {
+            StartBulkTopologySend(MoveTemp(Deferred), TEXT("DeferredRegistration"), false, false);
+        }
+        else
+        {
+            MergeTopologySnapshot(PendingRegistrationSnapshot, MoveTemp(Deferred));
+            FlushPendingRegistrationBatch();
+        }
+    }
+}
+
+void URshipSubsystem::FinalizeTopologySyncSuccess(const FString& Detail)
+{
+    const FString CurrentReason = TopologySyncState.bInFlight ? TopologySyncState.Reason : TopologySyncSnapshot.Reason;
+    const FString QueuedReason = TopologySyncState.PendingReason;
+
+    TopologySyncSnapshot.bInFlight = false;
+    TopologySyncSnapshot.bLastSyncSucceeded = true;
+    TopologySyncSnapshot.Reason = CurrentReason;
+    TopologySyncSnapshot.Detail = Detail;
+    TopologySyncSnapshot.CompletedAtSeconds = FPlatformTime::Seconds();
+    TopologySyncState = FRshipTopologySyncState();
+
+    UE_LOG(LogRshipExec, Log, TEXT("Topology sync complete: reason=%s detail=%s"), *CurrentReason, *Detail);
+
+    if (!QueuedReason.IsEmpty())
+    {
+        StartTopologySync(QueuedReason);
+    }
 }
 
 void URshipSubsystem::ProcessMessage(const FString &message)
@@ -2255,6 +2861,15 @@ void URshipSubsystem::ProcessMessage(const FString &message)
         }
         return;
     }
+    else if (type == RshipMykoEventNames::TopologyAck)
+    {
+        const TSharedPtr<FJsonObject>* DataPtr = nullptr;
+        if (obj->TryGetObjectField(TEXT("data"), DataPtr) && DataPtr && DataPtr->IsValid())
+        {
+            HandleTopologyAck(*DataPtr);
+        }
+        return;
+    }
     auto ProcessEntityEvent = [this](const TSharedPtr<FJsonObject>& data) -> void
     {
         if (!data.IsValid())
@@ -2555,8 +3170,179 @@ void URshipSubsystem::ReinitializeAfterHotReload()
     UE_LOG(LogRshipExec, Log, TEXT("ReinitializeAfterHotReload complete"));
 }
 
+void URshipSubsystem::BeginTopologyBuild()
+{
+    ++TopologyBuildDepth;
+}
+
+void URshipSubsystem::EndTopologyBuild()
+{
+    if (TopologyBuildDepth <= 0)
+    {
+        TopologyBuildDepth = 0;
+        return;
+    }
+
+    --TopologyBuildDepth;
+    if (TopologyBuildDepth > 0)
+    {
+        return;
+    }
+
+    FlushPendingManagedTopologySnapshots();
+
+    if (RegistrationBatchDepth == 0)
+    {
+        FlushPendingRegistrationBatch();
+    }
+}
+
+void URshipSubsystem::EnqueueTopologySnapshot(Target* ManagedTarget)
+{
+    if (!ManagedTarget)
+    {
+        return;
+    }
+
+    PendingManagedTopologyTargets.Add(ManagedTarget);
+}
+
+void URshipSubsystem::EnqueueTopologyItem(const FString& ItemType, const FString& ItemId, const TSharedPtr<FJsonObject>& Item, int32 ParentDepth)
+{
+    if (ItemId.IsEmpty() || !Item.IsValid())
+    {
+        return;
+    }
+
+    if (ItemType == TEXT("Target"))
+    {
+        FRshipPendingTopologyItem& PendingItem = PendingRegistrationSnapshot.Targets.FindOrAdd(ItemId);
+        PendingItem.Item = Item;
+        PendingItem.ParentDepth = ParentDepth;
+    }
+    else if (ItemType == TEXT("Action"))
+    {
+        PendingRegistrationSnapshot.Actions.Add(ItemId, Item);
+    }
+    else if (ItemType == TEXT("Emitter"))
+    {
+        PendingRegistrationSnapshot.Emitters.Add(ItemId, Item);
+    }
+    else if (ItemType == TEXT("TargetStatus"))
+    {
+        PendingRegistrationSnapshot.TargetStatuses.Add(ItemId, Item);
+    }
+}
+
+void URshipSubsystem::FlushPendingManagedTopologySnapshots()
+{
+    if (PendingManagedTopologyTargets.Num() == 0)
+    {
+        return;
+    }
+
+    TArray<Target*> DirtyTargets;
+    DirtyTargets.Reserve(PendingManagedTopologyTargets.Num());
+    for (Target* ManagedTarget : PendingManagedTopologyTargets)
+    {
+        if (ManagedTarget && ManagedTargetSnapshots.Contains(ManagedTarget))
+        {
+            DirtyTargets.Add(ManagedTarget);
+        }
+    }
+    PendingManagedTopologyTargets.Reset();
+
+    if (DirtyTargets.Num() == 0)
+    {
+        return;
+    }
+
+    const bool bWasBatching = RegistrationBatchDepth > 0;
+    if (!bWasBatching)
+    {
+        BeginRegistrationBatch();
+    }
+
+    for (Target* ManagedTarget : DirtyTargets)
+    {
+        SendTarget(ManagedTarget);
+    }
+
+    if (!bWasBatching)
+    {
+        EndRegistrationBatch();
+    }
+}
+
+void URshipSubsystem::MergeTopologySnapshot(FRshipPendingTopologySnapshot& Dest, FRshipPendingTopologySnapshot&& Src)
+{
+    for (TPair<FString, FRshipPendingTopologyItem>& Pair : Src.Targets)
+    {
+        Dest.Targets.Add(Pair.Key, MoveTemp(Pair.Value));
+    }
+
+    for (TPair<FString, TSharedPtr<FJsonObject>>& Pair : Src.Actions)
+    {
+        Dest.Actions.Add(Pair.Key, MoveTemp(Pair.Value));
+    }
+
+    for (TPair<FString, TSharedPtr<FJsonObject>>& Pair : Src.Emitters)
+    {
+        Dest.Emitters.Add(Pair.Key, MoveTemp(Pair.Value));
+    }
+
+    for (TPair<FString, TSharedPtr<FJsonObject>>& Pair : Src.TargetStatuses)
+    {
+        Dest.TargetStatuses.Add(Pair.Key, MoveTemp(Pair.Value));
+    }
+}
+
+int32 URshipSubsystem::GetPendingTopologyEventCountForBulkSend() const
+{
+    if (!TopologyBulkSendState.bActive)
+    {
+        return 0;
+    }
+
+    int32 Remaining = 0;
+    Remaining += FMath::Max(0, TopologyBulkSendState.OrderedTargetIds.Num() - TopologyBulkSendState.NextTargetIndex);
+    Remaining += FMath::Max(0, TopologyBulkSendState.OrderedActionIds.Num() - TopologyBulkSendState.NextActionIndex);
+    Remaining += FMath::Max(0, TopologyBulkSendState.OrderedEmitterIds.Num() - TopologyBulkSendState.NextEmitterIndex);
+    Remaining += FMath::Max(0, TopologyBulkSendState.OrderedStatusIds.Num() - TopologyBulkSendState.NextStatusIndex);
+
+    for (const TPair<int32, FRshipInflightTopologyChunk>& Pair : TopologyBulkSendState.InflightChunks)
+    {
+        Remaining += Pair.Value.EventCount;
+    }
+
+    return Remaining;
+}
+
+int32 URshipSubsystem::GetPendingTopologyItemCount() const
+{
+    return PendingRegistrationSnapshot.Num() + DeferredBulkTopologySnapshot.Num() + GetPendingTopologyEventCountForBulkSend();
+}
+
+bool URshipSubsystem::ShouldUseTopologyChunkProtocol(int32 PendingItemCount, bool bForceProtocol) const
+{
+    const URshipSettings* Settings = GetDefault<URshipSettings>();
+    const bool bChunkProtocolEnabled = Settings ? Settings->bEnableTopologyChunkProtocol : false;
+    if (!bChunkProtocolEnabled)
+    {
+        return false;
+    }
+
+    const int32 Threshold = Settings ? FMath::Max(Settings->BulkTopologyThresholdItems, 1) : 1000;
+    return bForceProtocol || PendingItemCount >= Threshold;
+}
+
 void URshipSubsystem::SendTarget(Target *target)
 {
+    if (!target)
+    {
+        return;
+    }
+
     UE_LOG(LogRshipExec, Verbose, TEXT("SendTarget: %s - %d actions, %d emitters"),
         *target->GetId(),
         target->GetActions().Num(),
@@ -2564,8 +3350,6 @@ void URshipSubsystem::SendTarget(Target *target)
 
     TArray<FString> EmitterIds;
     TArray<FString> ActionIds;
-    TArray<TSharedPtr<FJsonObject>> BatchEvents;
-    BatchEvents.Reserve(target->GetActions().Num() + target->GetEmitters().Num() + 2);
 
     for (auto &Elem : target->GetActions())
     {
@@ -2579,8 +3363,7 @@ void URshipSubsystem::SendTarget(Target *target)
         Record.ServiceId = ServiceId;
         Record.Schema = Elem.Value.GetSchema();
         Record.Hash = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower);
-
-        BatchEvents.Add(FRshipMykoTransport::MakeSet("Action", FRshipEntitySerializer::ToJson(Record), MachineId));
+        EnqueueTopologyItem(TEXT("Action"), Record.Id, FRshipEntitySerializer::ToJson(Record));
     }
 
     for (auto &Elem : target->GetEmitters())
@@ -2595,8 +3378,7 @@ void URshipSubsystem::SendTarget(Target *target)
         Record.ServiceId = ServiceId;
         Record.Schema = Elem.Value.GetSchema();
         Record.Hash = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower);
-
-        BatchEvents.Add(FRshipMykoTransport::MakeSet("Emitter", FRshipEntitySerializer::ToJson(Record), MachineId));
+        EnqueueTopologyItem(TEXT("Emitter"), Record.Id, FRshipEntitySerializer::ToJson(Record));
     }
 
     ActionIds.Sort();
@@ -2630,9 +3412,7 @@ void URshipSubsystem::SendTarget(Target *target)
     }
 
     TSharedPtr<FJsonObject> TargetJson = FRshipEntitySerializer::ToJson(TargetRecord);
-
-    // Target registration - batched with actions/emitters/status
-    BatchEvents.Add(FRshipMykoTransport::MakeSet("Target", TargetJson, MachineId));
+    EnqueueTopologyItem(TEXT("Target"), TargetRecord.Id, TargetJson, TargetRecord.ParentTargetIds.Num());
 
     FRshipTargetStatusRecord TargetStatusRecord;
     TargetStatusRecord.TargetId = target->GetId();
@@ -2640,15 +3420,11 @@ void URshipSubsystem::SendTarget(Target *target)
     TargetStatusRecord.Status = TEXT("online");
     TargetStatusRecord.Id = target->GetId();
     TargetStatusRecord.Hash = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower);
-    BatchEvents.Add(FRshipMykoTransport::MakeSet("TargetStatus", FRshipEntitySerializer::ToJson(TargetStatusRecord), MachineId));
+    EnqueueTopologyItem(TEXT("TargetStatus"), TargetStatusRecord.Id, FRshipEntitySerializer::ToJson(TargetStatusRecord));
 
-    if (RegistrationBatchDepth > 0)
+    if (TopologyBuildDepth == 0 && RegistrationBatchDepth == 0)
     {
-        PendingRegistrationEvents.Append(BatchEvents);
-    }
-    else
-    {
-        QueueEventBatch(BatchEvents, ERshipMessagePriority::High, ERshipMessageType::Registration, target->GetId());
+        FlushPendingRegistrationBatch();
     }
 }
 
@@ -2686,9 +3462,11 @@ void URshipSubsystem::SendAction(const FRshipActionProxy& action, FString target
     Record.ServiceId = ServiceId;
     Record.Schema = action.GetSchema();
     Record.Hash = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower);
-
-    // Action registration - HIGH priority, coalesce by action ID
-    SetItem("Action", FRshipEntitySerializer::ToJson(Record), ERshipMessagePriority::High, action.Id);
+    EnqueueTopologyItem(TEXT("Action"), Record.Id, FRshipEntitySerializer::ToJson(Record));
+    if (TopologyBuildDepth == 0 && RegistrationBatchDepth == 0)
+    {
+        FlushPendingRegistrationBatch();
+    }
 }
 
 void URshipSubsystem::SendEmitter(const FRshipEmitterProxy& emitter, FString targetId)
@@ -2702,9 +3480,11 @@ void URshipSubsystem::SendEmitter(const FRshipEmitterProxy& emitter, FString tar
     Record.ServiceId = ServiceId;
     Record.Schema = emitter.GetSchema();
     Record.Hash = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower);
-
-    // Emitter registration - HIGH priority, coalesce by emitter ID
-    SetItem("Emitter", FRshipEntitySerializer::ToJson(Record), ERshipMessagePriority::High, emitter.Id);
+    EnqueueTopologyItem(TEXT("Emitter"), Record.Id, FRshipEntitySerializer::ToJson(Record));
+    if (TopologyBuildDepth == 0 && RegistrationBatchDepth == 0)
+    {
+        FlushPendingRegistrationBatch();
+    }
 }
 
 void URshipSubsystem::QueueEventBatch(const TArray<TSharedPtr<FJsonObject>>& Events,
@@ -2756,110 +3536,91 @@ void URshipSubsystem::BeginRegistrationBatch()
 
 void URshipSubsystem::FlushPendingRegistrationBatch()
 {
-    if (RegistrationBatchDepth > 0 || PendingRegistrationEvents.Num() == 0)
+    FlushPendingManagedTopologySnapshots();
+
+    if (RegistrationBatchDepth > 0 || PendingRegistrationSnapshot.IsEmpty())
     {
         return;
     }
 
-    struct FTargetEvent
+    FRshipPendingTopologySnapshot Snapshot = MoveTemp(PendingRegistrationSnapshot);
+    PendingRegistrationSnapshot = FRshipPendingTopologySnapshot();
+
+    if (TopologyBulkSendState.bActive)
     {
-        int32 Depth = 0;
-        TSharedPtr<FJsonObject> Data;
-    };
-
-    TArray<FTargetEvent> TargetEvents;
-    TArray<TSharedPtr<FJsonObject>> ActionEvents;
-    TArray<TSharedPtr<FJsonObject>> EmitterEvents;
-    TArray<TSharedPtr<FJsonObject>> StatusEvents;
-    TArray<TSharedPtr<FJsonObject>> OtherEvents;
-
-    TargetEvents.Reserve(PendingRegistrationEvents.Num());
-
-    for (const TSharedPtr<FJsonObject>& Envelope : PendingRegistrationEvents)
-    {
-        if (!Envelope.IsValid())
-        {
-            continue;
-        }
-
-        TSharedPtr<FJsonObject> EventData;
-        if (!FRshipMykoTransport::TryGetMykoEventData(Envelope, EventData))
-        {
-            continue;
-        }
-
-        FString ItemType;
-        if (!EventData->TryGetStringField(TEXT("itemType"), ItemType))
-        {
-            OtherEvents.Add(EventData);
-            continue;
-        }
-
-        if (ItemType == TEXT("Target"))
-        {
-            int32 Depth = 0;
-            const TSharedPtr<FJsonObject>* ItemPtr = nullptr;
-            if (EventData->TryGetObjectField(TEXT("item"), ItemPtr) && ItemPtr && ItemPtr->IsValid())
-            {
-                const TArray<TSharedPtr<FJsonValue>>* ParentIds = nullptr;
-                if ((*ItemPtr)->TryGetArrayField(TEXT("parentTargetIds"), ParentIds) && ParentIds)
-                {
-                    Depth = ParentIds->Num();
-                }
-            }
-            TargetEvents.Add({ Depth, EventData });
-        }
-        else if (ItemType == TEXT("Action"))
-        {
-            ActionEvents.Add(EventData);
-        }
-        else if (ItemType == TEXT("Emitter"))
-        {
-            EmitterEvents.Add(EventData);
-        }
-        else if (ItemType == TEXT("TargetStatus"))
-        {
-            StatusEvents.Add(EventData);
-        }
-        else
-        {
-            OtherEvents.Add(EventData);
-        }
+        MergeTopologySnapshot(DeferredBulkTopologySnapshot, MoveTemp(Snapshot));
+        return;
     }
 
-    Algo::StableSort(TargetEvents, [](const FTargetEvent& A, const FTargetEvent& B)
+    const bool bForceBulk = TopologySyncState.bInFlight;
+    if (ShouldUseTopologyChunkProtocol(Snapshot.Num(), bForceBulk))
     {
-        return A.Depth < B.Depth;
-    });
+        StartBulkTopologySend(
+            MoveTemp(Snapshot),
+            bForceBulk ? TopologySyncState.Reason : TEXT("RegistrationBatch"),
+            bForceBulk,
+            bForceBulk);
+        return;
+    }
 
     TArray<TSharedPtr<FJsonValue>> PayloadArray;
-    PayloadArray.Reserve(TargetEvents.Num() + ActionEvents.Num() + EmitterEvents.Num() + StatusEvents.Num() + OtherEvents.Num());
+    PayloadArray.Reserve(Snapshot.Num());
 
-    for (const FTargetEvent& Event : TargetEvents)
+    TArray<FString> OrderedTargetIds;
+    TArray<FString> OrderedActionIds;
+    TArray<FString> OrderedEmitterIds;
+    TArray<FString> OrderedStatusIds;
+    SortTopologyTargetIds(Snapshot.Targets, OrderedTargetIds);
+    SortTopologyIds(Snapshot.Actions, OrderedActionIds);
+    SortTopologyIds(Snapshot.Emitters, OrderedEmitterIds);
+    SortTopologyIds(Snapshot.TargetStatuses, OrderedStatusIds);
+
+    for (const FString& ItemId : OrderedTargetIds)
     {
-        if (Event.Data.IsValid())
+        const FRshipPendingTopologyItem* PendingItem = Snapshot.Targets.Find(ItemId);
+        if (!PendingItem)
         {
-            PayloadArray.Add(MakeShareable(new FJsonValueObject(Event.Data)));
+            continue;
+        }
+
+        if (TSharedPtr<FJsonValue> EventValue = MakeTopologyEventValue(TEXT("Target"), PendingItem->Item, MachineId))
+        {
+            PayloadArray.Add(EventValue);
         }
     }
-    for (const TSharedPtr<FJsonObject>& Event : ActionEvents)
+
+    for (const FString& ItemId : OrderedActionIds)
     {
-        PayloadArray.Add(MakeShareable(new FJsonValueObject(Event)));
-    }
-    for (const TSharedPtr<FJsonObject>& Event : EmitterEvents)
-    {
-        PayloadArray.Add(MakeShareable(new FJsonValueObject(Event)));
-    }
-    for (const TSharedPtr<FJsonObject>& Event : StatusEvents)
-    {
-        PayloadArray.Add(MakeShareable(new FJsonValueObject(Event)));
-    }
-    for (const TSharedPtr<FJsonObject>& Event : OtherEvents)
-    {
-        PayloadArray.Add(MakeShareable(new FJsonValueObject(Event)));
+        if (const TSharedPtr<FJsonObject>* Item = Snapshot.Actions.Find(ItemId))
+        {
+            if (TSharedPtr<FJsonValue> EventValue = MakeTopologyEventValue(TEXT("Action"), *Item, MachineId))
+            {
+                PayloadArray.Add(EventValue);
+            }
+        }
     }
 
-    PendingRegistrationEvents.Reset();
+    for (const FString& ItemId : OrderedEmitterIds)
+    {
+        if (const TSharedPtr<FJsonObject>* Item = Snapshot.Emitters.Find(ItemId))
+        {
+            if (TSharedPtr<FJsonValue> EventValue = MakeTopologyEventValue(TEXT("Emitter"), *Item, MachineId))
+            {
+                PayloadArray.Add(EventValue);
+            }
+        }
+    }
+
+    for (const FString& ItemId : OrderedStatusIds)
+    {
+        if (const TSharedPtr<FJsonObject>* Item = Snapshot.TargetStatuses.Find(ItemId))
+        {
+            if (TSharedPtr<FJsonValue> EventValue = MakeTopologyEventValue(TEXT("TargetStatus"), *Item, MachineId))
+            {
+                PayloadArray.Add(EventValue);
+            }
+        }
+    }
 
     if (PayloadArray.Num() == 0)
     {
@@ -2894,8 +3655,12 @@ void URshipSubsystem::SendTargetStatus(Target *target, bool online)
     Record.Status = online ? TEXT("online") : TEXT("offline");
     Record.Id = target->GetId();
     Record.Hash = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower);
+    EnqueueTopologyItem(TEXT("TargetStatus"), Record.Id, FRshipEntitySerializer::ToJson(Record));
 
-    SetItem("TargetStatus", FRshipEntitySerializer::ToJson(Record), ERshipMessagePriority::High, target->GetId() + TEXT(":status"));
+    if (TopologyBuildDepth == 0 && RegistrationBatchDepth == 0)
+    {
+        FlushPendingRegistrationBatch();
+    }
 
     UE_LOG(LogRshipExec, Verbose, TEXT("Sent target status: %s = %s"), *target->GetId(), online ? TEXT("online") : TEXT("offline"));
 }
@@ -3478,8 +4243,15 @@ void URshipSubsystem::RegisterManagedTarget(Target* ManagedTarget)
         bHasCurrentRef ? TEXT("false") : TEXT("true"),
         RemovedStaleKeyRefs);
 
-    // Always publish this registration so every proxy refreshes metadata/action bindings.
-    SendTarget(ManagedTarget);
+    EnqueueTopologySnapshot(ManagedTarget);
+    if (TopologyBuildDepth == 0)
+    {
+        FlushPendingManagedTopologySnapshots();
+        if (RegistrationBatchDepth == 0)
+        {
+            FlushPendingRegistrationBatch();
+        }
+    }
 }
 
 void URshipSubsystem::UnregisterManagedTarget(Target* ManagedTarget)
@@ -3499,6 +4271,7 @@ void URshipSubsystem::UnregisterManagedTarget(Target* ManagedTarget)
     }
 
     int32 RemovedTargetRefs = 0;
+    PendingManagedTopologyTargets.Remove(ManagedTarget);
     for (auto It = RegisteredTargetsById.CreateIterator(); It; ++It)
     {
         if (It.Value() == ManagedTarget)
@@ -3600,8 +4373,15 @@ void URshipSubsystem::OnManagedTargetChanged(Target* ManagedTarget)
 
     if (bBindingsChanged || bIdentityChanged)
     {
-        // Republish full target + action/emitter definitions so metadata stays consistent server-side.
-        SendTarget(ManagedTarget);
+        EnqueueTopologySnapshot(ManagedTarget);
+        if (TopologyBuildDepth == 0)
+        {
+            FlushPendingManagedTopologySnapshots();
+            if (RegistrationBatchDepth == 0)
+            {
+                FlushPendingRegistrationBatch();
+            }
+        }
     }
 
     *ExistingSnapshot = BuildManagedTargetSnapshot(ManagedTarget);
@@ -4120,6 +4900,13 @@ FString URshipSubsystem::GetTopologySyncReason() const
 
 FString URshipSubsystem::GetTopologySyncDetail() const
 {
+    if (TopologyBulkSendState.bActive)
+    {
+        return FString::Printf(TEXT("Awaiting topology chunk ack(s): inflight=%d pending=%d"),
+            TopologyBulkSendState.InflightChunks.Num(),
+            GetPendingTopologyEventCountForBulkSend());
+    }
+
     if (TopologySyncState.bInFlight)
     {
         return FString::Printf(TEXT("Waiting for %d query response(s)"), TopologySyncState.PendingQueries.Num());
@@ -4221,6 +5008,26 @@ float URshipSubsystem::GetQueuePressure() const
     const URshipSettings* Settings = GetDefault<URshipSettings>();
     const int32 MaxQueueLength = Settings ? FMath::Max(Settings->MaxQueueLength, 1) : 1;
     return static_cast<float>(PendingOutboundMessages.Num()) / static_cast<float>(MaxQueueLength);
+}
+
+int32 URshipSubsystem::GetTopologyQueueDepth() const
+{
+    return GetPendingTopologyItemCount();
+}
+
+int32 URshipSubsystem::GetTopologyInflightChunkCount() const
+{
+    return TopologyBulkSendState.InflightChunks.Num();
+}
+
+float URshipSubsystem::GetTopologyAckLagSeconds() const
+{
+    return static_cast<float>(LastTopologyAckLagSeconds);
+}
+
+int32 URshipSubsystem::GetWebSocketBufferedBytes() const
+{
+    return WebSocket.IsValid() ? WebSocket->GetPendingSendBytes() : 0;
 }
 
 int32 URshipSubsystem::GetMessagesSentPerSecond() const
